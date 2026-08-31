@@ -1892,3 +1892,35 @@ tr:hover td { background: var(--surface-2); }
 .site-row-offline td:first-child {
     padding-left: 13px;
 }
+
+/* ---- Mobile top bar fix ---- */
+@media (max-width: 760px) {
+    .global-topbar {
+        width: 100%;
+        max-width: 100%;
+        box-sizing: border-box;
+        padding: 10px 14px;
+        gap: 10px;
+        overflow: hidden;
+    }
+
+    .global-topbar-brand {
+        min-width: 0;
+        flex-shrink: 1;
+    }
+
+    .global-topbar-name {
+        white-space: nowrap;
+        font-size: 14px;
+    }
+
+    .topbar-search {
+        width: 160px;
+        min-width: 0;
+        flex-shrink: 1;
+    }
+
+    .topbar-actions {
+        flex-shrink: 0;
+    }
+}
