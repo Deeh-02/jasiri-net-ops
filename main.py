@@ -12,7 +12,9 @@ from fastapi.responses import FileResponse
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # --- Auth config (local dev only — moves to env variables when we deploy for real) ---
-SECRET_KEY = "temporary-dev-secret-change-this-before-deploy"
+import os
+
+SECRET_KEY = os.environ.get("SECRET_KEY", "temporary-dev-secret-change-this-before-deploy")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 hours
 
