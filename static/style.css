@@ -204,7 +204,13 @@ body {
 
 .content {
     flex: 1;
+    min-width: 0;        /* ← add this */
     padding: 32px 40px 60px;
+}
+
+.table-scroll {
+    width: 100%;
+    overflow-x: auto;
 }
 
 .content h2 {
