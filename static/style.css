@@ -1892,3 +1892,107 @@ tr:hover td { background: var(--surface-2); }
 .site-row-offline td:first-child {
     padding-left: 13px;
 }
+
+/* ================= MOBILE (≤760px) ================= */
+@media (max-width: 760px) {
+
+  /* Stack sidebar above content instead of side-by-side,
+     or turn it into a slide-in drawer if you add a toggle */
+  .layout {
+    flex-direction: column;
+  }
+
+  .sidebar {
+    width: 100%;
+    height: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    padding: 16px;
+  }
+
+  /* If you'd rather have an off-canvas drawer instead of stacking,
+     use this version instead of the two rules above: */
+  /*
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 100vh;
+    z-index: 150;
+    transform: translateX(-100%);
+    transition: transform 0.25s ease;
+  }
+  .layout.sidebar-open .sidebar {
+    transform: translateX(0);
+  }
+  */
+
+  .content {
+    padding: 20px 16px 40px;
+  }
+
+  .page-header-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  /* Single-column stat cards on narrow phones */
+  .stat-grid {
+    grid-template-columns: 1fr;
+  }
+
+  /* Tables: let them scroll horizontally instead of squashing.
+     Wrap your <table> in a <div class="table-scroll"> in the HTML. */
+  .table-scroll {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  table {
+    min-width: 560px; /* keeps columns readable, scrolls instead of crushing */
+  }
+
+  .logs-table {
+    min-width: 480px;
+  }
+
+  /* Modals go near-fullscreen on phones */
+  .modal-box,
+  .modal-box-lg {
+    width: 94vw;
+    padding: 18px;
+  }
+
+  #perm-grid {
+    grid-template-columns: 1fr;
+  }
+
+  /* Global topbar: drop the search box text + tighten spacing */
+  .global-topbar {
+    padding: 10px 14px;
+    gap: 12px;
+  }
+
+  .topbar-search {
+    width: auto;
+    padding: 9px 10px;
+  }
+
+  .topbar-avatar-menu {
+    right: 0;
+    min-width: 200px;
+  }
+
+  .login-box {
+    padding: 32px 20px;
+  }
+
+  .settings-panel {
+    max-width: 100%;
+  }
+
+  .form-row-2 {
+    flex-direction: column;
+    gap: 10px;
+  }
+}
