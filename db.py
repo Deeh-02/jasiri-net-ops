@@ -804,3 +804,24 @@ def get_unconfirmed_site_count():
         return 0
     sites = get_sites_with_verification_status()
     return sum(1 for s in sites if s["needs_check"])
+
+def verify_user_password(email, plain_password):
+    """Look up a user by email and check their password.
+    Returns the full user record on match, None otherwise."""
+    user = get_user_by_email(email)
+    if user is None:
+        return None
+    if not verify_password(plain_password, user["password_hash"]):
+        return None
+    return user
+
+def update_user_password(user_id, new_password):
+    conn = get_connection()
+    cur = conn.cursor()
+    new_hash = hash_password(new_password)
+    cur.execute("UPDATE users SET password_hash = %s WHERE id = %s;", (new_hash, user_id))
+    updated = cur.rowcount > 0
+    conn.commit()
+    cur.close()
+    conn.close()
+    return updated

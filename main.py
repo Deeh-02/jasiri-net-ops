@@ -29,10 +29,8 @@ class LoginRequest(BaseModel):
 
 @app.post("/login")
 def login(credentials: LoginRequest):
-    user = db.get_user_by_email(credentials.email)
+    user = db.verify_user_password(credentials.email, credentials.password)
     if not user or user["status"] != "active":
-        raise HTTPException(status_code=401, detail="Invalid email or password")
-    if not db.verify_password(credentials.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
     token = create_access_token(user["id"], user["email"], user["role"], user["name"], user["role_id"])
@@ -444,9 +442,28 @@ class UserUpdate(BaseModel):
     role_id: Optional[int] = None
 
 @app.post("/users")
-def create_user(user: UserCreate, current_user: dict = Depends(get_current_user)): 
+def create_user(user: UserCreate, current_user: dict = Depends(get_current_user)):
     if not user_has_permission(current_user, "users", "add"):
         raise HTTPException(status_code=403, detail="You don't have permission to create users")
+    if not user.name.strip():
+        raise HTTPException(status_code=400, detail="Name is required")
+    if not user.email.strip():
+        raise HTTPException(status_code=400, detail="Email is required")
+    if not user.password:
+        raise HTTPException(status_code=400, detail="Password is required")
+    if db.get_user_by_email(user.email) is not None:
+        raise HTTPException(status_code=400, detail="Email is already in use")
+
+    new_id = db.add_user(
+        user.name,
+        user.email,
+        user.password,
+        user.phone,
+        user.role,
+        user.role_id,
+    )
+    return {"id": new_id, "name": user.name, "email": user.email, "role": user.role, "role_id": user.role_id}
+
     new_id = db.add_user(
         user.name,
         user.email,
@@ -477,6 +494,21 @@ def remove_user(user_id: int, current_user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="You don't have permission to delete users")
     db.deactivate_user(user_id)
     return {"id": user_id, "deactivated": True}
+
+class PasswordChangeRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+@app.post("/me/password")
+def change_own_password(
+    body: PasswordChangeRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    user = db.verify_user_password(current_user["email"], body.current_password)
+    if user is None:
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    db.update_user_password(current_user["id"], body.new_password)
+    return {"success": True}
 
 @app.delete("/batteries/{battery_id}")
 def remove_battery(battery_id: int, current_user: dict = Depends(get_current_user)):
