@@ -214,6 +214,11 @@ body {
     overflow-x: auto;
 }
 
+.table-scroll table {
+    width: max-content;
+    min-width: 100%;
+}
+
 .content h2 {
     font-family: 'Space Grotesk', sans-serif;
     font-size: 20px;
