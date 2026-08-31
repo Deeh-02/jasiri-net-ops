@@ -1996,3 +1996,43 @@ tr:hover td { background: var(--surface-2); }
     gap: 10px;
   }
 }
+
+@media (max-width: 760px) {
+
+  /* Contain horizontal scroll to each table's section instead of the whole page,
+     so the topbar/layout stay locked to the true viewport width */
+  .view {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  #battery-table,
+  #sites-table,
+  #movements-table,
+  #check-sites-table,
+  #users-table,
+  #roles-table {
+    min-width: 640px; /* scrolls within .view instead of stretching <body> */
+  }
+
+  .global-topbar {
+    padding: 10px 14px;
+  }
+
+  /* Anchor modals near the top instead of dead-center */
+  .modal-overlay {
+    align-items: flex-start;
+    padding-top: 10vh;
+  }
+
+  .modal-box,
+  .modal-box-lg {
+    width: 92vw;
+    max-width: 92vw;
+  }
+
+  .view-battery-header h3,
+  .modal-box h3 {
+    font-size: 16px;
+  }
+}
