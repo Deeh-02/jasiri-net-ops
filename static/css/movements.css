@@ -1,0 +1,52 @@
+/* ---- Movements view ---- */
+
+/* ---- Movement status pills (base .status-pill is in common.css) ---- */
+.status-pill.movement-pending { color: var(--text-dim); background: rgba(139, 150, 165, 0.14); }
+.status-pill.movement-in-transit { color: var(--info); background: rgba(79, 168, 255, 0.12); }
+.status-pill.movement-arrived { color: var(--warn); background: rgba(245, 166, 35, 0.12); }
+.status-pill.movement-confirmed { color: var(--accent); background: rgba(61, 220, 151, 0.12); }
+.status-pill.movement-down { color: var(--danger); background: rgba(239, 91, 91, 0.12); }
+.status-pill.movement-cancelled { color: var(--text-dim); background: rgba(139, 150, 165, 0.08); text-decoration: line-through; }
+
+/* ---- Movement action buttons ---- */
+.movement-action-btn,
+.movement-site-check-btn,
+.confirm-site-btn {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 10px;
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    cursor: pointer;
+    transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.movement-action-btn:hover,
+.confirm-site-btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.movement-site-check-btn[data-answer="true"]:hover { border-color: var(--accent); color: var(--accent); }
+.movement-site-check-btn[data-answer="false"]:hover { border-color: var(--danger); color: var(--danger); }
+
+.movement-cancel-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    width: 30px;
+    height: 30px;
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.movement-cancel-btn:hover {
+    color: var(--danger);
+    border-color: var(--danger);
+}

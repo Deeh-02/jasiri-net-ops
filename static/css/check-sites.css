@@ -1,0 +1,57 @@
+/* ---- Check Sites view ---- */
+
+.site-check-btn {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 10px;
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    cursor: pointer;
+    transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.site-check-btn[data-answer="true"]:hover { border-color: var(--accent); color: var(--accent); }
+.site-check-btn[data-answer="false"]:hover { border-color: var(--danger); color: var(--danger); }
+
+/* Legacy/unused markup kept as-is from the original stylesheet (dead CSS,
+   out of scope for this move — see PHASES.md: not finishing/fixing here). */
+.needs-check-tag {
+    display: inline-block;
+    margin-left: 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--warn);
+    background: rgba(245, 166, 35, 0.14);
+    padding: 2px 6px;
+    border-radius: 4px;
+    vertical-align: middle;
+}
+
+.hour-check-pill {
+    display: inline-block;
+    white-space: nowrap;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.hour-check-pill.pending { color: var(--warn); background: rgba(245, 166, 35, 0.12); }
+.hour-check-pill.done { color: var(--text-dim); background: rgba(139, 150, 165, 0.10); }
+
+/* ---- Dedicated pill colors + offline row accent (base .status-pill is in common.css) ---- */
+.status-pill.site-online { color: var(--accent); background: rgba(61, 220, 151, 0.12); }
+.status-pill.site-offline { color: var(--danger); background: rgba(239, 91, 91, 0.14); }
+
+.site-row-offline {
+    border-left: 3px solid var(--danger);
+}
+
+.site-row-offline td:first-child {
+    padding-left: 13px;
+}

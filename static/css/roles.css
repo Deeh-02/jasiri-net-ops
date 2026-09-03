@@ -1,0 +1,173 @@
+/* ---- Roles view ---- */
+
+/* Row actions for the roles table have no dedicated styling in the original
+   stylesheet either (unlike sites/users/batteries) — preserved as-is, not
+   added here; this is a move, not a fix (see PHASES.md). */
+
+#perm-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 20px;
+}
+
+@media (max-width: 640px) {
+    #perm-grid { grid-template-columns: 1fr; }
+}
+
+.perm-section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    transition: border-color 0.2s ease, transform 0.15s ease;
+}
+
+.perm-section:hover {
+    transform: translateY(-2px);
+}
+
+.perm-section:has(.perm-view-toggle:checked) {
+    border-color: var(--accent);
+}
+
+.perm-section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 2px;
+}
+
+.perm-section-name {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text);
+}
+
+.perm-toggle {
+    position: relative;
+    display: inline-block;
+    width: 38px;
+    height: 21px;
+    flex-shrink: 0;
+}
+
+.perm-toggle input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.perm-toggle-track {
+    position: absolute;
+    inset: 0;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+    cursor: pointer;
+}
+
+.perm-toggle input:checked + .perm-toggle-track {
+    background: var(--accent);
+    border-color: var(--accent);
+    box-shadow: 0 0 8px 1px rgba(61, 220, 151, 0.35);
+}
+
+.perm-toggle-thumb {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 15px;
+    height: 15px;
+    background: var(--surface);
+    border-radius: 50%;
+    transition: transform 0.15s ease;
+    pointer-events: none;
+}
+
+.perm-toggle input:checked ~ .perm-toggle-thumb {
+    transform: translateX(17px);
+    background: #10141a;
+}
+
+.perm-menu {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px dashed var(--border);
+}
+
+.perm-checkbox-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.perm-checkbox-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: 'Inter', sans-serif;
+    font-size: 13px;
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: color 0.15s ease;
+}
+
+.perm-checkbox-row:hover {
+    color: var(--text);
+}
+
+.perm-checkbox-row input[type="checkbox"] {
+    appearance: none;
+    -webkit-appearance: none;
+    box-sizing: border-box;
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--bg);
+    cursor: pointer;
+    position: relative;
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.perm-checkbox-row input[type="checkbox"]:hover {
+    border-color: var(--accent);
+}
+
+.perm-checkbox-row input[type="checkbox"]:checked {
+    background: var(--accent);
+    border-color: var(--accent);
+}
+
+.perm-checkbox-row input[type="checkbox"]:checked::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 45%;
+    width: 4px;
+    height: 8px;
+    border: solid #10141a;
+    border-width: 0 2px 2px 0;
+    transform: translate(-50%, -50%) rotate(45deg);
+}
+
+.perm-subsection {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px dashed var(--border);
+}
+
+.perm-subsection-header {
+    padding: 0;
+}
+
+#role-form {
+    max-width: 720px;
+}

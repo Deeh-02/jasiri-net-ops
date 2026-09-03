@@ -1,0 +1,56 @@
+/* ---- Settings view ---- */
+
+.settings-subtitle {
+    color: var(--text-dim);
+    font-size: 14px;
+    margin: -18px 0 24px;
+}
+
+.settings-tabs {
+    display: flex;
+    gap: 4px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 4px;
+    width: fit-content;
+    margin-bottom: 24px;
+}
+
+.settings-tab {
+    background: none;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 16px;
+    color: var(--text-dim);
+    font-family: 'Inter', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+
+.settings-tab:hover { color: var(--text); }
+
+.settings-tab.active {
+    background: var(--surface-2);
+    color: var(--text);
+}
+
+.settings-panel { max-width: 420px; }
+.settings-form { max-width: 100%; }
+
+.settings-form-row-2 {
+    display: flex;
+    gap: 10px;
+}
+
+.settings-form-row-2 input {
+    flex: 1;
+    min-width: 0;
+}
+
+.settings-save-btn {
+    align-self: flex-start;
+    padding: 10px 22px;
+}

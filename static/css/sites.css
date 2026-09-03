@@ -1,0 +1,40 @@
+/* ---- Sites view ---- */
+
+.edit-site-btn, .delete-site-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    width: 30px;
+    height: 30px;
+    color: var(--text-dim);
+    cursor: pointer;
+    margin-right: 6px;
+    transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.edit-site-btn:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+}
+
+.delete-site-btn:hover {
+    color: var(--danger);
+    border-color: var(--danger);
+}
+
+/* ---- HB tag next to site name ---- */
+.hb-tag {
+    display: inline-block;
+    margin-left: 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--accent);
+    background: rgba(61, 220, 151, 0.18);
+    padding: 2px 6px;
+    border-radius: 4px;
+    vertical-align: middle;
+}

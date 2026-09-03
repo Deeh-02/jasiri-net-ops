@@ -1,0 +1,32 @@
+    <section class="view" id="view-settings" hidden>
+        <h1 class="page-title">Settings</h1>
+        <p class="settings-subtitle">Manage your account settings and preferences.</p>
+
+        <div class="settings-tabs">
+            <button type="button" class="settings-tab active" data-settings-tab="profile">Profile</button>
+            <button type="button" class="settings-tab" data-settings-tab="password">Password</button>
+        </div>
+
+        <div class="settings-panel" id="settings-tab-profile">
+            <form id="profile-form" class="panel-form settings-form">
+                <div class="settings-form-row-2">
+                    <input type="text" id="profile-first-name" placeholder="First name" required>
+                    <input type="text" id="profile-last-name" placeholder="Last name">
+                </div>
+                <input type="tel" id="profile-phone" placeholder="Phone number">
+                <input type="email" id="profile-email" placeholder="Email" required>
+                <button type="submit" class="btn-primary settings-save-btn">Save Changes</button>
+            </form>
+            <div class="form-msg" id="profile-form-msg"></div>
+        </div>
+
+        <div class="settings-panel" id="settings-tab-password" hidden>
+            <form id="password-form" class="panel-form settings-form">
+                <input type="password" id="password-current" placeholder="Current password" required autocomplete="current-password">
+                <input type="password" id="password-new" placeholder="New password" required autocomplete="new-password">
+                <input type="password" id="password-confirm" placeholder="Confirm new password" required autocomplete="new-password">
+                <button type="submit" class="btn-primary settings-save-btn">Save Password</button>
+            </form>
+            <div class="form-msg" id="password-form-msg"></div>
+        </div>
+    </section>

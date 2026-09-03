@@ -1,4 +1,4 @@
-from db import get_movement_history
+from db.batteries import get_movement_history
 
 history = get_movement_history(1)
 for row in history:

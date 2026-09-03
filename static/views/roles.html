@@ -1,0 +1,33 @@
+    <section class="view" id="view-roles" hidden>
+        <div class="page-header-row">
+            <h1 class="page-title">Roles</h1>
+            <button type="button" id="add-role-open-btn" class="btn-add-site">+ Add Role</button>
+        </div>
+
+        <table id="roles-table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Created</th>
+                    <th id="roles-actions-th">Actions</th>
+                </tr>
+            </thead>
+            <tbody id="roles-rows"></tbody>
+        </table>
+    </section>
+
+    <section class="view" id="view-role-form" hidden>
+        <h2 id="role-form-title">Add Role</h2>
+        <form id="role-form" class="panel-form">
+            <input type="hidden" id="role-form-id" value="">
+            <input type="text" id="role-form-name" placeholder="Role name (e.g. Sales)" required>
+
+            <div id="perm-grid"></div>
+
+            <div class="modal-actions">
+                <button type="button" id="role-form-cancel" class="btn-secondary">Cancel</button>
+                <button type="submit" class="btn-primary">Save</button>
+            </div>
+        </form>
+        <div class="form-msg" id="role-form-msg"></div>
+    </section>

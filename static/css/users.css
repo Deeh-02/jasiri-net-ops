@@ -1,0 +1,26 @@
+/* ---- Users view ---- */
+
+.edit-user-btn, .delete-user-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    width: 30px;
+    height: 30px;
+    color: var(--text-dim);
+    cursor: pointer;
+    margin-right: 6px;
+    transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.edit-user-btn:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+}
+
+.delete-user-btn:hover {
+    color: var(--danger);
+    border-color: var(--danger);
+}

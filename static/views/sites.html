@@ -1,0 +1,69 @@
+    <div class="modal-overlay" id="add-site-overlay" hidden>
+        <div class="modal-box">
+            <h3>Add Site</h3>
+            <form id="location-form" class="panel-form">
+                <input type="text" id="location-name" placeholder="Site name (e.g. Kasarani Office)" required>
+                <input type="text" id="location-contact-name" placeholder="Contact person">
+                <input type="tel" id="location-contact-phone" placeholder="Phone number">
+                <input type="text" id="location-address" placeholder="Address (optional)">
+                <label class="checkbox-row">
+                    <input type="checkbox" id="location-home-base">
+                    This is the home base
+                </label>
+                <div class="modal-actions">
+                    <button type="button" id="add-site-cancel" class="btn-secondary">Cancel</button>
+                    <button type="submit" class="btn-primary">Add Site</button>
+                </div>
+            </form>
+            <div class="form-msg" id="location-msg"></div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="edit-site-overlay" hidden>
+        <div class="modal-box">
+            <h3>Edit Site</h3>
+            <form id="edit-site-form" class="panel-form">
+                <input type="text" id="edit-site-name" placeholder="Site name" required>
+                <input type="text" id="edit-site-contact-name" placeholder="Contact person">
+                <input type="tel" id="edit-site-contact-phone" placeholder="Phone number">
+                <input type="text" id="edit-site-address" placeholder="Address (optional)">
+                <label class="checkbox-row">
+                    <input type="checkbox" id="edit-site-home-base">
+                    This is the home base
+                </label>
+                <div class="modal-actions">
+                    <button type="button" id="edit-site-cancel" class="btn-secondary">Cancel</button>
+                    <button type="submit" class="btn-primary">Save Changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <section class="view" id="view-sites" hidden>
+        <div class="page-header-row">
+            <h1 class="page-title">Sites</h1>
+            <div class="header-action-group">
+                <button type="button" id="check-sites-link-btn" class="btn-add-site header-action-primary">
+                    <span class="header-sub-link-icon-wrap">
+                        <span class="header-sub-link-icon" id="check-sites-link-icon"></span>
+                        <span class="badge-count" id="sites-badge" hidden>0</span>
+                    </span>
+                    Check sites
+                </button>
+                <button type="button" id="add-site-open-btn" class="header-sub-link">+ Add Site</button>
+            </div>
+        </div>
+
+        <table id="sites-table">
+            <thead>
+                <tr>
+                    <th>Site</th>
+                    <th>Contact Person</th>
+                    <th>Phone</th>
+                    <th>Address</th>
+                    <th id="sites-actions-th">Actions</th>
+                </tr>
+            </thead>
+            <tbody id="sites-rows"></tbody>
+        </table>
+    </section>

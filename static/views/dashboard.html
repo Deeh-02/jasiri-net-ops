@@ -1,0 +1,129 @@
+    <div class="modal-overlay" id="move-overlay" hidden>
+        <div class="modal-box">
+            <h3>Move Battery <span id="move-battery-label"></span></h3>
+            <form id="move-form" class="panel-form">
+                <select id="move-location" required>
+                    <option value="">Move to...</option>
+                </select>
+                <select id="move-reason">
+                    <option value="">Reason (optional)</option>
+                    <option value="site_down">Site has no power</option>
+                    <option value="storage">Returning to storage</option>
+                </select>
+                <input type="text" id="move-by" placeholder="Moved by (optional)">
+                <div class="modal-actions">
+                    <button type="button" id="move-cancel" class="btn-secondary">Cancel</button>
+                    <button type="submit" class="btn-primary">Confirm Move</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="view-battery-overlay" hidden>
+        <div class="modal-box dashboard-modal-box-lg">
+            <div class="dashboard-view-battery-header">
+                <h3>Battery <span id="view-battery-label"></span></h3>
+                <button type="button" id="view-battery-close" class="dashboard-modal-close-btn">&times;</button>
+            </div>
+
+            <div class="dashboard-tab-slant-row">
+                <button type="button" class="dashboard-tab-slant active" data-tab="details">Details</button>
+                <button type="button" class="dashboard-tab-slant" data-tab="logs">Logs</button>
+            </div>
+
+            <div class="dashboard-tab-panel" id="view-tab-details">
+                <div class="dashboard-detail-row"><span>Serial number</span><span id="detail-serial">—</span></div>
+                <div class="dashboard-detail-row"><span>Model</span><span id="detail-model">—</span></div>
+                <div class="dashboard-detail-row"><span>Capacity</span><span id="detail-capacity">—</span></div>
+                <div class="dashboard-detail-row"><span>Status</span><span id="detail-status">—</span></div>
+                <div class="dashboard-detail-row"><span>Charge</span><span id="detail-charge">—</span></div>
+                <div class="dashboard-detail-row"><span>Current location</span><span id="detail-location">—</span></div>
+            </div>
+
+            <div class="dashboard-tab-panel" id="view-tab-logs" hidden>
+                <table class="dashboard-logs-table dashboard-logs-table-header">
+                    <colgroup>
+                        <col style="width:30%">
+                        <col style="width:23%">
+                        <col style="width:23%">
+                        <col style="width:24%">
+                    </colgroup>
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Moved from</th>
+                            <th>Moved to</th>
+                            <th>Moved by</th>
+                        </tr>
+                    </thead>
+                </table>
+                <div id="view-logs-list" class="dashboard-logs-scroll"></div>
+                <div id="logs-pagination"></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="add-battery-overlay" hidden>
+        <div class="modal-box">
+            <h3>Add Battery</h3>
+            <form id="battery-form" class="panel-form">
+                <input type="text" id="battery-number" placeholder="Battery # (e.g. BAT-002)" required>
+                <input type="text" id="battery-serial" placeholder="Serial number (optional)">
+                <input type="text" id="battery-model" placeholder="Model (optional)">
+                <input type="text" id="battery-capacity" placeholder="Capacity (optional, e.g. 100Ah)">
+                <div class="modal-actions">
+                    <button type="button" id="add-battery-cancel" class="btn-secondary">Cancel</button>
+                    <button type="submit" class="btn-primary">Add Battery</button>
+                </div>
+            </form>
+            <div class="form-msg" id="battery-msg"></div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="edit-battery-overlay" hidden>
+        <div class="modal-box">
+            <h3>Edit Battery</h3>
+            <form id="edit-battery-form" class="panel-form">
+                <input type="text" id="edit-battery-number" placeholder="Battery # (e.g. BAT-002)" required>
+                <input type="text" id="edit-battery-serial" placeholder="Serial number (optional)">
+                <input type="text" id="edit-battery-model" placeholder="Model (optional)">
+                <input type="text" id="edit-battery-capacity" placeholder="Capacity (optional, e.g. 100Ah)">
+                <div class="modal-actions">
+                    <button type="button" id="edit-battery-cancel" class="btn-secondary">Cancel</button>
+                    <button type="submit" class="btn-primary">Save Changes</button>
+                </div>
+            </form>
+            <div class="form-msg" id="edit-battery-msg"></div>
+        </div>
+    </div>
+
+    <section class="view" id="view-dashboard">
+        <div class="page-header-row">
+            <h1 class="page-title">Battery <span>Tracker</span></h1>
+            <div class="header-action-group">
+                <button type="button" id="movements-link-btn" class="btn-add-site header-action-primary">
+                    <span class="header-sub-link-icon-wrap">
+                        <span class="header-sub-link-icon" id="movements-link-icon"></span>
+                        <span class="badge-count" id="movements-badge" hidden>0</span>
+                    </span>
+                    Movement
+                </button>
+                <button type="button" id="add-battery-open-btn" class="header-sub-link">+ Add Battery</button>
+            </div>
+        </div>
+        <div class="stat-grid" id="stat-grid"></div>
+        <table id="battery-table">
+            <thead>
+                <tr>
+                    <th>Battery #</th>
+                    <th>Model</th>
+                    <th>Status</th>
+                    <th>Charge</th>
+                    <th>Current Location</th>
+                    <th>Moved By</th>
+                    <th>Since</th>
+                    <th>Actions</th>
+            </thead>
+            <tbody id="battery-rows"></tbody>
+        </table>
+    </section>

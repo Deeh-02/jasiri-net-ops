@@ -1,0 +1,43 @@
+    <section class="view" id="view-users" hidden>
+        <div class="page-header-row">
+            <h1 class="page-title">Users</h1>
+            <button type="button" id="add-user-open-btn" class="btn-add-site">+ Add User</button>
+        </div>
+
+        <table id="users-table">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Phone</th>
+                    <th>Email</th>
+                    <th>Type</th>
+                    <th id="users-manage-th">Manage</th>
+                </tr>
+            </thead>
+            <tbody id="users-rows"></tbody>
+        </table>
+    </section>
+
+    <section class="view" id="view-user-form" hidden>
+        <h2 id="user-form-title">Add User</h2>
+        <form id="user-form" class="panel-form">
+            <input type="hidden" id="user-form-id" value="">
+
+            <h3 class="form-section-heading">Profile</h3>
+            <input type="text" id="user-form-name" placeholder="Full name" required>
+            <input type="tel" id="user-form-phone" placeholder="Phone number">
+            <input type="email" id="user-form-email" placeholder="Email" required>
+
+            <h3 class="form-section-heading">Credentials</h3>
+            <select id="user-form-role" required>
+                <option value="admin">Admin</option>
+            </select>
+            <input type="password" id="user-form-password" placeholder="Password">
+
+            <div class="modal-actions">
+                <button type="button" id="user-form-cancel" class="btn-secondary">Cancel</button>
+                <button type="submit" class="btn-primary">Save</button>
+            </div>
+        </form>
+        <div class="form-msg" id="user-form-msg"></div>
+    </section>

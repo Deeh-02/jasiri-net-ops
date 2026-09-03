@@ -1,0 +1,397 @@
+/* ---- Dashboard (Batteries view): stats/table already share .stat-grid and
+   base table styling from common.css — this file holds what's unique here. ---- */
+
+.battery-icon, .charge-btn svg { display: inline-flex; align-items: center; }
+
+.battery-fill {
+    transition: width 0.3s ease;
+}
+
+.battery-fill.charged { fill: var(--accent); }
+.battery-fill.charging { fill: var(--info); }
+.battery-fill.low { fill: var(--danger); }
+.battery-fill.unknown { fill: var(--text-dim); opacity: 0.3; }
+
+.battery-fill.charging {
+    animation: chargePulse 1.4s ease-in-out infinite;
+}
+
+@keyframes chargePulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.55; }
+}
+
+.battery-fill.low {
+    animation: lowBlink 1s ease-in-out infinite;
+}
+
+@keyframes lowBlink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+
+/* ---- Custom charge dropdown (replaces native <select>, no white flash) ---- */
+.charge-dropdown {
+    position: relative;
+    display: inline-block;
+}
+
+.charge-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 10px;
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    cursor: pointer;
+    transition: border-color 0.15s ease;
+}
+
+.charge-btn:hover {
+    border-color: var(--accent);
+}
+
+.charge-caret {
+    color: var(--text-dim);
+    font-size: 10px;
+    margin-left: 2px;
+}
+
+.charge-menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    z-index: 20;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+    min-width: 140px;
+    overflow: hidden;
+}
+
+.charge-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 12px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: background 0.12s ease;
+}
+
+.charge-option:hover {
+    background: var(--surface-2);
+    color: var(--text);
+}
+
+.charge-option.active {
+    color: var(--accent);
+    background: var(--surface-2);
+}
+
+/* ---- Battery status pill colors (base .status-pill is in common.css) ---- */
+.status-pill.deployed { color: var(--warn); background: rgba(245, 166, 35, 0.12); }
+.status-pill.at-base { color: var(--accent); background: rgba(61, 220, 151, 0.12); }
+
+/* ---- Move button (row action) ---- */
+.move-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    width: 32px;
+    height: 32px;
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.move-btn:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+}
+
+.delete-battery-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    width: 30px;
+    height: 30px;
+    color: var(--text-dim);
+    cursor: pointer;
+    margin-right: 6px;
+    transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.delete-battery-btn:hover {
+    color: var(--danger);
+    border-color: var(--danger);
+}
+
+.view-battery-btn, .edit-battery-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    width: 30px;
+    height: 30px;
+    color: var(--text-dim);
+    cursor: pointer;
+    margin-right: 6px;
+    transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.view-battery-btn:hover:not(:disabled) {
+    color: var(--accent);
+    border-color: var(--accent);
+}
+
+.view-battery-btn:hover:not(:disabled),
+.edit-battery-btn:hover:not(:disabled) {
+    color: var(--accent);
+    border-color: var(--accent);
+}
+
+.view-battery-btn:disabled, .edit-battery-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+/* ---- View Battery modal (details + paginated movement logs) ---- */
+.dashboard-modal-box-lg {
+    width: 640px;
+    max-width: 92vw;
+}
+
+.dashboard-view-battery-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+}
+
+.dashboard-view-battery-header h3 {
+    margin: 0;
+}
+
+.dashboard-modal-close-btn {
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    font-size: 20px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0 4px;
+    transition: color 0.15s ease;
+}
+
+.dashboard-modal-close-btn:hover {
+    color: var(--text);
+}
+
+.dashboard-tab-slant-row {
+    display: flex;
+    gap: 2px;
+    margin-bottom: 18px;
+    border-bottom: 1px solid var(--border);
+}
+
+.dashboard-tab-slant {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-bottom: none;
+    color: var(--text-dim);
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    padding: 9px 22px;
+    cursor: pointer;
+    clip-path: polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%);
+    margin-right: -8px;
+    transition: color 0.15s ease, background 0.15s ease;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.dashboard-tab-slant:hover {
+    color: var(--text);
+}
+
+.dashboard-tab-slant.active {
+    background: var(--surface);
+    color: var(--accent);
+    position: relative;
+    z-index: 2;
+}
+
+.dashboard-tab-panel {
+    font-size: 14px;
+}
+
+.dashboard-logs-scroll {
+    max-height: 360px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    scrollbar-width: thin;
+}
+
+.dashboard-logs-scroll::-webkit-scrollbar {
+    width: 8px;
+}
+
+.dashboard-logs-table {
+    width: 100%;
+    table-layout: fixed;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 13px;
+}
+
+.dashboard-logs-table td {
+    border-top: 1px solid var(--border);
+}
+
+.dashboard-logs-table tr:first-child td {
+    border-top: none;
+}
+
+.dashboard-logs-table th:nth-child(1), .dashboard-logs-table td:nth-child(1) { width: 30%; }
+.dashboard-logs-table th:nth-child(2), .dashboard-logs-table td:nth-child(2) { width: 23%; }
+.dashboard-logs-table th:nth-child(3), .dashboard-logs-table td:nth-child(3) { width: 23%; }
+.dashboard-logs-table th:nth-child(4), .dashboard-logs-table td:nth-child(4) { width: 24%; }
+
+.dashboard-logs-table-header {
+    margin-bottom: 0;
+}
+
+.dashboard-logs-table th {
+    background: var(--surface);
+    text-align: left;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-dim);
+    padding: 12px 10px;
+    border-bottom: 1px solid var(--border);
+}
+
+.dashboard-logs-table td {
+    padding: 12px 10px;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.dashboard-logs-pagination-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 12px;
+    font-size: 12px;
+    color: var(--text-dim);
+}
+
+.dashboard-logs-page-size {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.dashboard-logs-page-size select {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text);
+    padding: 3px 6px;
+    font-size: 12px;
+}
+
+.dashboard-logs-page-nav {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.dashboard-logs-page-nav button {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--text);
+    padding: 4px 10px;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.dashboard-logs-page-nav button:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+.dashboard-logs-page-nav button:not(:disabled):hover {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.dashboard-detail-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 9px 0;
+    border-bottom: 1px solid var(--border);
+}
+
+.dashboard-detail-row:last-child {
+    border-bottom: none;
+}
+
+.dashboard-detail-row span:first-child {
+    color: var(--text-dim);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+/* Legacy/unused markup kept as-is from the original stylesheet (dead CSS,
+   out of scope for this move — see PHASES.md: not finishing/fixing here). */
+.log-entry {
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+}
+
+.log-entry:last-child {
+    border-bottom: none;
+}
+
+.log-entry-route {
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--text);
+}
+
+.log-entry-meta {
+    color: var(--text-dim);
+    font-size: 12px;
+    margin-top: 2px;
+}
+
+.dashboard-log-empty {
+    color: var(--text-dim);
+    font-size: 13px;
+    padding: 12px 0;
+}
