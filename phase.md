@@ -9,67 +9,18 @@ and whatever's still upcoming.
 
 ---
 
-## ACTIVE PHASE: Phase 0 — Separate & Polish
+## ACTIVE PHASE: Phase 1 — Mobile Fixes
 
-### In scope
-- Split the tangled backend into isolated router files: auth, batteries/
-  assets, sites, permissions, users.
-- Isolate the frontend per view — own file, own naming, so nothing
-  collides between views.
-- Bundle in small visual/UX fixes while files are already open for the
-  move (not new features — fixes to what's already there).
-- Extract the shared permission-check function into exactly one place,
-  called by every domain that needs it.
+Pass over the now-separated views for phone rendering. Runs after
+separation so it's touched once, not twice.
 
-### Explicitly out of scope
-- No new features of any kind.
-- No mobile work — that's Phase 1, deliberately after separation so it's
-  not done twice on code that's about to move.
-- No finishing incomplete functionality — that's Phase 2, deliberately
-  kept separate so a break is traceable to either "the move" or "new
-  logic," never both at once.
-
-### Done when (behavioral tests, not descriptions)
-- Deleting any one domain's router file does not break any other domain's
-  routes from loading or responding.
-- Deleting any one frontend view's file does not affect any other view's
-  rendering or behavior.
-- Grep the whole frontend for a given CSS class or JS function name used
-  in one view — it does not appear, unprefixed/unnamespaced, in any other
-  view's file.
-- There is exactly one function that performs a permission check, and
-  every domain that checks permissions calls that function — grep confirms
-  no second implementation exists anywhere.
-- The app runs and every existing feature that worked before the split
-  still works after it, unchanged in behavior (this phase is a move, not
-  a fix — if something was broken before, it's still broken after, just
-  in its new isolated location).
-- DESIGN.md and ARCHITECTURE.md: every section that currently says "(not
-  yet determined)" instead has real content, drafted by Claude from the
-  actual resulting codebase, AND the owner has reviewed each section and
-  either approved it or corrected it. Check by opening both files — if any
-  section still reads "(not yet determined)" (outside DESIGN.md's Mobile
-  Behavior section, which is expected to wait for Phase 1), this criterion
-  is not met.
-
-### Before confirming
-Owner checks out the phase branch locally (`git checkout phase-0-separate`),
-runs the app, and clicks through it on localhost — same as any other day,
-just looking at the branch's version instead of `main`. Confirmation isn't
-just Claude's word that the "done when" criteria are met; the owner has
-actually seen it running first.
-
-### On confirmation
-When the owner confirms these are met: update CLAUDE.md's Stack and
-Directory structure sections with the real, confirmed layout (not left as
-placeholders), then collapse this section to a one-line summary below.
+Detail (scope, done-when criteria) not yet expanded — per this file's own
+convention, that happens when work on the phase actually begins, the same
+way Phase 0's one-liner became a full spec before that phase started.
 
 ---
 
 ## UPCOMING PHASES (order locked, detail not yet expanded)
-
-**Phase 1 — Mobile Fixes.** Pass over the now-separated views for phone
-rendering. Runs after separation so it's touched once, not twice.
 
 **Phase 2 — Finish Incomplete Functionality.** Features that exist but
 aren't fully built get finished individually, one at a time, each in its
@@ -105,4 +56,10 @@ new phase.
 ---
 
 ## COMPLETED PHASES
-(none yet)
+**Phase 0 — Separate & Polish.** Completed 2026-09-04. Backend split into
+`routers/` + `db/` (one file per domain: auth, permissions, sites,
+batteries, users); frontend split into per-view HTML fragments, ES
+modules, and CSS files; shared permission-check function consolidated into
+one place. ARCHITECTURE.md and DESIGN.md drafted from the resulting code.
+Owner confirmed by running the `phase-0-separate` branch locally and
+clicking through sign-in, batteries, sites, and permissions.

@@ -4,24 +4,41 @@ Read at the start of every new session. Not re-read mid-session — instruction
 changes only take effect in a fresh session.
 
 ## Stack
-(fill in once confirmed: backend framework, frontend approach, DB, hosting)
+- **Backend:** FastAPI (Python), served by Uvicorn. No ORM — raw SQL via
+  `psycopg2`, one connection opened/closed per function call. JWT auth
+  (`python-jose`), passwords hashed with `passlib`/bcrypt.
+- **Frontend:** plain HTML/CSS/JS. ES modules for isolation, no framework,
+  no build step or bundler — served directly as static files.
+- **Database:** PostgreSQL. Supabase in production, a local Postgres
+  instance for dev — picked at runtime by whether `DATABASE_URL` is set
+  (`db/connection.py`).
+- **Hosting:** Render (backend), Supabase (DB).
 
-**Pre-Phase-0 status:** not yet separated. Backend is currently one large
-file; frontend is loosely separated at best. Don't assume any domain
-boundaries exist until PHASES.md marks Phase 0 complete — check PHASES.md
-for current status before operating on an assumed structure.
-
-**Update this section when Phase 0 is marked complete** — replace the
-placeholder above with the actual confirmed stack, not left as-is.
+See ARCHITECTURE.md for the reasoning behind these choices, including a
+note that `schema.sql` is currently stale relative to the live DB.
 
 ## Directory structure
-(fill in once Phase 0 establishes the isolated layout)
-
-**Pre-Phase-0 status:** no isolated layout exists yet. See PHASES.md for
-what Phase 0 is currently doing to get there.
-
-**Update this section when Phase 0 is marked complete** — replace the
-placeholder above with the actual isolated layout, not left as-is.
+```
+main.py              # creates the app, mounts /static, registers routers, serves "/"
+routers/              # one file per domain: auth, permissions, sites, batteries, users
+db/                    # connection.py (shared) + one file per domain
+static/
+  index.html            # SPA shell — login screen, topbar, nav, view mount points
+  views/                 # one HTML fragment per view, fetched + injected at startup
+  js/
+    common.js              # shared state, fragment loader, cmdk, app-shown registry
+    app.js                  # bootstrap — the only file that imports every view module
+    <view>.js               # one ES module per view, imports only from common.js
+  css/
+    common.css              # shared chrome/framework (topbar, nav, modals, tables)
+    <view>.css               # one file per view
+schema.sql            # STALE — see ARCHITECTURE.md's Schema choices section
+architecture.md, design.md, phase.md, rules.md, delegation.md, claude.md
+ask_deepseek.py        # DeepSeek delegation script (see DELEGATION.md)
+```
+Domain boundary is `auth` / `permissions` / `sites` / `batteries` (includes
+movements) / `users`, both backend and frontend. See ARCHITECTURE.md's
+Integration approach for how they're allowed to talk to each other.
 
 ## Hard rules
 - One branch per phase. The phase branch (e.g. `phase-0-separate`) is
