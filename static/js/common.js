@@ -186,7 +186,7 @@ function initHeaderLinkIcons() {
 
 export async function refreshBadges() {
     const [movRes, siteRes, notifRes] = await Promise.all([
-        fetch("/movements/overdue-count", { headers: authHeaders() }),
+        fetch("/movements/active-count", { headers: authHeaders() }),
         fetch("/locations/unconfirmed-count", { headers: authHeaders() }),
         fetch("/notifications/unread-count", { headers: authHeaders() })
     ]);

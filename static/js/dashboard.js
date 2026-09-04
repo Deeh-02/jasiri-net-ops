@@ -1,7 +1,7 @@
 import {
     can, authHeaders, showMessage, formatDate, capitalize,
     batteryIconSvg, moveIconSvg, editIconSvg, viewIconSvg, deleteIconSvg,
-    registerAppShownHandler, registerCmdkProvider,
+    registerAppShownHandler, registerCmdkProvider, refreshBadges,
 } from "./common.js";
 
 const CHARGE_OPTIONS = ["charged", "charging", "low", "unknown"];
@@ -354,6 +354,7 @@ export function initDashboard() {
         if (response.ok) {
             closeMoveModal();
             await refreshData();
+            await refreshBadges();
         } else {
             alert("Failed to record move");
         }

@@ -132,11 +132,11 @@ def list_movements(history: bool = False, current_user: dict = Depends(get_curre
         return db.get_all_movements_history()
     return db.get_active_movements()
 
-@router.get("/movements/overdue-count")
-def movements_overdue_count(current_user: dict = Depends(get_current_user)):
+@router.get("/movements/active-count")
+def movements_active_count(current_user: dict = Depends(get_current_user)):
     if not user_has_permission(current_user, "movements", "view"):
         raise HTTPException(status_code=403, detail="You don't have permission to view movements")
-    return {"count": db.get_overdue_movement_count(threshold_hours=1)}
+    return {"count": db.get_active_movement_count()}
 
 @router.post("/movements/{movement_id}/mark-in-transit")
 def movement_mark_in_transit(movement_id: int, current_user: dict = Depends(get_current_user)):

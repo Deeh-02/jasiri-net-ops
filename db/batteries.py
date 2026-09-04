@@ -292,16 +292,19 @@ def get_all_movements_history():
         for r in rows
     ]
 
-def get_overdue_movement_count(threshold_hours=1):
+def get_active_movement_count():
+    """Badge count for the Movements nav/quick-link — mirrors
+    get_active_movements()'s "not yet fully resolved" status set, so the
+    badge and the default (non-history) Movements list always agree on
+    what counts as still-open. Not time-gated, same as Check Sites'
+    unconfirmed-count badge: it reflects what needs attention right now."""
     conn = get_connection()
     cur = conn.cursor()
     cur.execute(
         """
         SELECT COUNT(*) FROM battery_movements
-        WHERE status IN ('pending', 'in_transit')
-          AND created_at < NOW() - (%s || ' hours')::interval;
-        """,
-        (threshold_hours,)
+        WHERE status IN ('pending', 'in_transit', 'arrived', 'site_still_down');
+        """
     )
     count = cur.fetchone()[0]
     cur.close()
