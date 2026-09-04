@@ -1,8 +1,32 @@
 /* ---- Roles view ---- */
 
-/* Row actions for the roles table have no dedicated styling in the original
-   stylesheet either (unlike sites/users/batteries) — preserved as-is, not
-   added here; this is a move, not a fix (see PHASES.md). */
+/* Matches .edit-user-btn/.delete-user-btn in users.css (Phase 2 item 1) —
+   these had no dedicated styling at all before, falling back to unstyled
+   native <button> chrome instead of the app's theme. */
+.edit-role-btn, .delete-role-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    width: 30px;
+    height: 30px;
+    color: var(--text-dim);
+    cursor: pointer;
+    margin-right: 6px;
+    transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.edit-role-btn:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+}
+
+.delete-role-btn:hover {
+    color: var(--danger);
+    border-color: var(--danger);
+}
 
 #perm-grid {
     display: grid;
