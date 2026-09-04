@@ -25,6 +25,7 @@ class MovementCreate(BaseModel):
     from_location_id: Optional[int] = None
     to_location_id: int
     reason: Optional[str] = None
+    moved_by: Optional[str] = None
 
 class ChargeStatusUpdate(BaseModel):
     charge_status: str
@@ -111,7 +112,7 @@ def create_movement(movement: MovementCreate, current_user: dict = Depends(get_c
         movement.from_location_id,
         movement.to_location_id,
         movement.reason,
-        moved_by=current_user["name"],
+        moved_by=movement.moved_by or current_user["name"],
         moved_by_user_id=current_user["id"],
     )
     return {"id": new_id}
