@@ -23,6 +23,20 @@ export function initSettings() {
         });
     });
 
+    // Mirrors the login screen's password show/hide toggle (initShell in
+    // common.js) — same .password-field/.eye-open/.eye-closed markup and
+    // behavior, just wired here since these three fields live in this view.
+    document.querySelectorAll(".password-toggle-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+            const input = document.getElementById(btn.dataset.target);
+            const isPassword = input.type === "password";
+            input.type = isPassword ? "text" : "password";
+            btn.querySelector(".eye-open").hidden = isPassword;
+            btn.querySelector(".eye-closed").hidden = !isPassword;
+            btn.classList.toggle("is-visible", isPassword);
+        });
+    });
+
     document.getElementById("profile-form").addEventListener("submit", async (e) => {
         e.preventDefault();
         const first = document.getElementById("profile-first-name").value.trim();

@@ -22,9 +22,51 @@
 
         <div class="settings-panel" id="settings-tab-password" hidden>
             <form id="password-form" class="panel-form settings-form">
-                <input type="password" id="password-current" placeholder="Current password" required autocomplete="current-password">
-                <input type="password" id="password-new" placeholder="New password" required autocomplete="new-password">
-                <input type="password" id="password-confirm" placeholder="Confirm new password" required autocomplete="new-password">
+                <div class="password-field">
+                    <input type="password" id="password-current" placeholder="Current password" required autocomplete="current-password">
+                    <button type="button" class="password-toggle-btn" id="password-current-toggle" data-target="password-current" aria-label="Show password" tabindex="-1">
+                        <svg class="eye-icon eye-open" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M1 8C1 8 3.5 3 8 3C12.5 3 15 8 15 8C15 8 12.5 13 8 13C3.5 13 1 8 1 8Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
+                            <circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.3"/>
+                        </svg>
+                        <svg class="eye-icon eye-closed" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" hidden>
+                            <path d="M2 2L14 14" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+                            <path d="M6.6 6.6C6.2 7 6 7.5 6 8C6 9.1 6.9 10 8 10C8.5 10 9 9.8 9.4 9.4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+                            <path d="M4 4.5C2.3 5.6 1 8 1 8C1 8 3.5 13 8 13C9.3 13 10.4 12.6 11.3 12" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+                            <path d="M10.8 10.2C13.2 8.9 15 8 15 8C15 8 13.7 5.3 11 3.8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </button>
+                </div>
+                <div class="password-field">
+                    <input type="password" id="password-new" placeholder="New password" required autocomplete="new-password">
+                    <button type="button" class="password-toggle-btn" id="password-new-toggle" data-target="password-new" aria-label="Show password" tabindex="-1">
+                        <svg class="eye-icon eye-open" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M1 8C1 8 3.5 3 8 3C12.5 3 15 8 15 8C15 8 12.5 13 8 13C3.5 13 1 8 1 8Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
+                            <circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.3"/>
+                        </svg>
+                        <svg class="eye-icon eye-closed" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" hidden>
+                            <path d="M2 2L14 14" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+                            <path d="M6.6 6.6C6.2 7 6 7.5 6 8C6 9.1 6.9 10 8 10C8.5 10 9 9.8 9.4 9.4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+                            <path d="M4 4.5C2.3 5.6 1 8 1 8C1 8 3.5 13 8 13C9.3 13 10.4 12.6 11.3 12" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+                            <path d="M10.8 10.2C13.2 8.9 15 8 15 8C15 8 13.7 5.3 11 3.8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </button>
+                </div>
+                <div class="password-field">
+                    <input type="password" id="password-confirm" placeholder="Confirm new password" required autocomplete="new-password">
+                    <button type="button" class="password-toggle-btn" id="password-confirm-toggle" data-target="password-confirm" aria-label="Show password" tabindex="-1">
+                        <svg class="eye-icon eye-open" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M1 8C1 8 3.5 3 8 3C12.5 3 15 8 15 8C15 8 12.5 13 8 13C3.5 13 1 8 1 8Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
+                            <circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.3"/>
+                        </svg>
+                        <svg class="eye-icon eye-closed" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" hidden>
+                            <path d="M2 2L14 14" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+                            <path d="M6.6 6.6C6.2 7 6 7.5 6 8C6 9.1 6.9 10 8 10C8.5 10 9 9.8 9.4 9.4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+                            <path d="M4 4.5C2.3 5.6 1 8 1 8C1 8 3.5 13 8 13C9.3 13 10.4 12.6 11.3 12" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+                            <path d="M10.8 10.2C13.2 8.9 15 8 15 8C15 8 13.7 5.3 11 3.8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </button>
+                </div>
                 <button type="submit" class="btn-primary settings-save-btn">Save Password</button>
             </form>
             <div class="form-msg" id="password-form-msg"></div>
