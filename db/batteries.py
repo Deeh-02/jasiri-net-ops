@@ -239,7 +239,7 @@ def get_active_movements():
             battery_movements.id, batteries.battery_number,
             from_loc.name, to_loc.name,
             battery_movements.status, battery_movements.created_at,
-            battery_movements.reason, battery_movements.moved_by
+            battery_movements.reason
         FROM battery_movements
         JOIN batteries ON battery_movements.battery_id = batteries.id
         LEFT JOIN locations AS from_loc ON battery_movements.from_location_id = from_loc.id
@@ -257,7 +257,6 @@ def get_active_movements():
             "to_location": r[3], "status": r[4],
             "created_at": r[5].isoformat() if r[5] else None,
             "reason": r[6],
-            "moved_by": r[7],
         }
         for r in rows
     ]
@@ -272,7 +271,7 @@ def get_all_movements_history():
             battery_movements.id, batteries.battery_number,
             from_loc.name, to_loc.name,
             battery_movements.status, battery_movements.created_at,
-            battery_movements.reason, battery_movements.moved_by
+            battery_movements.reason
         FROM battery_movements
         JOIN batteries ON battery_movements.battery_id = batteries.id
         LEFT JOIN locations AS from_loc ON battery_movements.from_location_id = from_loc.id
@@ -289,7 +288,6 @@ def get_all_movements_history():
             "to_location": r[3], "status": r[4],
             "created_at": r[5].isoformat() if r[5] else None,
             "reason": r[6],
-            "moved_by": r[7],
         }
         for r in rows
     ]
