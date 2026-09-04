@@ -39,6 +39,17 @@ task, not DeepSeek's slower/costlier default reasoning pass.
 - Use your own read of whether a given task is actually straightforward —
   there's no fixed per-phase rule.
 
+**Named pattern worth recognizing: decide once, replicate via delegation.**
+When a fix or change needs to be applied the same way across multiple
+already-isolated files (e.g. the same mobile layout fix across several
+view files, the same field added to several similar router endpoints),
+the JUDGMENT is deciding the approach on the first instance. Once that's
+decided and fully specified, applying that exact pattern to the remaining
+files is verbatim execution — a real delegation candidate, not something
+that needs to stay with Claude just because it's spread across many
+files. Don't default to doing all N instances yourself out of caution;
+recognize this shape when it comes up and delegate the repetition.
+
 **Call-site scope.** A "move this code, only imports may change" allow-list
 covers the moved code itself. If the moved code is referenced elsewhere
 (call sites in other files), updating those references is a SEPARATE

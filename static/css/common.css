@@ -222,10 +222,86 @@ body {
 
 .nav-badge[hidden] { display: none; }
 
+/* ---- Mobile nav: a phone can't spare 220px for a permanent side column, so
+   it collapses to 0 width by default and expands open on tap of the topbar
+   hamburger — a normal flex sibling of .content the whole time (never taken
+   out of flow), so opening it PUSHES .content over rather than floating on
+   top of it. Because it's still in-flow, it naturally starts below the
+   topbar (a sibling above .layout in the DOM) instead of overlapping it. ---- */
+@media (max-width: 760px) {
+    /* .sidebar has no explicit height of its own — as a flex item it
+       stretches to match .layout's height (flexbox's default
+       align-items:stretch). Since .layout no longer has the fixed-position
+       drawer to guarantee full-screen coverage, IT needs to be at least a
+       full screen tall itself, or a view with short content leaves the
+       open drawer stopping partway down instead of reaching the bottom. */
+    .layout {
+        min-height: 100vh;
+    }
+
+    .sidebar {
+        position: relative; /* stacking context, so it stays above the dim backdrop */
+        z-index: 90;
+        width: 0;
+        padding: 0;
+        border-right: none;
+        overflow: hidden;
+        transition: width 0.25s ease, padding 0.25s ease;
+    }
+
+    .sidebar.open {
+        width: 240px;
+        max-width: 82vw;
+        padding: 24px 16px;
+        border-right: 1px solid var(--border);
+        overflow-y: auto;
+    }
+
+    /* Taller than the desktop nav rows — thumb targets, not cursor targets. */
+    .nav-heading {
+        padding: 14px 12px;
+    }
+}
+
+/* Dims .content while the nav is open (tapping it closes the nav). Sits
+   above .content's default stacking but below both the topbar (60) and the
+   sidebar (90) — those two stay fully visible, only the pushed-over content
+   behind them dims. */
+.sidebar-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(8, 10, 14, 0.6);
+    z-index: 50;
+}
+
+.sidebar-backdrop[hidden] { display: none; }
+
+/* The drawer only exists on phones — never leave the backdrop stranded if the
+   window is widened while the nav is open. */
+@media (min-width: 761px) {
+    .sidebar-backdrop { display: none; }
+}
+
 /* ---- Page content shell — shared layout every view sits inside ---- */
 .content {
     flex: 1;
     padding: 32px 40px 60px;
+}
+
+@media (max-width: 760px) {
+    .content {
+        padding: 20px 16px 48px;
+        /* .content is a flex item of .layout, and flex items default to
+           min-width:auto — they won't shrink below a descendant's natural
+           content width unless something resets that. .table-scroll resets
+           it for the table (overflow-x:auto), but .stat-grid has no such
+           boundary: repeat(2, 1fr) is shorthand for repeat(2, minmax(auto,
+           1fr)), and that auto minimum was passing straight through .content,
+           forcing the whole row wider than the viewport. This is the actual
+           fix — everything else diagnosed as "still 913px wide" traces back
+           to this one property. */
+        min-width: 0;
+    }
 }
 
 .content h2 {
@@ -248,6 +324,17 @@ body {
     justify-content: space-between;
     align-items: center;
     margin-bottom: 24px;
+}
+
+@media (max-width: 760px) {
+    .page-header-row {
+        flex-wrap: wrap;
+        gap: 12px;
+    }
+
+    .page-title {
+        font-size: 21px;
+    }
 }
 
 .page-header-row .page-title {
@@ -301,10 +388,6 @@ body {
     margin-bottom: 32px;
 }
 
-@media (max-width: 760px) {
-    .stat-grid { grid-template-columns: repeat(2, 1fr); }
-}
-
 .stat-card {
     background: var(--surface);
     border: 1px solid var(--border);
@@ -348,6 +431,166 @@ body {
 
 .stat-card.unknown { border-left-color: var(--text-dim); }
 .stat-card.unknown .stat-value { color: var(--text-dim); }
+
+/* Phones: 2 per row (the pre-existing Phase 0 rule for column count,
+   unchanged — five counters lay out 2/2/1), with cards tightened up so
+   those 3 rows plus the header above don't eat the screen before the table
+   is even reached. Placed AFTER the base .stat-card/.stat-label/.stat-value
+   rules above on purpose: same-specificity ties resolve by source order, so
+   a copy of this block sitting earlier in the file (as a previous version
+   of this rule did) loses to those base rules and silently no-ops on every
+   property they both set except grid-template-columns, which lives on
+   .stat-grid rather than .stat-card and isn't affected. */
+@media (max-width: 760px) {
+    .stat-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 8px;
+        margin-bottom: 20px;
+    }
+
+    .stat-card {
+        padding: 10px 12px;
+    }
+
+    .stat-label {
+        margin-bottom: 4px;
+    }
+
+    .stat-value {
+        font-size: 20px;
+    }
+}
+
+/* ---- Table scroll wrapper — every view's table with more columns than a
+   phone can fit gets wrapped in this, so the TABLE scrolls sideways inside
+   its own box instead of the whole page. No-op on desktop (nothing
+   overflows there). The scrollbars themselves (styled below) are the scroll
+   hint now — a separate gradient/shadow overlay was tried and read as a
+   heavy "line" rather than a subtle cue, so it's gone. */
+.table-scroll {
+    width: 100%;
+    overflow-x: auto;
+    /* Tried dropping this to fix a sticky-header overshoot glitch during
+       momentum scroll (a real, documented interaction on some WebKit
+       versions) — but on-device testing showed this specific phone relies
+       on the property for momentum at all, not just as an old-iOS shim:
+       without it, a normal flick fell short of the scrollable range and
+       made the last rows unreachable. Confirmed via scrollTop/scrollHeight
+       math, not a guess. Reachable data outranks a cosmetic overshoot, so
+       this stays — if the overshoot needs revisiting, look for a fix that
+       doesn't touch momentum scrolling itself. */
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: contain;
+}
+
+/* Scoped to .table-scroll — overrides the global 10px scrollbar (further
+   up this file) with something lighter, and gives the two axes different
+   weight on purpose: horizontal (bottom edge) is the primary "this table
+   scrolls sideways" cue, so it stays reasonably visible; vertical (right
+   edge, from the row-scroll box) is secondary and kept close to invisible
+   so it doesn't compete with it. */
+.table-scroll::-webkit-scrollbar {
+    height: 6px;
+    width: 3px;
+}
+
+.table-scroll::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.table-scroll::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 3px;
+    border: none;
+}
+
+.table-scroll::-webkit-scrollbar-thumb:vertical {
+    background: rgba(38, 38, 38, 0.5);
+}
+
+/* Phones: cap the table's own height and let IT scroll vertically, the same
+   way the battery-detail modal's movement log already does (see
+   .dashboard-logs-scroll) — so the topbar/header/stat cards above stay put
+   and only the rows move. The header row sticks to the top of that scroll
+   box so column labels don't scroll away with the data. */
+@media (max-width: 760px) {
+    .table-scroll {
+        max-height: 55vh;
+        overflow-y: auto;
+    }
+
+    /* Scoped to .table-scroll specifically — a bare `thead th` would also
+       reach the battery-detail modal's separate, non-scrolling logs table,
+       where there's no scroll box for "sticky" to resolve against except
+       the page itself. */
+    .table-scroll thead th {
+        position: sticky;
+        top: 0;
+        z-index: 8;
+        /* During a rubber-band bounce the header shifts down a few px while
+           .table-scroll's own box stays put, briefly revealing its
+           background (var(--surface)) above the header (var(--surface-2))
+           as a visible seam. box-shadow paints extra solid color above the
+           header's actual box without changing its size/layout — clipped
+           away and invisible at rest (nothing to fill), it only becomes
+           visible in that gap during a bounce, covering the seam with the
+           same color instead of --surface showing through. */
+        box-shadow: 0 -20px 0 0 var(--surface-2);
+        /* -webkit-overflow-scrolling:touch runs the scroll on the
+           compositor; a sticky element not on its own GPU layer can lag a
+           frame behind during that momentum/bounce motion, which is a
+           second, independent source of the same visible seam on top of
+           the color-mismatch one above. Forces layer promotion so it
+           repaints in lockstep with the scroll instead of trailing it. */
+        transform: translateZ(0);
+    }
+}
+
+/* ---- Frozen leading column: pinned in place while the rest of a wide table
+   scrolls sideways underneath, so the technician never loses track of which
+   row they're on. Phones only — nothing overflows at desktop widths, so
+   there's nothing to pin and no reason to constrain the column there. Add
+   col-frozen to a view's first <th>/<td> to opt in; the mechanics below
+   don't change per view, only which single column gets them. ---- */
+@media (max-width: 760px) {
+    /* position:sticky does nothing on the cells of a border-collapse:collapse
+       table in Chromium — the "pinned" cell just scrolls away with the rest,
+       which is exactly what it did before this rule. Separated borders with
+       zero spacing render identically here (cells only ever set
+       border-bottom) and are what makes the pin actually hold. Don't
+       "simplify" this back to the inherited collapse. */
+    .table-scroll table {
+        border-collapse: separate;
+        border-spacing: 0;
+    }
+
+    .col-frozen {
+        position: sticky;
+        left: 0;
+        z-index: 5;
+        width: 110px;
+        max-width: 110px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    /* Must be opaque, or the columns/rows scrolling underneath show through. */
+    td.col-frozen { background: var(--surface); }
+
+    /* The corner cell is sticky on both axes (thead th's top:0 AND
+       col-frozen's left:0) — it has to outrank plain header cells (which
+       only pin to the top) so row data scrolling right doesn't paint over
+       it. Specificity, not just source order, decides this: plain
+       `.table-scroll thead th` (0,1,2) actually beats `th.col-frozen`
+       (0,1,1), so the z-index has to be set on the higher-specificity
+       selector or it's silently ignored — confirmed via computed styles
+       showing z-index:8 here instead of the 9 this block used to set. */
+    .table-scroll thead th.col-frozen {
+        background: var(--surface-2);
+        z-index: 9;
+    }
+}
 
 /* ---- Base table styling — every view's table sits on this ---- */
 table {
@@ -913,6 +1156,28 @@ tr:hover td { background: var(--surface-2); }
 .topbar-icon-btn svg { width: 15px; height: 15px; }
 .topbar-icon-btn:hover { color: var(--accent); border-color: var(--accent); }
 
+/* Opens the mobile nav. Deliberately bare — no box/border like the other
+   topbar icon buttons, just the icon and normal click spacing — and only
+   exists at widths where the sidebar collapses. */
+.nav-toggle-btn {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: none;
+    padding: 4px;
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: color 0.15s ease;
+}
+
+.nav-toggle-btn svg { width: 18px; height: 18px; }
+.nav-toggle-btn:hover { color: var(--text); }
+
+@media (max-width: 760px) {
+    .nav-toggle-btn { display: flex; }
+}
+
 .topbar-avatar-wrap { position: relative; }
 
 .topbar-avatar {
@@ -1035,11 +1300,6 @@ tr:hover td { background: var(--surface-2); }
 
 .topbar-logout-btn:hover { border-color: var(--danger); }
 
-@media (max-width: 760px) {
-    .topbar-search { width: 160px; }
-    .topbar-search span:nth-child(2) { display: none; }
-}
-
 /* ---- Header sub-link (Movement / Check sites quick links, dashboard + sites headers) ---- */
 .header-action-group {
     display: flex;
@@ -1119,12 +1379,29 @@ tr:hover td { background: var(--surface-2); }
         box-sizing: border-box;
         padding: 10px 14px;
         gap: 10px;
-        overflow: hidden;
+        /* overflow-x, not overflow:hidden — the profile menu is a topbar
+           descendant that intentionally renders BELOW the topbar's own box
+           (top: calc(100% + 8px)), and overflow:hidden was clipping it
+           there along with the horizontal overflow it was meant to catch.
+           overflow-x:clip (unlike overflow-x:hidden) doesn't drag
+           overflow-y along with it into "auto" — it leaves vertical
+           content genuinely unclipped, which is what the dropdown needs. */
+        overflow-x: clip;
+        overflow-y: visible;
     }
 
+    /* The brand name is the one thing that must never be clipped here — the
+       topbar's overflow:hidden used to eat it once the row ran out of room,
+       so it holds its width and the search trigger gives way instead. */
     .global-topbar-brand {
-        min-width: 0;
-        flex-shrink: 1;
+        min-width: auto;
+        flex-shrink: 0;
+        gap: 8px;
+    }
+
+    .global-topbar-logo {
+        height: 32px;
+        width: 32px;
     }
 
     .global-topbar-name {
@@ -1132,10 +1409,21 @@ tr:hover td { background: var(--surface-2); }
         font-size: 14px;
     }
 
+    /* Icon-only trigger — the palette it opens is already a full-width
+       search input, so a labeled bar here was redundant, and dropping it
+       is what frees enough room for the brand name above to never shrink. */
     .topbar-search {
-        width: 160px;
-        min-width: 0;
-        flex-shrink: 1;
+        width: 34px;
+        height: 34px;
+        padding: 0;
+        gap: 0;
+        justify-content: center;
+        flex-shrink: 0;
+    }
+
+    .topbar-search span:nth-child(2),
+    .topbar-search-kbd {
+        display: none;
     }
 
     .topbar-actions {

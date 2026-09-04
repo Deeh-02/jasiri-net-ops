@@ -423,6 +423,22 @@ export function initShell() {
         document.getElementById("login-screen").hidden = false;
     });
 
+    // ---- Off-canvas nav (phone widths only — the sidebar is always visible
+    // on desktop, where the toggle button is hidden by CSS) ----
+    const sidebar = document.getElementById("sidebar");
+    const sidebarBackdrop = document.getElementById("sidebar-backdrop");
+
+    function setNavOpen(isOpen) {
+        sidebar.classList.toggle("open", isOpen);
+        sidebarBackdrop.hidden = !isOpen;
+    }
+
+    document.getElementById("nav-toggle-btn").addEventListener("click", () => {
+        setNavOpen(!sidebar.classList.contains("open"));
+    });
+
+    sidebarBackdrop.addEventListener("click", () => setNavOpen(false));
+
     // ---- Nav view switching ----
     document.querySelectorAll("[data-view]").forEach(link => {
         link.addEventListener("click", () => {
@@ -431,6 +447,7 @@ export function initShell() {
             document.querySelectorAll("[data-view]").forEach(l => l.classList.remove("active"));
             link.classList.add("active");
             showView("view-" + link.dataset.view);
+            setNavOpen(false); // picking a section dismisses the drawer on phones
         });
     });
 

@@ -74,7 +74,7 @@ function renderTable(batteries) {
 
         const row = document.createElement("tr");
         row.innerHTML = `
-            <td class="battery-number">${battery.battery_number}</td>
+            <td class="battery-number col-frozen">${battery.battery_number}</td>
             <td>${battery.model || "-"}</td>
             <td><span class="status-pill ${statusClass}">${battery.status}</span></td>
             <td>

@@ -2,6 +2,7 @@
 <html>
 <head>
     <title>JASIRI NET — Battery Tracker</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="stylesheet" href="/static/css/common.css">
     <link rel="stylesheet" href="/static/css/dashboard.css">
     <link rel="stylesheet" href="/static/css/sites.css">
@@ -50,6 +51,12 @@
     </div>
 
     <header class="global-topbar" id="global-topbar" hidden>
+        <button type="button" class="nav-toggle-btn" id="nav-toggle-btn" aria-label="Open navigation">
+            <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M2 4H14M2 8H14M2 12H14" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+            </svg>
+        </button>
+
         <div class="global-topbar-brand">
             <img src="/static/jn-logo.png" alt="Jasiri Net" class="global-topbar-logo">
             <div class="global-topbar-name">JASIRI NET <span>— OPS</span></div>
@@ -105,7 +112,8 @@
     </header>
 
     <div class="layout" id="app-layout" hidden>
-        <nav class="sidebar">
+        <div class="sidebar-backdrop" id="sidebar-backdrop" hidden></div>
+        <nav class="sidebar" id="sidebar">
 
             <div class="nav-category">
                 <button class="nav-heading active" data-view="dashboard" data-label="Batteries">
