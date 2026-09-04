@@ -17,9 +17,18 @@ Usage:
   python3 ask_deepseek.py --prompt-file task.txt --design DESIGN.md --rules RULES.md \
       --patch --error-log build_error.txt --previous generated.js --out generated.js
 
-Model tiers (DeepSeek V4 family, as of mid-2026):
-  flash  — cheap, default for boilerplate/replication
-  pro    — flagship, use for anything schema/algorithm-heavy
+Model: hardcoded to deepseek-v4-pro (see MODEL below) — no flash/pro flag,
+deliberately, so there's no per-call tier decision to get wrong. See
+DELEGATION.md's cost-model note for what that trades off.
+
+Best-fit task shape, per a full phase's worth of real Phase 1/2 examples
+(see DELEGATION.md's "Patterns observed"): verbatim pattern replication —
+an already-decided CSS/markup/JS structure reproduced under a new
+selector, file, or name, with an explicit list of what's allowed to
+change. Prompt-file should give the full source to copy from, the exact
+target, and that allow-list; DELEGATION.md's verification steps (diff
+against the original, every call, no exceptions) still apply regardless
+of how routine the call feels.
 """
 import argparse
 import json

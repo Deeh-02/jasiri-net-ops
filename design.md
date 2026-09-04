@@ -54,14 +54,18 @@ Three families, loaded once via a Google Fonts `@import` in `common.css`:
   color (e.g. `rgba(61, 220, 151, 0.12)` background with solid `--accent`
   text) — never a solid-fill pill.
 - **Modals** (`.modal-overlay` / `.modal-box`): centered, blurred dark
-  backdrop, 360px default width (640px for the one "large" modal — the
-  battery detail view), `fadeIn` animation, always paired with a
-  `.modal-actions` secondary/primary button row.
+  backdrop, 360px default width (`.dashboard-modal-box-lg`, 640px, for
+  modals with a table inside — the View Battery detail view and, Phase 2,
+  the stat-card click-through detail), `fadeIn` animation, always paired
+  with a `.modal-actions` secondary/primary button row (the two large
+  modals use a close-`×`-button header instead, no bottom action row —
+  they're read-only detail views, not forms).
 - **Tables:** header row uses `--surface-2` background with dim uppercase
   mono labels; body rows highlight `--surface-2` on hover; every table row
   action (edit/delete/move/view) is a 30×32px square icon button with a
   `--surface-2` fill, `--border` outline, turning `--accent` (edit/view) or
-  `--danger` (delete) on hover.
+  `--danger` (delete) on hover. No exceptions anymore — Roles' Edit/Delete
+  buttons had no styling at all until Phase 2, now match this exactly.
 - **Row action icons are inline SVG, not an icon font** — each icon is a
   small function returning a raw `<svg>` string (`common.js`'s
   `batteryIconSvg`/`moveIconSvg`/`editIconSvg`/`viewIconSvg`/
@@ -70,6 +74,26 @@ Three families, loaded once via a Google Fonts `@import` in `common.css`:
 - **Toggle switches** (`.perm-toggle`, role permission grid): custom
   checkbox-driven pill toggle, not a native checkbox — accent-colored track
   when checked, sliding thumb.
+- **Tab groups** (`.dashboard-tab-slant`, Settings' `.settings-tab`):
+  slanted parallelogram tabs (`clip-path`), uppercase Space Grotesk,
+  `--surface-2` background with dim text at rest, active tab drops to
+  `--surface` background with `--accent` text — not a filled pill, not an
+  underline. Used by the View Battery modal's Details/Logs tabs and (Phase
+  2) Settings' Profile/Password tabs; kept as two independently-styled
+  classes rather than one shared one, on purpose — each file's own click
+  handler wires its own tabs by bare class name, so sharing one class would
+  mean each handler also firing on the other's buttons.
+- **Inline text-input autocomplete** (`.move-by-field`/`.move-by-suggestions`/
+  `.move-by-option`, the "Moved by" field): a positioned dropdown anchored
+  to a text input, filtered live as you type, scrollable past a handful of
+  matches. Visually mirrors `.charge-dropdown`/`.charge-menu`'s dropdown
+  look (`--surface` box, `--border` outline, shadow) but kept as its own
+  component — that one's a short fixed list in JetBrains Mono for a status
+  picker, this one needs scroll for a potentially long name list and uses
+  Inter to match the input it's attached to, not a settings-toggle read.
+  The suggestion list is a convenience only — free text past it is always
+  accepted; a non-blocking `--warn`-colored note appears if what's typed
+  doesn't match a known user, but nothing ever blocks on it.
 
 ## Spacing conventions
 
@@ -147,11 +171,25 @@ above the table.
 momentum scrolling on at least one tested device — removing it (tried, to
 fix a sticky-header bounce glitch below) made the last rows of a long table
 unreachable by flick gesture, confirmed via `scrollTop`/`scrollHeight`
-math, not just a look. `overscroll-behavior-y: contain` plus a `box-shadow`
-+ `transform: translateZ(0)` on the sticky header reduce, but may not fully
-eliminate, a brief visual overshoot during a fast upward flick's rubber-band
-bounce — an accepted, low-priority cosmetic gap rather than something
-chased indefinitely at the cost of scroll reachability.
+math, not just a look. A `box-shadow` + `transform: translateZ(0)` on the
+sticky header reduce, but may not fully eliminate, a brief visual overshoot
+during a fast upward flick's rubber-band bounce — an accepted, low-priority
+cosmetic gap rather than something chased indefinitely at the cost of
+scroll reachability.
+
+**Phase 2 update:** `overscroll-behavior-y: contain` used to sit alongside
+that box-shadow/translateZ(0) pair as a third mitigation for the same
+bounce seam. Removed in Phase 2 — it was also silently blocking page
+scroll on desktop entirely (declaring only `overflow-x` computes
+`overflow-y` to `auto` too, so `.table-scroll` became a phantom vertical
+scroll container even with nothing to scroll there — same interaction as
+the topbar bug documented below), and on phones it was stopping scroll
+from handing off to the page once the table's own internal scroll maxed
+out, which read as the table just eating scroll input. Losing `contain`
+trades a very slightly more visible (already low-priority, already not
+fully eliminated) bounce seam for scroll that actually works in both
+places — the right trade. If the seam ever needs revisiting, don't reach
+for `contain` again without re-checking both effects above.
 
 **A fixed bug worth documenting as a "why," not just a "what":** the
 topbar previously used `overflow: hidden` to stop its brand/icon row from

@@ -28,12 +28,17 @@ static/
   js/
     common.js              # shared state, fragment loader, cmdk, app-shown registry
     app.js                  # bootstrap — the only file that imports every view module
-    <view>.js               # one ES module per view, imports only from common.js
+    <view>.js               # one ES module per view, imports only from common.js —
+                             # EXCEPT dashboard.js <-> movements.js, which import from
+                             # each other directly: both are the same "batteries"
+                             # domain (see ARCHITECTURE.md), just split across files
   css/
     common.css              # shared chrome/framework (topbar, nav, modals, tables)
     <view>.css               # one file per view
 schema.sql            # STALE — see ARCHITECTURE.md's Schema choices section
 architecture.md, design.md, phase.md, rules.md, delegation.md, claude.md
+readme.md, changelog.md, treeview.md   # project-facing docs, not governance docs —
+                                         # see each file's own header for what it's for
 ask_deepseek.py        # DeepSeek delegation script (see DELEGATION.md)
 ```
 Domain boundary is `auth` / `permissions` / `sites` / `batteries` (includes
@@ -93,3 +98,13 @@ See DELEGATION.md for the full policy — status, cost model, what's safe to
 delegate, verification, and the confirmation checkpoint. Not repeated here
 so this file stays small; DELEGATION.md is the one you actually read
 before delegating anything.
+
+## Context hygiene
+Flag it — don't wait to be asked — when a task involves many rounds
+of back-and-forth (repeated debugging on the same issue, several
+screenshots exchanged, going in circles on one bug): suggest
+`/compact` once that sub-task actually wraps up. Suggest `/clear`
+when switching to a genuinely different task or phase. This is a
+suggestion, not a blocking checkpoint — keep working normally if
+there's no response, just flag it again at the next natural
+opportunity (e.g. next sub-task boundary).

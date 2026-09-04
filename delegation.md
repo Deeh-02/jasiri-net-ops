@@ -1,13 +1,18 @@
 # DELEGATION.md — DeepSeek Delegation Policy (JASIRI NET OPS)
 
-**Status: built, not yet run against the real API.** `scripts/ask_deepseek.py`
-exists and covers the DeepSeek API call, the `--design`/`--rules` context
-injection, and the `--patch`/`--error-log` retry flow. `DEEPSEEK_API_KEY`
-must be set as an environment variable — same pattern as `DATABASE_URL`,
-never hardcoded, never allowed to appear in a delegated file's diff. It
-hasn't been exercised against a live DeepSeek key yet, so treat the first
-real call as a test: check the output actually looks right before trusting
-the pipeline on anything that matters.
+**Status: built and running in production use.** `ask_deepseek.py` (repo
+root — not `scripts/`, despite what this line used to say) covers the
+DeepSeek API call, the `--design`/`--rules` context injection, and the
+`--patch`/`--error-log` retry flow. `DEEPSEEK_API_KEY` must be set as an
+environment variable — same pattern as `DATABASE_URL`, never hardcoded,
+never allowed to appear in a delegated file's diff. First exercised for
+real in Phase 1 (the five-view table-wrapper replication, all 5 calls
+diff-verified clean); used again several times in Phase 2 (see "Patterns
+observed" below) with the same track record — every call's diff came back
+either clean or with only harmless, accepted deltas (a stripped trailing
+newline, restored on apply). Treat that as a real track record now, not a
+one-off — but the verification steps below still run on every call
+regardless; they're not a first-call-only precaution.
 
 **Cost model.** The owner is on a Claude subscription, so delegating doesn't
 save Claude dollars — it saves Claude *usage-window quota*. DeepSeek calls
@@ -133,5 +138,38 @@ needed a manual fix.
 - Schema or infra changes
 - Anything crossing a domain boundary (auth, assets, sites, permissions, users)
 - Anything outside the current phase's declared scope in PHASES.md
-- `scripts/ask_deepseek.py` itself — future changes to it are a judgment
-  task, not something to hand off to the tool it defines
+- `ask_deepseek.py` itself — future changes to it are a judgment task, not
+  something to hand off to the tool it defines
+
+**Patterns observed (Phase 2) — what this project's delegation actually
+looks like in practice, once there was a full phase of real examples to
+look back on:**
+
+The single most common, safest, highest-frequency shape wasn't file moves
+(Phase 0's original use case) — it was **verbatim CSS/structural pattern
+replication**: taking a component whose styling/markup is already fully
+decided somewhere in the codebase and reproducing it, unchanged, under a
+new selector or in a new file. Phase 2 delegated exactly this shape twice
+(3b's Movements-page column, item 5's password-toggle markup before it got
+reverted for an unrelated reason) and did it *by hand* at least twice more
+where it should have gone to DeepSeek instead — item 1's Roles button
+restyle (copy `.edit-user-btn`/`.delete-user-btn` verbatim to
+`.edit-role-btn`/`.delete-role-btn`) and several of the new dropdown/modal
+components (`.move-by-suggestions` mirroring `.charge-menu`'s look, the
+stat-detail modal reusing the View Battery modal's split-header-scroll
+table) were all "the source pattern is fully decided, only the target
+selector/file changes" — the textbook verbatim-execution case DELEGATION.md
+already describes, just not recognized as one in the moment. Next time this
+shape comes up — "make X look/behave exactly like the already-built Y,
+just under a different name" — delegate it by default rather than doing it
+directly; the judgment call (deciding X should match Y, and exactly how)
+is what stays with Claude, and it's already done by the time the shape is
+recognized.
+
+By contrast, the *backend* changes this phase (the `movements:create`/
+`manage` permission split, the badge-count query redefinition, the
+`moved_by` field wiring) were correctly kept direct — each one required
+deciding what a field or permission should actually mean, not reproducing
+an existing decision. That distinction (reproducing vs. deciding) is doing
+the real work in "what's safe to delegate," more than any per-phase or
+per-file-type rule could.

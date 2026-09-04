@@ -49,7 +49,16 @@ everyone else. `status` is the soft-delete flag.
 `(role_id, section, action) → allowed` table; a missing row means not
 allowed (`check_role_permission` returns `False` on no match, not an error).
 Sections in use today: `batteries`, `movements`, `sites`, `site_checks`,
-`users`, `roles`.
+`users`, `roles`. No CHECK constraint on `action` — it's plain `text`, so a
+new action string (like `movements`' `create`, added Phase 2) is just a
+data-level addition, no migration needed. `movements` has three actions in
+use, each gating something distinct: `view` (see the Movements tracking
+page at all), `create` (initiate a new move from a battery's row), `manage`
+(act on a movement already in progress — mark in-transit/arrived, cancel,
+confirm site online). `create` and `manage` used to be one permission;
+split in Phase 2 once it became clear "can start a move" and "can progress
+one already started" are genuinely different capabilities, not the same
+thing asked two ways.
 
 ## Infra / hosting choices
 
@@ -100,10 +109,20 @@ and `confirm_site_online`/`mark_site_still_down` need to flip a location's
 write or a business-logic read, and rewriting them as accessor calls would
 mean N+1 queries for no isolation benefit.
 
-**Frontend mirrors the same shape.** Each view is an ES module
-(`static/js/<view>.js`) that imports only from `static/js/common.js` — never
-from another view's module — so nothing one view does can silently reach
-into another's DOM, cache, or event wiring. `common.js` owns cross-cutting
+**Frontend mirrors the same shape, with one Phase 2 exception.** Each view
+is an ES module (`static/js/<view>.js`) that imports only from
+`static/js/common.js` — never from another view's module — so nothing one
+view does can silently reach into another's DOM, cache, or event wiring.
+The one exception: `dashboard.js` and `movements.js` import from each
+other directly (`dashboard.js` uses `movements.js`'s `MOVEMENT_STATUS_META`
+for the stat-card detail modal's status labels; `movements.js` calls
+`dashboard.js`'s `refreshData()` after a cancel, so the battery table
+doesn't go stale). This is allowed because they're not actually different
+domains — both are "batteries" (movements is grouped under it, see Schema
+choices below) just split across two files for view-size reasons. A
+cross-import between genuinely different domains (say `sites.js` reaching
+into `users.js`) would still be the same violation it always was. `common.js`
+owns cross-cutting
 concerns each view needs to plug into without common.js knowing about any
 view specifically: a fragment loader (injects each view's HTML from
 `static/views/<view>.html` into its mount point at startup), an app-shown
