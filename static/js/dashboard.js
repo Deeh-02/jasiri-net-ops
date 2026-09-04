@@ -92,7 +92,7 @@ function renderTable(batteries) {
             <td>${formatDate(battery.moved_at)}</td>
             <td>
     <div class="actions-cell">
-        ${can("movements", "manage") ? `
+        ${can("movements", "create") ? `
         <button type="button" class="move-btn" data-id="${battery.id}" data-number="${battery.battery_number}" title="Move battery">
             ${moveIconSvg()}
         </button>` : ""}

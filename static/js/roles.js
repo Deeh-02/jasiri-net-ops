@@ -62,9 +62,27 @@ async function deleteRole(id, name) {
 
 const PERM_SECTIONS = [
     {
-        key: "batteries", label: "Batteries", actions: ["add", "edit", "delete"],
+        key: "batteries", label: "Batteries",
+        actions: [
+            "add", "edit", "delete",
+            // Flat checkbox alongside the others — initiating a move (the
+            // move icon/modal on the battery table) is a distinct
+            // capability from managing movements already in progress
+            // (see the nested Movements section below). Maps to
+            // movements:create, which routers/batteries.py's create_movement
+            // checks specifically for this.
+            { label: "Move Battery", section: "movements", action: "create" },
+        ],
         children: [
-            { key: "movements", label: "Movements", actions: ["manage"] }
+            // The Movements tracking page (pending/in-transit/etc.) — its
+            // own toggle gates seeing the page at all (movements:view); the
+            // "Manage Movement" checkbox inside gates acting on movements
+            // already in progress there (mark in-transit/arrived, cancel,
+            // confirm site online — movements:manage, checked by
+            // movements.js and those specific router endpoints). Separate
+            // from "Move Battery" above, which only covers starting a new
+            // move.
+            { key: "movements", label: "Movements", actions: [{ label: "Manage Movement", action: "manage" }] }
         ]
     },
     {
@@ -87,12 +105,20 @@ function renderPermGrid(permissions) {
     const grid = document.getElementById("perm-grid");
 
     function renderActionCheckboxes(sectionKey, actions, noun) {
-        return actions.map(action => {
-            const checked = allowedSet.has(`${sectionKey}:${action}`);
-            const actionLabel = capitalize(action) + " " + noun;
+        return actions.map(item => {
+            // A plain string writes its own section's permission with the
+            // generic "Capitalized action + noun" label (the common case).
+            // An object can override the label and/or remap to a different
+            // section — see "Move Battery" (rendered under Batteries, but
+            // writes to the movements section).
+            const isMapped = typeof item === "object";
+            const dataSection = isMapped && item.section ? item.section : sectionKey;
+            const dataAction = isMapped ? item.action : item;
+            const actionLabel = isMapped ? item.label : capitalize(dataAction) + " " + noun;
+            const checked = allowedSet.has(`${dataSection}:${dataAction}`);
             return `
                 <label class="perm-checkbox-row">
-                    <input type="checkbox" class="perm-action-checkbox" data-section="${sectionKey}" data-action="${action}" ${checked ? "checked" : ""}>
+                    <input type="checkbox" class="perm-action-checkbox" data-section="${dataSection}" data-action="${dataAction}" ${checked ? "checked" : ""}>
                     ${actionLabel}
                 </label>
             `;

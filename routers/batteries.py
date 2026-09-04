@@ -103,7 +103,10 @@ def set_charge_status(battery_id: int, update: ChargeStatusUpdate, current_user:
 
 @router.post("/movements")
 def create_movement(movement: MovementCreate, current_user: dict = Depends(get_current_user)):
-    if not user_has_permission(current_user, "movements", "manage"):
+    # "create" gates initiating a new move — distinct from "manage", which
+    # gates acting on movements already in progress (see the mark-in-transit/
+    # mark-arrived/confirm-online/cancel endpoints below).
+    if not user_has_permission(current_user, "movements", "create"):
         raise HTTPException(status_code=403, detail="You don't have permission to move batteries")
     if movement.reason is not None and movement.reason not in MOVEMENT_REASONS:
         raise HTTPException(status_code=400, detail=f"reason must be one of {sorted(MOVEMENT_REASONS)}")
