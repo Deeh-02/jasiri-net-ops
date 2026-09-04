@@ -120,10 +120,12 @@ def get_all_batteries():
             current_location = "Unknown (no movements recorded)"
             moved_by = None
             moved_at = None
+            movement_status = None
         else:
             current_location = last["location"]
             moved_by = last["moved_by"]
             moved_at = last["moved_at"]
+            movement_status = last["movement_status"]
 
         batteries.append({
             "id": battery_id,
@@ -135,6 +137,12 @@ def get_all_batteries():
             "status": _battery_status_label(last),
             "moved_by": moved_by,
             "moved_at": moved_at.isoformat() if moved_at else None,
+            # The movement lifecycle status (pending/in_transit/etc.) of
+            # this battery's last movement — separate from `status` above,
+            # which is purely At Base/Deployed. Used by the stat-card
+            # click-through detail (Phase 2 item 8) to show what's actually
+            # happening with each battery, not just where it physically is.
+            "movement_status": movement_status,
         })
     return batteries
 

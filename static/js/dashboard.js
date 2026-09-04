@@ -3,27 +3,33 @@ import {
     batteryIconSvg, moveIconSvg, editIconSvg, viewIconSvg, deleteIconSvg,
     registerAppShownHandler, registerCmdkProvider, refreshBadges,
 } from "./common.js";
+import { MOVEMENT_STATUS_META } from "./movements.js";
 
 const CHARGE_OPTIONS = ["charged", "charging", "low", "unknown"];
 let batteriesCache = [];
 let locationsCache = []; // scoped to this view — just the move-modal's destination list
+let movedByUsersCache = []; // active users, for the "Moved by" typeahead — free text stays allowed either way
 let moveModalBatteryId = null;
 
 // ---- Stats: 5 boxes, no Total, distinct colors ----
-function buildStats(batteries) {
-    const deployed = batteries.filter(b => b.status === "Deployed").length;
-    const charged = batteries.filter(b => b.charge_status === "charged").length;
-    const charging = batteries.filter(b => b.charge_status === "charging").length;
-    const low = batteries.filter(b => b.charge_status === "low").length;
-    const unknown = batteries.filter(b => b.charge_status === "unknown").length;
+// Same predicate used for both the card's count and its click-through
+// filter (buildStats/openStatDetail), so the two never drift apart.
+const STAT_FILTERS = {
+    deployed: b => b.status === "Deployed",
+    charged: b => b.charge_status === "charged",
+    charging: b => b.charge_status === "charging",
+    low: b => b.charge_status === "low",
+    unknown: b => b.charge_status === "unknown",
+};
 
+function buildStats(batteries) {
     return [
-        { label: "Deployed", value: deployed, cls: "deployed" },
-        { label: "Charged", value: charged, cls: "charged" },
-        { label: "Charging", value: charging, cls: "charging" },
-        { label: "Low", value: low, cls: "low" },
-        { label: "Unknown", value: unknown, cls: "unknown" },
-    ];
+        { label: "Deployed", cls: "deployed" },
+        { label: "Charged", cls: "charged" },
+        { label: "Charging", cls: "charging" },
+        { label: "Low", cls: "low" },
+        { label: "Unknown", cls: "unknown" },
+    ].map(s => ({ ...s, value: batteries.filter(STAT_FILTERS[s.cls]).length }));
 }
 
 // ---- Initial load: shows loading text once ----
@@ -34,13 +40,23 @@ async function loadDashboard() {
 }
 
 // ---- Quiet refresh: no blanking, just swap content in place ----
-async function refreshData() {
+export async function refreshData() {
     const [batteriesRes, locationsRes] = await Promise.all([
         fetch("/batteries", { headers: authHeaders() }),
         fetch("/locations", { headers: authHeaders() })
     ]);
     batteriesCache = batteriesRes.ok ? await batteriesRes.json() : [];
     locationsCache = locationsRes.ok ? await locationsRes.json() : [];
+
+    // Gated on the permission itself (not just a .ok check) so a role
+    // without users:view never even sends the request — the typeahead
+    // just has no suggestions for them, free text still works fine.
+    if (can("users", "view")) {
+        const usersRes = await fetch("/users", { headers: authHeaders() });
+        movedByUsersCache = usersRes.ok ? (await usersRes.json()).filter(u => u.status !== "inactive") : [];
+    } else {
+        movedByUsersCache = [];
+    }
 
     renderStats(buildStats(batteriesCache));
     renderTable(batteriesCache);
@@ -50,11 +66,72 @@ async function refreshData() {
 function renderStats(stats) {
     const grid = document.getElementById("stat-grid");
     grid.innerHTML = stats.map(s => `
-        <div class="stat-card ${s.cls}">
+        <div class="stat-card ${s.cls}" data-filter="${s.cls}" role="button" tabindex="0">
             <div class="stat-label">${s.label}</div>
             <div class="stat-value">${s.value}</div>
         </div>
     `).join("");
+
+    grid.querySelectorAll(".stat-card").forEach(card => {
+        card.addEventListener("click", () => openStatDetail(card.dataset.filter));
+        card.addEventListener("keydown", (e) => {
+            if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                openStatDetail(card.dataset.filter);
+            }
+        });
+    });
+}
+
+// Overrides just for this modal's Status column — the Movements page itself
+// keeps showing "Site Confirmed Online" unchanged (movements.js's own
+// rendering doesn't go through this function).
+const STAT_DETAIL_STATUS_LABELS = {
+    site_confirmed_online: "On Site",
+    completed: "On Site",
+};
+
+function movementStatusLabel(battery) {
+    if (!battery.movement_status) return "—";
+    if (STAT_DETAIL_STATUS_LABELS[battery.movement_status]) {
+        return STAT_DETAIL_STATUS_LABELS[battery.movement_status];
+    }
+    return (MOVEMENT_STATUS_META[battery.movement_status] || { label: capitalize(battery.movement_status) }).label;
+}
+
+function openStatDetail(filterKey) {
+    const stat = buildStats(batteriesCache).find(s => s.cls === filterKey);
+    const matches = batteriesCache.filter(STAT_FILTERS[filterKey]);
+
+    document.getElementById("stat-detail-title").textContent = `${stat.label} (${matches.length})`;
+
+    const list = document.getElementById("stat-detail-list");
+    if (matches.length === 0) {
+        list.innerHTML = `<div class="dashboard-log-empty">No batteries in this state.</div>`;
+    } else {
+        list.innerHTML = `
+            <table class="dashboard-logs-table">
+                <colgroup>
+                    <col style="width:14%">
+                    <col style="width:24%">
+                    <col style="width:16%">
+                    <col style="width:46%">
+                </colgroup>
+                <tbody>
+                    ${matches.map(b => `
+                        <tr>
+                            <td>${b.battery_number}</td>
+                            <td>${b.current_location}</td>
+                            <td>${movementStatusLabel(b)}</td>
+                            <td>${formatDate(b.moved_at)}</td>
+                        </tr>
+                    `).join("")}
+                </tbody>
+            </table>
+        `;
+    }
+
+    document.getElementById("stat-detail-overlay").hidden = false;
 }
 
 function renderTable(batteries) {
@@ -187,12 +264,68 @@ function openMoveModal(batteryId, batteryNumber) {
     moveModalBatteryId = batteryId;
     moveBatteryLabel.textContent = batteryNumber ? `— ${batteryNumber}` : "";
     moveForm.reset();
+    document.getElementById("move-by-suggestions").hidden = true;
+    document.getElementById("move-by-warning").hidden = true;
     moveOverlay.hidden = false;
 }
 
 function closeMoveModal() {
     moveOverlay.hidden = true;
     moveModalBatteryId = null;
+}
+
+// ---- "Moved by" typeahead: free text stays allowed (a contractor or
+// anyone not in the system is a valid entry), the dropdown is just a
+// convenience and the warning is just a heads-up — neither ever blocks
+// what gets typed or submitted. ----
+function renderMoveBySuggestions(query) {
+    const box = document.getElementById("move-by-suggestions");
+    const q = query.trim().toLowerCase();
+    const matches = q ? movedByUsersCache.filter(u => u.name.toLowerCase().includes(q)) : [];
+
+    if (matches.length === 0) {
+        box.hidden = true;
+        box.innerHTML = "";
+        return;
+    }
+
+    box.innerHTML = matches.map(u => `<div class="move-by-option" data-name="${u.name}">${u.name}</div>`).join("");
+    box.hidden = false;
+
+    box.querySelectorAll(".move-by-option").forEach(opt => {
+        // mousedown (not click) + preventDefault so the input never blurs
+        // on the way to this handler — no blur-vs-click race to work around.
+        opt.addEventListener("mousedown", (e) => {
+            e.preventDefault();
+            const input = document.getElementById("move-by");
+            input.value = opt.dataset.name;
+            box.hidden = true;
+            updateMoveByWarning();
+        });
+    });
+}
+
+function updateMoveByWarning() {
+    const value = document.getElementById("move-by").value.trim();
+    const warning = document.getElementById("move-by-warning");
+    if (!value) {
+        warning.hidden = true;
+        return;
+    }
+    const isKnownUser = movedByUsersCache.some(u => u.name.toLowerCase() === value.toLowerCase());
+    warning.hidden = isKnownUser;
+}
+
+function initMoveByTypeahead() {
+    const input = document.getElementById("move-by");
+    input.addEventListener("input", (e) => {
+        renderMoveBySuggestions(e.target.value);
+        updateMoveByWarning();
+    });
+    input.addEventListener("focus", (e) => renderMoveBySuggestions(e.target.value));
+    input.addEventListener("blur", () => {
+        document.getElementById("move-by-suggestions").hidden = true;
+    });
 }
 
 // ---- View Battery modal (details + paginated movement logs) ----
@@ -326,6 +459,7 @@ export function initDashboard() {
     moveOverlay = document.getElementById("move-overlay");
     moveForm = document.getElementById("move-form");
     moveBatteryLabel = document.getElementById("move-battery-label");
+    initMoveByTypeahead();
     editBatteryOverlay = document.getElementById("edit-battery-overlay");
     editBatteryCancelBtn = document.getElementById("edit-battery-cancel");
     addBatteryOverlay = document.getElementById("add-battery-overlay");
@@ -377,6 +511,16 @@ export function initDashboard() {
     document.getElementById("view-battery-overlay").addEventListener("click", (e) => {
         if (e.target.id === "view-battery-overlay") {
             document.getElementById("view-battery-overlay").hidden = true;
+        }
+    });
+
+    document.getElementById("stat-detail-close").addEventListener("click", () => {
+        document.getElementById("stat-detail-overlay").hidden = true;
+    });
+
+    document.getElementById("stat-detail-overlay").addEventListener("click", (e) => {
+        if (e.target.id === "stat-detail-overlay") {
+            document.getElementById("stat-detail-overlay").hidden = true;
         }
     });
 

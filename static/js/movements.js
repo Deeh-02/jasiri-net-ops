@@ -1,9 +1,10 @@
 import { can, authHeaders, formatDate, capitalize, deleteIconSvg, showView, refreshBadges } from "./common.js";
+import { refreshData as refreshDashboardData } from "./dashboard.js";
 
 let movementsCache = [];
 let showMovementHistory = false;
 
-const MOVEMENT_STATUS_META = {
+export const MOVEMENT_STATUS_META = {
     pending: { label: "Pending", cls: "pending" },
     in_transit: { label: "In Transit", cls: "in-transit" },
     arrived: { label: "Arrived", cls: "arrived" },
@@ -110,6 +111,12 @@ function attachMovementActionListeners() {
             if (res.ok) {
                 await loadMovements();
                 await refreshBadges();
+                // A cancelled movement drops out of get_last_movement()'s
+                // consideration, which can change what the battery table
+                // shows for this battery (location/status/moved-by/since
+                // falls back to the prior movement) — without this it stays
+                // stale until the page reloads.
+                await refreshDashboardData();
             } else {
                 alert("Failed to cancel movement");
             }

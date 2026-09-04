@@ -10,12 +10,42 @@
                     <option value="site_down">Site has no power</option>
                     <option value="storage">Returning to storage</option>
                 </select>
-                <input type="text" id="move-by" placeholder="Moved by (optional)">
+                <div class="move-by-field">
+                    <input type="text" id="move-by" placeholder="Moved by (optional)" autocomplete="off">
+                    <div class="move-by-suggestions" id="move-by-suggestions" hidden></div>
+                </div>
+                <div class="move-by-warning" id="move-by-warning" hidden>Doesn't match a known user — will still be saved as typed.</div>
                 <div class="modal-actions">
                     <button type="button" id="move-cancel" class="btn-secondary">Cancel</button>
                     <button type="submit" class="btn-primary">Confirm Move</button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="stat-detail-overlay" hidden>
+        <div class="modal-box dashboard-modal-box-lg">
+            <div class="dashboard-view-battery-header">
+                <h3 id="stat-detail-title">—</h3>
+                <button type="button" id="stat-detail-close" class="dashboard-modal-close-btn">&times;</button>
+            </div>
+            <table class="dashboard-logs-table dashboard-logs-table-header">
+                <colgroup>
+                    <col style="width:14%">
+                    <col style="width:24%">
+                    <col style="width:16%">
+                    <col style="width:46%">
+                </colgroup>
+                <thead>
+                    <tr>
+                        <th>Battery #</th>
+                        <th>Location</th>
+                        <th>Status</th>
+                        <th>Since</th>
+                    </tr>
+                </thead>
+            </table>
+            <div id="stat-detail-list" class="dashboard-logs-scroll"></div>
         </div>
     </div>
 

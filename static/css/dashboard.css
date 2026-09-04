@@ -96,6 +96,53 @@
     background: var(--surface-2);
 }
 
+/* ---- "Moved by" typeahead (Phase 2 item 2) — free-text input with a
+   filtered, scrollable suggestion list underneath. Same dropdown look as
+   .charge-menu/.charge-option above, kept separate since this one needs
+   scroll (a long user list) and JetBrains Mono there reads as a settings
+   toggle, not a name list — Inter matches the input it's attached to. ---- */
+.move-by-field {
+    position: relative;
+}
+
+.move-by-field input {
+    width: 100%;
+}
+
+.move-by-suggestions {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    right: 0;
+    z-index: 20;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+    max-height: 180px;
+    overflow-y: auto;
+}
+
+.move-by-option {
+    padding: 9px 12px;
+    font-family: 'Inter', sans-serif;
+    font-size: 13px;
+    color: var(--text);
+    cursor: pointer;
+    transition: background 0.12s ease;
+}
+
+.move-by-option:hover,
+.move-by-option.active {
+    background: var(--surface-2);
+}
+
+.move-by-warning {
+    margin-top: -4px;
+    font-size: 12px;
+    color: var(--warn);
+}
+
 /* ---- Battery status pill colors (base .status-pill is in common.css) ---- */
 .status-pill.deployed { color: var(--warn); background: rgba(245, 166, 35, 0.12); }
 .status-pill.at-base { color: var(--accent); background: rgba(61, 220, 151, 0.12); }
