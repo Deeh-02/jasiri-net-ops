@@ -470,6 +470,15 @@ body {
 .table-scroll {
     width: 100%;
     overflow-x: auto;
+    /* Setting only overflow-x drags overflow-y's computed value from
+       "visible" into "auto" too (same interaction documented on
+       .global-topbar below) — without this, .table-scroll silently became
+       a vertical scroll container on desktop despite never overflowing
+       vertically there (no max-height until the phone media query below),
+       and that phantom container was enough for a browser to treat wheel
+       scroll over the table as belonging to it instead of the page,
+       blocking page scroll with nothing to show for it. */
+    overflow-y: visible;
     /* Tried dropping this to fix a sticky-header overshoot glitch during
        momentum scroll (a real, documented interaction on some WebKit
        versions) — but on-device testing showed this specific phone relies
@@ -480,7 +489,15 @@ body {
        this stays — if the overshoot needs revisiting, look for a fix that
        doesn't touch momentum scrolling itself. */
     -webkit-overflow-scrolling: touch;
-    overscroll-behavior-y: contain;
+    /* No overscroll-behavior-y here (deliberately removed, was "contain")
+       — on phones, once the table's own internal scroll (max-height below)
+       hits its limit, scroll is now allowed to chain through to the page
+       instead of just stopping dead. "contain" was originally added
+       alongside the sticky header's box-shadow/translateZ(0) fix (still in
+       place below) to reduce a rubber-band-bounce visual seam — design.md
+       already documented that seam as a low-priority, not-fully-eliminated
+       cosmetic gap even with "contain" in place, so losing it to restore
+       working hand-off scroll is the right trade. */
 }
 
 /* Scoped to .table-scroll — overrides the global 10px scrollbar (further
