@@ -459,14 +459,39 @@ export function initDashboard() {
     registerAppShownHandler(loadDashboard);
 
     registerCmdkProvider({
-        getItems: () => can("batteries", "view") ? batteriesCache.map(b => ({
-            type: "battery",
-            label: b.battery_number,
-            sublabel: [b.model, b.current_location].filter(Boolean).join(" — "),
-            action: () => {
-                document.querySelector('[data-view="dashboard"]').click();
-                openViewBatteryModal(b.id);
+        getItems: () => {
+            const actions = [];
+            if (can("batteries", "add")) {
+                actions.push({
+                    type: "action",
+                    label: "Add Battery",
+                    action: () => {
+                        document.querySelector('[data-view="dashboard"]').click();
+                        addBatteryOpenBtn.click();
+                    }
+                });
             }
-        })) : [],
+            if (can("movements", "create")) {
+                // No standalone "new movement" modal — a move is always
+                // started from a specific battery's row, so this lands on
+                // the Battery Tracker table rather than a blank form.
+                actions.push({
+                    type: "action",
+                    label: "Add Movement",
+                    sublabel: "Move a battery from the Battery Tracker table",
+                    action: () => document.querySelector('[data-view="dashboard"]').click(),
+                });
+            }
+            const batteries = can("batteries", "view") ? batteriesCache.map(b => ({
+                type: "battery",
+                label: b.battery_number,
+                sublabel: [b.model, b.current_location].filter(Boolean).join(" — "),
+                action: () => {
+                    document.querySelector('[data-view="dashboard"]').click();
+                    openViewBatteryModal(b.id);
+                }
+            })) : [];
+            return [...actions, ...batteries];
+        },
     });
 }

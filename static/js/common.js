@@ -263,7 +263,7 @@ function getEntityItems() {
 }
 
 function cmdkTypeLabel(type) {
-    return { section: "Go to", battery: "Battery", site: "Site", user: "User", role: "Role" }[type] || "";
+    return { section: "Go to", action: "Action", battery: "Battery", site: "Site", user: "User", role: "Role" }[type] || "";
 }
 
 let cmdkOverlay, cmdkInput, cmdkResults;

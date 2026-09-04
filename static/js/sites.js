@@ -161,14 +161,25 @@ export function initSites() {
     registerAppShownHandler(loadSites);
 
     registerCmdkProvider({
-        getItems: () => can("sites", "view") ? locationsCache.map(l => ({
-            type: "site",
-            label: l.name,
-            sublabel: l.address || (l.is_home_base ? "Home base" : ""),
-            action: () => {
-                document.querySelector('[data-view="sites"]').click();
-                if (can("sites", "edit")) openEditSiteModal(l.id);
-            }
-        })) : [],
+        getItems: () => {
+            const actions = can("sites", "add") ? [{
+                type: "action",
+                label: "Add Site",
+                action: () => {
+                    document.querySelector('[data-view="sites"]').click();
+                    addSiteOpenBtn.click();
+                }
+            }] : [];
+            const sites = can("sites", "view") ? locationsCache.map(l => ({
+                type: "site",
+                label: l.name,
+                sublabel: l.address || (l.is_home_base ? "Home base" : ""),
+                action: () => {
+                    document.querySelector('[data-view="sites"]').click();
+                    if (can("sites", "edit")) openEditSiteModal(l.id);
+                }
+            })) : [];
+            return [...actions, ...sites];
+        },
     });
 }

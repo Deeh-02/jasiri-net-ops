@@ -157,14 +157,25 @@ export function initUsers() {
         ensureLoaded: async () => {
             if (can("users", "view") && usersCache.length === 0) await loadUsers();
         },
-        getItems: () => can("users", "view") ? usersCache.filter(u => u.status !== "inactive").map(u => ({
-            type: "user",
-            label: u.name,
-            sublabel: u.email,
-            action: () => {
-                document.querySelector('[data-view="users"]').click();
-                if (can("users", "edit")) openUserForm(u.id);
-            }
-        })) : [],
+        getItems: () => {
+            const actions = can("users", "add") ? [{
+                type: "action",
+                label: "Add User",
+                action: () => {
+                    document.querySelector('[data-view="users"]').click();
+                    openUserForm(null);
+                }
+            }] : [];
+            const users = can("users", "view") ? usersCache.filter(u => u.status !== "inactive").map(u => ({
+                type: "user",
+                label: u.name,
+                sublabel: u.email,
+                action: () => {
+                    document.querySelector('[data-view="users"]').click();
+                    if (can("users", "edit")) openUserForm(u.id);
+                }
+            })) : [];
+            return [...actions, ...users];
+        },
     });
 }
