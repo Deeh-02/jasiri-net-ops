@@ -19,10 +19,10 @@ const MOVEMENT_REASON_LABELS = {
 };
 
 async function loadMovements() {
-    document.getElementById("movements-rows").innerHTML = '<tr><td colspan="6" class="loading-text">Loading movements...</td></tr>';
+    document.getElementById("movements-rows").innerHTML = '<tr><td colspan="7" class="loading-text">Loading movements...</td></tr>';
     const res = await fetch(`/movements${showMovementHistory ? "?history=true" : ""}`, { headers: authHeaders() });
     if (!res.ok) {
-        document.getElementById("movements-rows").innerHTML = '<tr><td colspan="6" class="loading-text">Failed to load movements</td></tr>';
+        document.getElementById("movements-rows").innerHTML = '<tr><td colspan="7" class="loading-text">Failed to load movements</td></tr>';
         return;
     }
     movementsCache = await res.json();
@@ -33,7 +33,7 @@ function renderMovementsList(movements) {
     const tbody = document.getElementById("movements-rows");
 
     if (movements.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="6" class="loading-text">No movements${showMovementHistory ? "" : " in progress"}.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="7" class="loading-text">No movements${showMovementHistory ? "" : " in progress"}.</td></tr>`;
         return;
     }
 
@@ -47,6 +47,7 @@ function renderMovementsList(movements) {
                 <td>${m.from_location || "—"} &rarr; ${m.to_location}</td>
                 <td>${MOVEMENT_REASON_LABELS[m.reason] || "—"}</td>
                 <td><span class="status-pill movement-${meta.cls}">${meta.label}</span></td>
+                <td>${m.moved_by || "—"}</td>
                 <td>${formatDate(m.created_at)}</td>
                 <td>${canMove ? renderMovementActions(m) : "—"}</td>
             </tr>
