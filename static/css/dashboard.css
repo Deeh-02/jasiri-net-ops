@@ -395,3 +395,32 @@
     font-size: 13px;
     padding: 12px 0;
 }
+
+/* ---- Phase 2 item 11: more breathing room, desktop only. Scoped to
+   #view-dashboard so this page's own bump doesn't spill into the shared
+   .stat-grid/table base other views (Check Sites, etc.) also sit on.
+   min-width:761px (the inverse of Phase 1's 760px phone breakpoint) so
+   these ID-specificity rules can't outrank Phase 1's mobile tightening —
+   equal-specificity source order stops protecting it once a selector this
+   specific is in play, so the guard has to be an explicit viewport split
+   instead. ---- */
+@media (min-width: 761px) {
+    #view-dashboard .page-header-row {
+        margin-bottom: 36px;
+    }
+
+    #view-dashboard .stat-grid {
+        gap: 20px;
+        margin-bottom: 40px;
+    }
+
+    #view-dashboard .stat-card {
+        padding: 26px 28px;
+    }
+
+    #view-dashboard table th,
+    #view-dashboard table td {
+        padding-top: 18px;
+        padding-bottom: 18px;
+    }
+}
