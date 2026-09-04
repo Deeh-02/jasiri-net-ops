@@ -6,35 +6,41 @@
     margin: -18px 0 24px;
 }
 
+/* Mirrors .dashboard-tab-slant (View Battery modal's Details/Logs tabs) —
+   same slant-tab pattern, kept as its own settings-scoped class rather than
+   a shared one so this file's tab click-handler and the modal's stay on
+   separate class names with no cross-wiring risk. */
 .settings-tabs {
     display: flex;
-    gap: 4px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 4px;
-    width: fit-content;
-    margin-bottom: 24px;
+    gap: 2px;
+    margin-bottom: 18px;
+    border-bottom: 1px solid var(--border);
 }
 
 .settings-tab {
-    background: none;
-    border: none;
-    border-radius: 6px;
-    padding: 8px 16px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-bottom: none;
     color: var(--text-dim);
-    font-family: 'Inter', sans-serif;
+    font-family: 'Space Grotesk', sans-serif;
     font-size: 13px;
-    font-weight: 600;
+    font-weight: 700;
+    padding: 9px 22px;
     cursor: pointer;
-    transition: background 0.15s ease, color 0.15s ease;
+    clip-path: polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%);
+    margin-right: -8px;
+    transition: color 0.15s ease, background 0.15s ease;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
 }
 
 .settings-tab:hover { color: var(--text); }
 
 .settings-tab.active {
-    background: var(--surface-2);
-    color: var(--text);
+    background: var(--surface);
+    color: var(--accent);
+    position: relative;
+    z-index: 2;
 }
 
 .settings-panel { max-width: 420px; }
