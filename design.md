@@ -82,5 +82,82 @@ small controls (4-6px: buttons, pills, inputs) and larger for containers
 
 ## Mobile behavior
 
-(deferred until Phase 1 — leave as "not yet determined" until then, that's
-expected, not a gap)
+**Status: decided by Claude during Phase 1, pending owner review** — same
+convention as the rest of this file: drafted from what actually shipped,
+not a proposal.
+
+**Breakpoint.** One number, `max-width: 760px`, used everywhere — this was
+already the convention Phase 0 started (topbar, stat-grid) before Phase 1
+existed; Phase 1 just kept using it rather than introducing a second one.
+
+**Shell.** A `<meta name="viewport" content="width=device-width,
+initial-scale=1">` was missing entirely — added to `index.html`, and is
+the reason nothing below could even be tested correctly until it existed.
+
+**Nav.** The 220px sidebar collapses to a 0-width flex sibling of the
+content column, expanding to 240px (`max-width: 82vw`) on tap of a
+hamburger button in the topbar — pushing content over via a plain flexbox
+width change, not floating over it. A dim backdrop covers the pushed
+content only; the topbar and the open drawer itself stay undimmed. A
+bottom tab bar was tried first and explicitly rejected — nav stays a side
+drawer, just off-canvas by default. Nav rows get 14px vertical padding in
+the drawer (up from the desktop row's tighter padding) as the one deliberate
+touch-target adjustment.
+
+**Search.** The topbar search bar becomes an icon-only 34×34px trigger
+(matching the notification/avatar button size) with the label and ⌘K badge
+hidden — it already only opened the full-screen command palette rather than
+containing an inline input, so nothing about the interaction changed, only
+its resting size.
+
+**Hamburger icon.** Deliberately bare — no box, border, or background like
+the other topbar icon buttons; just the icon glyph and normal click padding.
+
+**Tables.** Every view's table sits inside a `.table-scroll` wrapper:
+`overflow-x: auto` so the TABLE scrolls sideways in its own contained box,
+never the page. On phones the box is additionally height-capped
+(`max-height: 55vh; overflow-y: auto`) with a sticky header row
+(`position: sticky; top: 0`) — so the topbar/page-header/stat-cards above
+never get pushed off-screen by a long list, and column labels stay visible
+while rows scroll under them. Scroll cues are the (restyled, thinned)
+native scrollbars themselves — a custom gradient/shadow overlay was tried
+and read as a heavy visual "line" rather than a subtle hint, so it was
+removed. **Frozen first column is Batteries-only** — a deliberate,
+per-table decision, not a general pattern: `.col-frozen` pins the Battery #
+column (`position: sticky; left: 0`) while the rest of that one table
+scrolls underneath it. The other five tables (Sites, Movements, Check
+Sites, Users, Roles) scroll as a whole, first column included — this was
+explicitly decided against replicating the pin there.
+
+**Touch targets.** Topbar controls (hamburger, search, notifications,
+avatar) are ~34px. Table row-action buttons stayed at the existing 30–32px
+desktop convention (see Component style conventions above) — considered
+for enlarging, deliberately left as-is pending real on-phone feedback
+rather than resized preemptively; no complaint surfaced once tested on an
+actual device, so it stayed.
+
+**Stat cards.** 2 columns on phones (2/2/1 for the current 5 counters),
+down from the desktop 5-column grid — tried 3 first, corrected back to 2
+per owner feedback. Compact padding (10px 12px vs desktop's 18px 20px) and
+smaller value type (20px vs 28px) so the grid doesn't dominate the screen
+above the table.
+
+**iOS-specific quirks worth knowing, not treated as done-for-good:**
+`-webkit-overflow-scrolling: touch` is required on `.table-scroll` for real
+momentum scrolling on at least one tested device — removing it (tried, to
+fix a sticky-header bounce glitch below) made the last rows of a long table
+unreachable by flick gesture, confirmed via `scrollTop`/`scrollHeight`
+math, not just a look. `overscroll-behavior-y: contain` plus a `box-shadow`
++ `transform: translateZ(0)` on the sticky header reduce, but may not fully
+eliminate, a brief visual overshoot during a fast upward flick's rubber-band
+bounce — an accepted, low-priority cosmetic gap rather than something
+chased indefinitely at the cost of scroll reachability.
+
+**A fixed bug worth documenting as a "why," not just a "what":** the
+topbar previously used `overflow: hidden` to stop its brand/icon row from
+forcing the page wider — but that same rule was silently clipping the
+profile dropdown menu, which renders below the topbar's own box on
+purpose. Switched to `overflow-x: clip` (leaves `overflow-y` genuinely
+`visible` instead of the `hidden`-on-one-axis quirk silently turning the
+other axis into `auto`) — don't revert this back to `overflow: hidden` to
+"simplify" it; that's the bug, not a stylistic choice.

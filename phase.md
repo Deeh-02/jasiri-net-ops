@@ -9,23 +9,23 @@ and whatever's still upcoming.
 
 ---
 
-## ACTIVE PHASE: Phase 1 — Mobile Fixes
+## ACTIVE PHASE: Phase 2 — Finish Incomplete Functionality
 
-Pass over the now-separated views for phone rendering. Runs after
-separation so it's touched once, not twice.
+Features that exist but aren't fully built get finished individually, one
+at a time, each in its own already-isolated file. Kept separate from
+Phase 0's structural move on purpose — see Phase 0's completed entry
+below on traceability.
 
 Detail (scope, done-when criteria) not yet expanded — per this file's own
 convention, that happens when work on the phase actually begins, the same
-way Phase 0's one-liner became a full spec before that phase started.
+way Phase 0's and Phase 1's one-liners each became a full spec before
+their phase started. Expanding this one requires actually auditing the
+codebase for what's half-built, which is real investigative work, not
+paperwork — hasn't been done yet.
 
 ---
 
 ## UPCOMING PHASES (order locked, detail not yet expanded)
-
-**Phase 2 — Finish Incomplete Functionality.** Features that exist but
-aren't fully built get finished individually, one at a time, each in its
-own already-isolated file. Kept separate from Phase 0's structural move
-on purpose — see "Done when" note above on traceability.
 
 **Phase 3 — Notifications.** Lowest-effort new addition — SMS templates
 already designed, this is mostly wiring them in.
@@ -56,6 +56,25 @@ new phase.
 ---
 
 ## COMPLETED PHASES
+**Phase 1 — Mobile Fixes.** Completed 2026-09-04. Viewport meta tag added
+(previously missing entirely). Sidebar nav rebuilt as a push-open
+off-canvas drawer (a bottom tab bar was tried and explicitly rejected);
+topbar search collapsed to an icon-only trigger; every view's table
+wrapped in a `.table-scroll` box, horizontally contained always and
+height-capped with a sticky header on phones — Batteries alone additionally
+gets a frozen first column, a deliberate per-table decision, not a general
+pattern. Stat-card grid tightened to 2 columns on phones. DESIGN.md's
+Mobile Behavior section filled in from the resulting code, including
+several real bugs found and fixed along the way (a topbar `overflow:hidden`
+that was silently clipping the profile dropdown; a `border-collapse`
+setting that silently broke `position:sticky` on table cells; a flex
+`min-width:auto` default that was forcing the page wider than the
+viewport). The five-view table-wrapper replication was delegated to
+DeepSeek via `ask_deepseek.py` — its first real run against the live API,
+verified clean (diff-checked) on all 5 calls. Owner confirmed through
+extensive real-device (not just dev-tools) testing throughout the phase,
+per this phase's own "before confirming" requirement.
+
 **Phase 0 — Separate & Polish.** Completed 2026-09-04. Backend split into
 `routers/` + `db/` (one file per domain: auth, permissions, sites,
 batteries, users); frontend split into per-view HTML fragments, ES
