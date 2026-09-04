@@ -2,9 +2,11 @@
         <div class="modal-box">
             <h3>Move Battery <span id="move-battery-label"></span></h3>
             <form id="move-form" class="panel-form">
-                <select id="move-location" required>
-                    <option value="">Move to...</option>
-                </select>
+                <div class="move-by-field">
+                    <input type="text" id="move-location" placeholder="Move to..." autocomplete="off" required>
+                    <div class="move-by-suggestions" id="move-location-suggestions" hidden></div>
+                </div>
+                <div class="move-by-warning" id="move-location-warning" hidden>Doesn't match a known site — pick one from the list.</div>
                 <select id="move-reason">
                     <option value="">Reason (optional)</option>
                     <option value="site_down">Site has no power</option>
@@ -31,10 +33,10 @@
             </div>
             <table class="dashboard-logs-table dashboard-logs-table-header">
                 <colgroup>
-                    <col style="width:14%">
-                    <col style="width:24%">
-                    <col style="width:16%">
-                    <col style="width:46%">
+                    <col style="width:18%">
+                    <col style="width:28%">
+                    <col style="width:18%">
+                    <col style="width:36%">
                 </colgroup>
                 <thead>
                     <tr>

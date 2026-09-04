@@ -15,6 +15,11 @@ and in `phase.md`'s own per-phase writeups.
 - Added: "Moved by" is now a typeahead — free text stays allowed, but a
   filtered, clickable dropdown of active users appears as you type, and a
   non-blocking warning shows if what's typed doesn't match a known user.
+- Added: the move modal's "Move to" destination field is now the same
+  typeahead — a filtered, clickable dropdown of sites appears as you
+  type — but blocking: unlike "Moved by", the move can't be confirmed
+  until what's typed matches a known site, since the destination has to
+  resolve to a real location id.
 - Fixed: cancelling a movement from the Movements page no longer leaves
   the Battery Tracker table showing stale data until a manual reload.
 - Split "move authorization" into two separate, independently-grantable

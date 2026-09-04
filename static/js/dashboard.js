@@ -60,7 +60,6 @@ export async function refreshData() {
 
     renderStats(buildStats(batteriesCache));
     renderTable(batteriesCache);
-    populateMoveLocationSelect(locationsCache);
 }
 
 function renderStats(stats) {
@@ -112,10 +111,10 @@ function openStatDetail(filterKey) {
         list.innerHTML = `
             <table class="dashboard-logs-table">
                 <colgroup>
-                    <col style="width:14%">
-                    <col style="width:24%">
-                    <col style="width:16%">
-                    <col style="width:46%">
+                    <col style="width:18%">
+                    <col style="width:28%">
+                    <col style="width:18%">
+                    <col style="width:36%">
                 </colgroup>
                 <tbody>
                     ${matches.map(b => `
@@ -251,10 +250,60 @@ async function deactivateBattery(id, number) {
     }
 }
 
-function populateMoveLocationSelect(locations) {
-    const sel = document.getElementById("move-location");
-    sel.innerHTML = '<option value="">Move to...</option>' +
-        locations.map(l => `<option value="${l.id}">${l.name}${l.is_home_base ? " (Home Base)" : ""}</option>`).join("");
+// ---- "Move to" typeahead: same UI as "Moved by" (filtered, clickable
+// dropdown as you type), but blocking — a destination has to resolve to a
+// real location id for the API call, so unlike "Moved by" free text isn't
+// a valid outcome here, just a valid thing to type while narrowing down. ----
+function findLocationByName(name) {
+    const q = name.trim().toLowerCase();
+    return locationsCache.find(l => l.name.toLowerCase() === q);
+}
+
+function renderMoveLocationSuggestions(query) {
+    const box = document.getElementById("move-location-suggestions");
+    const q = query.trim().toLowerCase();
+    const matches = q ? locationsCache.filter(l => l.name.toLowerCase().includes(q)) : locationsCache;
+
+    if (matches.length === 0) {
+        box.hidden = true;
+        box.innerHTML = "";
+        return;
+    }
+
+    box.innerHTML = matches.map(l => `<div class="move-by-option" data-name="${l.name}">${l.name}${l.is_home_base ? " (Home Base)" : ""}</div>`).join("");
+    box.hidden = false;
+
+    box.querySelectorAll(".move-by-option").forEach(opt => {
+        opt.addEventListener("mousedown", (e) => {
+            e.preventDefault();
+            const input = document.getElementById("move-location");
+            input.value = opt.dataset.name;
+            box.hidden = true;
+            updateMoveLocationWarning();
+        });
+    });
+}
+
+function updateMoveLocationWarning() {
+    const value = document.getElementById("move-location").value.trim();
+    const warning = document.getElementById("move-location-warning");
+    if (!value) {
+        warning.hidden = true;
+        return;
+    }
+    warning.hidden = !!findLocationByName(value);
+}
+
+function initMoveLocationTypeahead() {
+    const input = document.getElementById("move-location");
+    input.addEventListener("input", (e) => {
+        renderMoveLocationSuggestions(e.target.value);
+        updateMoveLocationWarning();
+    });
+    input.addEventListener("focus", (e) => renderMoveLocationSuggestions(e.target.value));
+    input.addEventListener("blur", () => {
+        document.getElementById("move-location-suggestions").hidden = true;
+    });
 }
 
 // ---- Move modal ----
@@ -264,6 +313,8 @@ function openMoveModal(batteryId, batteryNumber) {
     moveModalBatteryId = batteryId;
     moveBatteryLabel.textContent = batteryNumber ? `— ${batteryNumber}` : "";
     moveForm.reset();
+    document.getElementById("move-location-suggestions").hidden = true;
+    document.getElementById("move-location-warning").hidden = true;
     document.getElementById("move-by-suggestions").hidden = true;
     document.getElementById("move-by-warning").hidden = true;
     moveOverlay.hidden = false;
@@ -459,6 +510,7 @@ export function initDashboard() {
     moveOverlay = document.getElementById("move-overlay");
     moveForm = document.getElementById("move-form");
     moveBatteryLabel = document.getElementById("move-battery-label");
+    initMoveLocationTypeahead();
     initMoveByTypeahead();
     editBatteryOverlay = document.getElementById("edit-battery-overlay");
     editBatteryCancelBtn = document.getElementById("edit-battery-cancel");
@@ -475,7 +527,14 @@ export function initDashboard() {
         e.preventDefault();
         if (!moveModalBatteryId) return;
 
-        const to_location_id = parseInt(document.getElementById("move-location").value);
+        const locationInput = document.getElementById("move-location");
+        const matchedLocation = findLocationByName(locationInput.value);
+        if (!matchedLocation) {
+            document.getElementById("move-location-warning").hidden = false;
+            locationInput.focus();
+            return;
+        }
+        const to_location_id = matchedLocation.id;
         const reason = document.getElementById("move-reason").value || null;
         const moved_by = document.getElementById("move-by").value || null;
 

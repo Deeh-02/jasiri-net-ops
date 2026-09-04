@@ -316,10 +316,10 @@
     border-top: none;
 }
 
-.dashboard-logs-table th:nth-child(1), .dashboard-logs-table td:nth-child(1) { width: 30%; }
-.dashboard-logs-table th:nth-child(2), .dashboard-logs-table td:nth-child(2) { width: 23%; }
-.dashboard-logs-table th:nth-child(3), .dashboard-logs-table td:nth-child(3) { width: 23%; }
-.dashboard-logs-table th:nth-child(4), .dashboard-logs-table td:nth-child(4) { width: 24%; }
+/* Column widths come from each table's own <colgroup> — the view-battery
+   logs table and the stat-detail table use different proportions (4 cols
+   each, but different content), so a blanket nth-child rule here would
+   fight whichever one it doesn't match. */
 
 .dashboard-logs-table-header {
     margin-bottom: 0;
@@ -441,4 +441,38 @@
     color: var(--text-dim);
     font-size: 13px;
     padding: 12px 0;
+}
+
+/* Phones: the stat-detail/view-battery log tables are 4 columns wide, which
+   is too tight for .modal-box's 90vw cap plus nowrap+ellipsis cells — every
+   column truncated into unreadable "BAT-...", "Ma...", "Sep 3, 202...".
+   Give the modal itself the wider allowance .modal-box's phone override uses
+   elsewhere, and let cells wrap instead of ellipsis so the full value is
+   still visible, just on two lines. */
+@media (max-width: 760px) {
+    .dashboard-modal-box-lg {
+        width: 99vw;
+        max-width: 99vw;
+        padding: 16px 6px;
+    }
+
+    .dashboard-logs-table th,
+    .dashboard-logs-table td {
+        padding: 8px 6px;
+    }
+
+    .dashboard-logs-table {
+        font-size: 12px;
+    }
+
+    .dashboard-logs-table td {
+        white-space: normal;
+        /* No overflow-wrap:break-word — every value here already has a
+           natural break point (the hyphen in "BAT-1042"/"On-site", the
+           space in a two-word location). break-word ignores that and
+           packs as many characters per line as fit, so "BAT-1042" wrapped
+           as "BAT-1" / "042" instead of at the hyphen. Plain wrapping
+           uses the hyphen/space as the only break opportunity. */
+        text-overflow: clip;
+    }
 }
