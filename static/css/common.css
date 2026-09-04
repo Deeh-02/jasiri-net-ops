@@ -1110,7 +1110,7 @@ tr:hover td { background: var(--surface-2); }
     display: flex;
     align-items: center;
     gap: 10px;
-    background: var(--surface);
+    background: var(--surface-2);
     border: 1px solid var(--border);
     border-radius: 8px;
     padding: 10px 16px;
