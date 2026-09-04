@@ -248,8 +248,13 @@ export function registerCmdkProvider(provider) {
 function getSectionItems() {
     return Array.from(document.querySelectorAll("[data-view]"))
         .filter(el => {
+            // Sidebar nav items are gated by their .nav-category being
+            // hidden; the Movements/Check Sites header quick-links aren't
+            // in a category at all — they're gated by their own .hidden,
+            // set directly in applyPermissionVisibility(). Checking both
+            // covers either flavor without assuming which one applies.
             const category = el.closest(".nav-category");
-            return !category || !category.hidden;
+            return (!category || !category.hidden) && !el.hidden;
         })
         .map(el => ({
             type: "section",
