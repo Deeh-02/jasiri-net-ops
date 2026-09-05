@@ -174,5 +174,57 @@ searchable items + how to jump to one). `static/js/app.js` is the only file
 that imports every view module — it's the composition root, wiring them
 together, analogous to `main.py` including every router.
 
+## Visual testing — headless Chromium in this sandbox
+
+Not part of the app's own architecture — a tooling note so a future
+session doesn't have to rediscover this. Playwright (`pip install
+playwright`, already in the venv) and its Chromium build
+(`playwright install chromium`, downloaded to `~/.cache/ms-playwright/` —
+this download itself needs no root) are both present, but the `chrome`
+binary fails to launch out of the box: `ldd` on it reports `libnspr4.so`,
+`libnss3.so`, `libnssutil3.so`, `libsmime3.so`, and `libasound.so.2` as
+`not found`, and there's no root in this sandbox to `apt-get install`
+them system-wide.
+
+**Workaround — fetch the .deb contents without installing them:**
+
+```bash
+# 1. Download the three packages that provide those five libs, without
+#    installing them (apt-get download needs no root, just writes .debs
+#    to the working directory). Package names below are for Ubuntu
+#    24.04/noble; if libasound2t64 isn't found on a different base image,
+#    check `apt-cache search asound` for the equivalent.
+mkdir -p /path/to/scratch/{debs,extracted}
+cd /path/to/scratch/debs
+apt-get download libnspr4 libnss3 libasound2t64
+
+# 2. Extract (not install) each .deb's file contents into a scratch dir.
+for deb in *.deb; do dpkg-deb -x "$deb" ../extracted/; done
+
+# 3. Point the dynamic linker at the extracted libs before launching
+#    anything that loads Chromium (a Playwright script, ldd, etc.).
+export LD_LIBRARY_PATH=/path/to/scratch/extracted/usr/lib/x86_64-linux-gnu
+
+# Sanity check before trusting a full Playwright launch:
+ldd ~/.cache/ms-playwright/chromium-*/chrome-linux64/chrome | grep "not found"
+# — should print nothing.
+```
+
+With `LD_LIBRARY_PATH` set in the environment a script runs in,
+`playwright.sync_api.sync_playwright().chromium.launch()` works normally
+— navigate, click, screenshot, read computed styles, same as any other
+Playwright environment. Use this instead of declaring a CSS/layout fix
+"done" from code-reading or curl/DB checks alone: `page.screenshot()` for
+what it looks like, `element.evaluate("e => getComputedStyle(e)...")` for
+exact colors/sizes when a screenshot alone is ambiguous at a given zoom
+level (this caught a case where a genuinely-red pill briefly looked
+orange at full-page screenshot scale — the computed-style check, not the
+screenshot, was what actually confirmed it).
+
+The scratch directory only needs to exist for the lifetime of whatever
+process sets `LD_LIBRARY_PATH` — nothing here is installed system-wide or
+persisted, so this setup has to be redone (30 seconds, no root, no
+prompts) in any fresh sandbox instance.
+
 This file rarely changes once written. CLAUDE.md references it rather than
 repeating it.
