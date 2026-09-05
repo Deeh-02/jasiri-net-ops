@@ -161,6 +161,18 @@
    site confirmed offline. */
 .status-pill.deployed-flagged { color: var(--danger); background: rgba(239, 91, 91, 0.14); }
 
+/* ---- Row accent for a battery sitting at a confirmed-offline site, used
+   in the stat-detail modal's table (see openStatDetail) — same technique
+   as Check Sites' .site-row-offline. The main battery table itself uses
+   .status-pill.deployed-flagged above instead of this. ---- */
+.battery-row-flagged {
+    border-left: 3px solid var(--danger);
+}
+
+.battery-row-flagged td:first-child {
+    padding-left: 13px;
+}
+
 /* ---- Move button (row action) ---- */
 .move-btn {
     display: inline-flex;

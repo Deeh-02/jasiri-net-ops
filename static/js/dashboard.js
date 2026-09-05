@@ -124,7 +124,7 @@ function openStatDetail(filterKey) {
                 </colgroup>
                 <tbody>
                     ${matches.map(b => `
-                        <tr>
+                        <tr class="${needsAttention(b) ? "battery-row-flagged" : ""}">
                             <td>${b.battery_number}</td>
                             <td>${b.current_location}</td>
                             <td>${movementStatusLabel(b)}</td>
