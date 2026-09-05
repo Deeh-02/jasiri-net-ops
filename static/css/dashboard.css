@@ -96,6 +96,12 @@
     background: var(--surface-2);
 }
 
+.charge-option.disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
 /* ---- "Moved by" typeahead (Phase 2 item 2) — free-text input with a
    filtered, scrollable suggestion list underneath. Same dropdown look as
    .charge-menu/.charge-option above, kept separate since this one needs
@@ -140,12 +146,18 @@
 .move-by-warning {
     margin-top: -4px;
     font-size: 12px;
-    color: var(--warn);
+    color: var(--danger);
 }
 
-/* ---- Battery status pill colors (base .status-pill is in common.css) ---- */
+/* ---- Battery status pill colors (base .status-pill is in common.css) ----
+   Pending/In Transit reuse the same colors as their Movements-page
+   equivalents (.movement-pending/.movement-in-transit in movements.css) for
+   visual consistency across the two views. ---- */
 .status-pill.deployed { color: var(--warn); background: rgba(245, 166, 35, 0.12); }
 .status-pill.at-base { color: var(--accent); background: rgba(61, 220, 151, 0.12); }
+.status-pill.pending { color: var(--text-dim); background: rgba(139, 150, 165, 0.14); }
+.status-pill.in-transit { color: var(--info); background: rgba(79, 168, 255, 0.12); }
+.status-pill.not-deployed { color: var(--danger); background: rgba(239, 91, 91, 0.12); }
 
 /* ---- Move button (row action) ---- */
 .move-btn {

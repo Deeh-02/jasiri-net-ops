@@ -420,6 +420,9 @@ body {
 .stat-card.deployed { border-left-color: var(--warn); }
 .stat-card.deployed .stat-value { color: var(--warn); }
 
+.stat-card.not-deployed { border-left-color: var(--danger); }
+.stat-card.not-deployed .stat-value { color: var(--danger); }
+
 .stat-card.charged { border-left-color: var(--accent); }
 .stat-card.charged .stat-value { color: var(--accent); }
 

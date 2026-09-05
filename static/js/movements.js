@@ -141,6 +141,21 @@ function attachMovementActionListeners() {
     });
 }
 
+// Same reasoning as dashboard.js's live sync: another user's action here
+// (mark in transit, site-check answer, ...) is exactly what drives the
+// battery table's status/charge/location/moved-by/since — so this list
+// needs to stay live too, not just the table it feeds.
+const LIVE_SYNC_INTERVAL_MS = 5000;
+
+function startLiveSync() {
+    setInterval(() => {
+        const view = document.getElementById("view-movements");
+        if (!view || view.hidden) return;
+        if (document.visibilityState !== "visible") return;
+        loadMovements();
+    }, LIVE_SYNC_INTERVAL_MS);
+}
+
 export function initMovements() {
     // Lives on the dashboard view's header as a quick link, wired here since
     // the action itself (load + show movements) is this view's concern.
@@ -157,4 +172,6 @@ export function initMovements() {
         showView("view-movements");
         loadMovements();
     });
+
+    startLiveSync();
 }

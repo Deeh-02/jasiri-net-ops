@@ -17,6 +17,7 @@ let moveModalBatteryId = null;
 // filter (buildStats/openStatDetail), so the two never drift apart.
 const STAT_FILTERS = {
     deployed: b => b.status === "Deployed",
+    "not-deployed": b => b.status === "Not Deployed",
     charged: b => b.charge_status === "charged",
     charging: b => b.charge_status === "charging",
     low: b => b.charge_status === "low",
@@ -26,6 +27,7 @@ const STAT_FILTERS = {
 function buildStats(batteries) {
     return [
         { label: "Deployed", cls: "deployed" },
+        { label: "Not Deployed", cls: "not-deployed" },
         { label: "Charged", cls: "charged" },
         { label: "Charging", cls: "charging" },
         { label: "Low", cls: "low" },
@@ -134,20 +136,117 @@ function openStatDetail(filterKey) {
     document.getElementById("stat-detail-overlay").hidden = false;
 }
 
+// Battery-level status is now driven by the linked movement's lifecycle
+// (Pending/In Transit/Not Deployed/Deployed), with At Base surviving only
+// as the never-moved baseline — each gets its own pill color.
+const STATUS_PILL_CLASS = {
+    "Deployed": "deployed",
+    "Pending": "pending",
+    "In Transit": "in-transit",
+    "Not Deployed": "not-deployed",
+    "At Base": "at-base",
+};
+
+// Both "In Transit" (still moving) and "Not Deployed" (arrived, but the
+// site-down flow's confirm-online question is unanswered) mean nobody can
+// plug the battery in — charge is unknown/locked in both.
+const CHARGE_LOCKED_STATUSES = new Set(["In Transit", "Not Deployed"]);
+
+function chargeCellHtml(battery) {
+    const charge = (battery.charge_status || "unknown").toLowerCase();
+    // The backend rejects "charging" in this state too (see
+    // set_charge_status), this just keeps the UI from offering an option
+    // that would 400.
+    const chargingLocked = CHARGE_LOCKED_STATUSES.has(battery.status);
+
+    const menuItems = CHARGE_OPTIONS.map(c => {
+        const locked = chargingLocked && c === "charging";
+        return `
+            <div class="charge-option ${c === charge ? "active" : ""} ${locked ? "disabled" : ""}" data-value="${c}">
+                ${batteryIconSvg(c)}
+                <span>${capitalize(c)}</span>
+            </div>
+        `;
+    }).join("");
+
+    return `
+        <button type="button" class="charge-btn">
+            ${batteryIconSvg(charge)}
+            <span class="charge-label">${capitalize(charge)}</span>
+            <span class="charge-caret">▾</span>
+        </button>
+        <div class="charge-menu" hidden>${menuItems}</div>
+    `;
+}
+
+// Counts in-flight charge PATCHes — the live-sync poll skips a tick while
+// this is non-zero so it can't replace the table (and the DOM node this
+// function is about to update) out from under an update that hasn't
+// resolved yet.
+let pendingChargeUpdates = 0;
+
+// Applies a charge change optimistically — local cache + this one row's DOM
+// update instantly, network call happens in the background. Previously this
+// awaited the PATCH and then a full refreshData() (refetch + re-render of
+// every battery/location/user), which is what made the charge cell feel
+// laggy: a full round trip plus a full table rebuild for a one-cell change.
+async function applyChargeChange(dropdown, value) {
+    const batteryId = dropdown.dataset.id;
+    const battery = batteriesCache.find(b => String(b.id) === String(batteryId));
+    const previous = battery ? battery.charge_status : null;
+
+    if (battery) battery.charge_status = value;
+    renderStats(buildStats(batteriesCache));
+    dropdown.innerHTML = chargeCellHtml(battery);
+    bindChargeDropdown(dropdown);
+
+    pendingChargeUpdates++;
+    try {
+        const response = await fetch(`/batteries/${batteryId}/charge-status`, {
+            method: "PATCH",
+            headers: authHeaders({ "Content-Type": "application/json" }),
+            body: JSON.stringify({ charge_status: value })
+        });
+
+        if (!response.ok) {
+            if (battery) battery.charge_status = previous;
+            renderStats(buildStats(batteriesCache));
+            dropdown.innerHTML = chargeCellHtml(battery);
+            bindChargeDropdown(dropdown);
+            alert("Failed to update charge status");
+        }
+    } finally {
+        pendingChargeUpdates--;
+    }
+}
+
+function bindChargeDropdown(dropdown) {
+    const btn = dropdown.querySelector(".charge-btn");
+    const menu = dropdown.querySelector(".charge-menu");
+
+    btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const isOpen = !menu.hidden;
+        closeAllChargeMenus();
+        menu.hidden = isOpen;
+    });
+
+    menu.querySelectorAll(".charge-option").forEach(opt => {
+        opt.addEventListener("click", (e) => {
+            e.stopPropagation();
+            if (opt.classList.contains("disabled")) return;
+            menu.hidden = true;
+            applyChargeChange(dropdown, opt.dataset.value);
+        });
+    });
+}
+
 function renderTable(batteries) {
     const tbody = document.getElementById("battery-rows");
     tbody.innerHTML = "";
 
     batteries.forEach(battery => {
-        const charge = (battery.charge_status || "unknown").toLowerCase();
-        const statusClass = battery.status === "Deployed" ? "deployed" : "at-base";
-
-        const menuItems = CHARGE_OPTIONS.map(c => `
-            <div class="charge-option ${c === charge ? "active" : ""}" data-value="${c}">
-                ${batteryIconSvg(c)}
-                <span>${capitalize(c)}</span>
-            </div>
-        `).join("");
+        const statusClass = STATUS_PILL_CLASS[battery.status] || "at-base";
 
         const row = document.createElement("tr");
         row.innerHTML = `
@@ -155,14 +254,7 @@ function renderTable(batteries) {
             <td>${battery.model || "-"}</td>
             <td><span class="status-pill ${statusClass}">${battery.status}</span></td>
             <td>
-                <div class="charge-dropdown" data-id="${battery.id}">
-                    <button type="button" class="charge-btn">
-                        ${batteryIconSvg(charge)}
-                        <span class="charge-label">${capitalize(charge)}</span>
-                        <span class="charge-caret">▾</span>
-                    </button>
-                    <div class="charge-menu" hidden>${menuItems}</div>
-                </div>
+                <div class="charge-dropdown" data-id="${battery.id}">${chargeCellHtml(battery)}</div>
             </td>
             <td>${battery.current_location}</td>
             <td>${battery.moved_by || "—"}</td>
@@ -191,33 +283,7 @@ function renderTable(batteries) {
         tbody.appendChild(row);
     });
 
-    tbody.querySelectorAll(".charge-dropdown").forEach(dropdown => {
-        const btn = dropdown.querySelector(".charge-btn");
-        const menu = dropdown.querySelector(".charge-menu");
-
-        btn.addEventListener("click", (e) => {
-            e.stopPropagation();
-            const isOpen = !menu.hidden;
-            closeAllChargeMenus();
-            menu.hidden = isOpen;
-        });
-
-        menu.querySelectorAll(".charge-option").forEach(opt => {
-            opt.addEventListener("click", async (e) => {
-                e.stopPropagation();
-                const batteryId = dropdown.dataset.id;
-                const value = opt.dataset.value;
-                menu.hidden = true;
-
-                await fetch(`/batteries/${batteryId}/charge-status`, {
-                    method: "PATCH",
-                    headers: authHeaders({ "Content-Type": "application/json" }),
-                    body: JSON.stringify({ charge_status: value })
-                });
-                await refreshData();
-            });
-        });
-    });
+    tbody.querySelectorAll(".charge-dropdown").forEach(bindChargeDropdown);
 
     tbody.querySelectorAll(".move-btn").forEach(btn => {
         btn.addEventListener("click", () => openMoveModal(btn.dataset.id, btn.dataset.number));
@@ -519,6 +585,39 @@ function closeEditBatteryModal() {
 // ---- Add Battery modal ----
 let addBatteryOverlay, addBatteryOpenBtn, addBatteryCancelBtn;
 
+// ---- Live sync: status/charge/location/moved-by/since all now change from
+// actions other logged-in users take (marking a movement in transit, a
+// site-check answer, another session's charge update, ...) — polling here
+// is what makes User A's change show up for User B without a page refresh.
+// Simple interval poll rather than websockets/SSE: this app has no existing
+// push infrastructure, and a small periodic GET is the lowest-risk way to
+// get "everyone sees the same state" without adding a persistent-connection
+// server component. ----
+const LIVE_SYNC_INTERVAL_MS = 5000;
+
+// Don't let a background sync yank the table out from under an
+// in-progress interaction — skip the tick if a modal or the charge
+// dropdown is currently open, and pick it up again next interval instead.
+function isDashboardBusy() {
+    const overlayIds = ["move-overlay", "edit-battery-overlay", "add-battery-overlay", "view-battery-overlay", "stat-detail-overlay"];
+    if (overlayIds.some(id => {
+        const el = document.getElementById(id);
+        return el && !el.hidden;
+    })) return true;
+    if (pendingChargeUpdates > 0) return true;
+    return !!document.querySelector(".charge-menu:not([hidden])");
+}
+
+function startLiveSync() {
+    setInterval(() => {
+        const view = document.getElementById("view-dashboard");
+        if (!view || view.hidden) return;
+        if (document.visibilityState !== "visible") return;
+        if (isDashboardBusy()) return;
+        refreshData();
+    }, LIVE_SYNC_INTERVAL_MS);
+}
+
 export function initDashboard() {
     moveOverlay = document.getElementById("move-overlay");
     moveForm = document.getElementById("move-form");
@@ -715,4 +814,6 @@ export function initDashboard() {
         }
     });
     registerRouteResetter(closeViewBatteryModal);
+
+    startLiveSync();
 }

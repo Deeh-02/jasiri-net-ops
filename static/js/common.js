@@ -119,10 +119,20 @@ export function showMessage(elementId, text, isError) {
     setTimeout(() => { el.textContent = ""; el.className = "form-msg"; }, 3000);
 }
 
+// Every timestamp in the app displays in East Africa Time regardless of the
+// viewer's own device/browser timezone — EAT has no DST, so this offset
+// never needs revisiting. The backend sends explicit UTC ("...Z") timestamps
+// for exactly this reason: without an explicit zone, `new Date(iso)` would
+// otherwise be ambiguous about what instant it even refers to.
+const DISPLAY_TIMEZONE = "Africa/Nairobi";
+
 export function formatDate(iso) {
     if (!iso) return "—";
     const d = new Date(iso);
-    return d.toLocaleString([], { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    return d.toLocaleString([], {
+        year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+        timeZone: DISPLAY_TIMEZONE,
+    });
 }
 
 export function capitalize(s) { return s.charAt(0).toUpperCase() + s.slice(1); }

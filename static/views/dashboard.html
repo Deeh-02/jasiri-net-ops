@@ -7,13 +7,13 @@
                     <div class="move-by-suggestions" id="move-location-suggestions" hidden></div>
                 </div>
                 <div class="move-by-warning" id="move-location-warning" hidden>Doesn't match a known site — pick one from the list.</div>
-                <select id="move-reason">
-                    <option value="">Reason (optional)</option>
+                <select id="move-reason" required>
+                    <option value="" disabled selected>Reason</option>
                     <option value="site_down">Site has no power</option>
                     <option value="storage">Returning to storage</option>
                 </select>
                 <div class="move-by-field">
-                    <input type="text" id="move-by" placeholder="Moved by (optional)" autocomplete="off">
+                    <input type="text" id="move-by" placeholder="Moved by" autocomplete="off" required>
                     <div class="move-by-suggestions" id="move-by-suggestions" hidden></div>
                 </div>
                 <div class="move-by-warning" id="move-by-warning" hidden>Doesn't match a known user — will still be saved as typed.</div>

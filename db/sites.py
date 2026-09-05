@@ -1,5 +1,4 @@
-from datetime import datetime
-from db.connection import get_connection
+from db.connection import get_connection, utc_iso, now_eat, to_eat
 
 def add_location(name, contact_name=None, contact_phone=None, address=None, is_home_base=False):
     conn = get_connection()
@@ -109,27 +108,29 @@ def get_sites_with_verification_status():
     cur.close()
     conn.close()
 
-    now = datetime.now()
+    now = now_eat()
     result = []
     for r in rows:
         confirmed_at = r[3]
+        confirmed_at_eat = to_eat(confirmed_at)
         needs_check = not (
-            confirmed_at is not None
-            and confirmed_at.date() == now.date()
-            and confirmed_at.hour == now.hour
+            confirmed_at_eat is not None
+            and confirmed_at_eat.date() == now.date()
+            and confirmed_at_eat.hour == now.hour
         )
         result.append({
             "id": r[0],
             "name": r[1],
             "is_online": r[2],
             "needs_check": needs_check,
-            "verification_confirmed_at": confirmed_at.isoformat() if confirmed_at else None,
+            "verification_confirmed_at": utc_iso(confirmed_at),
         })
     return result
 
 def get_unconfirmed_site_count():
-    """Outside the 8am-8pm active window, nothing is flagged — badge shows 0."""
-    now = datetime.now()
+    """Outside the 8am-8pm active window (East Africa Time), nothing is
+    flagged — badge shows 0."""
+    now = now_eat()
     if not (8 <= now.hour < 20):
         return 0
     sites = get_sites_with_verification_status()

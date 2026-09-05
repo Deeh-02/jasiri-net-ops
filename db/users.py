@@ -1,4 +1,4 @@
-from db.connection import get_connection
+from db.connection import get_connection, utc_iso
 from passlib.context import CryptContext
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -69,7 +69,7 @@ def get_all_users():
             "phone": r[3],
             "role": r[4],
             "status": r[5],
-            "created_at": r[6].isoformat() if r[6] else None,
+            "created_at": utc_iso(r[6]),
             "role_id": r[7],
         }
         for r in rows

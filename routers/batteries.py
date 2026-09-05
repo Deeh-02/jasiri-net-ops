@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Optional
 from db import batteries as db
+from db.connection import utc_iso
 from routers.auth import get_current_user
 from routers.permissions import user_has_permission
 
@@ -84,7 +85,7 @@ def get_battery_movements(battery_id: int, current_user: dict = Depends(get_curr
     history = db.get_movement_history(battery_id)
     return [
         {
-            "created_at": row[0].isoformat() if row[0] else None,
+            "created_at": utc_iso(row[0]),
             "from_location": row[1],
             "to_location": row[2],
             "reason": row[3],
@@ -98,6 +99,14 @@ def set_charge_status(battery_id: int, update: ChargeStatusUpdate, current_user:
     valid = {"unknown", "charging", "charged", "low"}
     if update.charge_status not in valid:
         raise HTTPException(status_code=400, detail=f"charge_status must be one of {sorted(valid)}")
+    # Mirrors the frontend's disabled "Charging" option — enforced here too
+    # so it can't be set via a direct API call while the battery is away
+    # (in transit, or arrived and waiting on a site-check answer).
+    if update.charge_status == "charging" and db.is_locked_from_charging(battery_id):
+        raise HTTPException(
+            status_code=400,
+            detail="Battery is in transit — charge status is locked to Unknown until it's deployed",
+        )
     db.update_charge_status(battery_id, update.charge_status)
     return {"id": battery_id, "charge_status": update.charge_status}
 

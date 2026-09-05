@@ -1,5 +1,19 @@
-from db.connection import get_connection
+from db.connection import get_connection, utc_iso
 from db import sites
+
+# Movement lifecycle statuses that mean "away from anyone's hands" — charge
+# is unknown and locked out of 'charging' for all of these, whether it's
+# still literally moving or sitting at a site nobody's confirmed as usable
+# yet.
+AWAY_STATUSES = {"in_transit", "arrived", "site_still_down"}
+# Physically arrived, but the site-down flow's confirm-online question
+# hasn't been answered yet — battery status shows "Not Deployed" rather
+# than "In Transit" (it's no longer moving) or "Deployed" (not confirmed
+# usable there yet).
+NOT_DEPLOYED_STATUSES = {"arrived", "site_still_down"}
+# Terminal "it's there and confirmed" states — either path (straight
+# completion, or the site-down flow's confirm-online) resolves here.
+TERMINAL_STATUSES = {"completed", "site_confirmed_online"}
 
 
 def add_battery(battery_number, serial_number=None, model=None, capacity=None):
@@ -28,46 +42,104 @@ def update_charge_status(battery_id, charge_status):
     conn.close()
 
 def get_last_movement(battery_id):
-    # NOTE: now excludes cancelled movements, so a cancelled move doesn't leave
-    # the battery looking like it's sitting at a destination it never reached —
-    # it falls back to whatever the last legitimate movement was.
+    # NOTE: excludes cancelled movements, so a cancelled move doesn't leave
+    # the battery looking like it's sitting at (or heading to) a destination
+    # it never reached — it falls back to whatever the last legitimate
+    # movement was. Fetches the last TWO (not just one): while the latest
+    # movement is still 'pending', the battery hasn't actually left yet, so
+    # location/moved_by/since must keep showing whatever the movement BEFORE
+    # it left behind, not this new movement's (future) destination.
     conn = get_connection()
     cur = conn.cursor()
     cur.execute(
         """
-        SELECT to_loc.name, to_loc.is_home_base, battery_movements.moved_by,
-               battery_movements.created_at, battery_movements.status
+        SELECT battery_movements.status, battery_movements.moved_by,
+               battery_movements.created_at, battery_movements.in_transit_at,
+               to_loc.name
         FROM battery_movements
         JOIN locations AS to_loc ON battery_movements.to_location_id = to_loc.id
         WHERE battery_movements.battery_id = %s
           AND battery_movements.status != 'cancelled'
         ORDER BY battery_movements.created_at DESC
-        LIMIT 1;
+        LIMIT 2;
         """,
         (battery_id,)
     )
-    row = cur.fetchone()
+    rows = cur.fetchall()
     cur.close()
     conn.close()
-    if row:
-        return {
-            "location": row[0],
-            "at_home_base": row[1],
-            "moved_by": row[2],
-            "moved_at": row[3],
-            "movement_status": row[4],
-        }
-    return None
+    if not rows:
+        return None
 
-def _battery_status_label(last):
-    """Battery Tracker status is ONLY ever 'At Base' or 'Deployed' — purely
-    physical, based on whether the battery's last movement landed it at the
-    home-base location. Movement lifecycle (Pending/In Transit/Arrived/etc.)
-    is a separate vocabulary that lives only on the Movements page and must
-    never leak in here, regardless of the movement's own status."""
+    def to_dict(r):
+        return {"status": r[0], "moved_by": r[1], "created_at": r[2], "in_transit_at": r[3], "to_location": r[4]}
+
+    latest = to_dict(rows[0])
+    prev = to_dict(rows[1]) if len(rows) > 1 else None
+    status = latest["status"]
+
+    if status == "pending":
+        # Battery physically hasn't moved yet — surface the PRIOR movement's
+        # resolved state (or the pre-any-movement baseline), not this one's.
+        if prev:
+            location = prev["to_location"]
+            moved_by = prev["moved_by"]
+            moved_at = prev["in_transit_at"] or prev["created_at"]
+        else:
+            location = "Unknown (no movements recorded)"
+            moved_by = None
+            moved_at = None
+    elif status == "in_transit":
+        # Genuinely en route — location is unknown until it lands somewhere.
+        location = "—"
+        moved_by = latest["moved_by"]
+        # "Since" tracks when it actually left (marked in transit), not when
+        # the movement was first created back in 'pending'.
+        moved_at = latest["in_transit_at"]
+    else:
+        # arrived / site_still_down / completed / site_confirmed_online —
+        # the battery has physically reached the destination even if it
+        # isn't confirmed "Deployed" yet, so location shows where it
+        # actually is rather than "—".
+        location = latest["to_location"]
+        moved_by = latest["moved_by"]
+        moved_at = latest["in_transit_at"]
+
+    return {
+        "location": location,
+        "moved_by": moved_by,
+        "moved_at": moved_at,
+        "movement_status": status,
+    }
+
+def _battery_status(last):
+    """Battery Tracker status now tracks the linked movement's lifecycle:
+    'Pending' while it's queued to move, 'In Transit' while it's actually
+    moving, 'Not Deployed' once it's arrived but the site-down flow's
+    confirm-online question is still unanswered, and 'Deployed' once that
+    resolves (arrival for a straight move, or confirmed-online for a
+    site-down move) — regardless of whether the destination is home base.
+    'At Base' only remains as the baseline for a battery with no (live)
+    movement history at all."""
     if last is None:
         return "At Base"
-    return "At Base" if last["at_home_base"] else "Deployed"
+    status = last["movement_status"]
+    if status == "pending":
+        return "Pending"
+    if status == "in_transit":
+        return "In Transit"
+    if status in NOT_DEPLOYED_STATUSES:
+        return "Not Deployed"
+    if status in TERMINAL_STATUSES:
+        return "Deployed"
+    return "At Base"
+
+def is_locked_from_charging(battery_id):
+    """A battery that's away from anyone's hands (in transit, or arrived and
+    waiting on a site-check answer) can't be plugged in to charge — used to
+    reject 'charging' server-side, not just hide it in the UI."""
+    last = get_last_movement(battery_id)
+    return last is not None and last["movement_status"] in AWAY_STATUSES
 
 def get_current_location(battery_id):
     last = get_last_movement(battery_id)
@@ -134,13 +206,13 @@ def get_all_batteries():
             "capacity": r[3],
             "charge_status": r[4],
             "current_location": current_location,
-            "status": _battery_status_label(last),
+            "status": _battery_status(last),
             "moved_by": moved_by,
-            "moved_at": moved_at.isoformat() if moved_at else None,
-            # The movement lifecycle status (pending/in_transit/etc.) of
+            "moved_at": utc_iso(moved_at),
+            # The raw movement lifecycle status (pending/in_transit/etc.) of
             # this battery's last movement — separate from `status` above,
-            # which is purely At Base/Deployed. Used by the stat-card
-            # click-through detail (Phase 2 item 8) to show what's actually
+            # which is the Pending/In Transit/Deployed/At Base label. Used
+            # by the stat-card click-through detail to show what's actually
             # happening with each battery, not just where it physically is.
             "movement_status": movement_status,
         })
@@ -187,10 +259,10 @@ def get_battery_by_id(battery_id):
         "model": row[3],
         "capacity": row[4],
         "charge_status": row[5],
-        "status": _battery_status_label(last),
+        "status": _battery_status(last),
         "current_location": current_location,
         "moved_by": moved_by,
-        "moved_at": moved_at.isoformat() if moved_at else None,
+        "moved_at": utc_iso(moved_at),
     }
 
 def update_battery(battery_id, battery_number, serial_number=None, model=None, capacity=None):
@@ -214,7 +286,7 @@ def get_movement_by_id(movement_id):
     cur.execute(
         """
         SELECT id, battery_id, from_location_id, to_location_id, reason,
-               status, created_at, arrived_at, confirmed_at
+               status, created_at, arrived_at, confirmed_at, in_transit_at
         FROM battery_movements
         WHERE id = %s;
         """,
@@ -235,6 +307,7 @@ def get_movement_by_id(movement_id):
         "created_at": row[6],
         "arrived_at": row[7],
         "confirmed_at": row[8],
+        "in_transit_at": row[9],
     }
 
 def get_active_movements():
@@ -263,7 +336,7 @@ def get_active_movements():
         {
             "id": r[0], "battery_number": r[1], "from_location": r[2],
             "to_location": r[3], "status": r[4],
-            "created_at": r[5].isoformat() if r[5] else None,
+            "created_at": utc_iso(r[5]),
             "reason": r[6],
         }
         for r in rows
@@ -294,7 +367,7 @@ def get_all_movements_history():
         {
             "id": r[0], "battery_number": r[1], "from_location": r[2],
             "to_location": r[3], "status": r[4],
-            "created_at": r[5].isoformat() if r[5] else None,
+            "created_at": utc_iso(r[5]),
             "reason": r[6],
         }
         for r in rows
@@ -322,10 +395,27 @@ def get_active_movement_count():
 def mark_movement_in_transit(movement_id):
     conn = get_connection()
     cur = conn.cursor()
-    cur.execute("UPDATE battery_movements SET status = 'in_transit' WHERE id = %s;", (movement_id,))
+    cur.execute(
+        """
+        UPDATE battery_movements SET status = 'in_transit', in_transit_at = NOW()
+        WHERE id = %s
+        RETURNING battery_id;
+        """,
+        (movement_id,)
+    )
+    row = cur.fetchone()
+    battery_id = row[0] if row else None
     conn.commit()
     cur.close()
     conn.close()
+
+    # Once a battery is actually in transit, nobody can plug it in to check
+    # or charge it — charge becomes unknown right here (not at creation,
+    # while it's still just 'pending' and physically sitting where it was)
+    # and set_charge_status rejects 'charging' for as long as it stays in
+    # one of the AWAY_STATUSES.
+    if battery_id is not None:
+        update_charge_status(battery_id, "unknown")
 
 def mark_movement_arrived(movement_id):
     """Only used for the 'site_down' path — lands on 'arrived' and waits for
@@ -394,16 +484,12 @@ def record_movement(battery_id, from_location_id, to_location_id, reason=None, m
     cur.close()
     conn.close()
 
-    # Once a battery leaves home base, we no longer know its real charge
-    # level out in the field, so it resets to "unknown" automatically.
-    # (Unchanged behavior — still fires at creation. Confirmed with Derrick:
-    # not reverted on cancel either. Crosses into the sites domain to check
-    # is_home_base, so it goes through db.sites's accessor rather than
-    # querying locations directly from here.)
-    went_to_home_base = sites.is_location_home_base(to_location_id)
-    if not went_to_home_base:
-        update_charge_status(battery_id, "unknown")
-
+    # Charge/location/moved-by/since all stay exactly as they were while the
+    # movement is 'pending' — the battery hasn't physically left yet. Charge
+    # only flips to "unknown" once mark_movement_in_transit() actually moves
+    # it, regardless of destination (this used to fire here and only for a
+    # non-home-base destination — both of those were wrong once status
+    # became lifecycle-driven).
     return new_id
 
 def confirm_site_online(movement_id):

@@ -1,4 +1,4 @@
-from db.connection import get_connection
+from db.connection import get_connection, utc_iso
 
 def get_all_roles():
     conn = get_connection()
@@ -11,7 +11,7 @@ def get_all_roles():
         {
             "id": r[0],
             "name": r[1],
-            "created_at": r[2].isoformat() if r[2] else None,
+            "created_at": utc_iso(r[2]),
         }
         for r in rows
     ]
@@ -27,7 +27,7 @@ def get_role_by_id(role_id):
         return {
             "id": row[0],
             "name": row[1],
-            "created_at": row[2].isoformat() if row[2] else None,
+            "created_at": utc_iso(row[2]),
         }
     return None
 
