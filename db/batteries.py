@@ -358,7 +358,7 @@ def get_active_movements():
         JOIN batteries ON battery_movements.battery_id = batteries.id
         LEFT JOIN locations AS from_loc ON battery_movements.from_location_id = from_loc.id
         JOIN locations AS to_loc ON battery_movements.to_location_id = to_loc.id
-        WHERE battery_movements.status IN ('pending', 'in_transit', 'arrived', 'site_still_down')
+        WHERE battery_movements.status IN ('pending', 'in_transit', 'arrived')
         ORDER BY battery_movements.created_at DESC;
         """
     )
@@ -417,7 +417,7 @@ def get_active_movement_count():
     cur.execute(
         """
         SELECT COUNT(*) FROM battery_movements
-        WHERE status IN ('pending', 'in_transit', 'arrived', 'site_still_down');
+        WHERE status IN ('pending', 'in_transit', 'arrived');
         """
     )
     count = cur.fetchone()[0]
