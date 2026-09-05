@@ -51,14 +51,19 @@ battery-tracker/
     │   └── settings.html                # Profile + Password tabs
     │
     ├── js/                             # one ES module per view, imports only from common.js —
-    │   │                                 #   EXCEPT dashboard.js <-> movements.js (see below)
+    │   │                                 #   EXCEPT dashboard.js <-> movements.js (see below).
+    │   │                                 #   Each view module registers a route with common.js's
+    │   │                                 #   router (registerRoute) instead of switching views itself
     │   ├── app.js                        # bootstrap — the only file that imports every view module
     │   ├── common.js                     # shared state, auth, permission checks (can()), fragment
     │   │                                 #   loader, cmdk command palette, app-shown handler
-    │   │                                 #   registry, refreshBadges()
+    │   │                                 #   registry, refreshBadges(), hash router (navigate/
+    │   │                                 #   registerRoute/registerRouteResetter — URL + browser
+    │   │                                 #   back/forward reflect the current view)
     │   ├── dashboard.js                  # battery table, stat cards + click-through detail, move
     │   │                                 #   modal (incl. "Moved by" typeahead), imports
-    │   │                                 #   MOVEMENT_STATUS_META from movements.js
+    │   │                                 #   MOVEMENT_STATUS_META from movements.js; battery detail
+    │   │                                 #   modal is a route (#/dashboard/battery/:id)
     │   ├── movements.js                  # movements table + lifecycle actions; calls
     │   │                                 #   dashboard.js's refreshData() after a cancel
     │   ├── sites.js
