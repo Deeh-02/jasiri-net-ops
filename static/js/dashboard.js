@@ -92,6 +92,11 @@ const STAT_DETAIL_STATUS_LABELS = {
 };
 
 function movementStatusLabel(battery) {
+    // Takes priority over the raw movement_status lookup below — once a
+    // site-check answers "still down", the movement itself closes out as
+    // 'completed' (same raw status as any normal deployment), so this flag
+    // is the only thing that still distinguishes it here.
+    if (needsAttention(battery)) return "Site Down";
     if (!battery.movement_status) return "—";
     if (STAT_DETAIL_STATUS_LABELS[battery.movement_status]) {
         return STAT_DETAIL_STATUS_LABELS[battery.movement_status];
@@ -137,8 +142,9 @@ function openStatDetail(filterKey) {
 // Battery-level status is driven by the linked movement's lifecycle
 // (Pending/In Transit/Deployed), with At Base surviving only as the
 // never-moved baseline — each gets its own pill color. A site confirmed
-// still down doesn't get its own status label — it stays "Deployed" and is
-// flagged instead via needsAttention()'s row accent (see renderTable).
+// still down doesn't get its own status label or count — it still reads
+// "Deployed" (see renderTable), just in the red "deployed-flagged" variant
+// instead of the normal yellow one.
 const STATUS_PILL_CLASS = {
     "Deployed": "deployed",
     "Pending": "pending",
@@ -247,13 +253,11 @@ function renderTable(batteries) {
     tbody.innerHTML = "";
 
     batteries.forEach(battery => {
-        const statusClass = STATUS_PILL_CLASS[battery.status] || "at-base";
+        // Flags a Deployed battery sitting at a confirmed-offline site by
+        // recoloring its own pill red — label/count stay exactly "Deployed".
+        const statusClass = needsAttention(battery) ? "deployed-flagged" : (STATUS_PILL_CLASS[battery.status] || "at-base");
 
         const row = document.createElement("tr");
-        // Same visual treatment as Check Sites' offline row accent — flags
-        // a Deployed battery sitting at a confirmed-offline site without
-        // touching its status pill/label or the stat counts.
-        row.className = needsAttention(battery) ? "battery-row-flagged" : "";
         row.innerHTML = `
             <td class="battery-number col-frozen">${battery.battery_number}</td>
             <td>${battery.model || "-"}</td>

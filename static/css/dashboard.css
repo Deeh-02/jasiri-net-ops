@@ -157,16 +157,9 @@
 .status-pill.at-base { color: var(--accent); background: rgba(61, 220, 151, 0.12); }
 .status-pill.pending { color: var(--text-dim); background: rgba(139, 150, 165, 0.14); }
 .status-pill.in-transit { color: var(--info); background: rgba(79, 168, 255, 0.12); }
-
-/* ---- Row accent for a Deployed battery sitting at a confirmed-offline
-   site — same technique as Check Sites' .site-row-offline. ---- */
-.battery-row-flagged {
-    border-left: 3px solid var(--danger);
-}
-
-.battery-row-flagged td:first-child {
-    padding-left: 13px;
-}
+/* Still reads "Deployed" — just the red variant, for a battery sitting at a
+   site confirmed offline. */
+.status-pill.deployed-flagged { color: var(--danger); background: rgba(239, 91, 91, 0.14); }
 
 /* ---- Move button (row action) ---- */
 .move-btn {
