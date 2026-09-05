@@ -46,7 +46,7 @@ export async function refreshData() {
         fetch("/batteries", { headers: authHeaders() }),
         fetch("/locations", { headers: authHeaders() })
     ]);
-    batteriesCache = batteriesRes.ok ? await batteriesRes.json() : [];
+    const newBatteries = batteriesRes.ok ? await batteriesRes.json() : [];
     locationsCache = locationsRes.ok ? await locationsRes.json() : [];
 
     // Gated on the permission itself (not just a .ok check) so a role
@@ -59,8 +59,17 @@ export async function refreshData() {
         movedByUsersCache = [];
     }
 
-    renderStats(buildStats(batteriesCache));
-    renderTable(batteriesCache);
+    // Most live-sync ticks land on an unchanged battery list — rebuilding
+    // the table anyway would tear down and recreate every row's buttons
+    // and charge dropdown, which drops whatever the mouse happens to be
+    // hovering (a brief on/off flicker) for no reason. Skip the render
+    // when the fetched data matches what's already on screen.
+    const changed = JSON.stringify(newBatteries) !== JSON.stringify(batteriesCache);
+    batteriesCache = newBatteries;
+    if (changed) {
+        renderStats(buildStats(batteriesCache));
+        renderTable(batteriesCache);
+    }
 }
 
 function renderStats(stats) {
@@ -385,12 +394,37 @@ function initMoveLocationTypeahead() {
 // ---- Move modal ----
 let moveOverlay, moveForm, moveBatteryLabel;
 
+// ---- "Reason" custom dropdown (see .move-reason-* in dashboard.css for
+// why this isn't a plain <select>) — same value-holder + open/closed
+// button pattern as the charge dropdown, just for a single form field. ----
+let moveReasonValue = null;
+const MOVE_REASON_LABELS = {
+    site_down: "Site has no power",
+    storage: "Returning to storage",
+};
+
+function setMoveReason(value) {
+    moveReasonValue = value;
+    const label = document.getElementById("move-reason-label");
+    label.textContent = value ? MOVE_REASON_LABELS[value] : "Reason";
+    label.classList.toggle("move-reason-placeholder", !value);
+    if (value) document.getElementById("move-reason-warning").hidden = true;
+}
+
+function closeMoveReasonMenu() {
+    document.getElementById("move-reason-menu").hidden = true;
+    document.getElementById("move-reason-btn").classList.remove("open");
+}
+
 function openMoveModal(batteryId, batteryNumber) {
     moveModalBatteryId = batteryId;
     moveBatteryLabel.textContent = batteryNumber ? `— ${batteryNumber}` : "";
     moveForm.reset();
     document.getElementById("move-location-suggestions").hidden = true;
     document.getElementById("move-location-warning").hidden = true;
+    setMoveReason(null);
+    closeMoveReasonMenu();
+    document.getElementById("move-reason-warning").hidden = true;
     document.getElementById("move-by-suggestions").hidden = true;
     document.getElementById("move-by-warning").hidden = true;
     moveOverlay.hidden = false;
@@ -645,6 +679,27 @@ export function initDashboard() {
         if (e.target === moveOverlay) closeMoveModal();
     });
 
+    document.getElementById("move-reason-btn").addEventListener("click", (e) => {
+        e.stopPropagation();
+        const menu = document.getElementById("move-reason-menu");
+        const isOpen = !menu.hidden;
+        closeMoveReasonMenu();
+        if (!isOpen) {
+            menu.hidden = false;
+            document.getElementById("move-reason-btn").classList.add("open");
+        }
+    });
+
+    document.querySelectorAll(".move-reason-option").forEach(opt => {
+        opt.addEventListener("click", (e) => {
+            e.stopPropagation();
+            setMoveReason(opt.dataset.value);
+            closeMoveReasonMenu();
+        });
+    });
+
+    document.addEventListener("click", closeMoveReasonMenu);
+
     moveForm.addEventListener("submit", async (e) => {
         e.preventDefault();
         if (!moveModalBatteryId) return;
@@ -656,8 +711,12 @@ export function initDashboard() {
             locationInput.focus();
             return;
         }
+        if (!moveReasonValue) {
+            document.getElementById("move-reason-warning").hidden = false;
+            return;
+        }
         const to_location_id = matchedLocation.id;
-        const reason = document.getElementById("move-reason").value || null;
+        const reason = moveReasonValue;
         const moved_by = document.getElementById("move-by").value || null;
 
         const response = await fetch("/movements", {
@@ -778,6 +837,7 @@ export function initDashboard() {
         if (e.key === "Escape") {
             closeMoveModal();
             closeAllChargeMenus();
+            closeMoveReasonMenu();
         }
     });
 

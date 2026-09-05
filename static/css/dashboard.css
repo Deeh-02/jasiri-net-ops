@@ -149,6 +149,78 @@
     color: var(--danger);
 }
 
+/* ---- "Reason" custom dropdown — a bare <select> couldn't be made to
+   match "Move to"/"Moved by" next to it: browsers keep their own chevron
+   and box-model on it, and the open option list is an OS-native popup
+   that ignores the app's dark theme almost entirely. This reuses the same
+   button+menu mechanics as the charge dropdown (.charge-btn/.charge-menu)
+   so all three fields in this form look and behave the same way. ---- */
+.move-reason-field {
+    position: relative;
+}
+
+/* Scoped as .panel-form .move-reason-btn (not just .move-reason-btn) so
+   this outranks .panel-form button's green/bold "submit button" look —
+   same specificity family, two classes beats one class + one type. */
+.panel-form .move-reason-btn {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    font-weight: 400;
+    font-size: 14px;
+    cursor: pointer;
+    margin-top: 0;
+    transition: border-color 0.15s ease;
+}
+
+.panel-form .move-reason-btn:hover,
+.panel-form .move-reason-btn.open {
+    border-color: var(--accent);
+    opacity: 1;
+}
+
+.move-reason-placeholder {
+    color: var(--text-dim);
+}
+
+.move-reason-caret {
+    color: var(--text-dim);
+    font-size: 10px;
+    margin-left: 8px;
+}
+
+.move-reason-menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    right: 0;
+    z-index: 20;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+}
+
+.move-reason-option {
+    padding: 9px 12px;
+    font-family: 'Inter', sans-serif;
+    font-size: 13px;
+    color: var(--text);
+    cursor: pointer;
+    transition: background 0.12s ease;
+}
+
+.move-reason-option:hover {
+    background: var(--surface-2);
+}
+
 /* ---- Battery status pill colors (base .status-pill is in common.css) ----
    Pending/In Transit reuse the same colors as their Movements-page
    equivalents (.movement-pending/.movement-in-transit in movements.css) for

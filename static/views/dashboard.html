@@ -7,11 +7,17 @@
                     <div class="move-by-suggestions" id="move-location-suggestions" hidden></div>
                 </div>
                 <div class="move-by-warning" id="move-location-warning" hidden>Doesn't match a known site — pick one from the list.</div>
-                <select id="move-reason" required>
-                    <option value="" disabled selected>Reason</option>
-                    <option value="site_down">Site has no power</option>
-                    <option value="storage">Returning to storage</option>
-                </select>
+                <div class="move-reason-field" id="move-reason-field">
+                    <button type="button" class="move-reason-btn" id="move-reason-btn">
+                        <span id="move-reason-label" class="move-reason-placeholder">Reason</span>
+                        <span class="move-reason-caret">▾</span>
+                    </button>
+                    <div class="move-reason-menu" id="move-reason-menu" hidden>
+                        <div class="move-reason-option" data-value="site_down">Site has no power</div>
+                        <div class="move-reason-option" data-value="storage">Returning to storage</div>
+                    </div>
+                </div>
+                <div class="move-by-warning" id="move-reason-warning" hidden>Pick a reason for this move.</div>
                 <div class="move-by-field">
                     <input type="text" id="move-by" placeholder="Moved by" autocomplete="off" required>
                     <div class="move-by-suggestions" id="move-by-suggestions" hidden></div>

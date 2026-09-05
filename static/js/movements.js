@@ -28,7 +28,14 @@ async function refreshMovements() {
         document.getElementById("movements-rows").innerHTML = '<tr><td colspan="6" class="loading-text">Failed to load movements</td></tr>';
         return;
     }
-    movementsCache = await res.json();
+    const data = await res.json();
+    // Most polls land on an unchanged list — rebuilding the tbody anyway
+    // would tear down and recreate every action button, which drops
+    // whatever button the mouse happens to be hovering (its :hover style
+    // blinks off then back on) even though nothing actually changed. Skip
+    // the render entirely when the fetched data matches what's on screen.
+    if (JSON.stringify(data) === JSON.stringify(movementsCache)) return;
+    movementsCache = data;
     renderMovementsList(movementsCache);
 }
 

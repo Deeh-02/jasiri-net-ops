@@ -765,10 +765,48 @@ tr:hover td { background: var(--surface-2); }
     transition: border-color 0.15s ease;
 }
 
+/* Without this, "Move to..."/"Moved by" render their placeholder text in
+   the browser's default dimming (an opacity-faded var(--text)), while the
+   custom "Reason" dropdown's own placeholder span uses var(--text-dim)
+   directly — two different grays that only look alike by coincidence.
+   Pin the real inputs to the same var(--text-dim), full opacity, so all
+   three placeholders actually match. */
+.panel-form input::placeholder {
+    color: var(--text-dim);
+    opacity: 1;
+}
+
 .panel-form input:focus,
 .panel-form select:focus {
     outline: none;
     border-color: var(--accent);
+}
+
+/* A bare <select> keeps its native chevron/box-model even with the shared
+   rules above, which is what makes it look out of place next to the
+   plain-text "Move to"/"Moved by" inputs beside it — appearance:none plus a
+   hand-drawn chevron brings it back in line with those. */
+.panel-form select {
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5 11 1.5' fill='none' stroke='%238b96a5' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    background-size: 11px 8px;
+    padding-right: 34px;
+}
+
+/* The disabled placeholder option ("Reason") should read the same dim tone
+   as an empty input's ::placeholder, instead of full-strength text color —
+   :invalid covers exactly this state for a required select still on its
+   placeholder option. */
+.panel-form select:invalid {
+    color: var(--text-dim);
+}
+
+.panel-form select option {
+    background: var(--surface);
+    color: var(--text);
 }
 
 .panel-form button {
