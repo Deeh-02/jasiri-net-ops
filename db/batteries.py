@@ -1,18 +1,23 @@
 from db.connection import get_connection, utc_iso
 from db import sites
 
-# Movement lifecycle statuses that mean "away from anyone's hands" — charge
-# is unknown and locked out of 'charging' for all of these, whether it's
-# still literally moving or sitting at a site nobody's confirmed as usable
-# yet.
+# Movement lifecycle statuses that mean "away from anyone's hands, still
+# literally moving or not yet confirmed usable" — used for the charge lock
+# below. 'site_still_down' is kept for backward compatibility with any
+# historical row written before mark_site_still_down started closing the
+# movement out as 'completed' instead — going forward this only matches
+# 'in_transit'/'arrived'.
 AWAY_STATUSES = {"in_transit", "arrived", "site_still_down"}
-# Physically arrived, but the site-down flow's confirm-online question
-# hasn't been answered yet — battery status shows "Not Deployed" rather
-# than "In Transit" (it's no longer moving) or "Deployed" (not confirmed
-# usable there yet).
+# Arrived, but the site-down flow's confirm-online question hasn't been
+# answered yet. Battery status still reads "Deployed" for this (see
+# _battery_status) — it's purely here so is_locked_from_charging keeps
+# rejecting 'charging' for it, same reasoning as AWAY_STATUSES above.
 NOT_DEPLOYED_STATUSES = {"arrived", "site_still_down"}
-# Terminal "it's there and confirmed" states — either path (straight
-# completion, or the site-down flow's confirm-online) resolves here.
+# Terminal "it's there and the movement is closed" states. A site-down move
+# that comes back "still down" also lands here now (see mark_site_still_down)
+# — the MOVEMENT's lifecycle is done either way; whether the battery is
+# actually usable there is tracked separately via the location's is_online,
+# not by keeping the movement itself open.
 TERMINAL_STATUSES = {"completed", "site_confirmed_online"}
 
 
@@ -55,7 +60,7 @@ def get_last_movement(battery_id):
         """
         SELECT battery_movements.status, battery_movements.moved_by,
                battery_movements.created_at, battery_movements.in_transit_at,
-               to_loc.name
+               to_loc.name, to_loc.is_online
         FROM battery_movements
         JOIN locations AS to_loc ON battery_movements.to_location_id = to_loc.id
         WHERE battery_movements.battery_id = %s
@@ -72,7 +77,10 @@ def get_last_movement(battery_id):
         return None
 
     def to_dict(r):
-        return {"status": r[0], "moved_by": r[1], "created_at": r[2], "in_transit_at": r[3], "to_location": r[4]}
+        return {
+            "status": r[0], "moved_by": r[1], "created_at": r[2], "in_transit_at": r[3],
+            "to_location": r[4], "is_online": r[5],
+        }
 
     latest = to_dict(rows[0])
     prev = to_dict(rows[1]) if len(rows) > 1 else None
@@ -85,17 +93,21 @@ def get_last_movement(battery_id):
             location = prev["to_location"]
             moved_by = prev["moved_by"]
             moved_at = prev["in_transit_at"] or prev["created_at"]
+            site_online = prev["is_online"]
         else:
             location = "Unknown (no movements recorded)"
             moved_by = None
             moved_at = None
+            site_online = None
     elif status == "in_transit":
-        # Genuinely en route — location is unknown until it lands somewhere.
+        # Genuinely en route — location (and its site's online state) is
+        # unknown until it lands somewhere.
         location = "—"
         moved_by = latest["moved_by"]
         # "Since" tracks when it actually left (marked in transit), not when
         # the movement was first created back in 'pending'.
         moved_at = latest["in_transit_at"]
+        site_online = None
     else:
         # arrived / site_still_down / completed / site_confirmed_online —
         # the battery has physically reached the destination even if it
@@ -104,21 +116,29 @@ def get_last_movement(battery_id):
         location = latest["to_location"]
         moved_by = latest["moved_by"]
         moved_at = latest["in_transit_at"]
+        site_online = latest["is_online"]
 
     return {
         "location": location,
         "moved_by": moved_by,
         "moved_at": moved_at,
         "movement_status": status,
+        # The destination site's real is_online state — None when there's
+        # no meaningful site to check yet (in transit, or never moved).
+        # Drives the battery table's "needs attention" row accent without
+        # touching the Pending/In Transit/Deployed status label itself.
+        "site_online": site_online,
     }
 
 def _battery_status(last):
-    """Battery Tracker status now tracks the linked movement's lifecycle:
+    """Battery Tracker status tracks the linked movement's lifecycle:
     'Pending' while it's queued to move, 'In Transit' while it's actually
-    moving, 'Not Deployed' once it's arrived but the site-down flow's
-    confirm-online question is still unanswered, and 'Deployed' once that
-    resolves (arrival for a straight move, or confirmed-online for a
-    site-down move) — regardless of whether the destination is home base.
+    moving, and 'Deployed' once it's arrived — whether that's a straight
+    move, or the site-down flow (arrived-awaiting-confirmation, or answered
+    either way) — regardless of whether the destination is home base. A
+    site confirmed still down does NOT get its own status label; it's
+    surfaced instead as a row-level "needs attention" accent driven by
+    site_online (see get_all_batteries), so the label/count stay simple.
     'At Base' only remains as the baseline for a battery with no (live)
     movement history at all."""
     if last is None:
@@ -128,18 +148,24 @@ def _battery_status(last):
         return "Pending"
     if status == "in_transit":
         return "In Transit"
-    if status in NOT_DEPLOYED_STATUSES:
-        return "Not Deployed"
-    if status in TERMINAL_STATUSES:
+    if status in NOT_DEPLOYED_STATUSES or status in TERMINAL_STATUSES:
         return "Deployed"
     return "At Base"
 
 def is_locked_from_charging(battery_id):
-    """A battery that's away from anyone's hands (in transit, or arrived and
-    waiting on a site-check answer) can't be plugged in to charge — used to
-    reject 'charging' server-side, not just hide it in the UI."""
+    """A battery can't be plugged in to charge while it's away (in transit,
+    or arrived and waiting on a site-check answer) OR while it's confirmed
+    sitting at a site with no power — that second case stays locked even
+    after the movement itself closes out as 'completed', since the
+    restriction is really about the site, not the movement's own lifecycle.
+    Enforced here (not just hidden in the UI) so it can't be bypassed via a
+    direct API call."""
     last = get_last_movement(battery_id)
-    return last is not None and last["movement_status"] in AWAY_STATUSES
+    if last is None:
+        return False
+    if last["movement_status"] in AWAY_STATUSES:
+        return True
+    return last["site_online"] is False
 
 def get_current_location(battery_id):
     last = get_last_movement(battery_id)
@@ -193,11 +219,13 @@ def get_all_batteries():
             moved_by = None
             moved_at = None
             movement_status = None
+            site_online = None
         else:
             current_location = last["location"]
             moved_by = last["moved_by"]
             moved_at = last["moved_at"]
             movement_status = last["movement_status"]
+            site_online = last["site_online"]
 
         batteries.append({
             "id": battery_id,
@@ -215,6 +243,11 @@ def get_all_batteries():
             # by the stat-card click-through detail to show what's actually
             # happening with each battery, not just where it physically is.
             "movement_status": movement_status,
+            # The current location's real is_online state (None if there's
+            # no site to check right now). The frontend uses this to flag a
+            # "Deployed" battery sitting at a confirmed-offline site with a
+            # row accent — it doesn't change `status` or the stat counts.
+            "site_online": site_online,
         })
     return batteries
 
@@ -518,7 +551,14 @@ def confirm_site_online(movement_id):
         sites.set_location_online_status(to_location_id, True, stamp_confirmed=True)
 
 def mark_site_still_down(movement_id):
-    """Marks the destination site is_online = FALSE, so it shows Offline in the
+    """Answering a site-check as 'still down' closes the MOVEMENT out as
+    'completed' — its lifecycle ends here, no further status changes are
+    expected on this record. The battery's own real-world resolution (once
+    the site is eventually confirmed back online, whether via Check Sites
+    or a later movement) is tracked separately via the location's
+    is_online, not by keeping this movement open.
+
+    Marks the destination site is_online = FALSE, so it shows Offline in the
     Check Sites list too. Deliberately does NOT stamp verification_confirmed_at —
     the site keeps getting flagged as needing a check every hour until someone
     reports it back online, rather than going quiet just because we know it's down."""
@@ -527,7 +567,7 @@ def mark_site_still_down(movement_id):
     cur.execute(
         """
         UPDATE battery_movements
-        SET status = 'site_still_down', confirmed_at = NOW()
+        SET status = 'completed', confirmed_at = NOW()
         WHERE id = %s
         RETURNING to_location_id;
         """,

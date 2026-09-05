@@ -17,7 +17,6 @@ let moveModalBatteryId = null;
 // filter (buildStats/openStatDetail), so the two never drift apart.
 const STAT_FILTERS = {
     deployed: b => b.status === "Deployed",
-    "not-deployed": b => b.status === "Not Deployed",
     charged: b => b.charge_status === "charged",
     charging: b => b.charge_status === "charging",
     low: b => b.charge_status === "low",
@@ -27,7 +26,6 @@ const STAT_FILTERS = {
 function buildStats(batteries) {
     return [
         { label: "Deployed", cls: "deployed" },
-        { label: "Not Deployed", cls: "not-deployed" },
         { label: "Charged", cls: "charged" },
         { label: "Charging", cls: "charging" },
         { label: "Low", cls: "low" },
@@ -136,28 +134,31 @@ function openStatDetail(filterKey) {
     document.getElementById("stat-detail-overlay").hidden = false;
 }
 
-// Battery-level status is now driven by the linked movement's lifecycle
-// (Pending/In Transit/Not Deployed/Deployed), with At Base surviving only
-// as the never-moved baseline — each gets its own pill color.
+// Battery-level status is driven by the linked movement's lifecycle
+// (Pending/In Transit/Deployed), with At Base surviving only as the
+// never-moved baseline — each gets its own pill color. A site confirmed
+// still down doesn't get its own status label — it stays "Deployed" and is
+// flagged instead via needsAttention()'s row accent (see renderTable).
 const STATUS_PILL_CLASS = {
     "Deployed": "deployed",
     "Pending": "pending",
     "In Transit": "in-transit",
-    "Not Deployed": "not-deployed",
     "At Base": "at-base",
 };
 
-// Both "In Transit" (still moving) and "Not Deployed" (arrived, but the
-// site-down flow's confirm-online question is unanswered) mean nobody can
-// plug the battery in — charge is unknown/locked in both.
-const CHARGE_LOCKED_STATUSES = new Set(["In Transit", "Not Deployed"]);
+// A battery confirmed sitting at an offline site can't be charged either,
+// even though its movement itself has closed out as "Deployed" — the
+// restriction follows the site, not the movement's own lifecycle.
+function needsAttention(battery) {
+    return battery.status === "Deployed" && battery.site_online === false;
+}
 
 function chargeCellHtml(battery) {
     const charge = (battery.charge_status || "unknown").toLowerCase();
     // The backend rejects "charging" in this state too (see
     // set_charge_status), this just keeps the UI from offering an option
     // that would 400.
-    const chargingLocked = CHARGE_LOCKED_STATUSES.has(battery.status);
+    const chargingLocked = battery.status === "In Transit" || needsAttention(battery);
 
     const menuItems = CHARGE_OPTIONS.map(c => {
         const locked = chargingLocked && c === "charging";
@@ -249,6 +250,10 @@ function renderTable(batteries) {
         const statusClass = STATUS_PILL_CLASS[battery.status] || "at-base";
 
         const row = document.createElement("tr");
+        // Same visual treatment as Check Sites' offline row accent — flags
+        // a Deployed battery sitting at a confirmed-offline site without
+        // touching its status pill/label or the stat counts.
+        row.className = needsAttention(battery) ? "battery-row-flagged" : "";
         row.innerHTML = `
             <td class="battery-number col-frozen">${battery.battery_number}</td>
             <td>${battery.model || "-"}</td>
@@ -592,8 +597,9 @@ let addBatteryOverlay, addBatteryOpenBtn, addBatteryCancelBtn;
 // Simple interval poll rather than websockets/SSE: this app has no existing
 // push infrastructure, and a small periodic GET is the lowest-risk way to
 // get "everyone sees the same state" without adding a persistent-connection
-// server component. ----
-const LIVE_SYNC_INTERVAL_MS = 5000;
+// server component. Kept under 2s (with margin for request/render time) so
+// a Movements-page change is reflected here well inside that window. ----
+const LIVE_SYNC_INTERVAL_MS = 1500;
 
 // Don't let a background sync yank the table out from under an
 // in-progress interaction — skip the tick if a modal or the charge

@@ -144,8 +144,9 @@ function attachMovementActionListeners() {
 // Same reasoning as dashboard.js's live sync: another user's action here
 // (mark in transit, site-check answer, ...) is exactly what drives the
 // battery table's status/charge/location/moved-by/since — so this list
-// needs to stay live too, not just the table it feeds.
-const LIVE_SYNC_INTERVAL_MS = 5000;
+// needs to stay live too, not just the table it feeds. Matches dashboard.js's
+// interval so a change made here is reflected there in under 2s either way.
+const LIVE_SYNC_INTERVAL_MS = 1500;
 
 function startLiveSync() {
     setInterval(() => {

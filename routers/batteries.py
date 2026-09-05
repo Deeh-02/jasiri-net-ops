@@ -100,12 +100,13 @@ def set_charge_status(battery_id: int, update: ChargeStatusUpdate, current_user:
     if update.charge_status not in valid:
         raise HTTPException(status_code=400, detail=f"charge_status must be one of {sorted(valid)}")
     # Mirrors the frontend's disabled "Charging" option — enforced here too
-    # so it can't be set via a direct API call while the battery is away
-    # (in transit, or arrived and waiting on a site-check answer).
+    # so it can't be set via a direct API call while the battery is away (in
+    # transit, or arrived and waiting on a site-check answer) or sitting at
+    # a site that's confirmed to have no power.
     if update.charge_status == "charging" and db.is_locked_from_charging(battery_id):
         raise HTTPException(
             status_code=400,
-            detail="Battery is in transit — charge status is locked to Unknown until it's deployed",
+            detail="Battery can't be charging right now — it's either in transit or at a site with no confirmed power",
         )
     db.update_charge_status(battery_id, update.charge_status)
     return {"id": battery_id, "charge_status": update.charge_status}
@@ -196,7 +197,7 @@ def movement_confirm_online(
         db.confirm_site_online(movement_id)
         return {"id": movement_id, "status": "site_confirmed_online"}
     db.mark_site_still_down(movement_id)
-    return {"id": movement_id, "status": "site_still_down"}
+    return {"id": movement_id, "status": "completed"}
 
 @router.post("/movements/{movement_id}/cancel")
 def movement_cancel(movement_id: int, current_user: dict = Depends(get_current_user)):
