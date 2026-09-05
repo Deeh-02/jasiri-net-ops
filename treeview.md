@@ -9,13 +9,21 @@ keeps this in sync automatically.
 
 ```
 battery-tracker/
-├── main.py                        # FastAPI app: mounts /static, registers every router, serves "/"
+├── main.py                        # FastAPI app: mounts /static, registers every router, serves "/",
+│                                    #   forces Cache-Control:no-cache on every /static/* response
 ├── requirements.txt                # Python deps — no ORM, no test framework
 ├── schema.sql                      # STALE — see ARCHITECTURE.md's Schema choices section
 ├── run_test.py                     # ad-hoc manual debug script (prints one battery's movement
 │                                    #   history) — not a test suite, no test framework in this repo
 ├── ask_deepseek.py                 # DeepSeek delegation script — see DELEGATION.md
 ├── .gitignore
+│
+├── migrations/                      # plain numbered .sql scripts, run by hand via
+│   │                                 #   `psql "$DATABASE_URL" -f migrations/000X_....sql` —
+│   │                                 #   no migration framework/runner in this repo
+│   ├── 0001_add_in_transit_at.sql
+│   ├── 0002_backfill_in_transit_at.sql
+│   └── 0003_close_out_site_still_down.sql
 │
 ├── routers/                        # FastAPI route handlers — one file per domain
 │   ├── __init__.py
@@ -29,11 +37,13 @@ battery-tracker/
 ├── db/                              # raw-SQL data access — one file per domain, psycopg2 only
 │   ├── __init__.py
 │   ├── connection.py                  # get_connection() — the one shared piece; picks
-│   │                                   #   DATABASE_URL (Supabase/prod) vs local Postgres fallback
+│   │                                   #   DATABASE_URL (Supabase/prod) vs local Postgres fallback;
+│   │                                   #   also EAT/utc_iso time helpers (see ARCHITECTURE.md)
 │   ├── sites.py
 │   ├── batteries.py                   # includes battery_movements — grouped with batteries,
 │   │                                   #   not a separate domain (see ARCHITECTURE.md)
-│   └── users.py                       # users + roles + role_permissions
+│   ├── permissions.py                  # roles + role_permissions data access
+│   └── users.py                       # users CRUD
 │
 └── static/                          # frontend — plain HTML/CSS/JS, no build step, no framework
     ├── index.html                     # SPA shell: login screen, topbar, sidebar nav, cmdk
@@ -61,11 +71,15 @@ battery-tracker/
     │   │                                 #   registerRoute/registerRouteResetter — URL + browser
     │   │                                 #   back/forward reflect the current view)
     │   ├── dashboard.js                  # battery table, stat cards + click-through detail, move
-    │   │                                 #   modal (incl. "Moved by" typeahead), imports
-    │   │                                 #   MOVEMENT_STATUS_META from movements.js; battery detail
-    │   │                                 #   modal is a route (#/dashboard/battery/:id)
+    │   │                                 #   modal (incl. "Moved by"/"Move to" typeahead + the
+    │   │                                 #   "Reason" custom dropdown), imports MOVEMENT_STATUS_META
+    │   │                                 #   from movements.js; battery detail modal is a route
+    │   │                                 #   (#/dashboard/battery/:id); refreshData() skips
+    │   │                                 #   re-rendering the table when live-sync polling comes
+    │   │                                 #   back with unchanged data (avoids a button/hover flicker)
     │   ├── movements.js                  # movements table + lifecycle actions; calls
-    │   │                                 #   dashboard.js's refreshData() after a cancel
+    │   │                                 #   dashboard.js's refreshData() after a cancel;
+    │   │                                 #   refreshMovements() has the same unchanged-data skip
     │   ├── sites.js
     │   ├── check-sites.js
     │   ├── users.js
@@ -77,8 +91,10 @@ battery-tracker/
     └── css/                            # one file per view + common.css for shared chrome
         ├── common.css                    # topbar, sidebar nav, modals, base table styling,
         │                                 #   stat-grid, mobile breakpoint (max-width:760px)
-        ├── dashboard.css                  # stat cards, move/charge dropdowns, "Moved by"
-        │                                 #   typeahead dropdown, View Battery + stat-detail modals
+        ├── dashboard.css                  # stat cards (incl. .deployed-flagged red pill variant),
+        │                                 #   move/charge/reason dropdowns, "Moved by" typeahead
+        │                                 #   dropdown, View Battery + stat-detail modals (incl.
+        │                                 #   .battery-row-flagged red row accent)
         ├── movements.css
         ├── sites.css
         ├── check-sites.css

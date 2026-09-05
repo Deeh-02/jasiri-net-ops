@@ -116,9 +116,80 @@ isolated file.
     — net zero change from `main`'s current look. Not pursued further
     this phase.
 
+12. **Battery status — movement-lifecycle-driven, not partly stored.**
+    Added mid-phase by the owner (2026-09-05). Status (At Base/Pending/In
+    Transit/Deployed) now derives entirely from the battery's last
+    movement (`db/batteries.py`'s `_battery_status`) instead of being
+    partly a stored flag. A movement resolving at home base now reads "At
+    Base"; anywhere else reads "Deployed" — this needed a real fix
+    mid-item, since the first pass ignored the home-base case and showed
+    every arrived/completed movement as "Deployed" regardless of
+    destination.
+
+13. **Site-down flag — visible without touching status or counts.** A
+    site-down move answered "still down" now closes the *movement* out as
+    `completed` (its lifecycle is done), while the *battery* stays flagged
+    indefinitely via the destination location's `is_online` until someone
+    confirms it back online. Iterated through several visual treatments
+    per owner feedback before landing on: the main table's status pill
+    recolors red (still reads "Deployed", count unchanged), the
+    stat-detail modal's row gets a red left-edge accent. That accent
+    turned out to not render at all at first — root cause was
+    `.dashboard-logs-table`'s `border-collapse: separate`, under which a
+    border set on a `<tr>` is never painted by the browser, only on
+    `<td>`; moved the border onto the row's first cell instead. A flagged
+    battery also can't be set to "charging", enforced server-side.
+
+14. **EAT timestamps.** Added mid-phase by the owner. All business-logic
+    time comparisons (Check Sites' 8am–8pm active window, movement
+    "since" display) now use a fixed UTC+3 offset (`db/connection.py`'s
+    `EAT`/`now_eat`/`to_eat`) instead of the server's raw UTC clock, which
+    had Check Sites' window effectively running 11am–11pm Nairobi time.
+
+15. **Move Battery modal — Reason field.** The bare `<select>` couldn't be
+    made to visually match "Move to"/"Moved by" next to it — a native
+    select keeps its own chevron/box-model, and its open option list is
+    an OS-native popup immune to the app's dark theme. Replaced with the
+    same button+menu component already used for the charge dropdown.
+    Needed a follow-up fix: the button initially inherited
+    `.panel-form button`'s green/bold submit-button look (a CSS
+    specificity collision), and its placeholder text was a visibly
+    different gray from the other two fields' native `::placeholder`
+    dimming until that got an explicit color too.
+
+16. **Live sync + render flicker.** Movements-to-Battery-Tracker sync
+    interval shortened to under 2s (from 5s), then a second, distinct bug
+    surfaced: both tables were rebuilding their entire body on every poll
+    tick regardless of whether the data had changed, which tore down and
+    recreated every action button and dropped/reapplied `:hover` on
+    whatever the mouse was resting on — read as a flicker. Both polls
+    (`dashboard.js`, `movements.js`) now diff the fetched data against
+    what's cached and skip the render when nothing changed.
+
+17. **Stale static assets.** A recurring "my change isn't showing up"
+    pattern this phase turned out to be the browser caching `/static/*`
+    JS/CSS between edits. `main.py` now sets `Cache-Control: no-cache` on
+    every `/static/*` response, so a plain refresh revalidates against
+    the server (still cheap — FastAPI's `StaticFiles` already returns 304
+    via ETag/Last-Modified when nothing changed) instead of serving a
+    stale cached copy.
+
 ### Also fixed this phase (found/requested along the way, not on the
 ### original numbered list)
 
+- **Local/production schema drift, three rounds.** Item 12/13's work
+  surfaced a local dev DB missing `battery_movements.in_transit_at`
+  entirely (every `/batteries` call 500'd) and, once added, missing on
+  existing rows (movement "Since" blank). A third round: a movement
+  answered "still down" *before* item 13's fix landed stayed stuck on the
+  legacy literal `site_still_down` status, which kept showing up in
+  Movements' active list even though it had actually been answered. Three
+  migrations added (`migrations/0001_add_in_transit_at.sql`,
+  `0002_backfill_in_transit_at.sql`, `0003_close_out_site_still_down.sql`)
+  — run by hand via `psql "$DATABASE_URL" -f migrations/000X_....sql`,
+  same as any schema change in this repo (no migration framework).
+  **0002 and 0003 still need to be run against production** — 0001 was
+  applied there independently already.
 - **Cancel move — stale battery table.** Cancelling a movement from the
   Movements page dropped it from `get_last_movement()`'s consideration
   (location/status/moved-by/since can all revert to the prior movement),

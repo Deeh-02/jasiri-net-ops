@@ -7,6 +7,45 @@ and in `phase.md`'s own per-phase writeups.
 
 ## Phase 2 — Finish Incomplete Functionality (in progress, pending owner confirmation)
 
+**Battery status & movement lifecycle**
+- Battery status (At Base/Pending/In Transit/Deployed) is now driven
+  end-to-end by the linked movement's lifecycle rather than partly stored,
+  partly derived. A movement landing back at home base now resolves to
+  "At Base", not "Deployed" — previously any arrived/completed movement
+  read as "Deployed" regardless of destination.
+- A site-down move that comes back "still down" now closes the movement
+  out as `completed` (done, no further status changes expected) instead
+  of sitting in the movements list forever under its own status. The
+  battery itself stays flagged as needing attention — tracked on the
+  destination site's `is_online`, not on the movement — until someone
+  confirms the site back online, whether via a later movement or Check
+  Sites directly.
+- That "needs attention" flag no longer changes the battery's status
+  label or the Deployed stat card's count. It shows instead as: the
+  status pill itself recoloring to red on the main Battery Tracker table
+  (still reads "Deployed"), and a red left-edge accent on the row inside
+  the stat-card click-through detail. A battery can't be set to
+  "charging" while flagged this way, even after its movement has closed
+  out — enforced server-side, not just hidden in the UI.
+- Timestamps ("Since" columns, movement history) now compute against East
+  Africa Time (fixed UTC+3, no DST) instead of the server's UTC clock —
+  fixes Check Sites' 8am–8pm active-check window, which was effectively
+  running 11am–11pm Nairobi time before.
+- The Move Battery modal's "Reason" field is no longer a bare `<select>`
+  — replaced with the same custom dropdown component already used for the
+  charge-status picker, so it actually matches "Move to"/"Moved by" in
+  color and behavior (a native select's own chevron/box-model, and its
+  open option list, can't be reliably restyled to the app's dark theme).
+- Live sync between Movements and the Battery Tracker table is now under
+  2 seconds (was 5s), and both tables skip re-rendering on a poll tick
+  when the fetched data hasn't actually changed — previously every tick
+  rebuilt the whole table regardless, which tore down and recreated every
+  row's buttons and read as a visible flicker.
+- Static assets (`/static/*` — every JS/CSS file) now send
+  `Cache-Control: no-cache`, so a plain refresh always revalidates
+  against the server instead of serving a stale cached copy — several
+  "my change isn't showing up" reports this phase turned out to be this.
+
 **Battery movements**
 - Fixed: the person typed into "Moved by" when moving a battery was being
   silently discarded — the logged-in user's name was recorded instead

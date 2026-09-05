@@ -59,7 +59,9 @@ at least one `admin`-role user created directly before the app is usable.
   (pending → in-transit → arrived/completed, with a site-down branch for
   confirming the destination is back online), gated by a role-based
   `create` (start a move) vs. `manage` (act on one already in progress)
-  permission split.
+  permission split. A site confirmed still down closes the movement out
+  but flags the battery (red status pill, still reads "Deployed") until
+  the site is confirmed back online, independent of the movement record.
 - **Sites** — site directory plus an hourly online/offline
   verification flow ("Check Sites").
 - **Users / Roles** — user management with a granular,

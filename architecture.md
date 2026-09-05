@@ -34,12 +34,41 @@ is compared against the current hour on read to derive "needs check" —
 that derivation is never stored.
 
 **`battery_movements`** — a state machine, not just a log. `status` moves
-through `pending → in_transit → arrived → site_confirmed_online` (or
-`site_still_down`) for `site_down` moves, or straight to `completed` for any
-other reason, with `cancelled` reachable from `pending`/`in_transit`. A NULL
-`from_location_id` is legal (first-ever movement of a battery). This table
-is also where `battery.charge_status` resets to `unknown` from — leaving
-home base means the app can no longer trust the last-known charge reading.
+through `pending → in_transit → arrived → site_confirmed_online` for a
+`site_down` move confirmed back online, or straight to `completed` for
+any other reason — including a `site_down` move answered "still down"
+(Phase 2: this used to land on its own `site_still_down` status and sit
+there indefinitely; it now closes out as `completed` like everything
+else, since the movement's own lifecycle is done either way). `cancelled`
+is reachable from `pending`/`in_transit`. A NULL `from_location_id` is
+legal (first-ever movement of a battery). `site_still_down` still exists
+as a literal value purely for backward compatibility with rows written
+before that change (`AWAY_STATUSES` in `db/batteries.py` still matches
+it) — no code writes it going forward. This table is also where
+`battery.charge_status` resets to `unknown` from, via
+`mark_movement_in_transit` — once a battery is actually moving, nobody
+can trust (or plug in to check) the last-known charge reading. This used
+to fire earlier, at `record_movement` time (while the battery was still
+just `pending`, physically sitting where it was) — moved later once
+status became fully lifecycle-driven (Phase 2, see below).
+
+**Battery status is fully derived from the last movement, not partly
+stored** (Phase 2). `db/batteries.py`'s `_battery_status` returns "At
+Base" (never moved, or the last movement landed back at the location
+flagged `locations.is_home_base`), "Pending"/"In Transit" while a
+movement is queued/underway, or "Deployed" once arrived anywhere else —
+whether that arrival is a straight move or the site-down flow, confirmed
+online or not. A site confirmed still down does NOT get its own status
+label or its own count anywhere: it's surfaced instead as a "needs
+attention" flag (`site_online === false` while `status === "Deployed"`,
+computed identically on the frontend for both the main table's red pill
+and the stat-detail modal's red row accent) driven by the destination
+`locations.is_online`, independent of the movement's own status — this
+is what makes the flag self-healing once the site is confirmed back
+online later, by any means, without the movement itself needing to
+reopen. The same `site_online` check also keeps `set_charge_status`
+rejecting "charging" for a flagged battery even after its movement has
+closed out.
 
 **`users`** — `role` is a free-text label (`admin` is magic — see
 Integration approach below); `role_id` optionally points at `roles` for
@@ -80,6 +109,16 @@ dev fallback (`routers/auth.py` — the fallback is explicitly flagged in
 comments as "change before deploy"). Tokens carry `role`/`role_id` directly
 in the payload rather than requiring a DB lookup on every request.
 
+Time: every connection runs `SET TIME ZONE 'UTC';` right after connecting
+(`get_connection()`), so every naive `timestamp without time zone` column
+is unambiguous — `utc_iso()` appends a literal "Z" when serializing so the
+frontend can tell it's UTC. Business-logic time (Check Sites' 8am–8pm
+active window, movement "since" display) compares against East Africa
+Time instead, via a fixed-offset `timezone(timedelta(hours=3))`
+(`db/connection.py`'s `EAT`/`now_eat`/`to_eat`) rather than the IANA
+`Africa/Nairobi` zone — EAT has no DST, so a fixed offset is exact and
+doesn't depend on the system's tzdata being present or current.
+
 ## Integration approach
 
 **Domain boundary:** `auth`, `permissions`, `sites`, `batteries` (includes
@@ -98,16 +137,19 @@ domain router.
 
 **Cross-domain data access goes through a function call, never raw SQL on
 another domain's table.** The one place this mattered in practice:
-`db/batteries.py`'s `record_movement` needs to know if a battery's
-destination is the home base (to decide whether to reset `charge_status`),
-and `confirm_site_online`/`mark_site_still_down` need to flip a location's
-`is_online` flag. Both call named accessors in `db/sites.py`
-(`is_location_home_base`, `set_location_online_status`) instead of querying
-`locations` directly. The read-only `JOIN`s against `locations` inside
-`db/batteries.py`'s movement-history queries (to attach from/to location
-*names* to a movement row) are a deliberate exception — display data, not a
-write or a business-logic read, and rewriting them as accessor calls would
-mean N+1 queries for no isolation benefit.
+`confirm_site_online`/`mark_site_still_down` need to flip a location's
+`is_online` flag, and call the named accessor in `db/sites.py`
+(`set_location_online_status`) instead of writing `locations` directly.
+The read-only `JOIN`s against `locations` inside `db/batteries.py`'s
+movement queries (to attach the destination's *name*, `is_online`, and
+`is_home_base` to a movement row — `get_last_movement`, see Schema
+choices above) are a deliberate exception — display/derivation data, not
+a write or a business-logic branch, and rewriting them as accessor calls
+would mean N+1 queries for no isolation benefit. (`db/sites.py`'s
+`is_location_home_base` predates this JOIN and is now dead code — nothing
+calls it since `get_last_movement` started reading `is_home_base`
+directly; left in place rather than deleted mid-Phase-2, since removing
+unused code wasn't the task at hand.)
 
 **Frontend mirrors the same shape, with one Phase 2 exception.** Each view
 is an ES module (`static/js/<view>.js`) that imports only from

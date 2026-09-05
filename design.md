@@ -52,7 +52,11 @@ Three families, loaded once via a Google Fonts `@import` in `common.css`:
 - **Pills** (`.status-pill`, `.hour-check-pill`, `.hb-tag`): small,
   uppercase, letter-spaced, colored text on a low-opacity tint of the same
   color (e.g. `rgba(61, 220, 151, 0.12)` background with solid `--accent`
-  text) — never a solid-fill pill.
+  text) — never a solid-fill pill. A pill's color can flag a sub-state
+  without changing its label or count: `.status-pill.deployed-flagged`
+  (Phase 2) still reads "Deployed" but recolors to the `--danger` tint for
+  a battery sitting at a site confirmed offline — same technique as
+  reusing the pill's existing vocabulary rather than inventing a new one.
 - **Modals** (`.modal-overlay` / `.modal-box`): centered, blurred dark
   backdrop, 360px default width (`.dashboard-modal-box-lg`, 640px, for
   modals with a table inside — the View Battery detail view and, Phase 2,
@@ -66,6 +70,15 @@ Three families, loaded once via a Google Fonts `@import` in `common.css`:
   `--surface-2` fill, `--border` outline, turning `--accent` (edit/view) or
   `--danger` (delete) on hover. No exceptions anymore — Roles' Edit/Delete
   buttons had no styling at all until Phase 2, now match this exactly.
+- **Row accent border, and a `border-collapse` gotcha (Phase 2):** a
+  flagged row's left-edge accent (`.battery-row-flagged`, `.site-row-
+  offline`) only paints reliably when it's a border on the row's first
+  `<td>`, not on the `<tr>` itself. A border set directly on `<tr>` is
+  only ever painted under `border-collapse: collapse` (Check Sites' table
+  uses the default, so `.site-row-offline`'s `<tr>` border "just worked")
+  — under `border-collapse: separate` (`.dashboard-logs-table`, needed for
+  its sticky header) the browser never paints it. Put the border on the
+  cell, not the row, in any table using `separate`.
 - **Row action icons are inline SVG, not an icon font** — each icon is a
   small function returning a raw `<svg>` string (`common.js`'s
   `batteryIconSvg`/`moveIconSvg`/`editIconSvg`/`viewIconSvg`/
@@ -94,6 +107,25 @@ Three families, loaded once via a Google Fonts `@import` in `common.css`:
   The suggestion list is a convenience only — free text past it is always
   accepted; a non-blocking `--warn`-colored note appears if what's typed
   doesn't match a known user, but nothing ever blocks on it.
+- **Fixed-choice custom dropdown** (`.move-reason-field`/`.move-reason-btn`/
+  `.move-reason-menu`/`.move-reason-option`, the Move Battery modal's
+  "Reason" field, Phase 2): same button+menu mechanics as
+  `.charge-dropdown` again, this time standing in for a plain `<select>`
+  rather than a free-text input — a bare `<select>` can share an input's
+  background/border/padding and still look out of place next to it: the
+  browser keeps its own chevron and box-model on the closed control, and
+  the open option list is an OS-native popup that mostly ignores the
+  app's dark theme. Use this pattern instead of `<select>` for any future
+  form field with a short fixed list of choices. Two things worth
+  remembering if adding another one: a `<button>` inside `.panel-form`
+  will otherwise inherit `.panel-form button`'s primary-action look
+  (solid `--accent` fill, bold text) — needs its own rule scoped with at
+  least two classes (e.g. `.panel-form .move-reason-btn`) to outrank it on
+  specificity; and its placeholder-style label needs an explicit
+  `var(--text-dim)` color to actually match a real `<input>`'s
+  `::placeholder`, which was left to the browser's own default dimming
+  (an opacity-faded `var(--text)`, not `var(--text-dim)` itself) until
+  Phase 2 added an explicit `.panel-form input::placeholder` rule.
 
 ## Spacing conventions
 

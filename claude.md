@@ -20,6 +20,7 @@ note that `schema.sql` is currently stale relative to the live DB.
 ## Directory structure
 ```
 main.py              # creates the app, mounts /static, registers routers, serves "/"
+migrations/           # numbered .sql scripts, run by hand — no migration framework
 routers/              # one file per domain: auth, permissions, sites, batteries, users
 db/                    # connection.py (shared) + one file per domain
 static/
