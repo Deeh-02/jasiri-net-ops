@@ -60,7 +60,7 @@ def get_last_movement(battery_id):
         """
         SELECT battery_movements.status, battery_movements.moved_by,
                battery_movements.created_at, battery_movements.in_transit_at,
-               to_loc.name, to_loc.is_online
+               to_loc.name, to_loc.is_online, to_loc.is_home_base
         FROM battery_movements
         JOIN locations AS to_loc ON battery_movements.to_location_id = to_loc.id
         WHERE battery_movements.battery_id = %s
@@ -79,7 +79,7 @@ def get_last_movement(battery_id):
     def to_dict(r):
         return {
             "status": r[0], "moved_by": r[1], "created_at": r[2], "in_transit_at": r[3],
-            "to_location": r[4], "is_online": r[5],
+            "to_location": r[4], "is_online": r[5], "is_home_base": r[6],
         }
 
     latest = to_dict(rows[0])
@@ -94,11 +94,13 @@ def get_last_movement(battery_id):
             moved_by = prev["moved_by"]
             moved_at = prev["in_transit_at"] or prev["created_at"]
             site_online = prev["is_online"]
+            is_home_base = prev["is_home_base"]
         else:
             location = "Unknown (no movements recorded)"
             moved_by = None
             moved_at = None
             site_online = None
+            is_home_base = False
     elif status == "in_transit":
         # Genuinely en route — location (and its site's online state) is
         # unknown until it lands somewhere.
@@ -108,6 +110,7 @@ def get_last_movement(battery_id):
         # the movement was first created back in 'pending'.
         moved_at = latest["in_transit_at"]
         site_online = None
+        is_home_base = False
     else:
         # arrived / site_still_down / completed / site_confirmed_online —
         # the battery has physically reached the destination even if it
@@ -117,6 +120,7 @@ def get_last_movement(battery_id):
         moved_by = latest["moved_by"]
         moved_at = latest["in_transit_at"]
         site_online = latest["is_online"]
+        is_home_base = latest["is_home_base"]
 
     return {
         "location": location,
@@ -128,18 +132,24 @@ def get_last_movement(battery_id):
         # Drives the battery table's "needs attention" row accent without
         # touching the Pending/In Transit/Deployed status label itself.
         "site_online": site_online,
+        # Whether the battery has actually landed back at home base — a
+        # movement resolving there means the battery is "At Base" again,
+        # not "Deployed" (arriving anywhere else is what "Deployed" means).
+        "is_home_base": is_home_base,
     }
 
 def _battery_status(last):
     """Battery Tracker status tracks the linked movement's lifecycle:
     'Pending' while it's queued to move, 'In Transit' while it's actually
-    moving, and 'Deployed' once it's arrived — whether that's a straight
-    move, or the site-down flow (arrived-awaiting-confirmation, or answered
-    either way) — regardless of whether the destination is home base. A
+    moving, and 'Deployed' once it's arrived somewhere other than home
+    base — whether that's a straight move, or the site-down flow
+    (arrived-awaiting-confirmation, or answered either way). A movement
+    that lands back at home base resolves to 'At Base' instead, since a
+    battery sitting at home isn't "deployed" in any meaningful sense. A
     site confirmed still down does NOT get its own status label; it's
     surfaced instead as a row-level "needs attention" accent driven by
     site_online (see get_all_batteries), so the label/count stay simple.
-    'At Base' only remains as the baseline for a battery with no (live)
+    'At Base' also remains the baseline for a battery with no (live)
     movement history at all."""
     if last is None:
         return "At Base"
@@ -149,7 +159,7 @@ def _battery_status(last):
     if status == "in_transit":
         return "In Transit"
     if status in NOT_DEPLOYED_STATUSES or status in TERMINAL_STATUSES:
-        return "Deployed"
+        return "At Base" if last["is_home_base"] else "Deployed"
     return "At Base"
 
 def is_locked_from_charging(battery_id):

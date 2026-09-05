@@ -162,14 +162,15 @@
 .status-pill.deployed-flagged { color: var(--danger); background: rgba(239, 91, 91, 0.14); }
 
 /* ---- Row accent for a battery sitting at a confirmed-offline site, used
-   in the stat-detail modal's table (see openStatDetail) — same technique
-   as Check Sites' .site-row-offline. The main battery table itself uses
-   .status-pill.deployed-flagged above instead of this. ---- */
-.battery-row-flagged {
-    border-left: 3px solid var(--danger);
-}
-
+   in the stat-detail modal's table (see openStatDetail) — same visual as
+   Check Sites' .site-row-offline, but the border has to live on the cell
+   here rather than the <tr> itself: .dashboard-logs-table uses
+   border-collapse:separate (for the sticky header), and in that mode
+   browsers don't paint borders set directly on table-row elements — only
+   on td/th. Check Sites' table uses the default border-collapse:collapse,
+   where a <tr> border does paint, which is why that one "just worked". ---- */
 .battery-row-flagged td:first-child {
+    border-left: 3px solid var(--danger);
     padding-left: 13px;
 }
 

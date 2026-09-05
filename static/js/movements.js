@@ -19,8 +19,10 @@ const MOVEMENT_REASON_LABELS = {
     storage: "Storage",
 };
 
-async function loadMovements() {
-    document.getElementById("movements-rows").innerHTML = '<tr><td colspan="6" class="loading-text">Loading movements...</td></tr>';
+// Quiet refresh: no blanking, just swaps rows in place — used by the live
+// sync poll and after an action, so a tick or a click doesn't flash
+// "Loading movements..." over a table that's already showing data.
+async function refreshMovements() {
     const res = await fetch(`/movements${showMovementHistory ? "?history=true" : ""}`, { headers: authHeaders() });
     if (!res.ok) {
         document.getElementById("movements-rows").innerHTML = '<tr><td colspan="6" class="loading-text">Failed to load movements</td></tr>';
@@ -28,6 +30,13 @@ async function loadMovements() {
     }
     movementsCache = await res.json();
     renderMovementsList(movementsCache);
+}
+
+// Initial/tab-switch load: shows the loading text once, then defers to the
+// quiet refresh above.
+async function loadMovements() {
+    document.getElementById("movements-rows").innerHTML = '<tr><td colspan="6" class="loading-text">Loading movements...</td></tr>';
+    await refreshMovements();
 }
 
 function renderMovementsList(movements) {
@@ -93,7 +102,7 @@ function attachMovementActionListeners() {
                 headers: authHeaders()
             });
             if (res.ok) {
-                await loadMovements();
+                await refreshMovements();
                 await refreshBadges();
             } else {
                 alert("Failed to update movement");
@@ -109,7 +118,7 @@ function attachMovementActionListeners() {
                 headers: authHeaders()
             });
             if (res.ok) {
-                await loadMovements();
+                await refreshMovements();
                 await refreshBadges();
                 // A cancelled movement drops out of get_last_movement()'s
                 // consideration, which can change what the battery table
@@ -132,7 +141,7 @@ function attachMovementActionListeners() {
                 body: JSON.stringify({ is_online })
             });
             if (res.ok) {
-                await loadMovements();
+                await refreshMovements();
                 await refreshBadges();
             } else {
                 alert("Failed to record site check");
@@ -153,7 +162,7 @@ function startLiveSync() {
         const view = document.getElementById("view-movements");
         if (!view || view.hidden) return;
         if (document.visibilityState !== "visible") return;
-        loadMovements();
+        refreshMovements();
     }, LIVE_SYNC_INTERVAL_MS);
 }
 
