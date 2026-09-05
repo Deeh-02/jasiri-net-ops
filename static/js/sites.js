@@ -1,6 +1,6 @@
 import {
     can, authHeaders, showMessage, editIconSvg, deleteIconSvg,
-    registerAppShownHandler, registerCmdkProvider,
+    registerAppShownHandler, registerCmdkProvider, showView, registerRoute,
 } from "./common.js";
 
 let locationsCache = [];
@@ -182,4 +182,6 @@ export function initSites() {
             return [...actions, ...sites];
         },
     });
+
+    registerRoute("sites", () => showView("view-sites"));
 }

@@ -2,6 +2,7 @@ import {
     can, authHeaders, showMessage, formatDate, capitalize,
     batteryIconSvg, moveIconSvg, editIconSvg, viewIconSvg, deleteIconSvg,
     registerAppShownHandler, registerCmdkProvider, refreshBadges,
+    showView, navigate, registerRoute, registerRouteResetter,
 } from "./common.js";
 import { MOVEMENT_STATUS_META } from "./movements.js";
 
@@ -227,7 +228,7 @@ function renderTable(batteries) {
     });
 
     tbody.querySelectorAll(".view-battery-btn").forEach(btn => {
-        btn.addEventListener("click", () => openViewBatteryModal(btn.dataset.id));
+        btn.addEventListener("click", () => navigate("dashboard/battery/" + btn.dataset.id));
     });
 
     tbody.querySelectorAll(".edit-battery-btn").forEach(btn => {
@@ -384,7 +385,22 @@ let viewMovementsCache = [];
 let viewLogsPage = 1;
 let viewLogsPageSize = 10;
 
+function closeViewBatteryModal() {
+    document.getElementById("view-battery-overlay").hidden = true;
+}
+
 async function openViewBatteryModal(id) {
+    const res = await fetch(`/batteries/${id}`, { headers: authHeaders() });
+    if (!res.ok) {
+        // A stale/bookmarked "#/dashboard/battery/:id" link (battery since
+        // deleted, or just a bad id) — bail out to the plain dashboard
+        // rather than opening the modal onto nothing.
+        navigate("dashboard");
+        alert("Failed to load battery");
+        return;
+    }
+    const battery = await res.json();
+
     const overlay = document.getElementById("view-battery-overlay");
     const label = document.getElementById("view-battery-label");
     overlay.hidden = false;
@@ -393,9 +409,6 @@ async function openViewBatteryModal(id) {
     document.querySelector('.dashboard-tab-slant[data-tab="details"]').classList.add("active");
     document.getElementById("view-tab-details").hidden = false;
     document.getElementById("view-tab-logs").hidden = true;
-
-    const res = await fetch(`/batteries/${id}`, { headers: authHeaders() });
-    const battery = await res.json();
 
     label.textContent = battery.battery_number;
     document.getElementById("detail-serial").textContent = battery.serial_number || "—";
@@ -406,7 +419,7 @@ async function openViewBatteryModal(id) {
     document.getElementById("detail-location").textContent = battery.current_location;
 
     const logsRes = await fetch(`/batteries/${id}/movements`, { headers: authHeaders() });
-    viewMovementsCache = await logsRes.json();
+    viewMovementsCache = logsRes.ok ? await logsRes.json() : [];
     viewLogsPage = 1;
     renderLogsTable();
 }
@@ -564,12 +577,12 @@ export function initDashboard() {
     });
 
     document.getElementById("view-battery-close").addEventListener("click", () => {
-        document.getElementById("view-battery-overlay").hidden = true;
+        navigate("dashboard");
     });
 
     document.getElementById("view-battery-overlay").addEventListener("click", (e) => {
         if (e.target.id === "view-battery-overlay") {
-            document.getElementById("view-battery-overlay").hidden = true;
+            navigate("dashboard");
         }
     });
 
@@ -689,12 +702,17 @@ export function initDashboard() {
                 type: "battery",
                 label: b.battery_number,
                 sublabel: [b.model, b.current_location].filter(Boolean).join(" — "),
-                action: () => {
-                    document.querySelector('[data-view="dashboard"]').click();
-                    openViewBatteryModal(b.id);
-                }
+                action: () => navigate("dashboard/battery/" + b.id),
             })) : [];
             return [...actions, ...batteries];
         },
     });
+
+    registerRoute("dashboard", (params) => {
+        showView("view-dashboard");
+        if (params[0] === "battery" && params[1]) {
+            openViewBatteryModal(params[1]);
+        }
+    });
+    registerRouteResetter(closeViewBatteryModal);
 }

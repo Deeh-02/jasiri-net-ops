@@ -1,6 +1,6 @@
 import {
     can, authHeaders, showMessage, capitalize, editIconSvg, deleteIconSvg,
-    showView, registerCmdkProvider,
+    showView, navigate, registerRoute, registerCmdkProvider,
 } from "./common.js";
 
 let usersCache = [];
@@ -44,7 +44,7 @@ function renderUsersList(users) {
     `).join("");
 
     tbody.querySelectorAll(".edit-user-btn").forEach(btn => {
-        btn.addEventListener("click", () => openUserForm(btn.dataset.id));
+        btn.addEventListener("click", () => navigate("users/" + btn.dataset.id + "/edit"));
     });
 
     tbody.querySelectorAll(".delete-user-btn").forEach(btn => {
@@ -83,6 +83,7 @@ async function openUserForm(userId) {
     }
 
     if (userId) {
+        if (usersCache.length === 0) await loadUsers();
         const u = usersCache.find(x => String(x.id) === String(userId));
         if (!u) return;
         editUserId = u.id;
@@ -100,18 +101,13 @@ async function openUserForm(userId) {
         document.getElementById("user-form-password").hidden = false;
         document.getElementById("user-form-password").required = true;
     }
-
-    document.querySelectorAll("[data-view]").forEach(l => l.classList.remove("active"));
-    showView("view-user-form");
 }
 
 export function initUsers() {
-    document.querySelector('[data-view="users"]').addEventListener("click", loadUsers);
-
-    document.getElementById("add-user-open-btn").addEventListener("click", () => openUserForm(null));
+    document.getElementById("add-user-open-btn").addEventListener("click", () => navigate("users/new"));
 
     document.getElementById("user-form-cancel").addEventListener("click", () => {
-        showView("view-users");
+        navigate("users");
     });
 
     document.getElementById("user-form").addEventListener("submit", async (e) => {
@@ -145,7 +141,7 @@ export function initUsers() {
 
         if (response.ok) {
             showMessage("user-form-msg", editUserId ? "User updated" : "User added", false);
-            showView("view-users");
+            navigate("users");
             await loadUsers();
         } else {
             const err = await response.json().catch(() => ({}));
@@ -161,21 +157,28 @@ export function initUsers() {
             const actions = can("users", "add") ? [{
                 type: "action",
                 label: "Add User",
-                action: () => {
-                    document.querySelector('[data-view="users"]').click();
-                    openUserForm(null);
-                }
+                action: () => navigate("users/new"),
             }] : [];
             const users = can("users", "view") ? usersCache.filter(u => u.status !== "inactive").map(u => ({
                 type: "user",
                 label: u.name,
                 sublabel: u.email,
-                action: () => {
-                    document.querySelector('[data-view="users"]').click();
-                    if (can("users", "edit")) openUserForm(u.id);
-                }
+                action: () => navigate(can("users", "edit") ? `users/${u.id}/edit` : "users"),
             })) : [];
             return [...actions, ...users];
         },
+    });
+
+    registerRoute("users", async (params) => {
+        if (params[0] === "new") {
+            await openUserForm(null);
+            showView("view-user-form");
+        } else if (params[0] && params[1] === "edit") {
+            await openUserForm(params[0]);
+            showView("view-user-form");
+        } else {
+            showView("view-users");
+            loadUsers();
+        }
     });
 }

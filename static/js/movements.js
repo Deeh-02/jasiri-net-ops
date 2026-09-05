@@ -1,4 +1,4 @@
-import { can, authHeaders, formatDate, capitalize, deleteIconSvg, showView, refreshBadges } from "./common.js";
+import { can, authHeaders, formatDate, capitalize, deleteIconSvg, showView, navigate, registerRoute, refreshBadges } from "./common.js";
 import { refreshData as refreshDashboardData } from "./dashboard.js";
 
 let movementsCache = [];
@@ -145,12 +145,16 @@ export function initMovements() {
     // Lives on the dashboard view's header as a quick link, wired here since
     // the action itself (load + show movements) is this view's concern.
     document.getElementById("movements-link-btn").addEventListener("click", () => {
-        showView("view-movements");
-        loadMovements();
+        navigate("movements");
     });
 
     document.getElementById("movements-show-history").addEventListener("change", (e) => {
         showMovementHistory = e.target.checked;
+        loadMovements();
+    });
+
+    registerRoute("movements", () => {
+        showView("view-movements");
         loadMovements();
     });
 }

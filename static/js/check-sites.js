@@ -1,4 +1,4 @@
-import { authHeaders, formatDate, showView, refreshBadges } from "./common.js";
+import { authHeaders, formatDate, showView, navigate, registerRoute, refreshBadges } from "./common.js";
 
 async function loadCheckSites() {
     document.getElementById("check-sites-rows").innerHTML = '<tr><td colspan="5" class="loading-text">Loading sites...</td></tr>';
@@ -78,6 +78,10 @@ function renderCheckSitesList(sites) {
 
 export function initCheckSites() {
     document.getElementById("check-sites-link-btn").addEventListener("click", () => {
+        navigate("check-sites");
+    });
+
+    registerRoute("check-sites", () => {
         showView("view-check-sites");
         loadCheckSites();
     });

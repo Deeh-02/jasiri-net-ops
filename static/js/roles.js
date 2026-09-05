@@ -1,6 +1,6 @@
 import {
     can, authHeaders, showMessage, formatDate, capitalize, editIconSvg, deleteIconSvg,
-    showView, registerCmdkProvider,
+    showView, navigate, registerRoute, registerCmdkProvider,
 } from "./common.js";
 
 let rolesCache = [];
@@ -41,7 +41,7 @@ function renderRolesList(roles) {
     `).join("");
 
     tbody.querySelectorAll(".edit-role-btn").forEach(btn => {
-        btn.addEventListener("click", () => openRoleForm(btn.dataset.id));
+        btn.addEventListener("click", () => navigate("roles/" + btn.dataset.id + "/edit"));
     });
 
     tbody.querySelectorAll(".delete-role-btn").forEach(btn => {
@@ -193,6 +193,7 @@ async function openRoleForm(roleId) {
     renderPermGrid([]);
 
     if (roleId) {
+        if (rolesCache.length === 0) await loadRoles();
         const r = rolesCache.find(x => String(x.id) === String(roleId));
         if (!r) return;
         editRoleId = r.id;
@@ -209,18 +210,13 @@ async function openRoleForm(roleId) {
         editRoleId = null;
         document.getElementById("role-form-title").textContent = "Add Role";
     }
-
-    document.querySelectorAll("[data-view]").forEach(l => l.classList.remove("active"));
-    showView("view-role-form");
 }
 
 export function initRoles() {
-    document.querySelector('[data-view="roles"]').addEventListener("click", loadRoles);
-
-    document.getElementById("add-role-open-btn").addEventListener("click", () => openRoleForm(null));
+    document.getElementById("add-role-open-btn").addEventListener("click", () => navigate("roles/new"));
 
     document.getElementById("role-form-cancel").addEventListener("click", () => {
-        showView("view-roles");
+        navigate("roles");
     });
 
     document.getElementById("role-form").addEventListener("submit", async (e) => {
@@ -273,7 +269,7 @@ export function initRoles() {
 
         if (permRes.ok) {
             showMessage("role-form-msg", editRoleId ? "Role updated" : "Role added", false);
-            showView("view-roles");
+            navigate("roles");
             await loadRoles();
         } else {
             showMessage("role-form-msg", "Role saved but permissions failed to save", true);
@@ -288,10 +284,20 @@ export function initRoles() {
             type: "role",
             label: r.name,
             sublabel: "Role",
-            action: () => {
-                document.querySelector('[data-view="roles"]').click();
-                if (can("roles", "edit")) openRoleForm(r.id);
-            }
+            action: () => navigate(can("roles", "edit") ? `roles/${r.id}/edit` : "roles"),
         })) : [],
+    });
+
+    registerRoute("roles", async (params) => {
+        if (params[0] === "new") {
+            await openRoleForm(null);
+            showView("view-role-form");
+        } else if (params[0] && params[1] === "edit") {
+            await openRoleForm(params[0]);
+            showView("view-role-form");
+        } else {
+            showView("view-roles");
+            loadRoles();
+        }
     });
 }

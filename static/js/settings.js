@@ -1,4 +1,4 @@
-import { authHeaders, showMessage, getCurrentUser, updateCurrentUser } from "./common.js";
+import { authHeaders, showMessage, getCurrentUser, updateCurrentUser, showView, registerRoute } from "./common.js";
 
 function populateProfileForm() {
     const currentUser = getCurrentUser();
@@ -11,7 +11,10 @@ function populateProfileForm() {
 }
 
 export function initSettings() {
-    document.getElementById("settings-open-btn").addEventListener("click", populateProfileForm);
+    registerRoute("settings", () => {
+        populateProfileForm();
+        showView("view-settings");
+    });
 
     document.querySelectorAll(".settings-tab").forEach(tab => {
         tab.addEventListener("click", () => {

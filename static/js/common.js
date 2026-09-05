@@ -30,30 +30,32 @@ async function loadPermissions() {
     }
 }
 
-function applyPermissionVisibility() {
-    const SECTION_VIEW_MAP = {
-        dashboard: ["batteries", "view"],
-        sites: ["sites", "view"],
-        users: ["users", "view"],
-        roles: ["roles", "view"]
-    };
+const ROUTE_PERMISSION_MAP = {
+    dashboard: ["batteries", "view"],
+    sites: ["sites", "view"],
+    users: ["users", "view"],
+    roles: ["roles", "view"],
+    movements: ["movements", "view"],
+    "check-sites": ["site_checks", "view"],
+};
 
+function isRouteAllowed(name) {
+    const mapping = ROUTE_PERMISSION_MAP[name];
+    return mapping ? can(mapping[0], mapping[1]) : true;
+}
+
+function applyPermissionVisibility() {
     let firstAllowed = null;
 
     document.querySelectorAll(".nav-heading[data-view]").forEach(btn => {
-        const mapping = SECTION_VIEW_MAP[btn.dataset.view];
+        const mapping = ROUTE_PERMISSION_MAP[btn.dataset.view];
         const category = btn.closest(".nav-category");
         const allowed = mapping ? can(mapping[0], mapping[1]) : true;
         if (category) category.hidden = !allowed;
         if (allowed && !firstAllowed) firstAllowed = btn.dataset.view;
     });
 
-    document.querySelectorAll("[data-view]").forEach(l => l.classList.remove("active"));
     document.querySelectorAll(".view").forEach(v => v.hidden = true);
-    if (firstAllowed) {
-        document.querySelector(`.nav-heading[data-view="${firstAllowed}"]`).classList.add("active");
-        document.getElementById("view-" + firstAllowed).hidden = false;
-    }
 
     const addBtnMap = {
         "add-battery-open-btn": ["batteries", "add"],
@@ -80,6 +82,8 @@ function applyPermissionVisibility() {
 
     const checkSitesLinkBtn = document.getElementById("check-sites-link-btn");
     if (checkSitesLinkBtn) checkSitesLinkBtn.hidden = !can("site_checks", "view");
+
+    return firstAllowed;
 }
 
 export function initials(name) {
@@ -174,6 +178,69 @@ export function showView(viewId) {
     document.getElementById(viewId).hidden = false;
 }
 
+// ---- Router: reflects the current section (and, for a couple of views, a
+// drill-down param like a battery id) in the URL hash via pushState, so
+// browser back/forward moves between views instead of doing nothing. View
+// modules register a handler for their own route name — common.js just
+// parses the hash and dispatches, it doesn't know what any view contains.
+const routeHandlers = {};
+export function registerRoute(name, handler) {
+    routeHandlers[name] = handler;
+}
+
+// Runs before every dispatch, regardless of which route is landed on — lets
+// a view close its own modals/overlays when navigation moves away from it,
+// without every other route handler needing to know those modals exist.
+const routeResetters = [];
+export function registerRouteResetter(fn) {
+    routeResetters.push(fn);
+}
+
+function parseRoute(hash) {
+    const parts = hash.replace(/^#\/?/, "").split("/").filter(Boolean);
+    return { name: parts[0] || "dashboard", params: parts.slice(1) };
+}
+
+function setActiveNav(name) {
+    document.querySelectorAll("[data-view]").forEach(l => l.classList.toggle("active", l.dataset.view === name));
+}
+
+function dispatchRoute() {
+    const { name, params } = parseRoute(location.hash);
+    const handler = routeHandlers[name];
+    if (!handler) return;
+    routeResetters.forEach(fn => fn());
+    setActiveNav(name);
+    handler(params);
+}
+
+export function navigate(path, { replace = false } = {}) {
+    const hash = "#/" + path.replace(/^\/+/, "");
+    if (hash === location.hash) return;
+    if (replace) history.replaceState(null, "", hash);
+    else history.pushState(null, "", hash);
+    dispatchRoute();
+}
+
+window.addEventListener("popstate", dispatchRoute);
+
+// Called once per login/session-restore, after permissions are known, so an
+// unauthorized or stale hash falls back to the first section the user can
+// actually see instead of dispatching to nothing.
+function startRouter(fallback) {
+    const { name } = parseRoute(location.hash);
+    if (routeHandlers[name] && isRouteAllowed(name)) {
+        // A bare "" hash parses to the default route but doesn't say so in
+        // the address bar — normalize it so the URL always names the view
+        // that's actually showing (and so the very first history entry is
+        // "#/<name>", not "", which back() would otherwise land on).
+        if (!location.hash) history.replaceState(null, "", "#/" + name);
+        dispatchRoute();
+    } else if (fallback) {
+        navigate(fallback, { replace: true });
+    }
+}
+
 function initHeaderLinkIcons() {
     document.getElementById("movements-link-icon").innerHTML = moveIconSvg();
     document.getElementById("check-sites-link-icon").innerHTML = `
@@ -229,13 +296,14 @@ export async function showApp() {
     document.getElementById("global-topbar").hidden = false;
     document.getElementById("app-layout").hidden = false;
     await loadPermissions();
-    applyPermissionVisibility();
+    const firstAllowed = applyPermissionVisibility();
     renderTopbarUser();
     initHeaderLinkIcons();
     await Promise.all([
         ...appShownHandlers.map(fn => fn()),
         refreshBadges(),
     ]);
+    startRouter(firstAllowed);
 }
 
 // ---- Command palette: view modules register a provider (their own cache +
@@ -402,8 +470,7 @@ export function initShell() {
     // ---- Settings ----
     document.getElementById("settings-open-btn").addEventListener("click", () => {
         document.getElementById("topbar-avatar-menu").hidden = true;
-        document.querySelectorAll("[data-view]").forEach(l => l.classList.remove("active"));
-        showView("view-settings");
+        navigate("settings");
     });
 
     document.getElementById("topbar-search-btn").addEventListener("click", openCmdk);
@@ -426,6 +493,7 @@ export function initShell() {
         document.getElementById("global-topbar").hidden = true;
         document.getElementById("app-layout").hidden = true;
         document.getElementById("login-screen").hidden = false;
+        history.replaceState(null, "", location.pathname + location.search);
     });
 
     // ---- Off-canvas nav (phone widths only — the sidebar is always visible
@@ -449,9 +517,7 @@ export function initShell() {
         link.addEventListener("click", () => {
             const category = link.closest(".nav-category");
             if (category && category.hidden) return; // no permission — don't switch
-            document.querySelectorAll("[data-view]").forEach(l => l.classList.remove("active"));
-            link.classList.add("active");
-            showView("view-" + link.dataset.view);
+            navigate(link.dataset.view);
             setNavOpen(false); // picking a section dismisses the drawer on phones
         });
     });
