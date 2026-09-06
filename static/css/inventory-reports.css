@@ -1,0 +1,21 @@
+/* ---- Inventory Reports view ---- */
+
+.sku-row-below-threshold td:first-child {
+    border-left: 3px solid var(--danger);
+}
+
+.sku-reorder-input {
+    width: 90px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 8px;
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    font-size: 13px;
+}
+
+.sku-reorder-input:focus {
+    outline: none;
+    border-color: var(--accent);
+}

@@ -670,6 +670,10 @@ export function initInventory() {
         navigate("issue-materials");
     });
 
+    document.getElementById("inventory-reports-link-btn").addEventListener("click", () => {
+        navigate("inventory-reports");
+    });
+
     registerAppShownHandler(async () => {
         await Promise.all([refreshCategories(), refreshInventoryLocations(), loadInventoryAssignableUsers()]);
         populateAssignedToDropdowns();

@@ -9,6 +9,7 @@ import { initSettings } from "./settings.js";
 import { initInventory } from "./inventory.js";
 import { initInventoryLog } from "./inventory-log.js";
 import { initIssueMaterials } from "./issue-materials.js";
+import { initInventoryReports } from "./inventory-reports.js";
 
 async function boot() {
     initShell();
@@ -24,6 +25,7 @@ async function boot() {
     initInventory();
     initInventoryLog();
     initIssueMaterials();
+    initInventoryReports();
 
     bootAuth();
 }

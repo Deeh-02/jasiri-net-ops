@@ -5,6 +5,7 @@ from db import inventory_locations as locations_db
 from db import inventory_categories as categories_db
 from db import inventory_items as items_db
 from db import inventory_transactions as transactions_db
+from db import inventory_reports as reports_db
 from routers.auth import get_current_user
 from routers.permissions import user_has_permission
 
@@ -559,3 +560,39 @@ def edit_transaction(transaction_id: int, edit: InventoryTransactionEdit, curren
     # `notes` must not silently null out every other field on the row.
     transactions_db.update_transaction(transaction_id, edit.dict(exclude_unset=True))
     return transactions_db.get_transaction_by_id(transaction_id)
+
+@router.get("/inventory/sku-summary")
+def read_sku_summary(current_user: dict = Depends(get_current_user)):
+    if not user_has_permission(current_user, "inventory_items", "view"):
+        raise HTTPException(status_code=403, detail="You don't have permission to view inventory items")
+    return reports_db.get_sku_summary()
+
+class ReorderLevelSet(BaseModel):
+    category_id: int
+    sku_or_spec: str
+    reorder_level: float
+
+@router.patch("/inventory/reorder-level")
+def set_inventory_reorder_level(payload: ReorderLevelSet, current_user: dict = Depends(get_current_user)):
+    # Reorder Level is item-level metadata, not its own grantable capability —
+    # it rides on the same "manage item records" permission Milestone 8 gives
+    # a Manager role, rather than inventing a new permission section for one
+    # field.
+    if not user_has_permission(current_user, "inventory_items", "edit"):
+        raise HTTPException(status_code=403, detail="You don't have permission to edit reorder levels")
+    if payload.reorder_level < 0:
+        raise HTTPException(status_code=400, detail="reorder_level can't be negative")
+    reports_db.set_reorder_level(payload.category_id, payload.sku_or_spec, payload.reorder_level)
+    return payload.dict()
+
+@router.get("/inventory/offcuts")
+def read_offcut_summary(current_user: dict = Depends(get_current_user)):
+    if not user_has_permission(current_user, "inventory_items", "view"):
+        raise HTTPException(status_code=403, detail="You don't have permission to view inventory items")
+    return reports_db.get_offcut_summary_by_spec()
+
+@router.get("/inventory/offcuts/drill-down")
+def read_offcut_drill_down(spec: str, current_user: dict = Depends(get_current_user)):
+    if not user_has_permission(current_user, "inventory_items", "view"):
+        raise HTTPException(status_code=403, detail="You don't have permission to view inventory items")
+    return reports_db.get_offcut_drill_down(spec)

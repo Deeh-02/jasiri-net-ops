@@ -40,6 +40,7 @@ const ROUTE_PERMISSION_MAP = {
     inventory: ["inventory_items", "view"],
     "inventory-log": ["inventory_transactions", "view"],
     "issue-materials": ["inventory_transactions", "add"],
+    "inventory-reports": ["inventory_items", "view"],
 };
 
 function isRouteAllowed(name) {
@@ -117,6 +118,14 @@ function applyPermissionVisibility() {
 
     const issueMaterialsLinkBtn = document.getElementById("issue-materials-link-btn");
     if (issueMaterialsLinkBtn) issueMaterialsLinkBtn.hidden = !can("inventory_transactions", "add");
+
+    const inventoryReportsLinkBtn = document.getElementById("inventory-reports-link-btn");
+    if (inventoryReportsLinkBtn) inventoryReportsLinkBtn.hidden = !can("inventory_items", "view");
+
+    // sku-summary-actions-th holds the reorder-level Save button, gated the
+    // same as any other items-actions column.
+    const skuSummaryActionsTh = document.getElementById("sku-summary-actions-th");
+    if (skuSummaryActionsTh) skuSummaryActionsTh.hidden = !can("inventory_items", "edit");
 
     return firstAllowed;
 }
@@ -446,7 +455,7 @@ function renderCmdkResults(query) {
 // ---- Fragment loader: fetches every view's HTML and injects it into its
 // mount point. Loaded eagerly, all at once, at startup — the app is small
 // enough that lazy-per-nav loading isn't worth the added state-tracking. ----
-const VIEW_NAMES = ["dashboard", "sites", "movements", "check-sites", "users", "roles", "settings", "inventory", "inventory-log", "issue-materials"];
+const VIEW_NAMES = ["dashboard", "sites", "movements", "check-sites", "users", "roles", "settings", "inventory", "inventory-log", "issue-materials", "inventory-reports"];
 
 export async function loadViewFragments() {
     await Promise.all(VIEW_NAMES.map(async (name) => {

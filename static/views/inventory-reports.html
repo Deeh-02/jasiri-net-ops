@@ -1,0 +1,68 @@
+    <div class="modal-overlay" id="offcut-drilldown-overlay" hidden>
+        <div class="modal-box">
+            <h3>Offcuts <span id="offcut-drilldown-label"></span></h3>
+            <div class="table-scroll">
+                <table id="offcut-drilldown-table">
+                    <thead>
+                        <tr>
+                            <th>Cut/Reel ID</th>
+                            <th>Length Remaining</th>
+                            <th>Status</th>
+                            <th>Location</th>
+                            <th>Created</th>
+                        </tr>
+                    </thead>
+                    <tbody id="offcut-drilldown-rows"></tbody>
+                </table>
+            </div>
+            <div class="modal-actions">
+                <button type="button" id="offcut-drilldown-close" class="btn-secondary">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <section class="view" id="view-inventory-reports" hidden>
+        <div class="page-header-row">
+            <h1 class="page-title">Inventory Reports</h1>
+        </div>
+
+        <div class="inventory-panel">
+            <div class="inventory-panel-header">
+                <h2>SKU / Spec Summary</h2>
+            </div>
+            <div class="table-scroll">
+                <table id="sku-summary-table">
+                    <thead>
+                        <tr>
+                            <th>Category</th>
+                            <th>SKU / Spec</th>
+                            <th>Total On Hand</th>
+                            <th>Reorder Level</th>
+                            <th id="sku-summary-actions-th">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="sku-summary-rows"></tbody>
+                </table>
+            </div>
+            <div class="form-msg" id="sku-summary-msg"></div>
+        </div>
+
+        <div class="inventory-panel">
+            <div class="inventory-panel-header">
+                <h2>Offcut Rollup</h2>
+            </div>
+            <div class="table-scroll">
+                <table id="offcut-summary-table">
+                    <thead>
+                        <tr>
+                            <th>Spec</th>
+                            <th>Total Length In Stock</th>
+                            <th>Cuts</th>
+                            <th>Details</th>
+                        </tr>
+                    </thead>
+                    <tbody id="offcut-summary-rows"></tbody>
+                </table>
+            </div>
+        </div>
+    </section>
