@@ -666,6 +666,10 @@ export function initInventory() {
         navigate("inventory-log");
     });
 
+    document.getElementById("issue-materials-link-btn").addEventListener("click", () => {
+        navigate("issue-materials");
+    });
+
     registerAppShownHandler(async () => {
         await Promise.all([refreshCategories(), refreshInventoryLocations(), loadInventoryAssignableUsers()]);
         populateAssignedToDropdowns();

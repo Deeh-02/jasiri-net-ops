@@ -87,6 +87,45 @@ def record_transaction(action, item_id, category_id, sku_or_spec, qty_or_length=
     conn.close()
     return {"transaction_id": txn_id, "item_id": item_id}
 
+def issue_cart(prepared_lines, site_location_id, activity, issued_to_user_id, logged_by_user_id, notes):
+    """One checkout of a mixed cart — N log rows plus N item updates, one
+    connection, one commit, so a cart either lands whole or not at all.
+    Every row shares one event_group_id, which is what makes "1 enclosure +
+    2 packs of ties + 150m of cable" read back as a single event instead of
+    three unrelated ones.
+
+    Each prepared line arrives fully resolved by routers/inventory.py —
+    including the item_updates appropriate to its tracking type, which is
+    read from the item's category server-side and never from the client.
+    """
+    conn = get_connection()
+    cur = conn.cursor()
+    event_group_id = str(uuid.uuid4())
+    transaction_ids = []
+
+    for line in prepared_lines:
+        _update_item_row(cur, line["item_id"], line["item_updates"])
+        transaction_ids.append(_insert_txn_row(cur, {
+            "item_id": line["item_id"],
+            "category_id": line["category_id"],
+            "sku_or_spec": line["sku_or_spec"],
+            "action": "Out",
+            "qty_or_length": line["qty_or_length"],
+            "from_location_id": line["from_location_id"],
+            "site_location_id": site_location_id,
+            "activity": activity,
+            "issued_to_user_id": issued_to_user_id,
+            "logged_by_user_id": logged_by_user_id,
+            "status": line["status"],
+            "event_group_id": event_group_id,
+            "notes": notes,
+        }))
+
+    conn.commit()
+    cur.close()
+    conn.close()
+    return {"event_group_id": event_group_id, "transaction_ids": transaction_ids}
+
 _LOG_SELECT_COLUMNS = """
     inventory_transactions.id, inventory_transactions.item_id, inventory_transactions.category_id,
     inventory_categories.name, inventory_transactions.sku_or_spec, inventory_transactions.action,

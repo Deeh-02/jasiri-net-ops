@@ -1,0 +1,163 @@
+/* ---- Issue Materials view ---- */
+
+.issue-layout {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    align-items: start;
+}
+
+@media (max-width: 900px) {
+    .issue-layout {
+        grid-template-columns: 1fr;
+    }
+}
+
+#issue-search {
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 14px;
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+}
+
+#issue-search::placeholder {
+    color: var(--text-dim);
+    opacity: 1;
+}
+
+#issue-search:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.issue-results {
+    margin-top: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.issue-result {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-areas:
+        "name avail"
+        "meta avail";
+    gap: 2px 12px;
+    text-align: left;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    color: var(--text);
+    cursor: pointer;
+    transition: border-color 0.15s ease;
+}
+
+.issue-result:hover:not(:disabled) {
+    border-color: var(--accent);
+}
+
+.issue-result:disabled {
+    opacity: 0.45;
+    cursor: default;
+}
+
+.issue-result-name {
+    grid-area: name;
+    font-size: 14px;
+}
+
+.issue-result-meta {
+    grid-area: meta;
+    font-size: 12px;
+    color: var(--text-dim);
+}
+
+.issue-result-avail {
+    grid-area: avail;
+    align-self: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-dim);
+    white-space: nowrap;
+}
+
+.issue-cart-panel h2 {
+    font-size: 16px;
+    font-weight: 700;
+    margin: 0 0 10px;
+}
+
+.issue-cart {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 16px;
+}
+
+.issue-cart-line {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+}
+
+.issue-cart-line-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.issue-cart-line-name {
+    font-size: 14px;
+}
+
+.issue-cart-line-meta {
+    font-size: 12px;
+    color: var(--text-dim);
+}
+
+.issue-cart-qty {
+    width: 80px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 8px;
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    font-size: 13px;
+}
+
+.issue-cart-qty:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.issue-cart-unit,
+.issue-cart-whole {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-dim);
+    white-space: nowrap;
+}
+
+.issue-empty {
+    color: var(--text-dim);
+    font-size: 13px;
+    padding: 14px 2px;
+}
+
+#issue-submit:disabled {
+    opacity: 0.45;
+    cursor: default;
+}

@@ -374,6 +374,97 @@ def read_transaction_log(
         raise HTTPException(status_code=403, detail="You don't have permission to view inventory transactions")
     return transactions_db.get_transaction_log(item_id, category_id, action, limit)
 
+class IssueCartLine(BaseModel):
+    item_id: int
+    # Quantity lines only. An Asset line is the serial itself, and a Length
+    # line always sends the whole cut out (how much was actually used isn't
+    # known until reconciliation), so neither carries a number here.
+    qty_or_length: Optional[float] = None
+
+class IssueCart(BaseModel):
+    lines: list[IssueCartLine]
+    site_location_id: int
+    activity: Optional[str] = None
+    issued_to_user_id: Optional[int] = None
+    notes: Optional[str] = None
+
+def _plan_issue_line(item: dict, line: IssueCartLine, site_location_id: int, issued_to_user_id):
+    """One cart line's item-side effect, decided by the tracking_type read
+    off the item's own category. Returns (item_updates, qty_or_length,
+    status) — status is only set for Length lines, which stay open until
+    Milestone 6's reconciliation closes them out."""
+    tracking_type = item["tracking_type"]
+
+    if tracking_type == "asset_serialized":
+        # The asset is now in service at the site, in someone's hands.
+        return (
+            {
+                "location_id": site_location_id,
+                "assigned_to_user_id": issued_to_user_id,
+                "asset_status": "Active",
+            },
+            None,
+            None,
+        )
+
+    if tracking_type == "inventory_quantity":
+        on_hand = float(item["quantity_on_hand"] or 0)
+        issued = line.qty_or_length
+        if issued is None or issued <= 0:
+            raise HTTPException(status_code=400, detail=f"A quantity is required for '{item['name']}'")
+        if issued > on_hand:
+            raise HTTPException(status_code=400, detail=f"Only {on_hand} of '{item['name']}' on hand, can't issue {issued}")
+        # Consumables are drawn down from stock rather than moved — once
+        # they're issued to a job, what matters is how many are left.
+        return ({"quantity_on_hand": on_hand - issued}, issued, None)
+
+    # Length: the whole cut physically goes out now, but nothing is deducted
+    # yet — actual metres used aren't known until the job closes, which is
+    # what makes this two-stage. The row stays open/pending until then.
+    if item["length_status"] == "Out — Pending Reconciliation":
+        raise HTTPException(status_code=400, detail=f"Cut '{item['cut_reel_id']}' is already out and awaiting reconciliation")
+    return (
+        {"length_status": "Out — Pending Reconciliation", "location_id": site_location_id},
+        item["length_remaining"],
+        "open_pending",
+    )
+
+@router.post("/inventory/issue")
+def issue_materials(cart: IssueCart, current_user: dict = Depends(get_current_user)):
+    if not user_has_permission(current_user, "inventory_transactions", "add"):
+        raise HTTPException(status_code=403, detail="You don't have permission to issue materials")
+    if not cart.lines:
+        raise HTTPException(status_code=400, detail="Nothing to issue — the cart is empty")
+    if cart.activity is not None and cart.activity not in ACTIVITIES:
+        raise HTTPException(status_code=400, detail=f"activity must be one of {sorted(ACTIVITIES)}")
+
+    # Every line is resolved and validated before anything is written, so a
+    # bad line rejects the whole cart rather than half-issuing it.
+    prepared_lines = []
+    for line in cart.lines:
+        item = items_db.get_item_by_id(line.item_id)
+        if item is None:
+            raise HTTPException(status_code=404, detail=f"Item {line.item_id} not found")
+
+        item_updates, qty_or_length, status = _plan_issue_line(
+            item, line, cart.site_location_id, cart.issued_to_user_id
+        )
+
+        prepared_lines.append({
+            "item_id": line.item_id,
+            "category_id": item["category_id"],
+            "sku_or_spec": item["spec"] if item["tracking_type"] == "inventory_length" else item["sku"],
+            "qty_or_length": qty_or_length,
+            "from_location_id": item["location_id"],
+            "status": status,
+            "item_updates": item_updates,
+        })
+
+    return transactions_db.issue_cart(
+        prepared_lines, cart.site_location_id, cart.activity,
+        cart.issued_to_user_id, current_user["id"], cart.notes,
+    )
+
 class InventoryTransactionEdit(BaseModel):
     qty_or_length: Optional[float] = None
     from_location_id: Optional[int] = None

@@ -1,0 +1,38 @@
+    <section class="view" id="view-issue-materials" hidden>
+        <div class="page-header-row">
+            <h1 class="page-title">Issue Materials</h1>
+        </div>
+
+        <div class="issue-layout">
+            <div class="issue-search-panel">
+                <input type="text" id="issue-search" placeholder="Search anything in stock — name, SKU, serial, lot, reel..." autocomplete="off">
+                <div class="issue-results" id="issue-results"></div>
+            </div>
+
+            <div class="issue-cart-panel">
+                <h2>Cart</h2>
+                <div class="issue-cart" id="issue-cart"></div>
+
+                <form id="issue-form" class="panel-form">
+                    <select id="issue-site" required>
+                        <option value="" disabled selected>Site / destination...</option>
+                    </select>
+                    <select id="issue-activity">
+                        <option value="">Activity (optional)...</option>
+                        <option value="Installation">Installation</option>
+                        <option value="Expansion">Expansion</option>
+                        <option value="Maintenance">Maintenance</option>
+                        <option value="Repair-Replacement">Repair-Replacement</option>
+                        <option value="Relocation">Relocation</option>
+                        <option value="Decommission">Decommission</option>
+                    </select>
+                    <select id="issue-issued-to">
+                        <option value="">Issued to (optional)</option>
+                    </select>
+                    <textarea id="issue-notes" placeholder="Notes (optional)"></textarea>
+                    <button type="submit" class="btn-primary" id="issue-submit">Issue Materials</button>
+                </form>
+                <div class="form-msg" id="issue-msg"></div>
+            </div>
+        </div>
+    </section>

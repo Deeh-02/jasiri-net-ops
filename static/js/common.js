@@ -39,6 +39,7 @@ const ROUTE_PERMISSION_MAP = {
     "check-sites": ["site_checks", "view"],
     inventory: ["inventory_items", "view"],
     "inventory-log": ["inventory_transactions", "view"],
+    "issue-materials": ["inventory_transactions", "add"],
 };
 
 function isRouteAllowed(name) {
@@ -110,6 +111,9 @@ function applyPermissionVisibility() {
 
     const inventoryLogLinkBtn = document.getElementById("inventory-log-link-btn");
     if (inventoryLogLinkBtn) inventoryLogLinkBtn.hidden = !can("inventory_transactions", "view");
+
+    const issueMaterialsLinkBtn = document.getElementById("issue-materials-link-btn");
+    if (issueMaterialsLinkBtn) issueMaterialsLinkBtn.hidden = !can("inventory_transactions", "add");
 
     return firstAllowed;
 }
@@ -287,10 +291,11 @@ function initHeaderLinkIcons() {
             <path d="M5.5 8L7.2 9.7L10.5 6.2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
     `;
-    const inventoryLogLinkIcon = document.getElementById("inventory-log-link-icon");
-    if (inventoryLogLinkIcon) inventoryLogLinkIcon.innerHTML = `
+    const issueMaterialsLinkIcon = document.getElementById("issue-materials-link-icon");
+    if (issueMaterialsLinkIcon) issueMaterialsLinkIcon.innerHTML = `
         <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M3 3H13M3 8H13M3 13H9" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+            <path d="M2 4.5H10.5V11.5H2V4.5Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
+            <path d="M13.5 8H8M8 8L10 6M8 8L10 10" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
     `;
 }
@@ -438,7 +443,7 @@ function renderCmdkResults(query) {
 // ---- Fragment loader: fetches every view's HTML and injects it into its
 // mount point. Loaded eagerly, all at once, at startup — the app is small
 // enough that lazy-per-nav loading isn't worth the added state-tracking. ----
-const VIEW_NAMES = ["dashboard", "sites", "movements", "check-sites", "users", "roles", "settings", "inventory", "inventory-log"];
+const VIEW_NAMES = ["dashboard", "sites", "movements", "check-sites", "users", "roles", "settings", "inventory", "inventory-log", "issue-materials"];
 
 export async function loadViewFragments() {
     await Promise.all(VIEW_NAMES.map(async (name) => {
