@@ -14,6 +14,13 @@ changes only take effect in a fresh session.
   (`db/connection.py`).
 - **Hosting:** Render (backend), Supabase (DB).
 
+Local credentials live in `.env` (gitignored, never committed): holds
+`DEEPSEEK_API_KEY` (DELEGATION.md's `ask_deepseek.py`), `DATABASE_URL`
+(Supabase/prod Postgres — unset falls back to local dev Postgres, see
+`db/connection.py`), and `GITHUB_TOKEN` (git push/gh auth). Never read,
+print, or otherwise surface its contents in a session; never commit it or
+its values anywhere, including in commit messages or PR text.
+
 See ARCHITECTURE.md for the reasoning behind these choices, including a
 note that `schema.sql` is currently stale relative to the live DB.
 
