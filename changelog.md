@@ -5,6 +5,62 @@ Phase-based, not version-based — this project ships in named phases (see
 concise, user-facing summary; full technical detail lives in the git log
 and in `phase.md`'s own per-phase writeups.
 
+## Phase 3 — Ops Inventory System (implementation complete on branch
+`phase-3-ops-inventory`, awaiting the owner's own click-through and merge
+per phase.md's process — not yet marked done)
+
+A new inventory/asset-tracking domain for field operations, entirely
+separate from battery tracking: enclosures, cabling, consumables, and
+power/network gear, none of which had any record before this phase.
+
+**Categories, Locations, Items**
+- Categories are user-created and tagged with one of three fixed Tracking
+  Types (Asset-Serialized, Inventory-Quantity, Inventory-Length) — the type,
+  not the category name, drives which fields and behavior apply, so a
+  brand-new category (e.g. "Solar Equipment") needs no code change.
+- A category's Tracking Type locks once it has items, to stop a switch that
+  would silently orphan existing rows' type-specific fields.
+- Items are one table with nullable columns per type, at the correct row
+  granularity per type (one row per serial / per batch-lot / per cut).
+
+**Transaction Log**
+- Every state change (In, Transfer, Adjustment, Return, Write-off) happens
+  only as a side-effect of a logged transaction — item records are never
+  edited directly by hand.
+- A partial-quantity Transfer splits the batch into two linked log rows
+  (origin decrement + new destination row) sharing one grouping id, so
+  both halves of the split are individually accounted for in the log.
+- Admin-only historical-row editing, scoped to only the fields actually
+  sent, so correcting one field never silently blanks the rest of the row.
+
+**Unified Issue Cart**
+- One screen, one action: a mixed cart (say 1 enclosure + 2 packs of ties
+  + 150m of cable) issues as a single event with one log row per line, all
+  linked, regardless of which of the three tracking types each line is.
+
+**Two-stage cable reconciliation**
+- A cut/reel goes out in full at issue time; actual metres used are only
+  confirmed when the job closes. Reconciling records length used + length
+  returned, always depletes the original cut, and — only when the returned
+  remainder is long enough to be worth re-stocking — spins off a new cut
+  row for it; a too-short remainder is logged as scrap against the
+  original instead.
+- A cut still awaiting reconciliation past 14 days is visually flagged so
+  a dragging job doesn't leave stock unaccounted for indefinitely.
+
+**Reporting**
+- SKU/Spec Summary: Total On Hand per SKU (Asset/Quantity types) or per
+  Spec (Length), a below-reorder-level flag, and an inline way to set the
+  reorder level itself.
+- Offcut rollup: total usable leftover length per spec, with a drill-down
+  to the individual cuts contributing to that total.
+
+**Permissions**
+- Every inventory capability (view/add/edit/delete per section, plus a
+  separate "Reconcile Cut" action gated at Manager level) is a grantable
+  permission through the existing Roles screen — no new permission
+  mechanism needed.
+
 ## Phase 2 — Finish Incomplete Functionality (completed 2026-09-06)
 
 One item (inline record detail in global search) was dropped by the

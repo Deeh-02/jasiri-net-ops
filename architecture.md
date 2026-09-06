@@ -89,6 +89,65 @@ split in Phase 2 once it became clear "can start a move" and "can progress
 one already started" are genuinely different capabilities, not the same
 thing asked two ways.
 
+**Inventory domain (Phase 3) — six new tables, entirely separate from the
+battery-tracking tables above.** `inventory_locations` is deliberately its
+own table rather than reusing `locations` — an inventory client job site
+must never show up in Check Sites. `inventory_categories.tracking_type`
+(`asset_serialized` / `inventory_quantity` / `inventory_length`) is what
+drives behavior, not the category name — plain `text`, no CHECK constraint,
+validated in `routers/inventory.py` (same enum-as-text convention as
+`battery_movements.reason`), so a user creating a new category never needs
+a migration. `inventory_items` is one wide table with nullable columns per
+tracking type (not JSONB — the three types are fixed at the system level,
+so JSONB would buy flexibility nothing here ever uses, at the cost of every
+downstream report needing a `->>'field'` extraction instead of a plain
+column). Row granularity is per-serial / per-batch-lot / per-cut depending
+on tracking type — a batch with a different cost or expiry is a new row,
+never a top-up of an existing one.
+
+`inventory_transactions` is the append-only log and the single source of
+truth — item state changes only as a side-effect of a logged transaction,
+in the same commit/connection that writes the log row (the write-through
+pattern, matching `battery_movements` → `batteries`). `item_id` is nullable
+because a cable reconciliation's usable remainder creates a brand-new item
+row that the log entry is the first reference to (the item row is always
+inserted before the log row that points at it). `event_group_id` (uuid,
+nullable) links multiple log rows produced by one user action: a mixed
+issue-cart checkout (N lines), a split Transfer (origin decrement + new
+destination row), or a reconciliation that spins off a new cut — a single-
+row action leaves it null. `inventory_sku_thresholds` holds Reorder Level
+(owner-entered, keyed on `category_id` + `sku_or_spec`) since that's
+aggregate data that doesn't belong on any single batch/cut/serial row.
+
+**Two-stage cable lifecycle:** issuing a cut moves its `location_id` to the
+site immediately and sets `length_status = "Out — Pending Reconciliation"`,
+but does *not* deduct `length_remaining` — the exact metres used aren't
+known until the job closes. Reconciliation then always depletes the
+original row and, only when the returned remainder clears
+`USABLE_LENGTH_THRESHOLD_M` (20, a named constant — no settings UI for one
+number), inserts a new `<original>-R` cut row; below that it's scrap logged
+against the original with no new row. A cut still `Out — Pending
+Reconciliation` past `PENDING_CUT_AGING_DAYS` (14) is flagged — computed on
+read (`get_open_pending_cuts`), the same "derive on read, store nothing"
+approach `locations.needs_check` already uses.
+
+**SKU/Spec Summary's "Total On Hand" means available, not deployed** — the
+same distinction the reconciliation aging flag draws, applied per tracking
+type in the way each type represents "out": Asset rows count only those
+still sitting at a store location (`is_store = true`) since an issued
+asset's `location_id` moves to the site; Quantity rows sum
+`quantity_on_hand` with no location filter at all, since issuing a
+consumable draws it down in place rather than moving the row; Length rows
+sum `length_remaining` only where `length_status = 'In Stock'`, since a cut
+still pending reconciliation keeps its full `length_remaining` even though
+it's physically gone. **Offcuts have no stored flag either** — an item row
+is an offcut (a reconciliation-created remainder, not an original received
+length) if it has a linked `Reconciled` transaction row with `length_used
+IS NULL` — the original cut's own `Reconciled` row always carries
+`length_used`, the new remainder's does not (see
+`db/inventory_transactions.py`'s `reconcile_cut`), so that single column
+check is enough to tell them apart on read.
+
 ## Infra / hosting choices
 
 Backend: FastAPI (`main.py` + `routers/`), served by Uvicorn. Frontend:
@@ -122,10 +181,16 @@ doesn't depend on the system's tzdata being present or current.
 ## Integration approach
 
 **Domain boundary:** `auth`, `permissions`, `sites`, `batteries` (includes
-movements — grouped per PHASES.md as one "batteries/assets" domain), and
-`users`. Each domain is a `routers/<domain>.py` + `db/<domain>.py` pair.
-`db/connection.py`'s `get_connection()` is the one shared piece every `db/*`
-module imports.
+movements — grouped per PHASES.md as one "batteries/assets" domain),
+`users`, and `inventory` (Phase 3). Each domain is a `routers/<domain>.py`
++ `db/<domain>.py` pair — except `inventory`, which is one router
+(`routers/inventory.py`) over *several* `db/inventory_*.py` files
+(`inventory_locations`, `inventory_categories`, `inventory_items`,
+`inventory_transactions`, `inventory_reports`), split by concern because
+the domain covers six tables and a two-stage workflow — one file would be
+unwieldy. It's still a single domain with a single router; the split is
+purely a `db/` organization choice, not a second domain. `db/connection.py`'s
+`get_connection()` is the one shared piece every `db/*` module imports.
 
 **The one shared permission-check function:** `user_has_permission()` lives
 in `routers/permissions.py` and nowhere else — every other router imports it
@@ -163,8 +228,23 @@ doesn't go stale). This is allowed because they're not actually different
 domains — both are "batteries" (movements is grouped under it, see Schema
 choices below) just split across two files for view-size reasons. A
 cross-import between genuinely different domains (say `sites.js` reaching
-into `users.js`) would still be the same violation it always was. `common.js`
-owns cross-cutting
+into `users.js`) would still be the same violation it always was.
+
+**A second, differently-shaped exception from Phase 3:** `inventory.js`,
+`inventory-log.js`, `issue-materials.js`, and `inventory-reports.js` all
+import from `static/js/inventory-common.js` — a category/location cache and
+the tracking-type vocabulary, needed identically by all four views. This is
+not the same shape as the `dashboard.js` ↔ `movements.js` exception above
+(two views reaching into each other directly): `inventory-common.js` is a
+shared module that owns no view of its own and is never imported back *by*
+anything it imports from — a hub, not a pairwise link. It exists because a
+four-way cross-import web between the views themselves would be strictly
+worse than one shared module they all depend on, and because unlike the
+dashboard/movements pair (one domain split across two files for view-size
+reasons), these four are genuinely separate views inside one domain that
+each need the same small set of cross-cutting inventory data.
+
+`common.js` owns cross-cutting
 concerns each view needs to plug into without common.js knowing about any
 view specifically: a fragment loader (injects each view's HTML from
 `static/views/<view>.html` into its mount point at startup), an app-shown
