@@ -1,0 +1,8 @@
+/* ---- Inventory Log view ---- */
+
+#inventory-log-table td:last-child {
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}

@@ -93,9 +93,25 @@ const PERM_SECTIONS = [
     },
     { key: "users", label: "Users", actions: ["add", "edit", "delete"] },
     { key: "roles", label: "Roles", actions: ["add", "edit", "delete"] },
+    {
+        key: "inventory_items", label: "Inventory Items", actions: ["add", "edit", "delete"],
+        children: [
+            { key: "inventory_categories", label: "Inventory Categories", actions: ["add", "edit", "delete"] },
+            { key: "inventory_locations", label: "Inventory Locations", actions: ["add", "edit", "delete"] },
+            // "Manage Movement"-style flat checkbox for reconciliation (Milestone 6)
+            // will land here once reconcile_cut exists; "add" already covers
+            // logging In/Transfer/Adjustment/Return/Write-off transactions.
+            { key: "inventory_transactions", label: "Inventory Log", actions: ["add"] },
+        ]
+    },
 ];
 
-const ACTION_NOUN = { batteries: "battery", movements: "movement", sites: "site", site_checks: "site check", users: "user", roles: "role" };
+const ACTION_NOUN = {
+    batteries: "battery", movements: "movement", sites: "site", site_checks: "site check",
+    users: "user", roles: "role", inventory_items: "item",
+    inventory_categories: "category", inventory_locations: "location",
+    inventory_transactions: "transaction",
+};
 
 function renderPermGrid(permissions) {
     const allowedSet = new Set(

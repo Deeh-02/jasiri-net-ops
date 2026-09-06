@@ -6,6 +6,8 @@ import { initCheckSites } from "./check-sites.js";
 import { initUsers } from "./users.js";
 import { initRoles } from "./roles.js";
 import { initSettings } from "./settings.js";
+import { initInventory } from "./inventory.js";
+import { initInventoryLog } from "./inventory-log.js";
 
 async function boot() {
     initShell();
@@ -18,6 +20,8 @@ async function boot() {
     initUsers();
     initRoles();
     initSettings();
+    initInventory();
+    initInventoryLog();
 
     bootAuth();
 }

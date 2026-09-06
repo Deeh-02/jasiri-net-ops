@@ -1,0 +1,115 @@
+/* ---- Inventory view ---- */
+
+.inventory-panel {
+    margin-top: 28px;
+}
+
+.inventory-panel:first-of-type {
+    margin-top: 0;
+}
+
+.inventory-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+}
+
+.inventory-panel-header h2 {
+    font-size: 16px;
+    font-weight: 700;
+    margin: 0;
+}
+
+.inventory-panel-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+/* Shared by every filter <select> across the inventory views (Items panel's
+   category filter, the Log's category/action filters) — kept here since
+   this file already holds the cross-view .panel-form extensions below. */
+.inventory-filter-select {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 30px 8px 10px;
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    font-size: 13px;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5 11 1.5' fill='none' stroke='%238b96a5' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    background-size: 11px 8px;
+}
+
+/* Categories/Locations modals add a textarea and a lock-state hint that no
+   earlier view needed — extending the shared .panel-form rules here since
+   this is the first view to use either. */
+.panel-form textarea {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    resize: vertical;
+    min-height: 60px;
+}
+
+.panel-form textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.form-hint {
+    font-size: 12px;
+    color: var(--text-dim);
+    margin: -4px 0 0;
+}
+
+.tracking-type-badge {
+    display: inline-block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--accent);
+    background: rgba(61, 220, 151, 0.18);
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+.store-tag {
+    display: inline-block;
+    font-size: 11px;
+    color: var(--text-dim);
+}
+
+.inventory-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    width: 30px;
+    height: 30px;
+    color: var(--text-dim);
+    cursor: pointer;
+    margin-right: 6px;
+    transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.inventory-icon-btn.edit:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+}
+
+.inventory-icon-btn.delete:hover {
+    color: var(--danger);
+    border-color: var(--danger);
+}

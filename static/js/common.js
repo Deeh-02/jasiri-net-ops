@@ -37,6 +37,8 @@ const ROUTE_PERMISSION_MAP = {
     roles: ["roles", "view"],
     movements: ["movements", "view"],
     "check-sites": ["site_checks", "view"],
+    inventory: ["inventory_items", "view"],
+    "inventory-log": ["inventory_transactions", "view"],
 };
 
 function isRouteAllowed(name) {
@@ -61,7 +63,10 @@ function applyPermissionVisibility() {
         "add-battery-open-btn": ["batteries", "add"],
         "add-site-open-btn": ["sites", "add"],
         "add-user-open-btn": ["users", "add"],
-        "add-role-open-btn": ["roles", "add"]
+        "add-role-open-btn": ["roles", "add"],
+        "add-inventory-category-open-btn": ["inventory_categories", "add"],
+        "add-inventory-location-open-btn": ["inventory_locations", "add"],
+        "add-inventory-item-open-btn": ["inventory_items", "add"]
     };
     Object.entries(addBtnMap).forEach(([id, mapping]) => {
         const el = document.getElementById(id);
@@ -77,11 +82,34 @@ function applyPermissionVisibility() {
     const sitesActionsTh = document.getElementById("sites-actions-th");
     if (sitesActionsTh) sitesActionsTh.hidden = !(can("sites", "edit") || can("sites", "delete"));
 
+    // The Inventory view is the one page that puts three permission sections
+    // side by side, so an entire panel — not just its add button — hides when
+    // the user can't view that section. Elsewhere a whole view is gated by
+    // ROUTE_PERMISSION_MAP instead, which is why this is the only place it
+    // comes up.
+    const inventoryCategoriesPanel = document.getElementById("inventory-categories-panel");
+    if (inventoryCategoriesPanel) inventoryCategoriesPanel.hidden = !can("inventory_categories", "view");
+
+    const inventoryLocationsPanel = document.getElementById("inventory-locations-panel");
+    if (inventoryLocationsPanel) inventoryLocationsPanel.hidden = !can("inventory_locations", "view");
+
+    const inventoryCategoriesActionsTh = document.getElementById("inventory-categories-actions-th");
+    if (inventoryCategoriesActionsTh) inventoryCategoriesActionsTh.hidden = !(can("inventory_categories", "edit") || can("inventory_categories", "delete"));
+
+    const inventoryLocationsActionsTh = document.getElementById("inventory-locations-actions-th");
+    if (inventoryLocationsActionsTh) inventoryLocationsActionsTh.hidden = !(can("inventory_locations", "edit") || can("inventory_locations", "delete"));
+
+    const inventoryItemsActionsTh = document.getElementById("inventory-items-actions-th");
+    if (inventoryItemsActionsTh) inventoryItemsActionsTh.hidden = !(can("inventory_items", "edit") || can("inventory_items", "delete"));
+
     const movementsLinkBtn = document.getElementById("movements-link-btn");
     if (movementsLinkBtn) movementsLinkBtn.hidden = !can("movements", "view");
 
     const checkSitesLinkBtn = document.getElementById("check-sites-link-btn");
     if (checkSitesLinkBtn) checkSitesLinkBtn.hidden = !can("site_checks", "view");
+
+    const inventoryLogLinkBtn = document.getElementById("inventory-log-link-btn");
+    if (inventoryLogLinkBtn) inventoryLogLinkBtn.hidden = !can("inventory_transactions", "view");
 
     return firstAllowed;
 }
@@ -259,6 +287,12 @@ function initHeaderLinkIcons() {
             <path d="M5.5 8L7.2 9.7L10.5 6.2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
     `;
+    const inventoryLogLinkIcon = document.getElementById("inventory-log-link-icon");
+    if (inventoryLogLinkIcon) inventoryLogLinkIcon.innerHTML = `
+        <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M3 3H13M3 8H13M3 13H9" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+        </svg>
+    `;
 }
 
 export async function refreshBadges() {
@@ -404,7 +438,7 @@ function renderCmdkResults(query) {
 // ---- Fragment loader: fetches every view's HTML and injects it into its
 // mount point. Loaded eagerly, all at once, at startup — the app is small
 // enough that lazy-per-nav loading isn't worth the added state-tracking. ----
-const VIEW_NAMES = ["dashboard", "sites", "movements", "check-sites", "users", "roles", "settings"];
+const VIEW_NAMES = ["dashboard", "sites", "movements", "check-sites", "users", "roles", "settings", "inventory", "inventory-log"];
 
 export async function loadViewFragments() {
     await Promise.all(VIEW_NAMES.map(async (name) => {

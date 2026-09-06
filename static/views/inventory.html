@@ -1,0 +1,273 @@
+    <div class="modal-overlay" id="add-inventory-item-overlay" hidden>
+        <div class="modal-box">
+            <h3>Add Item</h3>
+            <form id="inventory-item-form" class="panel-form">
+                <select id="inventory-item-category" required>
+                    <option value="" disabled selected>Category...</option>
+                </select>
+                <input type="text" id="inventory-item-sku" placeholder="SKU" required>
+                <input type="text" id="inventory-item-name" placeholder="Name" required>
+                <select id="inventory-item-location">
+                    <option value="">Location (optional)</option>
+                </select>
+
+                <div data-item-type-fields="asset_serialized" hidden>
+                    <input type="text" id="inventory-item-serial-number" placeholder="Serial number">
+                    <select id="inventory-item-asset-status">
+                        <option value="Active">Active</option>
+                        <option value="Faulty">Faulty</option>
+                        <option value="In Repair">In Repair</option>
+                        <option value="Decommissioned">Decommissioned</option>
+                        <option value="Spare — In Storage">Spare — In Storage</option>
+                    </select>
+                    <select id="inventory-item-assigned-to">
+                        <option value="">Assigned to (optional)</option>
+                    </select>
+                    <input type="text" id="inventory-item-make-model" placeholder="Make/Model">
+                    <input type="text" id="inventory-item-spec-capacity" placeholder="Spec/Capacity">
+                    <input type="date" id="inventory-item-install-date" placeholder="Install date">
+                </div>
+
+                <div data-item-type-fields="inventory_quantity" hidden>
+                    <input type="text" id="inventory-item-batch-lot" placeholder="Batch/Lot">
+                    <input type="date" id="inventory-item-expiry-date" placeholder="Expiry date">
+                    <input type="number" step="any" id="inventory-item-quantity-on-hand" placeholder="Quantity on hand">
+                </div>
+
+                <div data-item-type-fields="inventory_length" hidden>
+                    <input type="text" id="inventory-item-cut-reel-id" placeholder="Cut/Reel ID">
+                    <input type="text" id="inventory-item-spec" placeholder="Spec">
+                    <input type="number" step="any" id="inventory-item-length-received" placeholder="Length received (m)">
+                </div>
+
+                <input type="number" step="any" id="inventory-item-unit-cost" placeholder="Unit cost (optional)">
+                <input type="text" id="inventory-item-supplier" placeholder="Supplier (optional)">
+                <input type="text" id="inventory-item-uom" placeholder="Unit of measure (optional)">
+                <textarea id="inventory-item-notes" placeholder="Notes (optional)"></textarea>
+
+                <div class="modal-actions">
+                    <button type="button" id="add-inventory-item-cancel" class="btn-secondary">Cancel</button>
+                    <button type="submit" class="btn-primary">Add Item</button>
+                </div>
+            </form>
+            <div class="form-msg" id="inventory-item-msg"></div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="edit-inventory-item-overlay" hidden>
+        <div class="modal-box">
+            <h3>Edit Item</h3>
+            <form id="edit-inventory-item-form" class="panel-form">
+                <input type="text" id="edit-inventory-item-sku" placeholder="SKU" required>
+                <input type="text" id="edit-inventory-item-name" placeholder="Name" required>
+                <select id="edit-inventory-item-location">
+                    <option value="">Location (optional)</option>
+                </select>
+
+                <div data-item-type-fields="asset_serialized" hidden>
+                    <input type="text" id="edit-inventory-item-serial-number" placeholder="Serial number">
+                    <select id="edit-inventory-item-asset-status">
+                        <option value="Active">Active</option>
+                        <option value="Faulty">Faulty</option>
+                        <option value="In Repair">In Repair</option>
+                        <option value="Decommissioned">Decommissioned</option>
+                        <option value="Spare — In Storage">Spare — In Storage</option>
+                    </select>
+                    <select id="edit-inventory-item-assigned-to">
+                        <option value="">Assigned to (optional)</option>
+                    </select>
+                    <input type="text" id="edit-inventory-item-make-model" placeholder="Make/Model">
+                    <input type="text" id="edit-inventory-item-spec-capacity" placeholder="Spec/Capacity">
+                    <input type="date" id="edit-inventory-item-install-date" placeholder="Install date">
+                </div>
+
+                <div data-item-type-fields="inventory_quantity" hidden>
+                    <input type="text" id="edit-inventory-item-batch-lot" placeholder="Batch/Lot">
+                    <input type="date" id="edit-inventory-item-expiry-date" placeholder="Expiry date">
+                    <input type="number" step="any" id="edit-inventory-item-quantity-on-hand" placeholder="Quantity on hand">
+                </div>
+
+                <div data-item-type-fields="inventory_length" hidden>
+                    <input type="text" id="edit-inventory-item-cut-reel-id" placeholder="Cut/Reel ID">
+                    <input type="text" id="edit-inventory-item-spec" placeholder="Spec">
+                    <input type="number" step="any" id="edit-inventory-item-length-received" placeholder="Length received (m)">
+                    <input type="number" step="any" id="edit-inventory-item-length-remaining" placeholder="Length remaining (m)">
+                    <select id="edit-inventory-item-length-status">
+                        <option value="In Stock">In Stock</option>
+                        <option value="Out — Pending Reconciliation">Out — Pending Reconciliation</option>
+                        <option value="Depleted">Depleted</option>
+                    </select>
+                </div>
+
+                <input type="number" step="any" id="edit-inventory-item-unit-cost" placeholder="Unit cost (optional)">
+                <input type="text" id="edit-inventory-item-supplier" placeholder="Supplier (optional)">
+                <input type="text" id="edit-inventory-item-uom" placeholder="Unit of measure (optional)">
+                <textarea id="edit-inventory-item-notes" placeholder="Notes (optional)"></textarea>
+
+                <div class="modal-actions">
+                    <button type="button" id="edit-inventory-item-cancel" class="btn-secondary">Cancel</button>
+                    <button type="submit" class="btn-primary">Save Changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="add-inventory-category-overlay" hidden>
+        <div class="modal-box">
+            <h3>Add Category</h3>
+            <form id="inventory-category-form" class="panel-form">
+                <input type="text" id="inventory-category-name" placeholder="Category name (e.g. Enclosures)" required>
+                <select id="inventory-category-tracking-type" required>
+                    <option value="" disabled selected>Tracking type...</option>
+                    <option value="asset_serialized">Asset (Serialized)</option>
+                    <option value="inventory_quantity">Inventory (Quantity)</option>
+                    <option value="inventory_length">Inventory (Length)</option>
+                </select>
+                <textarea id="inventory-category-description" placeholder="Description (optional)"></textarea>
+                <div class="modal-actions">
+                    <button type="button" id="add-inventory-category-cancel" class="btn-secondary">Cancel</button>
+                    <button type="submit" class="btn-primary">Add Category</button>
+                </div>
+            </form>
+            <div class="form-msg" id="inventory-category-msg"></div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="edit-inventory-category-overlay" hidden>
+        <div class="modal-box">
+            <h3>Edit Category</h3>
+            <form id="edit-inventory-category-form" class="panel-form">
+                <input type="text" id="edit-inventory-category-name" placeholder="Category name" required>
+                <select id="edit-inventory-category-tracking-type" required>
+                    <option value="asset_serialized">Asset (Serialized)</option>
+                    <option value="inventory_quantity">Inventory (Quantity)</option>
+                    <option value="inventory_length">Inventory (Length)</option>
+                </select>
+                <p class="form-hint" id="edit-inventory-category-lock-hint" hidden>
+                    Tracking type can't change — this category already has items.
+                </p>
+                <textarea id="edit-inventory-category-description" placeholder="Description (optional)"></textarea>
+                <div class="modal-actions">
+                    <button type="button" id="edit-inventory-category-cancel" class="btn-secondary">Cancel</button>
+                    <button type="submit" class="btn-primary">Save Changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="add-inventory-location-overlay" hidden>
+        <div class="modal-box">
+            <h3>Add Inventory Location</h3>
+            <form id="inventory-location-form" class="panel-form">
+                <input type="text" id="inventory-location-name" placeholder="Location name (e.g. Main Store)" required>
+                <input type="text" id="inventory-location-contact-name" placeholder="Contact person">
+                <input type="tel" id="inventory-location-contact-phone" placeholder="Phone number">
+                <input type="text" id="inventory-location-address" placeholder="Address (optional)">
+                <textarea id="inventory-location-notes" placeholder="Notes (optional)"></textarea>
+                <label class="checkbox-row">
+                    <input type="checkbox" id="inventory-location-is-store">
+                    This is a store/warehouse
+                </label>
+                <div class="modal-actions">
+                    <button type="button" id="add-inventory-location-cancel" class="btn-secondary">Cancel</button>
+                    <button type="submit" class="btn-primary">Add Location</button>
+                </div>
+            </form>
+            <div class="form-msg" id="inventory-location-msg"></div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="edit-inventory-location-overlay" hidden>
+        <div class="modal-box">
+            <h3>Edit Inventory Location</h3>
+            <form id="edit-inventory-location-form" class="panel-form">
+                <input type="text" id="edit-inventory-location-name" placeholder="Location name" required>
+                <input type="text" id="edit-inventory-location-contact-name" placeholder="Contact person">
+                <input type="tel" id="edit-inventory-location-contact-phone" placeholder="Phone number">
+                <input type="text" id="edit-inventory-location-address" placeholder="Address (optional)">
+                <textarea id="edit-inventory-location-notes" placeholder="Notes (optional)"></textarea>
+                <label class="checkbox-row">
+                    <input type="checkbox" id="edit-inventory-location-is-store">
+                    This is a store/warehouse
+                </label>
+                <div class="modal-actions">
+                    <button type="button" id="edit-inventory-location-cancel" class="btn-secondary">Cancel</button>
+                    <button type="submit" class="btn-primary">Save Changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <section class="view" id="view-inventory" hidden>
+        <div class="page-header-row">
+            <h1 class="page-title">Inventory</h1>
+            <div class="header-action-group">
+                <button type="button" id="inventory-log-link-btn" class="btn-add-site header-action-primary" data-view="inventory-log" data-label="Inventory Log">
+                    <span class="header-sub-link-icon-wrap">
+                        <span class="header-sub-link-icon" id="inventory-log-link-icon"></span>
+                    </span>
+                    Transaction log
+                </button>
+            </div>
+        </div>
+
+        <div class="inventory-panel">
+            <div class="inventory-panel-header">
+                <h2>Items</h2>
+                <div class="inventory-panel-header-actions">
+                    <select id="inventory-items-category-filter" class="inventory-filter-select">
+                        <option value="">All Categories</option>
+                    </select>
+                    <button type="button" id="add-inventory-item-open-btn" class="header-sub-link">+ Add Item</button>
+                </div>
+            </div>
+            <div class="table-scroll">
+                <table id="inventory-items-table">
+                    <thead id="inventory-items-thead"></thead>
+                    <tbody id="inventory-items-rows"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="inventory-panel" id="inventory-categories-panel">
+            <div class="inventory-panel-header">
+                <h2>Categories</h2>
+                <button type="button" id="add-inventory-category-open-btn" class="header-sub-link">+ Add Category</button>
+            </div>
+            <div class="table-scroll">
+                <table id="inventory-categories-table">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Tracking Type</th>
+                            <th>Description</th>
+                            <th id="inventory-categories-actions-th">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="inventory-categories-rows"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="inventory-panel" id="inventory-locations-panel">
+            <div class="inventory-panel-header">
+                <h2>Locations</h2>
+                <button type="button" id="add-inventory-location-open-btn" class="header-sub-link">+ Add Location</button>
+            </div>
+            <div class="table-scroll">
+                <table id="inventory-locations-table">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Type</th>
+                            <th>Contact Person</th>
+                            <th>Phone</th>
+                            <th>Address</th>
+                            <th id="inventory-locations-actions-th">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="inventory-locations-rows"></tbody>
+                </table>
+            </div>
+        </div>
+    </section>
