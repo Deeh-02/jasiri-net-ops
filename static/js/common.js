@@ -68,7 +68,8 @@ function applyPermissionVisibility() {
         "add-role-open-btn": ["roles", "add"],
         "add-inventory-category-open-btn": ["inventory_categories", "add"],
         "add-inventory-location-open-btn": ["inventory_locations", "add"],
-        "add-inventory-item-open-btn": ["inventory_items", "add"]
+        "add-inventory-item-open-btn": ["inventory_items", "add"],
+        "add-inventory-transaction-open-btn": ["inventory_transactions", "add"],
     };
     Object.entries(addBtnMap).forEach(([id, mapping]) => {
         const el = document.getElementById(id);
