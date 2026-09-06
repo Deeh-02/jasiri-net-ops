@@ -5,7 +5,13 @@ Phase-based, not version-based — this project ships in named phases (see
 concise, user-facing summary; full technical detail lives in the git log
 and in `phase.md`'s own per-phase writeups.
 
-## Phase 2 — Finish Incomplete Functionality (in progress, pending owner confirmation)
+## Phase 2 — Finish Incomplete Functionality (completed 2026-09-06)
+
+One item (inline record detail in global search) was dropped by the
+owner's explicit call. Two migrations found necessary along the way
+(`0002_backfill_in_transit_at.sql`, `0003_close_out_site_still_down.sql`)
+were never run against production — discarded per the owner's explicit
+call rather than pursued further; see [phase.md](phase.md) for detail.
 
 **Battery status & movement lifecycle**
 - Battery status (At Base/Pending/In Transit/Deployed) is now driven

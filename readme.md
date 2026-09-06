@@ -88,7 +88,9 @@ picking this up too:
 
 ## Current status
 
-Phase 2 ("Finish Incomplete Functionality") is code-complete pending the
-owner's local checkout and confirmation — see [phase.md](phase.md) for the
-full per-item breakdown. Phases 0 and 1 (structural split, mobile fixes)
-are confirmed done.
+Phases 0–2 (structural split, mobile fixes, finish-incomplete-
+functionality) are confirmed done — see [phase.md](phase.md) for the full
+per-item breakdown. No phase is currently active; Phase 3 ("Ops Inventory
+System" — a full inventory/asset tracking system for field ops, replacing
+the old placeholder Phase 3/4 scope) is scoped in [phase.md](phase.md) but
+not yet started.
