@@ -98,10 +98,10 @@ const PERM_SECTIONS = [
         children: [
             { key: "inventory_categories", label: "Inventory Categories", actions: ["add", "edit", "delete"] },
             { key: "inventory_locations", label: "Inventory Locations", actions: ["add", "edit", "delete"] },
-            // "Manage Movement"-style flat checkbox for reconciliation (Milestone 6)
-            // will land here once reconcile_cut exists; "add" already covers
-            // logging In/Transfer/Adjustment/Return/Write-off transactions.
-            { key: "inventory_transactions", label: "Inventory Log", actions: ["add"] },
+            // "add" covers logging In/Transfer/Adjustment/Return/Write-off
+            // and issuing a cart; "Reconcile Cut" is separate and gated
+            // Manager-level per the phase plan, since it closes out a job.
+            { key: "inventory_transactions", label: "Inventory Log", actions: ["add", { label: "Reconcile Cut", action: "reconcile" }] },
         ]
     },
 ];

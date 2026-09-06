@@ -1,5 +1,5 @@
 import {
-    can, authHeaders, showMessage, registerAppShownHandler, showView, registerRoute,
+    can, authHeaders, showMessage, formatDate, registerAppShownHandler, showView, registerRoute,
 } from "./common.js";
 import {
     loadInventoryCategories, getInventoryCategories,
@@ -144,8 +144,111 @@ function initTransactionForm() {
     });
 }
 
+// Must match USABLE_LENGTH_THRESHOLD_M in routers/inventory.py — this is a
+// cosmetic hint only, the backend is authoritative and re-validates
+// independently.
+const USABLE_LENGTH_THRESHOLD_M = 20;
+
+let reconcileItemId = null;
+
+async function refreshPendingCuts() {
+    const res = await fetch("/inventory/pending-cuts", { headers: authHeaders() });
+    const rows = res.ok ? await res.json() : [];
+    renderPendingCutsTable(rows);
+}
+
+function renderPendingCutsTable(rows) {
+    const tbody = document.getElementById("pending-cuts-rows");
+    if (!tbody) return;
+
+    tbody.innerHTML = rows.map(row => `
+        <tr class="${row.is_aging ? "pending-cut-row-aging" : ""}">
+            <td>${row.cut_reel_id}</td>
+            <td>${row.spec}</td>
+            <td>${row.site_location_name || "—"}</td>
+            <td>${row.length_out}m</td>
+            <td>${formatDate(row.issued_at)}</td>
+            <td>${row.days_out}</td>
+            <td>${can("inventory_transactions", "reconcile") ? `<button class="btn-secondary reconcile-cut-btn" data-item-id="${row.item_id}">Reconcile</button>` : ""}</td>
+        </tr>
+    `).join("");
+
+    tbody.querySelectorAll(".reconcile-cut-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+            const itemId = Number(btn.dataset.itemId);
+            const row = rows.find(r => r.item_id === itemId);
+            if (row) openReconcileModal(row);
+        });
+    });
+}
+
+function openReconcileModal(row) {
+    reconcileItemId = row.item_id;
+    document.getElementById("reconcile-cut-label").textContent = `— ${row.cut_reel_id}`;
+    document.getElementById("reconcile-cut-out-hint").textContent = `${row.length_out}m went out — length used + length returned must add up to that.`;
+    document.getElementById("reconcile-length-used").value = "";
+    document.getElementById("reconcile-length-returned").value = "";
+    document.getElementById("reconcile-new-cut-id").value = `${row.cut_reel_id}-R`;
+    document.getElementById("reconcile-usable-hint").textContent = "";
+    document.getElementById("reconcile-cut-overlay").hidden = false;
+}
+
+function closeReconcileModal() {
+    document.getElementById("reconcile-cut-overlay").hidden = true;
+    reconcileItemId = null;
+}
+
+function initReconcileForm() {
+    const overlay = document.getElementById("reconcile-cut-overlay");
+    const cancelBtn = document.getElementById("reconcile-cut-cancel");
+    cancelBtn.addEventListener("click", closeReconcileModal);
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) closeReconcileModal(); });
+
+    document.getElementById("reconcile-length-returned").addEventListener("input", (e) => {
+        const hint = document.getElementById("reconcile-usable-hint");
+        const value = e.target.value;
+        if (value === "") {
+            hint.textContent = "";
+        } else if (Number(value) >= USABLE_LENGTH_THRESHOLD_M) {
+            const suggestedId = document.getElementById("reconcile-new-cut-id").value;
+            hint.textContent = `Usable — will create a new cut "${suggestedId}"`;
+        } else {
+            hint.textContent = `Below ${USABLE_LENGTH_THRESHOLD_M}m — logged as scrap against the original cut`;
+        }
+    });
+
+    document.getElementById("reconcile-cut-form").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        if (!reconcileItemId) return;
+
+        const body = {
+            item_id: reconcileItemId,
+            length_used: Number(document.getElementById("reconcile-length-used").value),
+            length_returned: Number(document.getElementById("reconcile-length-returned").value),
+            new_cut_reel_id: document.getElementById("reconcile-new-cut-id").value || null,
+            notes: document.getElementById("reconcile-notes").value || null,
+        };
+
+        const response = await fetch("/inventory/reconcile", {
+            method: "POST",
+            headers: authHeaders({ "Content-Type": "application/json" }),
+            body: JSON.stringify(body)
+        });
+
+        if (response.ok) {
+            showMessage("reconcile-cut-msg", "Cut reconciled", false);
+            closeReconcileModal();
+            await Promise.all([refreshPendingCuts(), refreshLog(), loadAllInventoryItems().then(populateLogDropdowns)]);
+        } else {
+            const err = await response.json().catch(() => ({}));
+            showMessage("reconcile-cut-msg", err.detail || "Failed to reconcile cut", true);
+        }
+    });
+}
+
 export function initInventoryLog() {
     initTransactionForm();
+    initReconcileForm();
 
     registerAppShownHandler(async () => {
         await Promise.all([
@@ -153,6 +256,7 @@ export function initInventoryLog() {
             loadAllInventoryItems(), loadInventoryAssignableUsers(),
         ]);
         populateLogDropdowns();
+        await refreshPendingCuts();
     });
 
     registerRoute("inventory-log", async () => {
@@ -162,5 +266,6 @@ export function initInventoryLog() {
         await loadAllInventoryItems();
         populateLogDropdowns();
         await refreshLog();
+        await refreshPendingCuts();
     });
 }

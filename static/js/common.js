@@ -103,6 +103,9 @@ function applyPermissionVisibility() {
     const inventoryItemsActionsTh = document.getElementById("inventory-items-actions-th");
     if (inventoryItemsActionsTh) inventoryItemsActionsTh.hidden = !(can("inventory_items", "edit") || can("inventory_items", "delete"));
 
+    const pendingCutsActionsTh = document.getElementById("pending-cuts-actions-th");
+    if (pendingCutsActionsTh) pendingCutsActionsTh.hidden = !can("inventory_transactions", "reconcile");
+
     const movementsLinkBtn = document.getElementById("movements-link-btn");
     if (movementsLinkBtn) movementsLinkBtn.hidden = !can("movements", "view");
 

@@ -6,3 +6,7 @@
     text-overflow: ellipsis;
     white-space: nowrap;
 }
+
+.pending-cut-row-aging td:first-child {
+    border-left: 3px solid var(--danger);
+}

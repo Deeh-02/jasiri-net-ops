@@ -1,4 +1,5 @@
 from db.connection import get_connection, utc_iso
+from datetime import datetime, timezone
 import uuid
 
 # Same generic, type-agnostic column surface pattern as inventory_items.py —
@@ -125,6 +126,102 @@ def issue_cart(prepared_lines, site_location_id, activity, issued_to_user_id, lo
     cur.close()
     conn.close()
     return {"event_group_id": event_group_id, "transaction_ids": transaction_ids}
+
+def reconcile_cut(item_id, category_id, sku_or_spec, length_used, length_returned,
+                   logged_by_user_id, original_updates, new_cut_fields=None,
+                   from_location_id=None, to_location_id=None, notes=None):
+    """Stage 2 of the cable flow: the job closed, so actual usage is finally
+    known. Closes out the Stage-1 `Out` row this answers, adjusts the
+    original cut, and — when the returned remainder is long enough to be
+    worth re-stocking — creates the new `-R` cut row before the log row that
+    references it (the item has to exist before a row can point at it).
+
+    A remainder that becomes its own cut is a second item-side change, so it
+    gets its own log row rather than being implied by the first: two rows
+    sharing one event_group_id, the same shape a split Transfer uses. Without
+    it the new cut would appear in stock with nothing in the log accounting
+    for where it came from.
+    """
+    conn = get_connection()
+    cur = conn.cursor()
+
+    cur.execute(
+        "UPDATE inventory_transactions SET status = 'closed' WHERE item_id = %s AND status = 'open_pending';",
+        (item_id,)
+    )
+    _update_item_row(cur, item_id, original_updates)
+
+    new_item_id = _insert_item_row(cur, new_cut_fields) if new_cut_fields else None
+    event_group_id = str(uuid.uuid4()) if new_cut_fields else None
+
+    base_txn_fields = {
+        "category_id": category_id, "sku_or_spec": sku_or_spec, "action": "Reconciled",
+        "from_location_id": from_location_id, "to_location_id": to_location_id,
+        "logged_by_user_id": logged_by_user_id, "status": "closed",
+        "event_group_id": event_group_id, "notes": notes,
+    }
+
+    transaction_ids = [_insert_txn_row(cur, {
+        **base_txn_fields,
+        "item_id": item_id,
+        "qty_or_length": length_used,
+        "length_used": length_used,
+        "length_returned": length_returned,
+    })]
+
+    if new_item_id is not None:
+        transaction_ids.append(_insert_txn_row(cur, {
+            **base_txn_fields,
+            "item_id": new_item_id,
+            "qty_or_length": length_returned,
+        }))
+
+    conn.commit()
+    cur.close()
+    conn.close()
+    return {
+        "transaction_ids": transaction_ids, "item_id": item_id,
+        "new_item_id": new_item_id, "event_group_id": event_group_id,
+    }
+
+def get_open_pending_cuts(aging_threshold_days):
+    """Every cut that went out and hasn't been reconciled, oldest first, with
+    its age so a job that's dragging doesn't leave stock unaccounted for
+    indefinitely. Age is derived on read rather than stored — same approach
+    as db/sites.py's needs_check."""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT inventory_transactions.id, inventory_transactions.item_id,
+               inventory_transactions.created_at, inventory_transactions.qty_or_length,
+               inventory_items.cut_reel_id, inventory_items.spec,
+               inventory_items.length_remaining, site_loc.name, inventory_categories.name
+        FROM inventory_transactions
+        JOIN inventory_items ON inventory_items.id = inventory_transactions.item_id
+        JOIN inventory_categories ON inventory_categories.id = inventory_transactions.category_id
+        LEFT JOIN inventory_locations AS site_loc ON site_loc.id = inventory_transactions.site_location_id
+        WHERE inventory_transactions.status = 'open_pending'
+        ORDER BY inventory_transactions.created_at;
+        """
+    )
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+
+    now = datetime.now(timezone.utc)
+    result = []
+    for r in rows:
+        issued_at = r[2].replace(tzinfo=timezone.utc) if r[2].tzinfo is None else r[2]
+        days_out = (now - issued_at).days
+        result.append({
+            "transaction_id": r[0], "item_id": r[1], "issued_at": utc_iso(r[2]),
+            "length_out": r[3], "cut_reel_id": r[4], "spec": r[5],
+            "length_remaining": r[6], "site_location_name": r[7], "category_name": r[8],
+            "days_out": days_out,
+            "is_aging": days_out >= aging_threshold_days,
+        })
+    return result
 
 _LOG_SELECT_COLUMNS = """
     inventory_transactions.id, inventory_transactions.item_id, inventory_transactions.category_id,

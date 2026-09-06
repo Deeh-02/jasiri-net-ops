@@ -50,6 +50,25 @@
         </div>
     </div>
 
+    <div class="modal-overlay" id="reconcile-cut-overlay" hidden>
+        <div class="modal-box">
+            <h3>Reconcile Cut <span id="reconcile-cut-label"></span></h3>
+            <form id="reconcile-cut-form" class="panel-form">
+                <p class="form-hint" id="reconcile-cut-out-hint"></p>
+                <input type="number" step="any" min="0" id="reconcile-length-used" placeholder="Length used (m)" required>
+                <input type="number" step="any" min="0" id="reconcile-length-returned" placeholder="Length returned (m)" required>
+                <p class="form-hint" id="reconcile-usable-hint"></p>
+                <input type="text" id="reconcile-new-cut-id" placeholder="New Cut ID for the returned remainder">
+                <textarea id="reconcile-notes" placeholder="Notes (optional)"></textarea>
+                <div class="modal-actions">
+                    <button type="button" id="reconcile-cut-cancel" class="btn-secondary">Cancel</button>
+                    <button type="submit" class="btn-primary">Reconcile</button>
+                </div>
+            </form>
+            <div class="form-msg" id="reconcile-cut-msg"></div>
+        </div>
+    </div>
+
     <section class="view" id="view-inventory-log" hidden>
         <div class="page-header-row">
             <h1 class="page-title">Inventory Log</h1>
@@ -68,6 +87,28 @@
                     <option value="Reconciled">Reconciled</option>
                 </select>
                 <button type="button" id="add-inventory-transaction-open-btn" class="header-sub-link">+ Log Transaction</button>
+            </div>
+        </div>
+
+        <div class="inventory-panel" id="pending-cuts-panel">
+            <div class="inventory-panel-header">
+                <h2>Pending Cable Cuts</h2>
+            </div>
+            <div class="table-scroll">
+                <table id="pending-cuts-table">
+                    <thead>
+                        <tr>
+                            <th>Cut/Reel ID</th>
+                            <th>Spec</th>
+                            <th>Site</th>
+                            <th>Length Out</th>
+                            <th>Issued</th>
+                            <th>Days Out</th>
+                            <th id="pending-cuts-actions-th">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="pending-cuts-rows"></tbody>
+                </table>
             </div>
         </div>
 

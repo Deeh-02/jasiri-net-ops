@@ -21,6 +21,13 @@ LENGTH_STATUSES = {"In Stock", "Out — Pending Reconciliation", "Depleted"}
 TRANSACTION_ACTIONS = {"In", "Transfer", "Adjustment", "Return", "Write-off"}
 ACTIVITIES = {"Installation", "Expansion", "Maintenance", "Repair-Replacement", "Relocation", "Decommission"}
 
+# A returned cable remainder at least this long is worth re-stocking as its
+# own cut; anything shorter is scrap that stays logged against the original.
+USABLE_LENGTH_THRESHOLD_M = 20
+# A cut still out and unreconciled past this many days gets flagged, so a job
+# that drags on doesn't leave stock unaccounted for indefinitely.
+PENDING_CUT_AGING_DAYS = 14
+
 # Universal columns every item has regardless of tracking_type.
 _UNIVERSAL_ITEM_FIELDS = {
     "sku", "name", "location_id", "unit_cost", "supplier", "unit_of_measure", "notes",
@@ -464,6 +471,68 @@ def issue_materials(cart: IssueCart, current_user: dict = Depends(get_current_us
         prepared_lines, cart.site_location_id, cart.activity,
         cart.issued_to_user_id, current_user["id"], cart.notes,
     )
+
+class ReconcileCut(BaseModel):
+    item_id: int
+    length_used: float
+    length_returned: float
+    # Free-text, editable — the frontend auto-suggests "<original>-R" but an
+    # odd existing physical label shouldn't be forced into that shape.
+    new_cut_reel_id: Optional[str] = None
+    notes: Optional[str] = None
+
+@router.post("/inventory/reconcile")
+def reconcile_cut(reconcile: ReconcileCut, current_user: dict = Depends(get_current_user)):
+    # Closes out a job, so it's gated Manager-level per the phase plan — its
+    # own grantable action, distinct from just adding a line to the log.
+    if not user_has_permission(current_user, "inventory_transactions", "reconcile"):
+        raise HTTPException(status_code=403, detail="You don't have permission to reconcile a cable cut")
+
+    item = items_db.get_item_by_id(reconcile.item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Item not found")
+    if item["tracking_type"] != "inventory_length":
+        raise HTTPException(status_code=400, detail="Only a Length-based item can be reconciled")
+    if item["length_status"] != "Out — Pending Reconciliation":
+        raise HTTPException(status_code=400, detail="This cut isn't out and pending reconciliation")
+    if reconcile.length_used < 0 or reconcile.length_returned < 0:
+        raise HTTPException(status_code=400, detail="length_used and length_returned can't be negative")
+
+    # The full cut went out at Stage 1 with nothing deducted yet (see
+    # issue_cart) — length_remaining still holds that full amount, and
+    # Stage 2's two numbers must account for all of it.
+    length_out = float(item["length_remaining"] or 0)
+    if abs((reconcile.length_used + reconcile.length_returned) - length_out) > 0.01:
+        raise HTTPException(status_code=400, detail=f"length_used + length_returned must add up to the {length_out}m that went out")
+
+    # The original row is fully spoken for either way: consumed, or its
+    # remainder is now accounted for by a new row (usable case) or as scrap
+    # logged against this same row (sub-threshold case) — never both.
+    original_updates = {"length_remaining": 0, "length_status": "Depleted"}
+
+    new_cut_fields = None
+    if reconcile.length_returned >= USABLE_LENGTH_THRESHOLD_M:
+        new_cut_fields = {
+            "category_id": item["category_id"], "sku": item["sku"], "name": item["name"],
+            "location_id": item["location_id"], "unit_cost": item["unit_cost"], "supplier": item["supplier"],
+            "unit_of_measure": item["unit_of_measure"],
+            "cut_reel_id": reconcile.new_cut_reel_id or f"{item['cut_reel_id']}-R",
+            "spec": item["spec"], "length_received": reconcile.length_returned,
+            "length_remaining": reconcile.length_returned, "length_status": "In Stock",
+        }
+
+    return transactions_db.reconcile_cut(
+        item_id=reconcile.item_id, category_id=item["category_id"], sku_or_spec=item["spec"],
+        length_used=reconcile.length_used, length_returned=reconcile.length_returned,
+        logged_by_user_id=current_user["id"], original_updates=original_updates,
+        new_cut_fields=new_cut_fields, from_location_id=item["location_id"], notes=reconcile.notes,
+    )
+
+@router.get("/inventory/pending-cuts")
+def read_pending_cuts(current_user: dict = Depends(get_current_user)):
+    if not user_has_permission(current_user, "inventory_transactions", "view"):
+        raise HTTPException(status_code=403, detail="You don't have permission to view inventory transactions")
+    return transactions_db.get_open_pending_cuts(PENDING_CUT_AGING_DAYS)
 
 class InventoryTransactionEdit(BaseModel):
     qty_or_length: Optional[float] = None
