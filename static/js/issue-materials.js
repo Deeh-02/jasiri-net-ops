@@ -12,12 +12,12 @@ import {
 let cart = new Map();
 
 function populateIssueDropdowns() {
+    // Free-typed with autocomplete, not a picklist — suggests every
+    // previously-used location (store or job site) but a brand-new name
+    // needs zero pre-configuration; the backend creates it on submit.
     const locations = getInventoryLocations();
-    const siteSelect = document.getElementById("issue-site");
-    if (siteSelect) {
-        siteSelect.innerHTML = `<option value="" disabled selected>Site / destination...</option>` +
-            locations.map(l => `<option value="${l.id}">${l.name}</option>`).join("");
-    }
+    const siteSuggestions = document.getElementById("issue-site-suggestions");
+    if (siteSuggestions) siteSuggestions.innerHTML = locations.map(l => `<option value="${l.name}"></option>`).join("");
 
     const users = getInventoryAssignableUsers();
     const issuedToSelect = document.getElementById("issue-issued-to");
@@ -135,16 +135,21 @@ async function submitCart(e) {
     e.preventDefault();
     if (cart.size === 0) return;
 
+    const siteName = document.getElementById("issue-site").value.trim();
+    const notes = document.getElementById("issue-notes").value.trim();
+    if (!siteName) { showMessage("issue-msg", "A site/destination is required", true); return; }
+    if (!notes) { showMessage("issue-msg", "Notes are required", true); return; }
+
     const body = {
         lines: Array.from(cart.values()).map(({ item, qty }) => ({
             item_id: item.id,
             qty_or_length: item.tracking_type === "inventory_quantity" ? qty : null,
         })),
-        site_location_id: Number(document.getElementById("issue-site").value),
+        site_location_name: siteName,
         activity: document.getElementById("issue-activity").value || null,
         issued_to_user_id: document.getElementById("issue-issued-to").value
             ? Number(document.getElementById("issue-issued-to").value) : null,
-        notes: document.getElementById("issue-notes").value || null,
+        notes,
     };
 
     const response = await fetch("/inventory/issue", {
@@ -159,7 +164,8 @@ async function submitCart(e) {
         cart.clear();
         document.getElementById("issue-form").reset();
         document.getElementById("issue-search").value = "";
-        await loadAllInventoryItems();
+        await Promise.all([loadAllInventoryItems(), loadInventoryLocations()]);
+        populateIssueDropdowns();
         renderCart();
         renderResults([]);
     } else {

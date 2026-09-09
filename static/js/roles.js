@@ -97,7 +97,11 @@ const PERM_SECTIONS = [
         key: "inventory_items", label: "Inventory Items", actions: ["add", "edit", "delete"],
         children: [
             { key: "inventory_categories", label: "Inventory Categories", actions: ["add", "edit", "delete"] },
-            { key: "inventory_locations", label: "Inventory Locations", actions: ["add", "edit", "delete"] },
+            // Inventory Locations has no permission section of its own any
+            // more — Issue/Return Materials' free-typed Site field creates a
+            // location implicitly, gated the same as issuing/returning
+            // itself (inventory_transactions:add), not as a separate
+            // grantable capability.
             // "add" covers logging In/Transfer/Adjustment/Return/Write-off
             // and issuing a cart; "Reconcile Cut" is separate and gated
             // Manager-level per the phase plan, since it closes out a job.
@@ -109,7 +113,7 @@ const PERM_SECTIONS = [
 const ACTION_NOUN = {
     batteries: "battery", movements: "movement", sites: "site", site_checks: "site check",
     users: "user", roles: "role", inventory_items: "item",
-    inventory_categories: "category", inventory_locations: "location",
+    inventory_categories: "category",
     inventory_transactions: "transaction",
 };
 

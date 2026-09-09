@@ -113,3 +113,56 @@
     color: var(--danger);
     border-color: var(--danger);
 }
+
+.inventory-detail-history-heading {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-dim);
+    margin: 18px 0 8px;
+}
+
+/* Mirrors .dashboard-tab-slant (the View Battery modal's Details/Logs tabs)
+   — same slant-tab look, kept as its own inventory-scoped class so this
+   file's tab click-handler and the battery modal's stay on separate class
+   names with no cross-wiring risk (dashboard.js wires a page-wide listener
+   on .dashboard-tab-slant that's hardcoded to the battery modal's own panel
+   ids — see settings.css's .settings-tab for the same precedent). */
+.inventory-item-tab-row {
+    display: flex;
+    gap: 2px;
+    margin-bottom: 18px;
+    border-bottom: 1px solid var(--border);
+}
+
+.inventory-item-tab {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-bottom: none;
+    color: var(--text-dim);
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    padding: 9px 22px;
+    cursor: pointer;
+    clip-path: polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%);
+    margin-right: -8px;
+    transition: color 0.15s ease, background 0.15s ease;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.inventory-item-tab:hover { color: var(--text); }
+
+.inventory-item-tab.active {
+    background: var(--surface);
+    color: var(--accent);
+    position: relative;
+    z-index: 2;
+}
+
+/* Flags an Asset SKU's Unit Cost as a computed average, not a literal price
+   every unit was actually bought at. */
+.inventory-avg-cost {
+    color: var(--text-dim);
+    font-style: italic;
+}

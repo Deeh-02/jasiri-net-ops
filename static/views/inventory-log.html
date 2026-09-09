@@ -16,6 +16,17 @@
 
                 <input type="number" step="any" id="inventory-transaction-qty" placeholder="Qty / Length">
 
+                <div id="inventory-transaction-asset-status-row" hidden>
+                    <select id="inventory-transaction-asset-status">
+                        <option value="" disabled selected>Status...</option>
+                        <option value="Active">Active</option>
+                        <option value="Faulty">Faulty</option>
+                        <option value="In Repair">In Repair</option>
+                        <option value="Decommissioned">Decommissioned</option>
+                    </select>
+                    <p class="form-hint">Required to return a serialized asset — never inferred from its prior status.</p>
+                </div>
+
                 <div id="inventory-transaction-to-location-row">
                     <select id="inventory-transaction-to-location">
                         <option value="">To location...</option>

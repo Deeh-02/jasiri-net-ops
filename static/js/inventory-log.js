@@ -95,11 +95,31 @@ function initTransactionForm() {
 
     addOpenBtn.addEventListener("click", () => {
         form.reset();
+        document.getElementById("inventory-transaction-asset-status-row").hidden = true;
         addOverlay.hidden = false;
     });
 
     addCancelBtn.addEventListener("click", () => { addOverlay.hidden = true; });
     addOverlay.addEventListener("click", (e) => { if (e.target === addOverlay) addOverlay.hidden = true; });
+
+    // The asset-status field only matters (and only shows) for a Return of a
+    // serialized asset — required there, since a Return must never silently
+    // infer a status from what the asset was before (see
+    // routers/inventory.py's _plan_return).
+    const actionSelect = document.getElementById("inventory-transaction-action");
+    const itemSelect = document.getElementById("inventory-transaction-item");
+    const assetStatusRow = document.getElementById("inventory-transaction-asset-status-row");
+    const assetStatusSelect = document.getElementById("inventory-transaction-asset-status");
+
+    function updateAssetStatusVisibility() {
+        const item = getAllInventoryItems().find(i => String(i.id) === itemSelect.value);
+        const show = actionSelect.value === "Return" && item && item.tracking_type === "asset_serialized";
+        assetStatusRow.hidden = !show;
+        assetStatusSelect.required = show;
+        if (!show) assetStatusSelect.value = "";
+    }
+    actionSelect.addEventListener("change", updateAssetStatusVisibility);
+    itemSelect.addEventListener("change", updateAssetStatusVisibility);
 
     form.addEventListener("submit", async (e) => {
         e.preventDefault();
@@ -113,6 +133,7 @@ function initTransactionForm() {
             site_location_id: numOrNull(document.getElementById("inventory-transaction-site-location").value),
             activity: document.getElementById("inventory-transaction-activity").value || null,
             issued_to_user_id: numOrNull(document.getElementById("inventory-transaction-issued-to").value),
+            asset_status: assetStatusRow.hidden ? null : (assetStatusSelect.value || null),
             notes: document.getElementById("inventory-transaction-notes").value || null,
         };
 

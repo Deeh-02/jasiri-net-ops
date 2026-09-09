@@ -127,6 +127,34 @@ def issue_cart(prepared_lines, site_location_id, activity, issued_to_user_id, lo
     conn.close()
     return {"event_group_id": event_group_id, "transaction_ids": transaction_ids}
 
+def return_cart(prepared_lines, logged_by_user_id, notes):
+    """One Return Materials submission — same shape as issue_cart: N log rows
+    plus N item updates, one connection, one commit, all sharing one
+    event_group_id so a multi-line return reads back as a single event."""
+    conn = get_connection()
+    cur = conn.cursor()
+    event_group_id = str(uuid.uuid4())
+    transaction_ids = []
+
+    for line in prepared_lines:
+        _update_item_row(cur, line["item_id"], line["item_updates"])
+        transaction_ids.append(_insert_txn_row(cur, {
+            "item_id": line["item_id"],
+            "category_id": line["category_id"],
+            "sku_or_spec": line["sku_or_spec"],
+            "action": "Return",
+            "from_location_id": line["from_location_id"],
+            "to_location_id": line["to_location_id"],
+            "logged_by_user_id": logged_by_user_id,
+            "event_group_id": event_group_id,
+            "notes": notes,
+        }))
+
+    conn.commit()
+    cur.close()
+    conn.close()
+    return {"event_group_id": event_group_id, "transaction_ids": transaction_ids}
+
 def reconcile_cut(item_id, category_id, sku_or_spec, length_used, length_returned,
                    logged_by_user_id, original_updates, new_cut_fields=None,
                    from_location_id=None, to_location_id=None, notes=None):

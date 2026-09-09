@@ -148,6 +148,130 @@ IS NULL` — the original cut's own `Reconciled` row always carries
 `db/inventory_transactions.py`'s `reconcile_cut`), so that single column
 check is enough to tell them apart on read.
 
+**Post-implementation restructure (owner feedback, same phase branch):**
+Categories/Locations moved off the daily-use Items page onto their own
+`inventory-manage` sub-page (reached via a header button, same
+header-link-sub-page shape `inventory-log`/`inventory-reports` already use)
+— Items, Transactions, Reports, and Manage are now four separate pages
+instead of one long stacked view. A per-item detail modal
+(`openItemDetailModal` in `inventory-common.js`, reused by both the Items
+page and the Reports drill-downs) now holds unit cost/supplier/notes/batch
+detail and the item's full transaction history, off the main table — the
+Length-type table itself was also trimmed to Cut/Reel ID · Spec ·
+Remaining · Location, since Name/SKU aren't meaningful for a cable row.
+`get_sku_summary()` gained a live weighted-average `avg_unit_cost` per SKU
+(`SUM(cost * qty) / SUM(qty)` for Quantity batches, plain `AVG` for Asset
+serials since each row is exactly one unit) — this reverses the original
+Phase 3 plan's explicit "capture cost data only, defer the draw-down math"
+call, on the owner's direct request; Length is deliberately left out, since
+a blended cost-per-meter across cuts is a separate, not-yet-asked-for
+feature. A new `get_cable_type_summary()`/`get_cable_drill_down()` pair
+answers "what cable do we have" (every in-stock reel of a spec, reel count
++ total length) as a Reports panel distinct from the existing offcut
+rollup (which answers "how much of it is unusable offcut"). Asset lifecycle
+gained a `Deployed` status, set on issue and reset to `Active` on Return —
+but only when the asset was `Deployed` at return time, so a Return never
+silently "heals" one returned while `Faulty`/`In Repair`/`Decommissioned`.
+No separate resting `Returned` status was added; the `Return` transaction
+log row itself carries that history, the same way `Reconciled` is a log
+verb rather than a resting `length_status`.
+
+**Second UI/UX refinement pass (Addendum 2, same phase branch) — nav, Items
+table restructure, and a unified explicit-status Return.** Several pieces of
+the post-implementation restructure above were superseded before they were
+ever committed:
+
+- **Collapsible sidebar nav.** The Inventory sidebar entry is now a pure
+  expand/collapse toggle (`static/index.html`'s `#inventory-nav-toggle`, no
+  `data-view` of its own) revealing three `.nav-link.sub` children — Items,
+  Transaction Log, Manage — replacing the header-link-sub-page pattern.
+  Reports is now its own standalone top-level sidebar item, a sibling of
+  Inventory rather than reached from inside it. The CSS for this
+  (`.chevron`, `.nav-subitems`, `.nav-link.sub` in `common.css`) had existed,
+  fully built, since Phase 0 — nothing had ever used it until now.
+  `common.js`'s `applyPermissionVisibility()` handles this group specially
+  (an OR of its three sub-routes' permissions drives the whole group's
+  visibility, since the toggle itself has no single route to check), and
+  `setActiveNav()` auto-*expands* (never auto-collapses) the group when the
+  active route is one of its own — e.g. on a page refresh landing directly
+  on a sub-route.
+- **"Core" terminology.** `asset_serialized`/`inventory_quantity`/
+  `inventory_length` now display as Asset Core / Consumables Core / Cable
+  Core everywhere a tracking type is shown — display-only, via
+  `inventory-common.js`'s `TRACKING_TYPE_LABELS`; the underlying column/
+  variable names are unchanged.
+- **Locations lost its management screen.** `inventory_locations` still
+  backs both an item's storage location and a transaction's site (so a
+  future site-cost report stays FK'd), but nothing creates/edits/deactivates
+  a row by hand any more. Issue/Return Materials' Site field is a free-typed
+  autocomplete (`<input list=...>` + `<datalist>`) that resolves to an
+  existing row by case-insensitive name match or silently creates a new one
+  (`is_store = false`) via `get_or_create_location_by_name`. The item
+  add/edit form's Location `<select>` stays a real dropdown, scoped to
+  `is_store = true` rows — "which store is new stock shelved at" is a
+  different question from "what job is this going to." Exactly one row is
+  expected to carry `is_store = true` as the default store Return Materials
+  sends stock back to (`get_default_store_location`) — set via direct DB
+  update, the same "named constant, no settings UI" precedent as the 20m/14d
+  thresholds, since it's foundational setup data that changes rarely.
+- **Items table is now a SKU-level rollup, not a per-row list.** New
+  `get_items_summary()` (`db/inventory_reports.py`) groups by
+  `(category_id, sku_or_spec)` and returns **total owned** (on-hand +
+  deployed combined) alongside the on-hand/deployed split, so the frontend's
+  Status filter (All/In Store/Deployed) can switch which number displays
+  without a re-fetch. This is deliberately a *different* function from
+  `get_sku_summary()` (unchanged, still on-hand-only) — the Reports page's
+  reorder-level flagging genuinely needs "what's available to issue," the
+  Items table needs "what do we own," and conflating them would make one of
+  the two wrong. Unit Cost shows a `~`-prefixed weighted average for Assets
+  (still the already-correct math), a plain weighted average for Quantity
+  (unchanged from the first restructure), and the most-recently-received
+  reel's cost for Cable (a single real value, not an average). Edit/Delete
+  moved off the aggregate row (a SKU row can represent many physical rows)
+  down to a per-unit list. A `custody_type` column on `inventory_categories`
+  (`per_job`/`custody`, migration `0005`) backs a third Items-table filter —
+  no new transaction type or item status, since Issue/Return behave
+  identically for both; the only difference is this filter and a future
+  reporting distinction.
+- **View is now "stock history," branching by Core, two levels deep for
+  Asset/Cable.** Clicking View on an Asset or Cable SKU row opens a list of
+  its individual units (`GET /inventory/items` extended with an optional
+  `sku` query param, matching either the `sku` or `spec` column depending on
+  type); clicking a unit opens a **second real instance** of
+  `dashboard.js`'s `openViewBatteryModal`/`renderLogsTable` pattern —
+  `inventory-common.js`'s `openUnitDetailModal`, same tabbed Details/Logs
+  layout and client-side pagination, reimplemented as inventory-domain code
+  per the no-cross-domain-import rule below rather than calling the
+  battery-specific function directly. It deliberately keeps a Notes column
+  in the Logs tab (the battery modal's doesn't) since Asset/Cable history is
+  explicitly where notes carry context. Consumable Core has no individual
+  units, so View skips straight to a flat running-balance table
+  (`openSkuHistoryModal` / new `get_sku_transaction_history()`, a `SUM(...)
+  OVER (ORDER BY created_at)` window function) — no Notes column there,
+  since a per-tie issue doesn't carry meaningful notes.
+- **Return Materials is now a real cart flow, sharing one Return code path
+  with the generic Log Transaction form.** Previously there was no dedicated
+  Return UI — only the generic transaction-log modal, which auto-reset a
+  `Deployed` asset back to `Active` on Return with no user input. Both entry
+  points now go through the same `_plan_return()` helper
+  (`routers/inventory.py`), which requires an explicit `asset_status` for
+  every asset Return (validated against `ASSET_STATUSES`, never inferred)
+  and always resolves the destination to the single default store rather
+  than taking a client-supplied location — neither entry point collects a
+  destination any more. New `POST /inventory/return` /
+  `db/inventory_transactions.py`'s `return_cart()` mirror `issue_cart()`'s
+  shape exactly (one connection, N linked log rows, one `event_group_id`).
+- **A CSS gotcha worth flagging for future tab-based modals:**
+  `dashboard.js` wires a single page-wide
+  `document.querySelectorAll(".dashboard-tab-slant")` click listener that's
+  hardcoded to toggle the *battery* modal's own `#view-tab-details`/
+  `#view-tab-logs` panels — since every view fragment is injected into one
+  DOM, a second tab UI reusing that literal class would have its clicks
+  silently mishandled by that listener too. `settings.css`'s `.settings-tab`
+  already established the fix (a domain-scoped class with identical CSS but
+  its own click handler); `inventory.css`'s `.inventory-item-tab` follows
+  the same precedent for the new unit detail modal.
+
 ## Infra / hosting choices
 
 Backend: FastAPI (`main.py` + `routers/`), served by Uvicorn. Frontend:
@@ -231,18 +355,22 @@ cross-import between genuinely different domains (say `sites.js` reaching
 into `users.js`) would still be the same violation it always was.
 
 **A second, differently-shaped exception from Phase 3:** `inventory.js`,
-`inventory-log.js`, `issue-materials.js`, and `inventory-reports.js` all
-import from `static/js/inventory-common.js` — a category/location cache and
-the tracking-type vocabulary, needed identically by all four views. This is
-not the same shape as the `dashboard.js` ↔ `movements.js` exception above
-(two views reaching into each other directly): `inventory-common.js` is a
-shared module that owns no view of its own and is never imported back *by*
-anything it imports from — a hub, not a pairwise link. It exists because a
-four-way cross-import web between the views themselves would be strictly
-worse than one shared module they all depend on, and because unlike the
-dashboard/movements pair (one domain split across two files for view-size
-reasons), these four are genuinely separate views inside one domain that
-each need the same small set of cross-cutting inventory data.
+`inventory-manage.js`, `inventory-log.js`, `issue-materials.js`,
+`return-materials.js`, and `inventory-reports.js` all import from
+`static/js/inventory-common.js` — a category/location cache, the
+tracking-type vocabulary, and (since the two post-implementation
+restructures) the shared unit detail and SKU history modals
+(`openUnitDetailModal`, `openSkuHistoryModal`), needed identically by
+multiple views. This is not the same shape as the
+`dashboard.js` ↔ `movements.js` exception above (two views reaching into
+each other directly): `inventory-common.js` is a shared module that owns no
+view of its own and is never imported back *by* anything it imports from —
+a hub, not a pairwise link. It exists because a many-way cross-import web
+between the views themselves would be strictly worse than one shared
+module they all depend on, and because unlike the dashboard/movements pair
+(one domain split across two files for view-size reasons), these are
+genuinely separate views inside one domain that each need the same small
+set of cross-cutting inventory data.
 
 `common.js` owns cross-cutting
 concerns each view needs to plug into without common.js knowing about any

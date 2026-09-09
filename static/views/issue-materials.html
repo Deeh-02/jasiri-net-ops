@@ -14,9 +14,8 @@
                 <div class="issue-cart" id="issue-cart"></div>
 
                 <form id="issue-form" class="panel-form">
-                    <select id="issue-site" required>
-                        <option value="" disabled selected>Site / destination...</option>
-                    </select>
+                    <input type="text" id="issue-site" list="issue-site-suggestions" placeholder="Site / destination..." required autocomplete="off">
+                    <datalist id="issue-site-suggestions"></datalist>
                     <select id="issue-activity">
                         <option value="">Activity (optional)...</option>
                         <option value="Installation">Installation</option>
@@ -29,7 +28,7 @@
                     <select id="issue-issued-to">
                         <option value="">Issued to (optional)</option>
                     </select>
-                    <textarea id="issue-notes" placeholder="Notes (optional)"></textarea>
+                    <textarea id="issue-notes" placeholder="Notes" required></textarea>
                     <button type="submit" class="btn-primary" id="issue-submit">Issue Materials</button>
                 </form>
                 <div class="form-msg" id="issue-msg"></div>

@@ -80,32 +80,32 @@ def _row_to_dict(r):
         "length_remaining": r[24], "length_status": r[25],
     }
 
-def get_all_items(category_id=None):
+def get_all_items(category_id=None, sku=None):
+    """sku matches either the sku column (Asset/Quantity) or the spec column
+    (Length, whose SKU surrogate is its spec) — the caller (the Items
+    table's per-SKU unit drill-down) has one string and doesn't need to know
+    which column it maps to for this item's type."""
     conn = get_connection()
     cur = conn.cursor()
+    where_clauses = ["inventory_items.is_active = true"]
+    params = []
     if category_id is not None:
-        cur.execute(
-            f"""
-            SELECT {_SELECT_COLUMNS}
-            FROM inventory_items
-            JOIN inventory_categories ON inventory_categories.id = inventory_items.category_id
-            LEFT JOIN inventory_locations ON inventory_locations.id = inventory_items.location_id
-            WHERE inventory_items.is_active = true AND inventory_items.category_id = %s
-            ORDER BY inventory_items.name;
-            """,
-            (category_id,)
-        )
-    else:
-        cur.execute(
-            f"""
-            SELECT {_SELECT_COLUMNS}
-            FROM inventory_items
-            JOIN inventory_categories ON inventory_categories.id = inventory_items.category_id
-            LEFT JOIN inventory_locations ON inventory_locations.id = inventory_items.location_id
-            WHERE inventory_items.is_active = true
-            ORDER BY inventory_items.name;
-            """
-        )
+        where_clauses.append("inventory_items.category_id = %s")
+        params.append(category_id)
+    if sku is not None:
+        where_clauses.append("(inventory_items.sku = %s OR inventory_items.spec = %s)")
+        params.extend([sku, sku])
+    cur.execute(
+        f"""
+        SELECT {_SELECT_COLUMNS}
+        FROM inventory_items
+        JOIN inventory_categories ON inventory_categories.id = inventory_items.category_id
+        LEFT JOIN inventory_locations ON inventory_locations.id = inventory_items.location_id
+        WHERE {' AND '.join(where_clauses)}
+        ORDER BY inventory_items.name;
+        """,
+        params
+    )
     rows = cur.fetchall()
     cur.close()
     conn.close()

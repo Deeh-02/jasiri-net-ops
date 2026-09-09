@@ -40,7 +40,9 @@ const ROUTE_PERMISSION_MAP = {
     inventory: ["inventory_items", "view"],
     "inventory-log": ["inventory_transactions", "view"],
     "issue-materials": ["inventory_transactions", "add"],
+    "return-materials": ["inventory_transactions", "add"],
     "inventory-reports": ["inventory_items", "view"],
+    "inventory-manage": ["inventory_categories", "view"],
 };
 
 function isRouteAllowed(name) {
@@ -51,12 +53,32 @@ function isRouteAllowed(name) {
 function applyPermissionVisibility() {
     let firstAllowed = null;
 
-    document.querySelectorAll(".nav-heading[data-view]").forEach(btn => {
-        const mapping = ROUTE_PERMISSION_MAP[btn.dataset.view];
-        const category = btn.closest(".nav-category");
+    // Iterating .nav-category (not .nav-heading[data-view]) so DOM order
+    // still drives firstAllowed correctly once a group — currently just
+    // Inventory — has no data-view of its own on its heading and needs an
+    // OR-of-its-sub-items visibility rule instead of a single route.
+    document.querySelectorAll(".nav-category").forEach(category => {
+        const subLinks = category.querySelectorAll(".nav-link.sub[data-view]");
+        if (subLinks.length) {
+            let anyAllowed = false;
+            subLinks.forEach(link => {
+                const mapping = ROUTE_PERMISSION_MAP[link.dataset.view];
+                const allowed = mapping ? can(mapping[0], mapping[1]) : true;
+                link.hidden = !allowed;
+                if (allowed) {
+                    anyAllowed = true;
+                    if (!firstAllowed) firstAllowed = link.dataset.view;
+                }
+            });
+            category.hidden = !anyAllowed;
+            return;
+        }
+        const heading = category.querySelector(".nav-heading[data-view]");
+        if (!heading) return;
+        const mapping = ROUTE_PERMISSION_MAP[heading.dataset.view];
         const allowed = mapping ? can(mapping[0], mapping[1]) : true;
-        if (category) category.hidden = !allowed;
-        if (allowed && !firstAllowed) firstAllowed = btn.dataset.view;
+        category.hidden = !allowed;
+        if (allowed && !firstAllowed) firstAllowed = heading.dataset.view;
     });
 
     document.querySelectorAll(".view").forEach(v => v.hidden = true);
@@ -67,7 +89,6 @@ function applyPermissionVisibility() {
         "add-user-open-btn": ["users", "add"],
         "add-role-open-btn": ["roles", "add"],
         "add-inventory-category-open-btn": ["inventory_categories", "add"],
-        "add-inventory-location-open-btn": ["inventory_locations", "add"],
         "add-inventory-item-open-btn": ["inventory_items", "add"],
         "add-inventory-transaction-open-btn": ["inventory_transactions", "add"],
     };
@@ -85,25 +106,17 @@ function applyPermissionVisibility() {
     const sitesActionsTh = document.getElementById("sites-actions-th");
     if (sitesActionsTh) sitesActionsTh.hidden = !(can("sites", "edit") || can("sites", "delete"));
 
-    // The Inventory view is the one page that puts three permission sections
-    // side by side, so an entire panel — not just its add button — hides when
-    // the user can't view that section. Elsewhere a whole view is gated by
-    // ROUTE_PERMISSION_MAP instead, which is why this is the only place it
-    // comes up.
-    const inventoryCategoriesPanel = document.getElementById("inventory-categories-panel");
-    if (inventoryCategoriesPanel) inventoryCategoriesPanel.hidden = !can("inventory_categories", "view");
-
-    const inventoryLocationsPanel = document.getElementById("inventory-locations-panel");
-    if (inventoryLocationsPanel) inventoryLocationsPanel.hidden = !can("inventory_locations", "view");
-
+    // Manage is Categories-only now (Locations has no management screen —
+    // see inventory-manage.js), so ROUTE_PERMISSION_MAP already covers the
+    // whole view via inventory-manage's own entry; this just gates the
+    // Actions column within it, same as every other items-actions column.
     const inventoryCategoriesActionsTh = document.getElementById("inventory-categories-actions-th");
     if (inventoryCategoriesActionsTh) inventoryCategoriesActionsTh.hidden = !(can("inventory_categories", "edit") || can("inventory_categories", "delete"));
 
-    const inventoryLocationsActionsTh = document.getElementById("inventory-locations-actions-th");
-    if (inventoryLocationsActionsTh) inventoryLocationsActionsTh.hidden = !(can("inventory_locations", "edit") || can("inventory_locations", "delete"));
-
-    const inventoryItemsActionsTh = document.getElementById("inventory-items-actions-th");
-    if (inventoryItemsActionsTh) inventoryItemsActionsTh.hidden = !(can("inventory_items", "edit") || can("inventory_items", "delete"));
+    // No visibility toggle for inventory-items-actions-th: it always holds
+    // at least the View action, which every inventory_items:view role can
+    // use — edit/delete buttons inside it are individually gated in
+    // inventory.js's itemActionsCell instead.
 
     const pendingCutsActionsTh = document.getElementById("pending-cuts-actions-th");
     if (pendingCutsActionsTh) pendingCutsActionsTh.hidden = !can("inventory_transactions", "reconcile");
@@ -114,14 +127,11 @@ function applyPermissionVisibility() {
     const checkSitesLinkBtn = document.getElementById("check-sites-link-btn");
     if (checkSitesLinkBtn) checkSitesLinkBtn.hidden = !can("site_checks", "view");
 
-    const inventoryLogLinkBtn = document.getElementById("inventory-log-link-btn");
-    if (inventoryLogLinkBtn) inventoryLogLinkBtn.hidden = !can("inventory_transactions", "view");
-
     const issueMaterialsLinkBtn = document.getElementById("issue-materials-link-btn");
     if (issueMaterialsLinkBtn) issueMaterialsLinkBtn.hidden = !can("inventory_transactions", "add");
 
-    const inventoryReportsLinkBtn = document.getElementById("inventory-reports-link-btn");
-    if (inventoryReportsLinkBtn) inventoryReportsLinkBtn.hidden = !can("inventory_items", "view");
+    const returnMaterialsLinkBtn = document.getElementById("return-materials-link-btn");
+    if (returnMaterialsLinkBtn) returnMaterialsLinkBtn.hidden = !can("inventory_transactions", "add");
 
     // sku-summary-actions-th holds the reorder-level Save button, gated the
     // same as any other items-actions column.
@@ -256,8 +266,20 @@ function parseRoute(hash) {
     return { name: parts[0] || "dashboard", params: parts.slice(1) };
 }
 
+// Maps a collapsible sidebar group's id prefix to the route names that
+// belong to it — used only to auto-*expand* (never auto-collapse) the group
+// when the active route lands inside it, e.g. on a page refresh or a deep
+// link straight to a sub-route while the group still shows collapsed.
+const NAV_GROUP_ROUTES = { inventory: ["inventory", "inventory-log", "inventory-manage"] };
+
 function setActiveNav(name) {
     document.querySelectorAll("[data-view]").forEach(l => l.classList.toggle("active", l.dataset.view === name));
+
+    Object.entries(NAV_GROUP_ROUTES).forEach(([group, routes]) => {
+        if (!routes.includes(name)) return;
+        document.getElementById(`${group}-nav-toggle`)?.classList.remove("collapsed");
+        document.getElementById(`${group}-nav-subitems`)?.classList.remove("collapsed");
+    });
 }
 
 function dispatchRoute() {
@@ -309,6 +331,13 @@ function initHeaderLinkIcons() {
         <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M2 4.5H10.5V11.5H2V4.5Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
             <path d="M13.5 8H8M8 8L10 6M8 8L10 10" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+    `;
+    const returnMaterialsLinkIcon = document.getElementById("return-materials-link-icon");
+    if (returnMaterialsLinkIcon) returnMaterialsLinkIcon.innerHTML = `
+        <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M14 4.5H5.5V11.5H14V4.5Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
+            <path d="M2.5 8H8M8 8L6 6M8 8L6 10" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
     `;
 }
@@ -456,7 +485,7 @@ function renderCmdkResults(query) {
 // ---- Fragment loader: fetches every view's HTML and injects it into its
 // mount point. Loaded eagerly, all at once, at startup — the app is small
 // enough that lazy-per-nav loading isn't worth the added state-tracking. ----
-const VIEW_NAMES = ["dashboard", "sites", "movements", "check-sites", "users", "roles", "settings", "inventory", "inventory-log", "issue-materials", "inventory-reports"];
+const VIEW_NAMES = ["dashboard", "sites", "movements", "check-sites", "users", "roles", "settings", "inventory", "inventory-log", "issue-materials", "return-materials", "inventory-reports", "inventory-manage"];
 
 export async function loadViewFragments() {
     await Promise.all(VIEW_NAMES.map(async (name) => {
@@ -573,6 +602,18 @@ export function initShell() {
     });
 
     sidebarBackdrop.addEventListener("click", () => setNavOpen(false));
+
+    // ---- Collapsible sidebar groups: a heading with no data-view is a pure
+    // expand/collapse toggle, not a navigation target — its sub-items handle
+    // navigation individually via the generic [data-view] wiring below. ----
+    document.querySelectorAll(".nav-heading:not([data-view])").forEach(toggle => {
+        const subitems = toggle.nextElementSibling;
+        if (!subitems || !subitems.classList.contains("nav-subitems")) return;
+        toggle.addEventListener("click", () => {
+            toggle.classList.toggle("collapsed");
+            subitems.classList.toggle("collapsed");
+        });
+    });
 
     // ---- Nav view switching ----
     document.querySelectorAll("[data-view]").forEach(link => {

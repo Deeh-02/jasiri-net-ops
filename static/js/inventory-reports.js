@@ -1,6 +1,7 @@
 import {
     can, authHeaders, showMessage, formatDate, showView, registerRoute,
 } from "./common.js";
+import { openUnitDetailModal } from "./inventory-common.js";
 
 function renderSkuSummaryTable(rows) {
     const tbody = document.getElementById("sku-summary-rows");
@@ -12,6 +13,7 @@ function renderSkuSummaryTable(rows) {
             <td>${row.category_name}</td>
             <td>${row.sku_or_spec}</td>
             <td>${row.total_on_hand}</td>
+            <td>${row.avg_unit_cost != null ? row.avg_unit_cost.toFixed(2) : "—"}</td>
             <td>${canEdit
                 ? `<input type="number" step="any" min="0" class="sku-reorder-input" value="${row.reorder_level ?? ""}" data-category-id="${row.category_id}" data-sku-or-spec="${encodeURIComponent(row.sku_or_spec)}">`
                 : (row.reorder_level ?? "—")}</td>
@@ -55,6 +57,58 @@ async function refreshSkuSummary() {
     const res = await fetch("/inventory/sku-summary", { headers: authHeaders() });
     const rows = res.ok ? await res.json() : [];
     renderSkuSummaryTable(rows);
+}
+
+function renderCableSummaryTable(rows) {
+    const tbody = document.getElementById("cable-summary-rows");
+    if (!tbody) return;
+
+    tbody.innerHTML = rows.map(row => `
+        <tr>
+            <td>${row.spec}</td>
+            <td>${row.reels_in_stock}</td>
+            <td>${row.total_length_remaining}m</td>
+            <td><button type="button" class="btn-secondary cable-drilldown-btn" data-spec="${encodeURIComponent(row.spec)}">View</button></td>
+        </tr>
+    `).join("");
+
+    tbody.querySelectorAll(".cable-drilldown-btn").forEach(btn => {
+        btn.addEventListener("click", () => openCableDrilldown(decodeURIComponent(btn.dataset.spec)));
+    });
+}
+
+async function refreshCableSummary() {
+    const res = await fetch("/inventory/cable-summary", { headers: authHeaders() });
+    const rows = res.ok ? await res.json() : [];
+    renderCableSummaryTable(rows);
+}
+
+async function openCableDrilldown(spec) {
+    document.getElementById("cable-drilldown-label").textContent = `— ${spec}`;
+    const res = await fetch(`/inventory/cable-summary/drill-down?spec=${encodeURIComponent(spec)}`, { headers: authHeaders() });
+    const rows = res.ok ? await res.json() : [];
+
+    document.getElementById("cable-drilldown-rows").innerHTML = rows.map(r => `
+        <tr>
+            <td>${r.cut_reel_id}</td>
+            <td>${r.length_remaining}m</td>
+            <td>${r.location_name || "—"}</td>
+            <td>${r.unit_cost ?? "—"}</td>
+            <td>${formatDate(r.created_at)}</td>
+            <td><button type="button" class="btn-secondary cable-drilldown-view-item-btn" data-item-id="${r.item_id}">View</button></td>
+        </tr>
+    `).join("");
+
+    document.getElementById("cable-drilldown-rows").querySelectorAll(".cable-drilldown-view-item-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+            // Close this overlay first — both share the same modal z-index,
+            // so stacking two at once leaves paint order ambiguous.
+            document.getElementById("cable-drilldown-overlay").hidden = true;
+            openUnitDetailModal(btn.dataset.itemId);
+        });
+    });
+
+    document.getElementById("cable-drilldown-overlay").hidden = false;
 }
 
 function renderOffcutSummaryTable(rows) {
@@ -104,8 +158,12 @@ export function initInventoryReports() {
     document.getElementById("offcut-drilldown-close").addEventListener("click", () => { overlay.hidden = true; });
     overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.hidden = true; });
 
+    const cableOverlay = document.getElementById("cable-drilldown-overlay");
+    document.getElementById("cable-drilldown-close").addEventListener("click", () => { cableOverlay.hidden = true; });
+    cableOverlay.addEventListener("click", (e) => { if (e.target === cableOverlay) cableOverlay.hidden = true; });
+
     registerRoute("inventory-reports", async () => {
         showView("view-inventory-reports");
-        await Promise.all([refreshSkuSummary(), refreshOffcutSummary()]);
+        await Promise.all([refreshSkuSummary(), refreshCableSummary(), refreshOffcutSummary()]);
     });
 }

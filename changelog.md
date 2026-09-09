@@ -61,6 +61,54 @@ power/network gear, none of which had any record before this phase.
   permission through the existing Roles screen — no new permission
   mechanism needed.
 
+**Restructure (owner review pass, still on the same branch)**
+- Categories and Locations moved off the Items page onto their own Manage
+  page, reached via a header button — the Items page now shows only Items.
+- Every item now has a detail view (unit cost, supplier, batch/cut detail,
+  and its full transaction history) reachable from a new View action, so
+  the main tables — especially cable's, trimmed to Cut/Reel ID, Spec,
+  Remaining, and Location — don't need to carry every field as a column.
+- New Cable Type Summary report: reels in stock and total remaining length
+  per spec, with a drill-down into the individual reels — separate from
+  the existing Offcut Rollup, which only covers unusable remainders.
+- SKU/Spec Summary now shows a live weighted-average unit cost per SKU for
+  Asset and Quantity types (correctly weighted across batches of different
+  size and cost, not a plain average).
+- Serialized assets now get a "Deployed" status on issue, resetting to
+  "Active" on Return — distinct from Faulty/In Repair/Decommissioned, so a
+  Return no longer silently clears a condition issue that was found in the
+  field.
+
+**Second refinement pass (owner review, still on the same branch) —
+supersedes the Restructure pass's nav pattern and item detail modal before
+either was committed**
+- Inventory is now a collapsible sidebar group (Items / Transaction Log /
+  Manage) instead of header-link buttons on the Items page; Reports is now
+  its own standalone top-level nav item, no longer reached from inside
+  Inventory.
+- Tracking Types are now labeled Asset Core / Consumables Core / Cable Core
+  everywhere they're shown.
+- Locations no longer has a management screen — the Issue/Return Materials
+  Site field is a free-typed autocomplete that creates a new site with zero
+  pre-configuration, or matches an existing one by name.
+- The Items table is now one row per SKU (not per serial/batch/cut), showing
+  Qty and Total Value as *total owned* — on-hand plus deployed combined, so
+  a deployed asset's value doesn't disappear from the table — with a second
+  filter (In Store / Deployed) and a third (Per-Job / Custody, a new
+  category-level distinction with no new transaction type or status
+  attached to it). Asset unit cost shows a "~"-prefixed average to signal
+  it's computed, not a literal per-unit price.
+- The View action is reframed as stock history: an Asset or Cable SKU opens
+  a list of its individual units, each opening the same tabbed Details/Logs
+  view already used for a battery's detail+history; a Consumable SKU (no
+  individual units) opens a flat running-balance history instead.
+- Return Materials is now a real cart screen (search, add multiple lines,
+  one submit) instead of only being reachable through the generic
+  transaction-log form — every asset line requires an explicit status pick
+  (never inferred from what it was before), and any active asset is
+  returnable this way, not just ones currently checked out to someone.
+- Issue Materials' Notes field is now required.
+
 ## Phase 2 — Finish Incomplete Functionality (completed 2026-09-06)
 
 One item (inline record detail in global search) was dropped by the

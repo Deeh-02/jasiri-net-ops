@@ -44,10 +44,14 @@ static/
                              # EXCEPT dashboard.js <-> movements.js, which import from
                              # each other directly: both are the same "batteries"
                              # domain (see ARCHITECTURE.md), just split across files —
-                             # ALSO EXCEPT inventory.js / inventory-log.js /
-                             # issue-materials.js / inventory-reports.js, which all
-                             # import from inventory-common.js, a shared domain module
-                             # (not a pairwise cross-import — see ARCHITECTURE.md)
+                             # ALSO EXCEPT inventory.js / inventory-manage.js /
+                             # inventory-log.js / issue-materials.js /
+                             # return-materials.js / inventory-reports.js,
+                             # which all import from inventory-common.js, a
+                             # shared domain module (not a pairwise
+                             # cross-import — see ARCHITECTURE.md).
+                             # inventory-manage.js is Categories-only —
+                             # Locations has no management screen any more
   css/
     common.css              # shared chrome/framework (topbar, nav, modals, tables)
     <view>.css               # one file per view

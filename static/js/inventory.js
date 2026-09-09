@@ -1,307 +1,24 @@
 import {
-    can, authHeaders, showMessage, editIconSvg, deleteIconSvg,
+    can, authHeaders, showMessage, editIconSvg, deleteIconSvg, viewIconSvg,
     registerAppShownHandler, showView, registerRoute, navigate,
 } from "./common.js";
 import {
-    trackingTypeLabel, loadInventoryCategories, getInventoryCategories,
+    loadInventoryCategories, getInventoryCategories,
     loadInventoryLocations, getInventoryLocations,
     loadInventoryAssignableUsers, getInventoryAssignableUsers, assignableUserName,
+    openUnitDetailModal, initUnitDetailModal,
+    openSkuHistoryModal, initSkuHistoryModal,
 } from "./inventory-common.js";
 
-let editCategoryId = null;
-let editLocationId = null;
 let editItemId = null;
-let itemsCache = [];
+// Holds whichever unit list is currently open in the unit-list modal — the
+// only place individual item rows are edited/deleted from now that the main
+// Items table is a SKU-level rollup, not a per-row list.
+let unitListCache = [];
+let itemsSummaryCache = [];
 let itemsCategoryFilter = "";
-
-// ---- Categories ----
-
-async function refreshCategories() {
-    await loadInventoryCategories();
-    renderCategoryList(getInventoryCategories());
-    populateCategoryDropdowns();
-}
-
-function renderCategoryList(categories) {
-    const tbody = document.getElementById("inventory-categories-rows");
-    if (!tbody) return;
-
-    const hasActions = can("inventory_categories", "edit") || can("inventory_categories", "delete");
-
-    tbody.innerHTML = categories.map(cat => `
-        <tr>
-            <td>${cat.name}</td>
-            <td><span class="tracking-type-badge">${trackingTypeLabel(cat.tracking_type)}</span></td>
-            <td>${cat.description || "—"}</td>
-            ${hasActions ? `
-            <td>
-                ${can("inventory_categories", "edit") ? `
-                <button type="button" class="inventory-icon-btn edit edit-category-btn" data-id="${cat.id}" title="Edit category">
-                    ${editIconSvg()}
-                </button>` : ""}
-                ${can("inventory_categories", "delete") ? `
-                <button type="button" class="inventory-icon-btn delete delete-category-btn" data-id="${cat.id}" data-name="${cat.name}" title="Delete category">
-                    ${deleteIconSvg()}
-                </button>` : ""}
-            </td>` : ""}
-        </tr>
-    `).join("");
-
-    tbody.querySelectorAll(".edit-category-btn").forEach(btn => {
-        btn.addEventListener("click", () => openEditCategoryModal(btn.dataset.id));
-    });
-    tbody.querySelectorAll(".delete-category-btn").forEach(btn => {
-        btn.addEventListener("click", () => deleteCategory(btn.dataset.id, btn.dataset.name));
-    });
-}
-
-async function deleteCategory(id, name) {
-    if (!confirm(`Delete category "${name}"? This can't be undone.`)) return;
-
-    const response = await fetch(`/inventory/categories/${id}`, { method: "DELETE", headers: authHeaders() });
-    if (response.ok) {
-        await refreshCategories();
-    } else {
-        alert("Failed to delete category — it may still have items tied to it.");
-    }
-}
-
-function openEditCategoryModal(categoryId) {
-    const cat = getInventoryCategories().find(c => String(c.id) === String(categoryId));
-    if (!cat) return;
-
-    editCategoryId = cat.id;
-    document.getElementById("edit-inventory-category-name").value = cat.name || "";
-    document.getElementById("edit-inventory-category-tracking-type").value = cat.tracking_type;
-    document.getElementById("edit-inventory-category-description").value = cat.description || "";
-    document.getElementById("edit-inventory-category-overlay").hidden = false;
-}
-
-function closeEditCategoryModal() {
-    document.getElementById("edit-inventory-category-overlay").hidden = true;
-    editCategoryId = null;
-}
-
-function initCategoryForms() {
-    const addOverlay = document.getElementById("add-inventory-category-overlay");
-    const addOpenBtn = document.getElementById("add-inventory-category-open-btn");
-    const addCancelBtn = document.getElementById("add-inventory-category-cancel");
-
-    addOpenBtn.addEventListener("click", () => {
-        document.getElementById("inventory-category-form").reset();
-        addOverlay.hidden = false;
-    });
-
-    addCancelBtn.addEventListener("click", () => { addOverlay.hidden = true; });
-    addOverlay.addEventListener("click", (e) => { if (e.target === addOverlay) addOverlay.hidden = true; });
-
-    document.getElementById("inventory-category-form").addEventListener("submit", async (e) => {
-        e.preventDefault();
-        const name = document.getElementById("inventory-category-name").value;
-        const tracking_type = document.getElementById("inventory-category-tracking-type").value;
-        const description = document.getElementById("inventory-category-description").value || null;
-
-        const response = await fetch("/inventory/categories", {
-            method: "POST",
-            headers: authHeaders({ "Content-Type": "application/json" }),
-            body: JSON.stringify({ name, tracking_type, description })
-        });
-
-        if (response.ok) {
-            showMessage("inventory-category-msg", "Category added", false);
-            e.target.reset();
-            addOverlay.hidden = true;
-            await refreshCategories();
-        } else {
-            showMessage("inventory-category-msg", "Failed to add category", true);
-        }
-    });
-
-    const editOverlay = document.getElementById("edit-inventory-category-overlay");
-    const editCancelBtn = document.getElementById("edit-inventory-category-cancel");
-    const editTrackingTypeSelect = document.getElementById("edit-inventory-category-tracking-type");
-    const lockHint = document.getElementById("edit-inventory-category-lock-hint");
-
-    editCancelBtn.addEventListener("click", closeEditCategoryModal);
-    editOverlay.addEventListener("click", (e) => { if (e.target === editOverlay) closeEditCategoryModal(); });
-
-    document.getElementById("edit-inventory-category-form").addEventListener("submit", async (e) => {
-        e.preventDefault();
-        if (!editCategoryId) return;
-
-        const body = {
-            name: document.getElementById("edit-inventory-category-name").value,
-            tracking_type: editTrackingTypeSelect.value,
-            description: document.getElementById("edit-inventory-category-description").value || null,
-        };
-
-        const response = await fetch(`/inventory/categories/${editCategoryId}`, {
-            method: "PATCH",
-            headers: authHeaders({ "Content-Type": "application/json" }),
-            body: JSON.stringify(body)
-        });
-
-        if (response.ok) {
-            lockHint.hidden = true;
-            closeEditCategoryModal();
-            await refreshCategories();
-        } else if (response.status === 400) {
-            lockHint.hidden = false;
-        } else {
-            alert("Failed to update category");
-        }
-    });
-
-    // The tracking type can't change once the category has items — the
-    // router is the source of truth on that (400 on mismatch); this just
-    // hides the hint again once the user picks the type back.
-    editTrackingTypeSelect.addEventListener("change", () => { lockHint.hidden = true; });
-}
-
-// ---- Locations ----
-
-async function refreshInventoryLocations() {
-    await loadInventoryLocations();
-    renderLocationList(getInventoryLocations());
-    populateLocationDropdowns();
-}
-
-function renderLocationList(locations) {
-    const tbody = document.getElementById("inventory-locations-rows");
-    if (!tbody) return;
-
-    const hasActions = can("inventory_locations", "edit") || can("inventory_locations", "delete");
-
-    tbody.innerHTML = locations.map(loc => `
-        <tr>
-            <td>${loc.name}</td>
-            <td><span class="store-tag">${loc.is_store ? "Store" : "Site"}</span></td>
-            <td>${loc.contact_name || "—"}</td>
-            <td>${loc.contact_phone || "—"}</td>
-            <td>${loc.address || "—"}</td>
-            ${hasActions ? `
-            <td>
-                ${can("inventory_locations", "edit") ? `
-                <button type="button" class="inventory-icon-btn edit edit-inv-location-btn" data-id="${loc.id}" title="Edit location">
-                    ${editIconSvg()}
-                </button>` : ""}
-                ${can("inventory_locations", "delete") ? `
-                <button type="button" class="inventory-icon-btn delete delete-inv-location-btn" data-id="${loc.id}" data-name="${loc.name}" title="Delete location">
-                    ${deleteIconSvg()}
-                </button>` : ""}
-            </td>` : ""}
-        </tr>
-    `).join("");
-
-    tbody.querySelectorAll(".edit-inv-location-btn").forEach(btn => {
-        btn.addEventListener("click", () => openEditLocationModal(btn.dataset.id));
-    });
-    tbody.querySelectorAll(".delete-inv-location-btn").forEach(btn => {
-        btn.addEventListener("click", () => deleteInventoryLocation(btn.dataset.id, btn.dataset.name));
-    });
-}
-
-async function deleteInventoryLocation(id, name) {
-    if (!confirm(`Delete location "${name}"? This can't be undone.`)) return;
-
-    const response = await fetch(`/inventory/locations/${id}`, { method: "DELETE", headers: authHeaders() });
-    if (response.ok) {
-        await refreshInventoryLocations();
-    } else {
-        alert("Failed to delete location — it may still have items tied to it.");
-    }
-}
-
-function openEditLocationModal(locationId) {
-    const loc = getInventoryLocations().find(l => String(l.id) === String(locationId));
-    if (!loc) return;
-
-    editLocationId = loc.id;
-    document.getElementById("edit-inventory-location-name").value = loc.name || "";
-    document.getElementById("edit-inventory-location-contact-name").value = loc.contact_name || "";
-    document.getElementById("edit-inventory-location-contact-phone").value = loc.contact_phone || "";
-    document.getElementById("edit-inventory-location-address").value = loc.address || "";
-    document.getElementById("edit-inventory-location-notes").value = loc.notes || "";
-    document.getElementById("edit-inventory-location-is-store").checked = !!loc.is_store;
-    document.getElementById("edit-inventory-location-overlay").hidden = false;
-}
-
-function closeEditLocationModal() {
-    document.getElementById("edit-inventory-location-overlay").hidden = true;
-    editLocationId = null;
-}
-
-function initLocationForms() {
-    const addOverlay = document.getElementById("add-inventory-location-overlay");
-    const addOpenBtn = document.getElementById("add-inventory-location-open-btn");
-    const addCancelBtn = document.getElementById("add-inventory-location-cancel");
-
-    addOpenBtn.addEventListener("click", () => {
-        document.getElementById("inventory-location-form").reset();
-        addOverlay.hidden = false;
-    });
-
-    addCancelBtn.addEventListener("click", () => { addOverlay.hidden = true; });
-    addOverlay.addEventListener("click", (e) => { if (e.target === addOverlay) addOverlay.hidden = true; });
-
-    document.getElementById("inventory-location-form").addEventListener("submit", async (e) => {
-        e.preventDefault();
-        const name = document.getElementById("inventory-location-name").value;
-        const contact_name = document.getElementById("inventory-location-contact-name").value || null;
-        const contact_phone = document.getElementById("inventory-location-contact-phone").value || null;
-        const address = document.getElementById("inventory-location-address").value || null;
-        const notes = document.getElementById("inventory-location-notes").value || null;
-        const is_store = document.getElementById("inventory-location-is-store").checked;
-
-        const response = await fetch("/inventory/locations", {
-            method: "POST",
-            headers: authHeaders({ "Content-Type": "application/json" }),
-            body: JSON.stringify({ name, is_store, address, contact_name, contact_phone, notes })
-        });
-
-        if (response.ok) {
-            showMessage("inventory-location-msg", "Location added", false);
-            e.target.reset();
-            addOverlay.hidden = true;
-            await refreshInventoryLocations();
-        } else {
-            showMessage("inventory-location-msg", "Failed to add location", true);
-        }
-    });
-
-    const editOverlay = document.getElementById("edit-inventory-location-overlay");
-    const editCancelBtn = document.getElementById("edit-inventory-location-cancel");
-
-    editCancelBtn.addEventListener("click", closeEditLocationModal);
-    editOverlay.addEventListener("click", (e) => { if (e.target === editOverlay) closeEditLocationModal(); });
-
-    document.getElementById("edit-inventory-location-form").addEventListener("submit", async (e) => {
-        e.preventDefault();
-        if (!editLocationId) return;
-
-        const body = {
-            name: document.getElementById("edit-inventory-location-name").value,
-            contact_name: document.getElementById("edit-inventory-location-contact-name").value || null,
-            contact_phone: document.getElementById("edit-inventory-location-contact-phone").value || null,
-            address: document.getElementById("edit-inventory-location-address").value || null,
-            notes: document.getElementById("edit-inventory-location-notes").value || null,
-            is_store: document.getElementById("edit-inventory-location-is-store").checked,
-        };
-
-        const response = await fetch(`/inventory/locations/${editLocationId}`, {
-            method: "PATCH",
-            headers: authHeaders({ "Content-Type": "application/json" }),
-            body: JSON.stringify(body)
-        });
-
-        if (response.ok) {
-            closeEditLocationModal();
-            await refreshInventoryLocations();
-        } else {
-            alert("Failed to update location");
-        }
-    });
-}
+let itemsStatusFilter = "";
+let itemsCustodyFilter = "";
 
 // ---- Items ----
 
@@ -324,9 +41,14 @@ function populateCategoryDropdowns() {
     }
 }
 
+// The item add/edit form's Location picker answers "which store is this new
+// stock initially shelved at" — scoped to is_store rows only, distinct from
+// the free-typed Site field on Issue/Return Materials (see
+// inventory-common.js's getInventoryLocations, which caches every location
+// unfiltered for that autocomplete's use).
 function populateLocationDropdowns() {
-    const locations = getInventoryLocations();
-    const options = locations.map(l => `<option value="${l.id}">${l.name}</option>`).join("");
+    const storeLocations = getInventoryLocations().filter(l => l.is_store);
+    const options = storeLocations.map(l => `<option value="${l.id}">${l.name}</option>`).join("");
 
     const addSelect = document.getElementById("inventory-item-location");
     if (addSelect) addSelect.innerHTML = `<option value="">Location (optional)</option>${options}`;
@@ -359,112 +81,182 @@ function numOrNull(value) {
     return value === "" || value === null || value === undefined ? null : Number(value);
 }
 
+function money(n) {
+    return n == null ? "—" : Number(n).toFixed(2);
+}
+
 async function refreshItems() {
     const qs = itemsCategoryFilter ? `?category_id=${itemsCategoryFilter}` : "";
-    const res = await fetch(`/inventory/items${qs}`, { headers: authHeaders() });
-    itemsCache = res.ok ? await res.json() : [];
-    renderItemsTable(itemsCache);
+    const res = await fetch(`/inventory/items/summary${qs}`, { headers: authHeaders() });
+    itemsSummaryCache = res.ok ? await res.json() : [];
+    renderItemsTable();
 }
 
-function formatItemDetail(item) {
-    if (item.tracking_type === "asset_serialized") {
-        const assignee = assignableUserName(item.assigned_to_user_id);
-        return `SN ${item.serial_number || "—"} — ${item.asset_status || "—"}` + (assignee ? ` (${assignee})` : "");
-    }
-    if (item.tracking_type === "inventory_quantity") {
-        const qty = `${item.quantity_on_hand ?? "—"} ${item.unit_of_measure || ""}`.trim();
-        return item.batch_lot ? `${qty} · Lot ${item.batch_lot}` : qty;
-    }
-    if (item.tracking_type === "inventory_length") {
-        return `${item.length_remaining ?? "—"}/${item.length_received ?? "—"} ${item.unit_of_measure || "m"} — ${item.length_status || "—"}`;
-    }
-    return "—";
+// Status/Custody narrow the already-fetched rows client-side and just
+// switch which of on_hand/deployed/total is displayed — no re-fetch, since
+// get_items_summary already returns both halves of the split per row.
+function filteredItemsForDisplay() {
+    return itemsSummaryCache.filter(row => {
+        if (itemsCustodyFilter && row.custody_type !== itemsCustodyFilter) return false;
+        return true;
+    });
 }
 
-function itemActionsCell(item) {
-    const hasActions = can("inventory_items", "edit") || can("inventory_items", "delete");
-    if (!hasActions) return "";
-    return `
-        <td>
-            ${can("inventory_items", "edit") ? `
-            <button type="button" class="inventory-icon-btn edit edit-item-btn" data-id="${item.id}" title="Edit item">
-                ${editIconSvg()}
-            </button>` : ""}
-            ${can("inventory_items", "delete") ? `
-            <button type="button" class="inventory-icon-btn delete delete-item-btn" data-id="${item.id}" data-name="${item.name}" title="Delete item">
-                ${deleteIconSvg()}
-            </button>` : ""}
-        </td>`;
+function qtyAndValueFor(row) {
+    if (itemsStatusFilter === "on_hand") return { qty: row.on_hand_qty, value: row.on_hand_value };
+    if (itemsStatusFilter === "deployed") return { qty: row.deployed_qty, value: row.deployed_value };
+    return { qty: row.total_qty, value: row.total_value };
 }
 
-function renderItemsTable(items) {
+function unitCostCell(row) {
+    if (row.avg_unit_cost == null) return "—";
+    // Assets get the "~" cue since it's a computed average across
+    // differently-priced batches — Consumables/Cable show a plain number.
+    return row.tracking_type === "asset_serialized"
+        ? `<span class="inventory-avg-cost" title="Weighted average across all units of this SKU">~${money(row.avg_unit_cost)}</span>`
+        : money(row.avg_unit_cost);
+}
+
+function renderItemsTable() {
     const thead = document.getElementById("inventory-items-thead");
     const tbody = document.getElementById("inventory-items-rows");
     if (!thead || !tbody) return;
 
-    const hasActions = can("inventory_items", "edit") || can("inventory_items", "delete");
-    const filterCategory = getInventoryCategories().find(c => String(c.id) === String(itemsCategoryFilter));
-    const actionsTh = `<th id="inventory-items-actions-th">Actions</th>`;
+    thead.innerHTML = `<tr><th>Name</th><th>SKU</th><th>Category</th><th>Qty</th><th>Unit Cost</th><th>Total Value</th><th>Actions</th></tr>`;
 
-    if (!filterCategory) {
-        thead.innerHTML = `<tr><th>Name</th><th>SKU</th><th>Category</th><th>Location</th><th>Detail</th>${hasActions ? actionsTh : ""}</tr>`;
-        tbody.innerHTML = items.map(item => `
+    const rows = filteredItemsForDisplay();
+    tbody.innerHTML = rows.map(row => {
+        const { qty, value } = qtyAndValueFor(row);
+        return `
             <tr>
-                <td>${item.name}</td>
-                <td>${item.sku}</td>
-                <td>${item.category_name}</td>
-                <td>${item.location_name || "—"}</td>
-                <td>${formatItemDetail(item)}</td>
-                ${itemActionsCell(item)}
+                <td>${row.name || "—"}</td>
+                <td>${row.sku_or_spec}</td>
+                <td>${row.category_name}</td>
+                <td>${qty}</td>
+                <td>${unitCostCell(row)}</td>
+                <td>${money(value)}</td>
+                <td>
+                    <button type="button" class="inventory-icon-btn view view-item-btn"
+                        data-category-id="${row.category_id}" data-sku="${encodeURIComponent(row.sku_or_spec)}"
+                        data-tracking-type="${row.tracking_type}" data-category-name="${row.category_name}"
+                        title="View stock history">
+                        ${viewIconSvg()}
+                    </button>
+                </td>
             </tr>
-        `).join("");
-    } else if (filterCategory.tracking_type === "asset_serialized") {
-        thead.innerHTML = `<tr><th>Name</th><th>SKU</th><th>Serial Number</th><th>Status</th><th>Assigned To</th><th>Location</th>${hasActions ? actionsTh : ""}</tr>`;
-        tbody.innerHTML = items.map(item => `
-            <tr>
-                <td>${item.name}</td>
-                <td>${item.sku}</td>
-                <td>${item.serial_number || "—"}</td>
-                <td>${item.asset_status || "—"}</td>
-                <td>${assignableUserName(item.assigned_to_user_id) || "—"}</td>
-                <td>${item.location_name || "—"}</td>
-                ${itemActionsCell(item)}
-            </tr>
-        `).join("");
-    } else if (filterCategory.tracking_type === "inventory_quantity") {
-        thead.innerHTML = `<tr><th>Name</th><th>SKU</th><th>Batch/Lot</th><th>Qty on Hand</th><th>Expiry</th><th>Location</th>${hasActions ? actionsTh : ""}</tr>`;
-        tbody.innerHTML = items.map(item => `
-            <tr>
-                <td>${item.name}</td>
-                <td>${item.sku}</td>
-                <td>${item.batch_lot || "—"}</td>
-                <td>${item.quantity_on_hand ?? "—"} ${item.unit_of_measure || ""}</td>
-                <td>${item.expiry_date || "—"}</td>
-                <td>${item.location_name || "—"}</td>
-                ${itemActionsCell(item)}
-            </tr>
-        `).join("");
+        `;
+    }).join("");
+
+    tbody.querySelectorAll(".view-item-btn").forEach(btn => {
+        btn.addEventListener("click", () => onViewSku(btn.dataset));
+    });
+}
+
+// Reframes View as "stock history", branching by Core: Asset/Cable open a
+// list of the individual units under this SKU/spec (drilling further into
+// the tabbed unit detail); Consumable has no individual units, so it opens
+// the flat running-balance history directly.
+function onViewSku({ categoryId, sku, trackingType, categoryName }) {
+    const skuDecoded = decodeURIComponent(sku);
+    if (trackingType === "inventory_quantity") {
+        openSkuHistoryModal(categoryId, skuDecoded, `${categoryName} — ${skuDecoded}`);
     } else {
-        thead.innerHTML = `<tr><th>Name</th><th>SKU</th><th>Cut/Reel ID</th><th>Remaining/Received</th><th>Status</th><th>Location</th>${hasActions ? actionsTh : ""}</tr>`;
-        tbody.innerHTML = items.map(item => `
-            <tr>
-                <td>${item.name}</td>
-                <td>${item.sku}</td>
-                <td>${item.cut_reel_id || "—"}</td>
-                <td>${item.length_remaining ?? "—"}/${item.length_received ?? "—"} ${item.unit_of_measure || "m"}</td>
-                <td>${item.length_status || "—"}</td>
-                <td>${item.location_name || "—"}</td>
-                ${itemActionsCell(item)}
-            </tr>
-        `).join("");
+        openUnitListModal(Number(categoryId), skuDecoded, trackingType, categoryName);
     }
+}
 
-    tbody.querySelectorAll(".edit-item-btn").forEach(btn => {
+// ---- Unit list (Asset/Cable) — the individual serials/reels behind one SKU
+// row, each carrying its own View/Edit/Delete now that the main table is an
+// aggregate. Lives here (not inventory-common.js) since Edit/Delete need
+// this view's own item-form modal and itemsCache-backed lookups.
+
+function unitRowCells(item) {
+    if (item.tracking_type === "asset_serialized") {
+        const holder = assignableUserName(item.assigned_to_user_id);
+        return `
+            <td>${item.id}</td>
+            <td>${item.serial_number || "—"}</td>
+            <td>${item.asset_status || "—"}</td>
+            <td>${holder || item.location_name || "—"}</td>
+        `;
+    }
+    return `
+        <td>${item.cut_reel_id || "—"}</td>
+        <td>${item.length_remaining ?? "—"} ${item.unit_of_measure || "m"}</td>
+        <td>${item.location_name || "—"}</td>
+    `;
+}
+
+// "Asset ID" is the row's own id — a stable per-unit identifier distinct
+// from the SKU shared by every row in this list (already shown in the
+// modal's header) and from Serial Number, which can be blank before one's
+// assigned.
+function unitListHeadRow(trackingType) {
+    return trackingType === "asset_serialized"
+        ? `<tr><th>Asset ID</th><th>Serial Number</th><th>Status</th><th>Location/Holder</th><th>Actions</th></tr>`
+        : `<tr><th>Reel ID</th><th>Remaining</th><th>Location</th><th>Actions</th></tr>`;
+}
+
+function renderUnitList() {
+    const thead = document.getElementById("unit-list-thead");
+    const tbody = document.getElementById("unit-list-rows");
+    if (!thead || !tbody || unitListCache.length === 0) return;
+
+    const trackingType = unitListCache[0].tracking_type;
+    thead.innerHTML = unitListHeadRow(trackingType);
+
+    tbody.innerHTML = unitListCache.map(item => `
+        <tr>
+            ${unitRowCells(item)}
+            <td>
+                <button type="button" class="inventory-icon-btn view unit-view-btn" data-id="${item.id}" title="View history">
+                    ${viewIconSvg()}
+                </button>
+                ${can("inventory_items", "edit") ? `
+                <button type="button" class="inventory-icon-btn edit unit-edit-btn" data-id="${item.id}" title="Edit">
+                    ${editIconSvg()}
+                </button>` : ""}
+                ${can("inventory_items", "delete") ? `
+                <button type="button" class="inventory-icon-btn delete unit-delete-btn" data-id="${item.id}" data-name="${item.name}" title="Delete">
+                    ${deleteIconSvg()}
+                </button>` : ""}
+            </td>
+        </tr>
+    `).join("");
+
+    tbody.querySelectorAll(".unit-view-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+            document.getElementById("unit-list-overlay").hidden = true;
+            openUnitDetailModal(btn.dataset.id);
+        });
+    });
+    tbody.querySelectorAll(".unit-edit-btn").forEach(btn => {
         btn.addEventListener("click", () => openEditItemModal(btn.dataset.id));
     });
-    tbody.querySelectorAll(".delete-item-btn").forEach(btn => {
+    tbody.querySelectorAll(".unit-delete-btn").forEach(btn => {
         btn.addEventListener("click", () => deleteItem(btn.dataset.id, btn.dataset.name));
     });
+}
+
+async function openUnitListModal(categoryId, sku, trackingType, categoryName) {
+    const overlay = document.getElementById("unit-list-overlay");
+    if (!overlay) return;
+
+    document.getElementById("unit-list-label").textContent = `— ${categoryName} — ${sku}`;
+    const res = await fetch(`/inventory/items?category_id=${categoryId}&sku=${encodeURIComponent(sku)}`, { headers: authHeaders() });
+    unitListCache = res.ok ? await res.json() : [];
+    renderUnitList();
+    overlay.hidden = false;
+}
+
+async function refreshUnitListIfOpen() {
+    const overlay = document.getElementById("unit-list-overlay");
+    if (!overlay || overlay.hidden || unitListCache.length === 0) return;
+    const { category_id, sku, tracking_type } = unitListCache[0];
+    const sku_or_spec = tracking_type === "inventory_length" ? unitListCache[0].spec : sku;
+    const res = await fetch(`/inventory/items?category_id=${category_id}&sku=${encodeURIComponent(sku_or_spec)}`, { headers: authHeaders() });
+    unitListCache = res.ok ? await res.json() : [];
+    renderUnitList();
 }
 
 async function deleteItem(id, name) {
@@ -472,14 +264,14 @@ async function deleteItem(id, name) {
 
     const response = await fetch(`/inventory/items/${id}`, { method: "DELETE", headers: authHeaders() });
     if (response.ok) {
-        await refreshItems();
+        await Promise.all([refreshItems(), refreshUnitListIfOpen()]);
     } else {
         alert("Failed to delete item — it may still have transaction history tied to it.");
     }
 }
 
 function openEditItemModal(itemId) {
-    const item = itemsCache.find(i => String(i.id) === String(itemId));
+    const item = unitListCache.find(i => String(i.id) === String(itemId));
     if (!item) return;
 
     editItemId = item.id;
@@ -601,7 +393,7 @@ function initItemForms() {
     editForm.addEventListener("submit", async (e) => {
         e.preventDefault();
         if (!editItemId) return;
-        const item = itemsCache.find(i => String(i.id) === String(editItemId));
+        const item = unitListCache.find(i => String(i.id) === String(editItemId));
         if (!item) return;
 
         const body = {
@@ -641,7 +433,7 @@ function initItemForms() {
 
         if (response.ok) {
             closeEditItemModal();
-            await refreshItems();
+            await Promise.all([refreshItems(), refreshUnitListIfOpen()]);
         } else {
             const err = await response.json().catch(() => ({}));
             alert(err.detail || "Failed to update item");
@@ -652,33 +444,58 @@ function initItemForms() {
         itemsCategoryFilter = e.target.value;
         await refreshItems();
     });
+
+    document.getElementById("inventory-items-status-filter").addEventListener("change", (e) => {
+        itemsStatusFilter = e.target.value;
+        renderItemsTable();
+    });
+
+    document.getElementById("inventory-items-custody-filter").addEventListener("change", (e) => {
+        itemsCustodyFilter = e.target.value;
+        renderItemsTable();
+    });
+}
+
+function initUnitListModal() {
+    const overlay = document.getElementById("unit-list-overlay");
+    document.getElementById("unit-list-close").addEventListener("click", () => { overlay.hidden = true; });
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.hidden = true; });
 }
 
 export function initInventory() {
-    initCategoryForms();
-    initLocationForms();
     initItemForms();
+    initUnitListModal();
+    initUnitDetailModal();
+    initSkuHistoryModal();
 
-    // Lives on the Inventory view's header as a quick link, wired here since
-    // the action itself is this view's concern (same pattern as movements.js's
-    // and check-sites.js's own header link buttons).
-    document.getElementById("inventory-log-link-btn").addEventListener("click", () => {
-        navigate("inventory-log");
-    });
-
+    // These header buttons live in this view's own fragment (loaded after
+    // initShell()'s generic [data-view] click wiring already ran over
+    // index.html's contents), so — like every other header quick-link in
+    // this codebase (movements.js, check-sites.js) — they need their own
+    // explicit wiring rather than relying on that generic pass to find them.
     document.getElementById("issue-materials-link-btn").addEventListener("click", () => {
         navigate("issue-materials");
     });
 
-    document.getElementById("inventory-reports-link-btn").addEventListener("click", () => {
-        navigate("inventory-reports");
+    document.getElementById("return-materials-link-btn").addEventListener("click", () => {
+        navigate("return-materials");
     });
 
     registerAppShownHandler(async () => {
-        await Promise.all([refreshCategories(), refreshInventoryLocations(), loadInventoryAssignableUsers()]);
+        await Promise.all([loadInventoryCategories(), loadInventoryLocations(), loadInventoryAssignableUsers()]);
+        populateCategoryDropdowns();
+        populateLocationDropdowns();
         populateAssignedToDropdowns();
         await refreshItems();
     });
 
-    registerRoute("inventory", () => showView("view-inventory"));
+    registerRoute("inventory", async () => {
+        showView("view-inventory");
+        // Re-fetched on every visit, not just at login, so a category or
+        // location added/edited on the Manage page shows up here immediately.
+        await Promise.all([loadInventoryCategories(), loadInventoryLocations()]);
+        populateCategoryDropdowns();
+        populateLocationDropdowns();
+        await refreshItems();
+    });
 }
