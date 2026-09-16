@@ -1,0 +1,192 @@
+    <!-- Unit-level edit only — Serial/Make-Model/Location/Status/Assigned
+         To/Supplier/Cost/Install Date/Notes. SKU/Name/Category/Spec/UoM are
+         product-level and live on the Edit Product modal instead (see
+         inventory.html and architecture.md's note on this split). Make/
+         Model and Supplier live here rather than there — both can genuinely
+         vary batch-to-batch or unit-to-unit even under one SKU. Reached
+         from the shared unit list below, from either the Items or Stock
+         page. -->
+    <div class="modal-overlay" id="edit-inventory-item-overlay" hidden>
+        <div class="modal-box">
+            <h3>Edit Unit</h3>
+            <form id="edit-inventory-item-form" class="panel-form">
+                <!-- Free-typed with autocomplete, same pattern as Issue/
+                     Return Materials' Site field — see the matching note on
+                     Add Unit's Location field in inventory.html. -->
+                <input type="text" id="edit-inventory-item-location" list="edit-inventory-item-location-suggestions" placeholder="Location (optional)" autocomplete="off">
+                <datalist id="edit-inventory-item-location-suggestions"></datalist>
+
+                <div data-item-type-fields="asset_serialized" hidden>
+                    <input type="text" id="edit-inventory-item-serial-number" placeholder="Serial number">
+                    <input type="text" id="edit-inventory-item-make-model" placeholder="Make/Model (optional)">
+                    <select id="edit-inventory-item-asset-status">
+                        <option value="Active">Active</option>
+                        <option value="Deployed">Deployed</option>
+                        <option value="Faulty">Faulty</option>
+                        <option value="In Repair">In Repair</option>
+                        <option value="Decommissioned">Decommissioned</option>
+                    </select>
+                    <div id="edit-inventory-item-assigned-to-row" hidden>
+                        <select id="edit-inventory-item-assigned-to">
+                            <option value="">Assigned to (optional)</option>
+                        </select>
+                    </div>
+                    <input type="date" id="edit-inventory-item-install-date" placeholder="Install date">
+                </div>
+
+                <!-- No quantity_on_hand field here — Qty only ever changes
+                     via a logged transaction (In/Transfer/Adjustment/Issue/
+                     Return/Write-off), never a direct edit. A miscount goes
+                     through an Adjustment transaction on the Transaction
+                     Log instead, which leaves an attributed record. -->
+                <div data-item-type-fields="inventory_quantity" hidden>
+                    <input type="text" id="edit-inventory-item-batch-lot" placeholder="Batch/Lot">
+                    <input type="date" id="edit-inventory-item-expiry-date" placeholder="Expiry date">
+                </div>
+
+                <!-- length_received (what this cut originally was) stays
+                     editable as a data-entry correction, but length_remaining
+                     — the live stock figure — doesn't, for the same reason
+                     quantity_on_hand doesn't above. -->
+                <div data-item-type-fields="inventory_length" hidden>
+                    <input type="text" id="edit-inventory-item-cut-reel-id" placeholder="Cut/Reel ID">
+                    <input type="number" step="any" id="edit-inventory-item-length-received" placeholder="Length received (m)">
+                    <select id="edit-inventory-item-length-status">
+                        <option value="In Stock">In Stock</option>
+                        <option value="Out — Pending Reconciliation">Out — Pending Reconciliation</option>
+                        <option value="Depleted">Depleted</option>
+                    </select>
+                </div>
+
+                <input type="text" id="edit-inventory-item-supplier" placeholder="Supplier (optional)">
+                <input type="number" step="any" id="edit-inventory-item-unit-cost" placeholder="Unit cost (optional)">
+                <textarea id="edit-inventory-item-notes" placeholder="Notes (optional)"></textarea>
+
+                <div class="modal-actions">
+                    <button type="button" id="edit-inventory-item-cancel" class="btn-secondary">Cancel</button>
+                    <button type="submit" class="btn-primary">Save Changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- The shared "View" drill-down for Asset/Cable Core — one row per
+         unit under a SKU/spec. Opened identically from the Items and Stock
+         pages via inventory-common.js's openStockHistory(). Paginated
+         (page-size 10/20/50/100 + Prev/Next, same convention as the
+         per-unit Logs tab/Reports) now that batch-add can generate dozens
+         of units under one SKU at once — see #unit-list-pagination below.
+         Pagination alone doesn't bound the table's rendered height (a
+         page size of 100 would still grow the modal to fit 100 rows), so
+         the wrapper reuses .dashboard-logs-scroll — the same fixed-height,
+         internally-scrolling container the Battery logs table uses — rather
+         than .table-scroll, which has no max-height at all outside its own
+         phone-only media query. Rows are also deliberately denser than the
+         Items/Stock tables (.unit-list-table-compact in inventory.css,
+         which also pins the header via position:sticky so it stays visible
+         while the body scrolls) since this list is scanned many-rows-per-
+         SKU rather than one-row-per-SKU. -->
+    <div class="modal-overlay" id="unit-list-overlay" hidden>
+        <div class="modal-box dashboard-modal-box-lg">
+            <div class="dashboard-view-battery-header">
+                <h3>Units <span id="unit-list-label"></span></h3>
+                <button type="button" id="unit-list-close" class="dashboard-modal-close-btn">&times;</button>
+            </div>
+            <div class="dashboard-logs-scroll">
+                <table id="unit-list-table" class="unit-list-table-compact">
+                    <thead id="unit-list-thead"></thead>
+                    <tbody id="unit-list-rows"></tbody>
+                </table>
+            </div>
+            <div class="dashboard-logs-pagination-row" id="unit-list-pagination"></div>
+        </div>
+    </div>
+
+    <!-- The shared "View" drill-down for Consumable Core — no individual
+         units, so this is a flat running-balance history instead. -->
+    <div class="modal-overlay" id="sku-history-overlay" hidden>
+        <div class="modal-box dashboard-modal-box-lg">
+            <div class="dashboard-view-battery-header">
+                <h3>Stock History <span id="sku-history-label"></span></h3>
+                <button type="button" id="sku-history-close" class="dashboard-modal-close-btn">&times;</button>
+            </div>
+            <table class="dashboard-logs-table dashboard-logs-table-header">
+                <colgroup><col style="width:32%"><col style="width:22%"><col style="width:20%"><col style="width:26%"></colgroup>
+                <thead><tr><th>Date</th><th>Action</th><th>Qty</th><th>Balance</th></tr></thead>
+            </table>
+            <div id="sku-history-rows" class="dashboard-logs-scroll"></div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="item-detail-overlay" hidden>
+        <div class="modal-box dashboard-modal-box-lg">
+            <div class="dashboard-view-battery-header">
+                <h3>Item <span id="item-detail-label"></span></h3>
+                <button type="button" id="item-detail-close" class="dashboard-modal-close-btn">&times;</button>
+            </div>
+            <div class="inventory-item-tab-row">
+                <button type="button" class="inventory-item-tab active" id="item-detail-tab-btn-details" data-tab="details">Details</button>
+                <button type="button" class="inventory-item-tab" id="item-detail-tab-btn-logs" data-tab="logs">Logs</button>
+            </div>
+            <div class="dashboard-tab-panel" id="item-detail-tab-details">
+                <div id="item-detail-fields"></div>
+            </div>
+            <div class="dashboard-tab-panel" id="item-detail-tab-logs" hidden>
+                <table class="dashboard-logs-table dashboard-logs-table-header">
+                    <colgroup><col style="width:26%"><col style="width:13%"><col style="width:13%"><col style="width:24%"><col style="width:24%"></colgroup>
+                    <thead><tr><th>Date</th><th>Action</th><th>Qty/Len</th><th>Location</th><th>Notes</th></tr></thead>
+                </table>
+                <div id="item-detail-logs-list"></div>
+                <div class="dashboard-logs-pagination-row" id="item-detail-logs-pagination"></div>
+            </div>
+        </div>
+    </div>
+
+    <section class="view" id="view-stock" hidden>
+        <div class="page-header-row">
+            <h1 class="page-title">Stock</h1>
+            <div class="header-action-group">
+                <button type="button" id="issue-materials-link-btn" class="btn-add-site header-action-primary" data-view="issue-materials" data-label="Issue Materials">
+                    <span class="header-sub-link-icon-wrap">
+                        <span class="header-sub-link-icon" id="issue-materials-link-icon"></span>
+                    </span>
+                    Issue materials
+                </button>
+                <button type="button" id="return-materials-link-btn" class="header-sub-link" data-view="return-materials" data-label="Return Materials">
+                    <span class="header-sub-link-icon-wrap">
+                        <span class="header-sub-link-icon" id="return-materials-link-icon"></span>
+                    </span>
+                    Return materials
+                </button>
+            </div>
+        </div>
+
+        <div class="inventory-panel">
+            <div class="inventory-panel-header">
+                <h2>Stock</h2>
+                <div class="inventory-panel-header-actions">
+                    <input type="text" id="stock-search" class="inventory-filter-search" placeholder="Search name, SKU, serial...">
+                    <select id="stock-category-filter" class="inventory-filter-select">
+                        <option value="">All Categories</option>
+                    </select>
+                    <select id="stock-status-filter" class="inventory-filter-select">
+                        <option value="">All</option>
+                        <option value="on_hand">In Store</option>
+                        <option value="deployed">Deployed</option>
+                    </select>
+                    <select id="stock-custody-filter" class="inventory-filter-select">
+                        <option value="">All</option>
+                        <option value="per_job">Per-Job</option>
+                        <option value="custody">Custody</option>
+                    </select>
+                    <button type="button" id="export-stock-csv-btn" class="header-sub-link">Export CSV</button>
+                </div>
+            </div>
+            <div class="table-scroll">
+                <table id="stock-table">
+                    <thead id="stock-thead"></thead>
+                    <tbody id="stock-rows"></tbody>
+                </table>
+            </div>
+        </div>
+    </section>

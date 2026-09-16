@@ -1,9 +1,12 @@
 # Jasiri Net — Battery Tracker
 
-An internal ops tool for tracking Jasiri Net's field battery fleet: where
-each battery physically is, its charge state, its movement history between
-sites, and site-verification/check-in status — with role-based permissions
-gating who can do what.
+An internal ops tool for Jasiri Net's field operations. Started as a
+battery fleet tracker — where each battery physically is, its charge
+state, its movement history between sites, and site-verification/check-in
+status — and now also covers general inventory/asset tracking (enclosures,
+cable, consumables, power/network gear): what's on hand, what went out to
+which job, and how much cable is left on a given cut. All of it gated by
+one role-based permission system.
 
 ## Stack
 
@@ -70,6 +73,31 @@ at least one `admin`-role user created directly before the app is usable.
   toggle.
 - **Global search** (⌘K) — jump to any section, record, or
   permission-gated "add" action from one command palette.
+- **Inventory** — a separate domain from battery tracking, covering
+  enclosures, cable, consumables, and power/network gear:
+  - **Items / Stock** — one row per SKU (Qty/Unit Cost/Total Value); Items
+    defaults Qty to on-hand/available (not on-hand plus deployed), Stock
+    adds Status (All/In Store/Deployed) and Custody filters on the same
+    data.
+  - **Issue / Return Materials** — a single cart for checking multiple
+    items out to (or back from) a site or person in one action, regardless
+    of whether they're individually-serialized assets, batch-tracked
+    consumables, or cut-to-length cable. **Quick Issue/Return** lets an
+    Asset-core line be filled by quantity ("5") instead of picking each
+    serial by hand, auto-selecting from what's actually eligible (in-stock
+    for Issue, checked-out-to-that-source for Return) and showing exactly
+    which units were picked so one can be swapped out before confirming.
+  - **Categories** are user-created and tagged with one of three fixed
+    "Cores" (Asset / Consumables / Cable) that decide row granularity and
+    which fields apply — locked once a category has items, since the three
+    Cores use disjoint, non-convertible column sets (see
+    [architecture.md](architecture.md)).
+  - **Cable reconciliation** — a cut goes out whole (Stage 1); once the job
+    closes, actual metres used vs. returned are logged (Stage 2), splitting
+    off a fresh reel from any usable remainder.
+  - **Reports** — SKU/Spec Summary (with reorder-level flagging), Cable
+    Type Summary, and Offcut Rollup, each independently permission-gated
+    from the rest of Inventory.
 
 ## Project docs
 
@@ -89,8 +117,8 @@ picking this up too:
 ## Current status
 
 Phases 0–2 (structural split, mobile fixes, finish-incomplete-
-functionality) are confirmed done — see [phase.md](phase.md) for the full
-per-item breakdown. No phase is currently active; Phase 3 ("Ops Inventory
-System" — a full inventory/asset tracking system for field ops, replacing
-the old placeholder Phase 3/4 scope) is scoped in [phase.md](phase.md) but
-not yet started.
+functionality) are confirmed done. Phase 3 ("Ops Inventory System" — the
+Inventory domain described above) is implemented on branch
+`phase-3-ops-inventory` and awaiting the owner's own click-through before
+it's marked done and merged to `main` — see [phase.md](phase.md) and
+[changelog.md](changelog.md) for the full breakdown.

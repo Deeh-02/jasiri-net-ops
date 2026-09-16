@@ -1,0 +1,426 @@
+/* ---- Inventory view ---- */
+
+/* Asset Core status pill colors — variants of the base .status-pill in
+   common.css (see that rule's own comment: base class there, view-specific
+   colors in each view's own file). Shown wherever an asset's status is a
+   read-only readout (the unit list, the unit detail modal, Issue/Return
+   Materials' search results — wired via assetStatusBadgeHtml in
+   inventory-common.js) — not applied to the editable status <select>
+   controls elsewhere, which stay plain dropdowns. Deployed gets --info
+   (blue) rather than reusing dashboard.css's .status-pill.deployed (--warn)
+   — that class means something different in the battery domain (a battery
+   that's out and due back), so it's not reused here; a fresh asset-prefixed
+   class per status avoids any cross-domain color collision. */
+.status-pill.asset-active { color: var(--accent); background: rgba(61, 220, 151, 0.12); }
+.status-pill.asset-deployed { color: var(--info); background: rgba(79, 168, 255, 0.12); }
+.status-pill.asset-faulty { color: var(--danger); background: rgba(239, 91, 91, 0.14); }
+.status-pill.asset-in-repair { color: var(--warn); background: rgba(245, 166, 35, 0.12); }
+.status-pill.asset-decommissioned { color: var(--text-dim); background: rgba(139, 150, 165, 0.14); }
+
+.inventory-panel {
+    margin-top: 28px;
+}
+
+.inventory-panel:first-of-type {
+    margin-top: 0;
+}
+
+.inventory-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+}
+
+.inventory-panel-header h2 {
+    font-size: 16px;
+    font-weight: 700;
+    margin: 0;
+}
+
+.inventory-panel-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+/* Shared by every filter <select> across the inventory views (Items panel's
+   category filter, the Log's category/action filters) — kept here since
+   this file already holds the cross-view .panel-form extensions below. */
+.inventory-filter-select {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 30px 8px 10px;
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    font-size: 13px;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5 11 1.5' fill='none' stroke='%238b96a5' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    background-size: 11px 8px;
+}
+
+/* In-page row filter — Items, Stock, and the Transaction Log each get one
+   of these in their header-actions row, narrowing the already-rendered
+   table client-side (name/SKU/serial/etc.) as you type, no refetch and no
+   navigation. Matches .inventory-filter-select's box look with a leading
+   search icon instead of a trailing chevron. */
+.inventory-filter-search {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px 8px 30px;
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    font-size: 13px;
+    width: 190px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='6.5' cy='6.5' r='4.5' fill='none' stroke='%238b96a5' stroke-width='1.4'/%3E%3Cpath d='M10 10l4 4' fill='none' stroke='%238b96a5' stroke-width='1.4' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: left 9px center;
+    background-size: 13px 13px;
+}
+
+.inventory-filter-search::placeholder {
+    color: var(--text-dim);
+}
+
+.inventory-filter-search:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+/* Categories/Locations modals add a textarea and a lock-state hint that no
+   earlier view needed — extending the shared .panel-form rules here since
+   this is the first view to use either. */
+.panel-form textarea {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    resize: vertical;
+    min-height: 60px;
+}
+
+.panel-form textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.form-hint {
+    font-size: 12px;
+    color: var(--text-dim);
+    margin: -4px 0 0;
+}
+
+.tracking-type-badge {
+    display: inline-block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--accent);
+    background: rgba(61, 220, 151, 0.18);
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+.store-tag {
+    display: inline-block;
+    font-size: 11px;
+    color: var(--text-dim);
+}
+
+.inventory-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    width: 30px;
+    height: 30px;
+    color: var(--text-dim);
+    cursor: pointer;
+    margin-right: 6px;
+    transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.inventory-icon-btn.view:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+}
+
+.inventory-icon-btn.edit:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+}
+
+.inventory-icon-btn.delete:hover {
+    color: var(--danger);
+    border-color: var(--danger);
+}
+
+/* The Logs tab has no inner fixed-height scroll box of its own (unlike
+   dashboard.js's view-battery modal) — a page-size of 100 can render a tall
+   table, so the modal box itself scrolls as one unit instead of nesting a
+   second scrollbar inside it. Scoped to this one overlay rather than the
+   shared .dashboard-modal-box-lg class, since Battery's own modals
+   (view-battery-overlay, stat-detail-overlay) keep their existing
+   360px-inner-box pattern unchanged. */
+#item-detail-overlay .modal-box {
+    max-height: 90vh;
+    overflow-y: auto;
+}
+
+.inventory-detail-history-heading {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-dim);
+    margin: 18px 0 8px;
+}
+
+/* Mirrors .dashboard-tab-slant (the View Battery modal's Details/Logs tabs)
+   — same slant-tab look, kept as its own inventory-scoped class so this
+   file's tab click-handler and the battery modal's stay on separate class
+   names with no cross-wiring risk (dashboard.js wires a page-wide listener
+   on .dashboard-tab-slant that's hardcoded to the battery modal's own panel
+   ids — see settings.css's .settings-tab for the same precedent). */
+.inventory-item-tab-row {
+    display: flex;
+    gap: 2px;
+    margin-bottom: 18px;
+    border-bottom: 1px solid var(--border);
+}
+
+.inventory-item-tab {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-bottom: none;
+    color: var(--text-dim);
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    padding: 9px 22px;
+    cursor: pointer;
+    clip-path: polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%);
+    margin-right: -8px;
+    transition: color 0.15s ease, background 0.15s ease;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.inventory-item-tab:hover { color: var(--text); }
+
+.inventory-item-tab.active {
+    background: var(--surface);
+    color: var(--accent);
+    position: relative;
+    z-index: 2;
+}
+
+/* Flags an Asset SKU's Unit Cost as a computed average, not a literal price
+   every unit was actually bought at. */
+.inventory-avg-cost {
+    color: var(--text-dim);
+    font-style: italic;
+}
+
+/* Stock's Qty column pairs a plain number with an inline-block Low badge —
+   the table cell's default white-space would otherwise let that pairing
+   wrap onto two lines at narrow column widths. */
+.qty-with-badge {
+    white-space: nowrap;
+}
+
+/* Reorder Level renders as plain colored text (red = at/below reorder
+   level, green = healthy), not a badge — the color alone carries the
+   status, so no background/box. Unset ("—") is left uncolored via
+   statusClass being empty in reorderLevelCell(). Click-to-edit affordance
+   is a subtle opacity shift on hover instead of a color change, since color
+   here is already spoken for by status. */
+.reorder-level-cell {
+    display: inline-block;
+    cursor: pointer;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    transition: opacity 0.15s ease;
+}
+
+.reorder-level-cell:hover {
+    opacity: 0.7;
+}
+
+.reorder-level-low {
+    color: var(--danger);
+}
+
+.reorder-level-ok {
+    color: var(--accent);
+}
+
+/* The shared .qty-stepper's own `width: 100%` rule (common.css) would
+   otherwise stretch this to fill the table cell, so the wrapper pins the
+   compact width the plain input used to declare directly. */
+.reorder-level-input-wrapper {
+    width: 90px;
+}
+
+.reorder-level-input {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px 8px;
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    font-size: 13px;
+}
+
+.reorder-level-input:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+/* The unit-list drill-down (View on Items/Stock) is scanned many-rows-per-
+   SKU rather than one-row-per-SKU like the outer tables, and batch-add can
+   now generate dozens of units at once — denser rows keep more of them
+   visible per page before Prev/Next is needed. */
+.unit-list-table-compact th {
+    padding: 7px 12px;
+}
+
+.unit-list-table-compact td {
+    padding: 5px 12px;
+    font-size: 13px;
+}
+
+/* Its header stays inside the same scrolling table (unlike the Battery
+   logs pattern's separate static header table, which isn't practical here
+   since the columns themselves change shape between Asset and Cable Core)
+   — pinned instead via position:sticky so it doesn't scroll away with the
+   body inside .dashboard-logs-scroll. Same technique .table-scroll already
+   uses for its own header, just applied unconditionally here rather than
+   only in that rule's phone-width media query. */
+.unit-list-table-compact thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+/* ---- Add Item wizard (Add Product / Add Unit) ---- */
+
+/* Existing/New product fork, styled with the app's pill visual language
+   (DESIGN.md's .status-pill: small, uppercase, letter-spaced, fully
+   rounded, tint-background) extended to be clickable — .status-pill itself
+   stays a static display-only class elsewhere in the app, so this is its
+   own scoped class rather than reusing it directly. Inactive = dim/muted
+   tint; active = --accent text on the same rgba(61,220,151,0.12) tint the
+   rest of the app uses for "this is the current selection." Unlike a real
+   tab group there's no persistent "current" panel here — picking either
+   immediately advances the wizard to the next step — so neither pill
+   starts .active; the class only supplies the at-rest/hover look, with
+   .active added briefly on click for feedback before the step changes. */
+.add-item-choice-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 14px;
+}
+
+.add-item-choice-tab {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 500;
+    padding: 7px 16px;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.add-item-choice-tab:hover { color: var(--text); }
+
+.add-item-choice-tab.active {
+    background: rgba(61, 220, 151, 0.12);
+    border-color: transparent;
+    color: var(--accent);
+}
+
+#add-item-product-search-input {
+    width: 100%;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    margin-bottom: 12px;
+}
+
+#add-item-product-search-input:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.add-item-product-results {
+    max-height: 300px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.add-item-product-result {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    width: 100%;
+    text-align: left;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    cursor: pointer;
+    color: var(--text);
+    transition: border-color 0.15s ease;
+}
+
+.add-item-product-result:hover {
+    border-color: var(--accent);
+}
+
+.add-item-product-result-name {
+    font-weight: 700;
+    font-size: 14px;
+}
+
+.add-item-product-result-meta {
+    font-size: 12px;
+    color: var(--text-dim);
+    font-family: 'JetBrains Mono', monospace;
+}
+
+.add-item-product-empty {
+    color: var(--text-dim);
+    font-size: 13px;
+    padding: 10px 0;
+}
+
+.add-item-product-summary {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    margin-bottom: 14px;
+    font-weight: 700;
+    font-size: 14px;
+}

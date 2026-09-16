@@ -28,8 +28,12 @@ note that `schema.sql` is currently stale relative to the live DB.
 ```
 main.py              # creates the app, mounts /static, registers routers, serves "/"
 migrations/           # numbered .sql scripts, run by hand — no migration framework
-routers/              # one file per domain: auth, permissions, sites, batteries, users
-db/                    # connection.py (shared) + one file per domain
+routers/              # one file per domain: auth, permissions, sites, batteries, users, inventory
+db/                    # connection.py (shared) + one file per domain — EXCEPT inventory,
+                        # which is one router (routers/inventory.py) over several files
+                        # (inventory_locations.py, inventory_categories.py, inventory_items.py,
+                        # inventory_transactions.py, inventory_reports.py), split by concern
+                        # since the domain covers six tables — still one domain either way
 static/
   index.html            # SPA shell — login screen, topbar, nav, view mount points
   views/                 # one HTML fragment per view, fetched + injected at startup
@@ -39,7 +43,26 @@ static/
     <view>.js               # one ES module per view, imports only from common.js —
                              # EXCEPT dashboard.js <-> movements.js, which import from
                              # each other directly: both are the same "batteries"
-                             # domain (see ARCHITECTURE.md), just split across files
+                             # domain (see ARCHITECTURE.md), just split across files —
+                             # ALSO EXCEPT inventory.js / stock.js /
+                             # inventory-manage.js / inventory-log.js /
+                             # issue-materials.js / return-materials.js /
+                             # inventory-reports.js, which all import from
+                             # inventory-common.js, a shared domain module
+                             # (not a pairwise cross-import — see
+                             # ARCHITECTURE.md).
+                             # inventory-manage.js is Categories-only —
+                             # Locations has no management screen any more.
+                             # inventory.js (Items) and stock.js (Stock) now
+                             # render almost the same SKU-aggregate row
+                             # (Qty/Cost/Value) — Items has View/Edit/Delete
+                             # plus a Location column + Add Item's header
+                             # button; Stock is View-only plus Status/
+                             # Custody filters + Issue/Return's header
+                             # buttons. View is a single shared
+                             # implementation in inventory-common.js, called
+                             # from both — Edit/Delete stay Items-only — see
+                             # ARCHITECTURE.md's Items/Stock split
   css/
     common.css              # shared chrome/framework (topbar, nav, modals, tables)
     <view>.css               # one file per view
@@ -50,8 +73,9 @@ readme.md, changelog.md, treeview.md   # project-facing docs, not governance doc
 ask_deepseek.py        # DeepSeek delegation script (see DELEGATION.md)
 ```
 Domain boundary is `auth` / `permissions` / `sites` / `batteries` (includes
-movements) / `users`, both backend and frontend. See ARCHITECTURE.md's
-Integration approach for how they're allowed to talk to each other.
+movements) / `users` / `inventory`, both backend and frontend. See
+ARCHITECTURE.md's Integration approach for how they're allowed to talk to
+each other.
 
 ## Hard rules
 - One branch per phase. The phase branch (e.g. `phase-0-separate`) is

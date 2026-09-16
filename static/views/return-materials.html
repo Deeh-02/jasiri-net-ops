@@ -1,0 +1,27 @@
+    <section class="view" id="view-return-materials" hidden>
+        <div class="page-header-row">
+            <h1 class="page-title">Return Materials</h1>
+        </div>
+
+        <div class="issue-layout">
+            <div class="issue-left-col">
+                <div class="issue-search-panel">
+                    <input type="text" id="return-search" placeholder="Search anything to return — name, SKU, serial, lot, reel..." autocomplete="off">
+                    <div class="issue-results" id="return-results"></div>
+                </div>
+
+                <!-- See issue-materials.html for why the submit button lives
+                     outside this <form> (right column, form="return-form"). -->
+                <form id="return-form" class="panel-form">
+                    <textarea id="return-notes" placeholder="Notes" required></textarea>
+                </form>
+            </div>
+
+            <div class="issue-cart-panel">
+                <h2>Cart</h2>
+                <div class="issue-cart" id="return-cart"></div>
+                <button type="submit" class="btn-primary" id="return-submit" form="return-form">Return Materials</button>
+                <div class="form-msg" id="return-msg"></div>
+            </div>
+        </div>
+    </section>

@@ -1,0 +1,397 @@
+/* ---- Issue/Return Materials views — shared layout & components ----
+   Both views' markup uses the same .issue-layout/.issue-left-col/
+   .issue-search-panel/.issue-cart-panel structure (Return Materials has no
+   CSS file of its own; it's styled entirely off these shared, class-scoped
+   rules), so a change here applies to both without duplicating anything.
+   Left column: search + results + the .panel-form fields (Site/Activity/
+   Issued to/Notes). Right column (.issue-cart-panel): Cart heading, line
+   items, and the submit button — the button lives here in the markup but
+   submits the left column's <form> via its own form="..." attribute. ---- */
+
+.issue-layout {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    align-items: start;
+}
+
+.issue-left-col {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+@media (max-width: 900px) {
+    .issue-layout {
+        grid-template-columns: 1fr;
+    }
+}
+
+.issue-search-panel input {
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px 14px;
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+}
+
+.issue-search-panel input::placeholder {
+    color: var(--text-dim);
+    opacity: 1;
+}
+
+.issue-search-panel input:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.issue-results {
+    margin-top: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.issue-result {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-areas:
+        "name avail"
+        "meta avail";
+    gap: 2px 12px;
+    text-align: left;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    color: var(--text);
+    cursor: pointer;
+    transition: border-color 0.15s ease;
+}
+
+.issue-result:hover:not(:disabled) {
+    border-color: var(--accent);
+}
+
+.issue-result:disabled {
+    opacity: 0.45;
+    cursor: default;
+}
+
+.issue-result-name {
+    grid-area: name;
+    font-size: 14px;
+}
+
+.issue-result-meta {
+    grid-area: meta;
+    font-size: 12px;
+    color: var(--text-dim);
+}
+
+.issue-result-avail {
+    grid-area: avail;
+    align-self: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-dim);
+    white-space: nowrap;
+}
+
+.issue-cart-panel h2 {
+    font-size: 16px;
+    font-weight: 700;
+    margin: 0 0 10px;
+}
+
+.issue-cart {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 16px;
+}
+
+.issue-cart-line {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+}
+
+.issue-cart-line-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.issue-cart-line-name {
+    font-size: 14px;
+}
+
+.issue-cart-line-meta {
+    font-size: 12px;
+    color: var(--text-dim);
+}
+
+/* Wraps a .qty-stepper (common.css gives the input itself width:100% and
+   room for the stepper buttons) — this pins the compact width the input
+   used to declare directly, same convention as stock.js's
+   .reorder-level-input-wrapper. flex-shrink:0 keeps it from getting
+   squeezed by .issue-cart-line-main's flex:1 next to it. */
+.issue-cart-qty-wrapper {
+    width: 90px;
+    flex-shrink: 0;
+}
+
+.issue-cart-qty {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 8px;
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    font-size: 13px;
+}
+
+.issue-cart-qty:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.issue-cart-unit,
+.issue-cart-whole {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-dim);
+    white-space: nowrap;
+}
+
+/* Was entirely unstyled (a bare native <select>, white-on-dark) — this is
+   the "plain/inconsistent box" a Return cart line's status picker rendered
+   as. Matches .issue-quick-add-source's look, same dark-theme select
+   convention used everywhere else in this pair of views. */
+.return-cart-status {
+    flex-shrink: 0;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 8px;
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    font-size: 13px;
+}
+
+.return-cart-status:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.issue-empty {
+    color: var(--text-dim);
+    font-size: 13px;
+    padding: 14px 2px;
+}
+
+/* Same visual button component .panel-form button gives the fields on the
+   left — this button now lives in .issue-cart-panel instead (it submits the
+   left column's <form> via its own form="..." attribute, see
+   issue-materials.html/return-materials.html), so it's no longer a
+   .panel-form descendant and needs its look declared explicitly here rather
+   than inherited. width:100% spans the cart column the same way it used to
+   fill .panel-form's flex-stretch width. */
+.issue-cart-panel .btn-primary {
+    display: block;
+    width: 100%;
+    background: var(--accent);
+    color: #10141a;
+    border: none;
+    border-radius: 6px;
+    padding: 10px;
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
+    font-size: 14px;
+    cursor: pointer;
+    transition: opacity 0.15s ease, transform 0.1s ease;
+}
+
+.issue-cart-panel .btn-primary:hover {
+    opacity: 0.9;
+}
+
+.issue-cart-panel .btn-primary:active {
+    transform: scale(0.97);
+}
+
+.issue-cart-panel .btn-primary:disabled {
+    opacity: 0.45;
+    cursor: default;
+}
+
+.issue-cart-panel .form-msg {
+    margin-top: 10px;
+}
+
+/* ---- Quick Issue / Quick Return — the auto-select-by-quantity control that
+   sits once above an Asset-core SKU's individual serial results, letting the
+   user type a quantity (and, on Return, pick which site/person it's coming
+   from) instead of clicking every serial one at a time. Dashed border
+   distinguishes it from the plain .issue-result rows below it. Return's
+   version has an extra <select> (source) between the label and qty input —
+   the grid just gains an implicit auto-sized column for it, no separate
+   rule needed. */
+.issue-quick-add {
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    align-items: center;
+    gap: 10px;
+    background: var(--surface-2);
+    border: 1px dashed var(--accent);
+    border-radius: 6px;
+    padding: 10px 12px;
+    margin-bottom: 6px;
+}
+
+.issue-quick-add-label {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.issue-quick-add-name {
+    font-size: 14px;
+}
+
+.issue-quick-add-meta {
+    font-size: 12px;
+    color: var(--text-dim);
+}
+
+.issue-quick-add-qty {
+    width: 60px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 8px;
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    font-size: 13px;
+}
+
+.issue-quick-add-source {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 8px;
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    font-size: 12px;
+    max-width: 160px;
+}
+
+.issue-quick-add-qty:focus,
+.issue-quick-add-source:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+/* Declared fully here rather than relying on the .btn-secondary class this
+   button also carries — that class only has real styling scoped to
+   .modal-actions (see common.css), so outside a modal it would otherwise
+   render with no padding/border/background at all (the same trap
+   .issue-cart-panel .btn-primary was added to avoid for the cart's submit
+   button). */
+.issue-quick-add-btn {
+    white-space: nowrap;
+    flex-shrink: 0;
+    background: var(--surface-2);
+    color: var(--text);
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
+    font-size: 13px;
+    cursor: pointer;
+    transition: opacity 0.15s ease, transform 0.1s ease;
+}
+
+.issue-quick-add-btn:hover:not(:disabled) {
+    opacity: 0.85;
+}
+
+.issue-quick-add-btn:active:not(:disabled) {
+    transform: scale(0.97);
+}
+
+.issue-quick-add-btn:disabled {
+    opacity: 0.4;
+    cursor: default;
+    border-color: var(--border);
+}
+
+/* ---- Quick-selected cart group — one collapsible cart line standing in for
+   N individually-picked serial lines. The specific serials picked show up
+   inside the <details> so the user can review/remove one before confirming
+   (per-serial "swap" is remove-then-manually-pick-a-different-one via
+   search — no separate swap control needed). */
+.issue-cart-group {
+    align-items: flex-start;
+}
+
+.issue-cart-group-details {
+    flex: 1;
+    min-width: 0;
+}
+
+.issue-cart-group-details > summary {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    cursor: pointer;
+    list-style: none;
+}
+
+.issue-cart-group-details > summary::-webkit-details-marker {
+    display: none;
+}
+
+.issue-cart-group-details > summary::before {
+    content: "▸ ";
+    color: var(--text-dim);
+    font-size: 10px;
+}
+
+.issue-cart-group-details[open] > summary::before {
+    content: "▾ ";
+}
+
+.issue-cart-group-list {
+    margin-top: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding-left: 14px;
+}
+
+.issue-cart-group-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--text-dim);
+}
+
+.issue-cart-group-item .inventory-icon-btn {
+    flex-shrink: 0;
+}

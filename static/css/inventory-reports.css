@@ -1,0 +1,15 @@
+/* ---- Inventory Reports view ---- */
+
+.status-pill.low-stock {
+    color: var(--danger);
+    background: rgba(239, 91, 91, 0.14);
+    margin-left: 6px;
+}
+
+/* A single standalone total, not a table footer row — sums whatever's
+   currently visible on the SKU Summary tab, respecting the Category filter. */
+.inventory-report-total {
+    margin-top: 14px;
+    font-size: 15px;
+    font-weight: 700;
+}

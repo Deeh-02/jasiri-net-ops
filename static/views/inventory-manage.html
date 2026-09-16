@@ -1,0 +1,81 @@
+    <div class="modal-overlay" id="add-inventory-category-overlay" hidden>
+        <div class="modal-box">
+            <h3>Add Category</h3>
+            <form id="inventory-category-form" class="panel-form">
+                <input type="text" id="inventory-category-name" placeholder="Category name (e.g. Enclosures)" required>
+                <select id="inventory-category-tracking-type" required>
+                    <option value="" disabled selected>Core...</option>
+                    <option value="asset_serialized">Asset Core</option>
+                    <option value="inventory_quantity">Consumables Core</option>
+                    <option value="inventory_length">Cable Core</option>
+                </select>
+                <select id="inventory-category-custody-type" required>
+                    <option value="per_job">Per-Job — expected back when a job closes</option>
+                    <option value="custody">Custody — stays with a person indefinitely</option>
+                </select>
+                <textarea id="inventory-category-description" placeholder="Description (optional)"></textarea>
+                <div class="modal-actions">
+                    <button type="button" id="add-inventory-category-cancel" class="btn-secondary">Cancel</button>
+                    <button type="submit" class="btn-primary">Add Category</button>
+                </div>
+            </form>
+            <div class="form-msg" id="inventory-category-msg"></div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="edit-inventory-category-overlay" hidden>
+        <div class="modal-box">
+            <h3>Edit Category</h3>
+            <form id="edit-inventory-category-form" class="panel-form">
+                <input type="text" id="edit-inventory-category-name" placeholder="Category name" required>
+                <select id="edit-inventory-category-tracking-type" required>
+                    <option value="asset_serialized">Asset Core</option>
+                    <option value="inventory_quantity">Consumables Core</option>
+                    <option value="inventory_length">Cable Core</option>
+                </select>
+                <!-- Replaced with the API's own error detail (exact item
+                     count + current Core's label) as soon as a 400 comes
+                     back — see inventory-manage.js. This static text is
+                     just the pre-error placeholder. -->
+                <p class="form-hint" id="edit-inventory-category-lock-hint" hidden>
+                    Core can't change while this category still has items.
+                </p>
+                <select id="edit-inventory-category-custody-type" required>
+                    <option value="per_job">Per-Job — expected back when a job closes</option>
+                    <option value="custody">Custody — stays with a person indefinitely</option>
+                </select>
+                <textarea id="edit-inventory-category-description" placeholder="Description (optional)"></textarea>
+                <div class="modal-actions">
+                    <button type="button" id="edit-inventory-category-cancel" class="btn-secondary">Cancel</button>
+                    <button type="submit" class="btn-primary">Save Changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <section class="view" id="view-inventory-manage" hidden>
+        <div class="page-header-row">
+            <h1 class="page-title">Manage Inventory</h1>
+        </div>
+
+        <div class="inventory-panel" id="inventory-categories-panel">
+            <div class="inventory-panel-header">
+                <h2>Categories</h2>
+                <button type="button" id="add-inventory-category-open-btn" class="header-sub-link">+ Add Category</button>
+            </div>
+            <div class="table-scroll">
+                <table id="inventory-categories-table">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Core</th>
+                            <th>Custody</th>
+                            <th>Description</th>
+                            <th id="inventory-categories-actions-th">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="inventory-categories-rows"></tbody>
+                </table>
+            </div>
+        </div>
+    </section>
