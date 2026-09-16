@@ -43,15 +43,64 @@ body {
     min-height: 100vh;
 }
 
+/* ---- Desktop-only independent scroll: nav vs content ----
+   Below this, mobile keeps its existing whole-page-scroll model exactly as
+   documented in DESIGN.md (min-height:100vh on .layout so a short view's
+   open drawer still reaches the bottom, plus a paper trail of iOS momentum-
+   scroll fixes tuned around that model) — none of that is touched. On
+   desktop only, the shell becomes fixed-height (100vh, no body-level
+   scroll) with .sidebar and .content as two independent overflow-y:auto
+   regions, so scrolling one never moves the other — see common.js's wheel
+   handler for the one-way handoff once the nav hits either end of its own
+   range. */
+@media (min-width: 761px) {
+    body {
+        height: 100vh;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .layout {
+        flex: 1;
+        min-height: 0;
+        overflow: hidden;
+    }
+
+    .sidebar {
+        overflow-y: auto;
+        scrollbar-width: none;
+    }
+
+    /* Chromium/Safari's scrollbar-pseudoelement equivalent of scrollbar-width:
+       none above — without both, the sidebar's own native scrollbar track
+       renders as a thin vertical line down its right edge (worse now that
+       Inventory's four sub-items regularly push it past one screenful),
+       right where a viewer reads it as a stray border. Scrolling itself is
+       unaffected; only the visible track/thumb is hidden. */
+    .sidebar::-webkit-scrollbar {
+        display: none;
+    }
+
+    .content {
+        overflow-y: auto;
+        min-height: 0;
+    }
+}
+
 .sidebar {
     width: 220px;
     flex-shrink: 0;
     background: var(--surface);
-    border-right: 1px solid var(--border);
     padding: 24px 16px;
     display: flex;
     flex-direction: column;
     gap: 24px;
+    /* Same color/width as .global-topbar's border-bottom, just vertical —
+       visually separates the sidebar from .content the same way the topbar
+       is separated from the page below it. Overridden to none while the
+       mobile drawer is collapsed (below) — .sidebar.open re-adds its own. */
+    border-right: 1px solid var(--border);
 }
 
 .sidebar-brand {
@@ -194,6 +243,18 @@ body {
 .nav-link:hover {
     background: var(--surface-2);
     color: var(--text);
+}
+
+/* The Inventory group's sub-items get the app's tint-background pill
+   look (same rgba(61,220,151,0.12)-on-accent-text vocabulary as
+   .status-pill) when active, instead of the plain solid-accent-text +
+   left-border treatment every other nav item uses — so the expanded
+   dropdown reads as its own distinct region rather than just another flat
+   nav link. Overrides .nav-link.active below via specificity (two classes
+   beat one), no !important needed. */
+.nav-link.sub.active {
+    background: rgba(61, 220, 151, 0.12);
+    border-left-color: transparent;
 }
 
 .nav-link.active {
@@ -664,6 +725,86 @@ tr:hover td { background: var(--surface-2); }
     border-radius: 4px;
     text-transform: uppercase;
     letter-spacing: 0.03em;
+}
+
+/* ---- Shared numeric-stepper component — a number input's native spinner
+   renders as a plain white box that clashes with the dark theme, so it's
+   hidden (both engines' vendor rules below) in favor of two themed buttons
+   stacked to the right of the input, matching the app's small icon-button
+   treatment. Used by any qty/length/cost field across views (inventory's
+   Log Transaction Qty/Length, Add Item's Reorder Level/Quantity/Unit Cost,
+   etc) — kept here rather than in one view's own CSS file since it's a
+   cross-domain component, wired per-input via inventory-common.js's
+   initQtyStepper(). ---- */
+.qty-stepper {
+    position: relative;
+}
+
+/* Doubled up with the .panel-form-prefixed version so this always wins
+   over .panel-form input's shorthand `padding` rule below — same class+type
+   specificity as a bare .qty-stepper input, so without the extra prefix,
+   whichever block happens to come later in the cascade wins and can clobber
+   this padding-right back down, letting the input's text run underneath the
+   stepper buttons. */
+.qty-stepper input,
+.panel-form .qty-stepper input {
+    width: 100%;
+    padding-right: 34px;
+}
+
+.qty-stepper input::-webkit-outer-spin-button,
+.qty-stepper input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.qty-stepper input[type="number"] {
+    -moz-appearance: textfield;
+}
+
+.qty-stepper-buttons {
+    position: absolute;
+    top: 1px;
+    right: 1px;
+    bottom: 1px;
+    display: flex;
+    flex-direction: column;
+    width: 28px;
+    border-left: 1px solid var(--border);
+    border-radius: 0 5px 5px 0;
+    overflow: hidden;
+}
+
+/* Doubled-up class on the selector (rather than plain .qty-stepper-btn) to
+   out-specificity .panel-form button's accent-filled base button style —
+   without it, that rule (one class + one type = higher specificity than a
+   single class alone) wins and both stepper buttons render solid accent
+   green regardless of this block. */
+.qty-stepper-buttons .qty-stepper-btn {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--surface-2);
+    border: none;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-dim);
+    font-size: 8px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0;
+    margin: 0;
+    transition: background 0.12s ease, color 0.12s ease;
+}
+
+.qty-stepper-buttons .qty-stepper-btn:last-child {
+    border-bottom: none;
+}
+
+.qty-stepper-buttons .qty-stepper-btn:hover {
+    background: var(--surface);
+    color: var(--accent);
+    opacity: 1;
 }
 
 /* Row action buttons — shared shape/spacing used by every view's action column */

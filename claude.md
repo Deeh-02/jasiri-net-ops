@@ -44,14 +44,25 @@ static/
                              # EXCEPT dashboard.js <-> movements.js, which import from
                              # each other directly: both are the same "batteries"
                              # domain (see ARCHITECTURE.md), just split across files —
-                             # ALSO EXCEPT inventory.js / inventory-manage.js /
-                             # inventory-log.js / issue-materials.js /
-                             # return-materials.js / inventory-reports.js,
-                             # which all import from inventory-common.js, a
-                             # shared domain module (not a pairwise
-                             # cross-import — see ARCHITECTURE.md).
+                             # ALSO EXCEPT inventory.js / stock.js /
+                             # inventory-manage.js / inventory-log.js /
+                             # issue-materials.js / return-materials.js /
+                             # inventory-reports.js, which all import from
+                             # inventory-common.js, a shared domain module
+                             # (not a pairwise cross-import — see
+                             # ARCHITECTURE.md).
                              # inventory-manage.js is Categories-only —
-                             # Locations has no management screen any more
+                             # Locations has no management screen any more.
+                             # inventory.js (Items) and stock.js (Stock) now
+                             # render almost the same SKU-aggregate row
+                             # (Qty/Cost/Value) — Items has View/Edit/Delete
+                             # plus a Location column + Add Item's header
+                             # button; Stock is View-only plus Status/
+                             # Custody filters + Issue/Return's header
+                             # buttons. View is a single shared
+                             # implementation in inventory-common.js, called
+                             # from both — Edit/Delete stay Items-only — see
+                             # ARCHITECTURE.md's Items/Stock split
   css/
     common.css              # shared chrome/framework (topbar, nav, modals, tables)
     <view>.css               # one file per view

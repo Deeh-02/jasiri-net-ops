@@ -38,18 +38,28 @@ def get_all_locations(is_store=None):
         for r in rows
     ]
 
-# Locations no longer have a management screen — the Issue/Return flows'
-# free-typed Site field autocompletes against existing names but must be
-# able to create a brand-new one with zero pre-configuration. Case-
-# insensitive match keeps "Nairobi Site" and "nairobi site" from becoming
-# two rows just because of how someone typed it that day.
-def get_or_create_location_by_name(name):
+# Locations no longer have a management screen — every free-typed location
+# field (Issue/Return Materials' Site, and Add/Edit Unit's Location)
+# autocompletes against existing names but must be able to create a
+# brand-new one with zero pre-configuration. Case-insensitive match keeps
+# "Nairobi Site" and "nairobi site" from becoming two rows just because of
+# how someone typed it that day.
+#
+# is_store draws the same line GET /inventory/locations?is_store= already
+# draws: Site (is_store=False, the default) matches/creates job sites,
+# Add/Edit Unit's Location (is_store=True) matches/creates stores/
+# warehouses. It's part of the match, not just the insert — without that, a
+# job site and a store that happen to share a name would resolve to the
+# same row, letting a Unit's Location silently point at a job site (or vice
+# versa), which is exactly the ambiguity the two fields need to stay clear
+# of.
+def get_or_create_location_by_name(name, is_store=False):
     name = name.strip()
     conn = get_connection()
     cur = conn.cursor()
     cur.execute(
-        "SELECT id FROM inventory_locations WHERE is_active = true AND lower(name) = lower(%s) LIMIT 1;",
-        (name,),
+        "SELECT id FROM inventory_locations WHERE is_active = true AND is_store = %s AND lower(name) = lower(%s) LIMIT 1;",
+        (is_store, name),
     )
     row = cur.fetchone()
     if row:
@@ -58,8 +68,8 @@ def get_or_create_location_by_name(name):
         return row[0]
 
     cur.execute(
-        "INSERT INTO inventory_locations (name, is_store) VALUES (%s, false) RETURNING id;",
-        (name,),
+        "INSERT INTO inventory_locations (name, is_store) VALUES (%s, %s) RETURNING id;",
+        (name, is_store),
     )
     new_id = cur.fetchone()[0]
     conn.commit()

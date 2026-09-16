@@ -1,12 +1,85 @@
 /* ---- Inventory Log view ---- */
 
-#inventory-log-table td:last-child {
-    max-width: 220px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+/* Every removed column (Site, Activity, Issued To, exact From/To, Status,
+   Notes) still exists on the row — it now lives in the click-through detail
+   view, so the whole row acts as its own "expand" affordance. */
+.inventory-log-row {
+    cursor: pointer;
 }
 
-.pending-cut-row-aging td:first-child {
+.inventory-log-row:hover {
+    background: var(--surface-2);
+}
+
+/* Row accent for an open cable cut awaiting reconciliation (Action reads
+   "Pending" — see displayAction() in inventory-log.js) — same visual and
+   same border-on-<tr> technique as Check Sites' .site-row-offline (this
+   table also uses the default border-collapse:collapse, so a border set
+   directly on the row paints; contrast .battery-row-flagged in
+   dashboard.css, which has to put it on the cell instead because that
+   table uses border-collapse:separate for its sticky header). Lets a
+   pending cut be spotted while scanning down the Action column instead of
+   reading every row's text. */
+.inventory-log-row-pending {
     border-left: 3px solid var(--danger);
 }
+
+.inventory-log-row-pending td:first-child {
+    padding-left: 13px;
+}
+
+/* ---- Log Transaction form's Item field — type-to-filter search, same
+   interaction as Issue/Return Materials' search box (narrows by name,
+   SKU/spec, serial, lot, reel id via inventoryItemMatchesQuery), just
+   scoped down to a single form field instead of a full search+cart layout.
+   Visually the same dropdown-under-input shape as dashboard.css's
+   .move-by-suggestions, reimplemented under its own inventory-scoped class
+   names rather than importing dashboard.css's battery-domain classes. ---- */
+.item-search-field {
+    position: relative;
+}
+
+.item-search-field input {
+    width: 100%;
+}
+
+.item-search-suggestions {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    right: 0;
+    z-index: 20;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+    max-height: 220px;
+    overflow-y: auto;
+}
+
+.item-search-option {
+    padding: 9px 12px;
+    font-family: 'Inter', sans-serif;
+    font-size: 13px;
+    color: var(--text);
+    cursor: pointer;
+    transition: background 0.12s ease;
+}
+
+.item-search-option-meta {
+    display: block;
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 2px;
+}
+
+.item-search-option:hover {
+    background: var(--surface-2);
+}
+
+.item-search-empty {
+    padding: 9px 12px;
+    font-size: 13px;
+    color: var(--text-dim);
+}
+

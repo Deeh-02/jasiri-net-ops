@@ -146,8 +146,8 @@
                 </button>
             </div>
 
-            <div class="nav-category">
-                <button class="nav-heading" id="inventory-nav-toggle" data-label="Inventory">
+            <div class="nav-category" data-nav-group="inventory">
+                <button class="nav-heading collapsed" id="inventory-nav-toggle" data-view="inventory" data-label="Inventory">
                     <span class="nav-heading-label">
                         <svg class="nav-icon" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
                             <path d="M2 4.5L8 1.5L14 4.5V11.5L8 14.5L2 11.5V4.5Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
@@ -160,6 +160,7 @@
                 <div class="nav-subitems collapsed" id="inventory-nav-subitems">
                     <div class="nav-subitems-inner">
                         <button class="nav-link sub" data-view="inventory" data-label="Items">Items</button>
+                        <button class="nav-link sub" data-view="stock" data-label="Stock">Stock</button>
                         <button class="nav-link sub" data-view="inventory-log" data-label="Transaction Log">Transaction Log</button>
                         <button class="nav-link sub" data-view="inventory-manage" data-label="Manage">Manage</button>
                     </div>
@@ -208,6 +209,7 @@
             <div data-view-mount="movements"></div>
             <div data-view-mount="check-sites"></div>
             <div data-view-mount="inventory"></div>
+            <div data-view-mount="stock"></div>
             <div data-view-mount="inventory-log"></div>
             <div data-view-mount="issue-materials"></div>
             <div data-view-mount="return-materials"></div>

@@ -71,17 +71,19 @@ def get_category_by_id(category_id):
         return None
     return {"id": row[0], "name": row[1], "tracking_type": row[2], "custody_type": row[3], "description": row[4]}
 
-def category_has_items(category_id):
+def count_active_items(category_id):
     """Backs the router's tracking_type lock: a category's tracking_type may
     only change while it has zero items, since every item column's meaning
-    depends on which type it was created under."""
+    depends on which type it was created under. Returns a count (not just a
+    boolean) so the 400 error can tell the caller exactly how many items are
+    blocking the change."""
     conn = get_connection()
     cur = conn.cursor()
     cur.execute(
-        "SELECT EXISTS(SELECT 1 FROM inventory_items WHERE category_id = %s AND is_active = true);",
+        "SELECT COUNT(*) FROM inventory_items WHERE category_id = %s AND is_active = true;",
         (category_id,)
     )
-    exists = cur.fetchone()[0]
+    count = cur.fetchone()[0]
     cur.close()
     conn.close()
-    return exists
+    return count

@@ -33,8 +33,12 @@
                     <option value="inventory_quantity">Consumables Core</option>
                     <option value="inventory_length">Cable Core</option>
                 </select>
+                <!-- Replaced with the API's own error detail (exact item
+                     count + current Core's label) as soon as a 400 comes
+                     back — see inventory-manage.js. This static text is
+                     just the pre-error placeholder. -->
                 <p class="form-hint" id="edit-inventory-category-lock-hint" hidden>
-                    Core can't change — this category already has items.
+                    Core can't change while this category still has items.
                 </p>
                 <select id="edit-inventory-category-custody-type" required>
                     <option value="per_job">Per-Job — expected back when a job closes</option>

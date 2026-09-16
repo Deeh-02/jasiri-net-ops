@@ -4,17 +4,24 @@
             <form id="inventory-transaction-form" class="panel-form">
                 <select id="inventory-transaction-action" required>
                     <option value="" disabled selected>Action...</option>
-                    <option value="In">In</option>
                     <option value="Transfer">Transfer</option>
                     <option value="Adjustment">Adjustment</option>
                     <option value="Return">Return</option>
                     <option value="Write-off">Write-off</option>
                 </select>
-                <select id="inventory-transaction-item" required>
-                    <option value="" disabled selected>Item...</option>
-                </select>
+                <div class="item-search-field">
+                    <input type="text" id="inventory-transaction-item-search" placeholder="Search item — name, SKU, serial, lot, reel..." autocomplete="off">
+                    <div class="item-search-suggestions" id="inventory-transaction-item-suggestions" hidden></div>
+                </div>
+                <input type="hidden" id="inventory-transaction-item">
 
-                <input type="number" step="any" id="inventory-transaction-qty" placeholder="Qty / Length">
+                <div class="qty-stepper">
+                    <input type="number" step="any" id="inventory-transaction-qty" placeholder="Qty / Length">
+                    <div class="qty-stepper-buttons">
+                        <button type="button" class="qty-stepper-btn" data-dir="up" tabindex="-1" aria-label="Increase">▲</button>
+                        <button type="button" class="qty-stepper-btn" data-dir="down" tabindex="-1" aria-label="Decrease">▼</button>
+                    </div>
+                </div>
 
                 <div id="inventory-transaction-asset-status-row" hidden>
                     <select id="inventory-transaction-asset-status">
@@ -27,29 +34,19 @@
                     <p class="form-hint">Required to return a serialized asset — never inferred from its prior status.</p>
                 </div>
 
-                <div id="inventory-transaction-to-location-row">
-                    <select id="inventory-transaction-to-location">
-                        <option value="">To location...</option>
-                    </select>
+                <!-- Transfer only — moves stock between two stores without going
+                     through a job. Free-typed autocomplete, same pattern as
+                     Add/Edit Unit's Location field, resolved server-side to a
+                     location row (creating one on the fly if it's new). -->
+                <div id="inventory-transaction-to-location-row" hidden>
+                    <input type="text" id="inventory-transaction-to-location" list="inventory-transaction-to-location-suggestions" placeholder="To location..." autocomplete="off">
+                    <datalist id="inventory-transaction-to-location-suggestions"></datalist>
                 </div>
-                <select id="inventory-transaction-from-location">
-                    <option value="">From location (optional)</option>
-                </select>
-                <select id="inventory-transaction-site-location">
-                    <option value="">Site (optional)</option>
-                </select>
-                <select id="inventory-transaction-activity">
-                    <option value="">Activity (optional)...</option>
-                    <option value="Installation">Installation</option>
-                    <option value="Expansion">Expansion</option>
-                    <option value="Maintenance">Maintenance</option>
-                    <option value="Repair-Replacement">Repair-Replacement</option>
-                    <option value="Relocation">Relocation</option>
-                    <option value="Decommission">Decommission</option>
-                </select>
-                <select id="inventory-transaction-issued-to">
-                    <option value="">Issued to (optional)</option>
-                </select>
+                <div id="inventory-transaction-from-location-row" hidden>
+                    <input type="text" id="inventory-transaction-from-location" list="inventory-transaction-from-location-suggestions" placeholder="From location (optional — defaults to the item's current location)" autocomplete="off">
+                    <datalist id="inventory-transaction-from-location-suggestions"></datalist>
+                </div>
+
                 <textarea id="inventory-transaction-notes" placeholder="Notes (optional)"></textarea>
 
                 <div class="modal-actions">
@@ -58,6 +55,17 @@
                 </div>
             </form>
             <div class="form-msg" id="inventory-transaction-msg"></div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="transaction-detail-overlay" hidden>
+        <div class="modal-box">
+            <div class="dashboard-view-battery-header">
+                <h3>Transaction <span id="transaction-detail-label"></span></h3>
+                <button type="button" id="transaction-detail-close" class="dashboard-modal-close-btn">&times;</button>
+            </div>
+            <div id="transaction-detail-fields"></div>
+            <div class="modal-actions" id="transaction-detail-actions"></div>
         </div>
     </div>
 
@@ -84,6 +92,7 @@
         <div class="page-header-row">
             <h1 class="page-title">Inventory Log</h1>
             <div class="header-action-group">
+                <input type="text" id="inventory-log-search" class="inventory-filter-search" placeholder="Search name, SKU, serial...">
                 <select id="inventory-log-category-filter" class="inventory-filter-select">
                     <option value="">All Categories</option>
                 </select>
@@ -94,32 +103,11 @@
                     <option value="Adjustment">Adjustment</option>
                     <option value="Return">Return</option>
                     <option value="Write-off">Write-off</option>
-                    <option value="Out">Out</option>
+                    <option value="Out">Issue</option>
                     <option value="Reconciled">Reconciled</option>
                 </select>
+                <button type="button" id="export-inventory-log-csv-btn" class="header-sub-link">Export CSV</button>
                 <button type="button" id="add-inventory-transaction-open-btn" class="header-sub-link">+ Log Transaction</button>
-            </div>
-        </div>
-
-        <div class="inventory-panel" id="pending-cuts-panel">
-            <div class="inventory-panel-header">
-                <h2>Pending Cable Cuts</h2>
-            </div>
-            <div class="table-scroll">
-                <table id="pending-cuts-table">
-                    <thead>
-                        <tr>
-                            <th>Cut/Reel ID</th>
-                            <th>Spec</th>
-                            <th>Site</th>
-                            <th>Length Out</th>
-                            <th>Issued</th>
-                            <th>Days Out</th>
-                            <th id="pending-cuts-actions-th">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody id="pending-cuts-rows"></tbody>
-                </table>
             </div>
         </div>
 
@@ -131,16 +119,12 @@
                         <th>Action</th>
                         <th>SKU/Spec</th>
                         <th>Qty/Length</th>
-                        <th>From</th>
-                        <th>To</th>
-                        <th>Site</th>
-                        <th>Activity</th>
-                        <th>Issued To</th>
-                        <th>Logged By</th>
-                        <th>Notes</th>
+                        <th>Movement</th>
+                        <th>By</th>
                     </tr>
                 </thead>
                 <tbody id="inventory-log-rows"></tbody>
             </table>
         </div>
+        <div class="dashboard-logs-pagination-row" id="inventory-log-pagination"></div>
     </section>

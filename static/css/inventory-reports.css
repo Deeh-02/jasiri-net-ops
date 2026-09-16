@@ -1,21 +1,15 @@
 /* ---- Inventory Reports view ---- */
 
-.sku-row-below-threshold td:first-child {
-    border-left: 3px solid var(--danger);
+.status-pill.low-stock {
+    color: var(--danger);
+    background: rgba(239, 91, 91, 0.14);
+    margin-left: 6px;
 }
 
-.sku-reorder-input {
-    width: 90px;
-    background: var(--surface-2);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 6px 8px;
-    color: var(--text);
-    font-family: 'Inter', sans-serif;
-    font-size: 13px;
-}
-
-.sku-reorder-input:focus {
-    outline: none;
-    border-color: var(--accent);
+/* A single standalone total, not a table footer row — sums whatever's
+   currently visible on the SKU Summary tab, respecting the Category filter. */
+.inventory-report-total {
+    margin-top: 14px;
+    font-size: 15px;
+    font-weight: 700;
 }

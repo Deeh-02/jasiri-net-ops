@@ -12,9 +12,11 @@ from db.connection import get_connection, utc_iso
 #   - Length: a cut still "Out — Pending Reconciliation" keeps its full
 #     length_remaining (Stage 1 doesn't deduct it) even though it's
 #     physically gone, so only length_status = 'In Stock' rows count.
-def get_sku_summary():
+def get_sku_summary(category_id=None):
     conn = get_connection()
     cur = conn.cursor()
+    category_filter = "AND inventory_items.category_id = %s" if category_id is not None else ""
+    params = (category_id,) if category_id is not None else ()
 
     # avg_unit_cost is a live weighted average, not a hardcoded/stored figure
     # — Asset rows are each exactly 1 unit, so a plain AVG(unit_cost) across
@@ -24,47 +26,54 @@ def get_sku_summary():
     # keeps a handful of expensive units from skewing the figure the same as
     # a large cheap batch. Length is left out — nothing in this round asked
     # for a blended cost-per-meter, and it's a separate feature (job costing
-    # across cuts of one spec) from what enclosures/consumables need here.
+    # across cuts of one spec) from what enclosures/consumables need here —
+    # its Total Value comes back null/"—" rather than a guessed number.
     cur.execute(
-        """
+        f"""
         SELECT inventory_items.category_id, inventory_categories.name,
-               inventory_items.sku, COUNT(*), AVG(inventory_items.unit_cost)
+               inventory_items.sku, MIN(inventory_items.name), COUNT(*), AVG(inventory_items.unit_cost)
         FROM inventory_items
         JOIN inventory_categories ON inventory_categories.id = inventory_items.category_id
         JOIN inventory_locations ON inventory_locations.id = inventory_items.location_id
         WHERE inventory_items.is_active = true
           AND inventory_categories.tracking_type = 'asset_serialized'
           AND inventory_locations.is_store = true
+          {category_filter}
         GROUP BY inventory_items.category_id, inventory_categories.name, inventory_items.sku;
-        """
+        """,
+        params
     )
     asset_rows = cur.fetchall()
 
     cur.execute(
-        """
+        f"""
         SELECT inventory_items.category_id, inventory_categories.name,
-               inventory_items.sku, SUM(inventory_items.quantity_on_hand),
+               inventory_items.sku, MIN(inventory_items.name), SUM(inventory_items.quantity_on_hand),
                SUM(inventory_items.unit_cost * inventory_items.quantity_on_hand) / NULLIF(SUM(inventory_items.quantity_on_hand), 0)
         FROM inventory_items
         JOIN inventory_categories ON inventory_categories.id = inventory_items.category_id
         WHERE inventory_items.is_active = true
           AND inventory_categories.tracking_type = 'inventory_quantity'
+          {category_filter}
         GROUP BY inventory_items.category_id, inventory_categories.name, inventory_items.sku;
-        """
+        """,
+        params
     )
     quantity_rows = cur.fetchall()
 
     cur.execute(
-        """
+        f"""
         SELECT inventory_items.category_id, inventory_categories.name,
-               inventory_items.spec, SUM(inventory_items.length_remaining)
+               inventory_items.spec, MIN(inventory_items.name), SUM(inventory_items.length_remaining)
         FROM inventory_items
         JOIN inventory_categories ON inventory_categories.id = inventory_items.category_id
         WHERE inventory_items.is_active = true
           AND inventory_categories.tracking_type = 'inventory_length'
           AND inventory_items.length_status = 'In Stock'
+          {category_filter}
         GROUP BY inventory_items.category_id, inventory_categories.name, inventory_items.spec;
-        """
+        """,
+        params
     )
     length_rows = cur.fetchall()
 
@@ -74,31 +83,26 @@ def get_sku_summary():
     cur.close()
     conn.close()
 
-    result = []
-    for tracking_type, rows in (
-        ("asset_serialized", asset_rows),
-        ("inventory_quantity", quantity_rows),
-    ):
-        for category_id, category_name, sku_or_spec, total_on_hand, avg_unit_cost in rows:
-            total_on_hand = float(total_on_hand or 0)
-            reorder_level = thresholds.get((category_id, sku_or_spec))
-            result.append({
-                "category_id": category_id, "category_name": category_name,
-                "tracking_type": tracking_type, "sku_or_spec": sku_or_spec,
-                "total_on_hand": total_on_hand, "reorder_level": reorder_level,
-                "below_threshold": reorder_level is not None and total_on_hand < reorder_level,
-                "avg_unit_cost": float(avg_unit_cost) if avg_unit_cost is not None else None,
-            })
-    for category_id, category_name, sku_or_spec, total_on_hand in length_rows:
+    def _summary_row(category_id_, category_name, sku_or_spec, name, tracking_type, total_on_hand, avg_unit_cost):
         total_on_hand = float(total_on_hand or 0)
-        reorder_level = thresholds.get((category_id, sku_or_spec))
-        result.append({
-            "category_id": category_id, "category_name": category_name,
-            "tracking_type": "inventory_length", "sku_or_spec": sku_or_spec,
+        avg_unit_cost = float(avg_unit_cost) if avg_unit_cost is not None else None
+        reorder_level = thresholds.get((category_id_, sku_or_spec))
+        return {
+            "category_id": category_id_, "category_name": category_name, "name": name,
+            "tracking_type": tracking_type, "sku_or_spec": sku_or_spec,
             "total_on_hand": total_on_hand, "reorder_level": reorder_level,
             "below_threshold": reorder_level is not None and total_on_hand < reorder_level,
-            "avg_unit_cost": None,
-        })
+            "avg_unit_cost": avg_unit_cost,
+            "total_value": avg_unit_cost * total_on_hand if avg_unit_cost is not None else None,
+        }
+
+    result = []
+    for category_id_, category_name, sku, name, total_on_hand, avg_unit_cost in asset_rows:
+        result.append(_summary_row(category_id_, category_name, sku, name, "asset_serialized", total_on_hand, avg_unit_cost))
+    for category_id_, category_name, sku, name, total_on_hand, avg_unit_cost in quantity_rows:
+        result.append(_summary_row(category_id_, category_name, sku, name, "inventory_quantity", total_on_hand, avg_unit_cost))
+    for category_id_, category_name, spec, name, total_on_hand in length_rows:
+        result.append(_summary_row(category_id_, category_name, spec, name, "inventory_length", total_on_hand, None))
     result.sort(key=lambda r: (r["category_name"], r["sku_or_spec"]))
     return result
 
@@ -122,20 +126,24 @@ def set_reorder_level(category_id, sku_or_spec, reorder_level):
 # get_offcut_summary_by_spec below for the narrower "unusable remainder"
 # view). Answers "what cable do we have", grouped the same way SKU Summary
 # groups Length rows, but with a reel count alongside the total length.
-def get_cable_type_summary():
+def get_cable_type_summary(category_id=None):
     conn = get_connection()
     cur = conn.cursor()
+    category_filter = "AND inventory_items.category_id = %s" if category_id is not None else ""
+    params = (category_id,) if category_id is not None else ()
     cur.execute(
-        """
+        f"""
         SELECT inventory_items.spec, COUNT(*), SUM(inventory_items.length_remaining)
         FROM inventory_items
         JOIN inventory_categories ON inventory_categories.id = inventory_items.category_id
         WHERE inventory_items.is_active = true
           AND inventory_categories.tracking_type = 'inventory_length'
           AND inventory_items.length_status = 'In Stock'
+          {category_filter}
         GROUP BY inventory_items.spec
         ORDER BY inventory_items.spec;
-        """
+        """,
+        params
     )
     rows = cur.fetchall()
     cur.close()
@@ -145,19 +153,28 @@ def get_cable_type_summary():
         for r in rows
     ]
 
+
+# Unlike get_cable_type_summary's top-level rows (in-stock only, answering
+# "what do we have"), this backs the Reports drill-down and deliberately
+# includes every reel ever created for the spec — no is_active or
+# length_status filter — so a fully-depleted reel (used up and reconciled to
+# 0, or written off) still shows up here with its actual length_status and
+# wherever its location_id last pointed before it closed out. That's a
+# different question from the Units view (openUnitListModal in
+# inventory-common.js), which excludes depleted reels by default since it
+# answers "what's currently usable stock" — this one answers "what happened
+# to every reel we've ever had".
 def get_cable_drill_down(spec):
     conn = get_connection()
     cur = conn.cursor()
     cur.execute(
         """
         SELECT inventory_items.id, inventory_items.cut_reel_id, inventory_items.length_remaining,
-               loc.name, inventory_items.unit_cost, inventory_items.created_at
+               inventory_items.length_status, loc.name, inventory_items.unit_cost, inventory_items.created_at
         FROM inventory_items
         JOIN inventory_categories ON inventory_categories.id = inventory_items.category_id
         LEFT JOIN inventory_locations AS loc ON loc.id = inventory_items.location_id
-        WHERE inventory_items.is_active = true
-          AND inventory_categories.tracking_type = 'inventory_length'
-          AND inventory_items.length_status = 'In Stock'
+        WHERE inventory_categories.tracking_type = 'inventory_length'
           AND inventory_items.spec = %s
         ORDER BY inventory_items.created_at;
         """,
@@ -169,7 +186,7 @@ def get_cable_drill_down(spec):
     return [
         {
             "item_id": r[0], "cut_reel_id": r[1], "length_remaining": float(r[2] or 0),
-            "location_name": r[3], "unit_cost": r[4], "created_at": utc_iso(r[5]),
+            "length_status": r[3], "location_name": r[4], "unit_cost": r[5], "created_at": utc_iso(r[6]),
         }
         for r in rows
     ]
@@ -198,15 +215,22 @@ def get_items_summary(category_id=None):
     # avg_unit_cost is a plain AVG across ALL active rows (deployed
     # included), same "equal-weight rows = weighted average" reasoning as
     # get_sku_summary, just without that function's is_store filter.
+    # location_names is a display convenience for the Items table's Location
+    # column: distinct store locations among the on-hand population only
+    # (a deployed asset's location_id, if any, isn't "where this SKU is
+    # shelved" the way an on-hand one's is). Comma-joined since a SKU's
+    # on-hand units routinely span more than one store.
     cur.execute(
         f"""
         SELECT inventory_items.category_id, inventory_categories.name, inventory_categories.custody_type,
                inventory_items.sku, MIN(inventory_items.name),
                COUNT(*) FILTER (WHERE inventory_items.asset_status != 'Deployed'),
                COUNT(*) FILTER (WHERE inventory_items.asset_status = 'Deployed'),
-               AVG(inventory_items.unit_cost)
+               AVG(inventory_items.unit_cost),
+               STRING_AGG(DISTINCT inventory_locations.name, ', ') FILTER (WHERE inventory_items.asset_status != 'Deployed')
         FROM inventory_items
         JOIN inventory_categories ON inventory_categories.id = inventory_items.category_id
+        LEFT JOIN inventory_locations ON inventory_locations.id = inventory_items.location_id
         WHERE inventory_items.is_active = true
           AND inventory_categories.tracking_type = 'asset_serialized'
           {category_filter}
@@ -228,9 +252,11 @@ def get_items_summary(category_id=None):
         SELECT inventory_items.category_id, inventory_categories.name, inventory_categories.custody_type,
                inventory_items.sku, MIN(inventory_items.name),
                SUM(inventory_items.quantity_on_hand),
-               SUM(inventory_items.unit_cost * inventory_items.quantity_on_hand) / NULLIF(SUM(inventory_items.quantity_on_hand), 0)
+               SUM(inventory_items.unit_cost * inventory_items.quantity_on_hand) / NULLIF(SUM(inventory_items.quantity_on_hand), 0),
+               STRING_AGG(DISTINCT inventory_locations.name, ', ')
         FROM inventory_items
         JOIN inventory_categories ON inventory_categories.id = inventory_items.category_id
+        LEFT JOIN inventory_locations ON inventory_locations.id = inventory_items.location_id
         WHERE inventory_items.is_active = true
           AND inventory_categories.tracking_type = 'inventory_quantity'
           {category_filter}
@@ -244,14 +270,27 @@ def get_items_summary(category_id=None):
     # get_cable_type_summary — but with NO status filter on the total, unlike
     # that report (which stays scoped to in-stock only, since it answers "what's
     # on the shelf" rather than this table's "what do we own").
+    #
+    # Value is SUM(unit_cost) across the actual reels, NOT qty * unit_cost —
+    # unlike Asset/Quantity, where qty is a count of individually-priced
+    # units (so qty * cost correctly reconstructs total spend), Cable's "Qty"
+    # is a length in metres while unit_cost prices a whole reel regardless of
+    # length. Multiplying those together (as the generic _row() below does
+    # for the other two types) previously priced a drum per metre instead of
+    # per reel — e.g. two 7,000/reel Drop Cable drums summing 2,001m priced
+    # out at 7,000 x 2,001 instead of 7,000 x 2 reels.
     cur.execute(
         f"""
         SELECT inventory_items.category_id, inventory_categories.name, inventory_categories.custody_type,
                inventory_items.spec, MIN(inventory_items.name),
                SUM(inventory_items.length_remaining) FILTER (WHERE inventory_items.length_status = 'In Stock'),
-               SUM(inventory_items.length_remaining) FILTER (WHERE inventory_items.length_status = 'Out — Pending Reconciliation')
+               SUM(inventory_items.length_remaining) FILTER (WHERE inventory_items.length_status = 'Out — Pending Reconciliation'),
+               SUM(inventory_items.unit_cost) FILTER (WHERE inventory_items.length_status = 'In Stock'),
+               SUM(inventory_items.unit_cost) FILTER (WHERE inventory_items.length_status = 'Out — Pending Reconciliation'),
+               STRING_AGG(DISTINCT inventory_locations.name, ', ') FILTER (WHERE inventory_items.length_status = 'In Stock')
         FROM inventory_items
         JOIN inventory_categories ON inventory_categories.id = inventory_items.category_id
+        LEFT JOIN inventory_locations ON inventory_locations.id = inventory_items.location_id
         WHERE inventory_items.is_active = true
           AND inventory_categories.tracking_type = 'inventory_length'
           {category_filter}
@@ -279,33 +318,53 @@ def get_items_summary(category_id=None):
     )
     length_unit_cost = {(r[0], r[1]): r[2] for r in cur.fetchall()}
 
+    # Reorder Level is edited from this table now (Reports' own copy of the
+    # same threshold stayed read-only) — same thresholds table, same
+    # (category_id, sku_or_spec) key get_sku_summary already uses.
+    cur.execute("SELECT category_id, sku_or_spec, reorder_level FROM inventory_sku_thresholds;")
+    thresholds = {(r[0], r[1]): float(r[2]) for r in cur.fetchall()}
+
     cur.close()
     conn.close()
 
-    def _row(category_id, category_name, custody_type, tracking_type, sku_or_spec, name, on_hand_qty, deployed_qty, avg_unit_cost):
+    def _row(category_id, category_name, custody_type, tracking_type, sku_or_spec, name, on_hand_qty, deployed_qty, avg_unit_cost, location_names, value_override=None):
         on_hand_qty = float(on_hand_qty or 0)
         deployed_qty = float(deployed_qty or 0)
         total_qty = on_hand_qty + deployed_qty
         unit_cost = float(avg_unit_cost) if avg_unit_cost is not None else None
-        cost_for_value = unit_cost or 0
+        reorder_level = thresholds.get((category_id, sku_or_spec))
+        if value_override is not None:
+            # Cable: each reel is priced as a whole unit regardless of its
+            # length, so value is the real SUM(unit_cost) passed in here —
+            # never qty (metres) * unit_cost (per reel).
+            on_hand_value, deployed_value = value_override
+        else:
+            cost_for_value = unit_cost or 0
+            on_hand_value = on_hand_qty * cost_for_value
+            deployed_value = deployed_qty * cost_for_value
         return {
             "category_id": category_id, "category_name": category_name, "custody_type": custody_type,
             "tracking_type": tracking_type, "sku_or_spec": sku_or_spec, "name": name,
             "on_hand_qty": on_hand_qty, "deployed_qty": deployed_qty, "total_qty": total_qty,
             "avg_unit_cost": unit_cost,
-            "on_hand_value": on_hand_qty * cost_for_value,
-            "deployed_value": deployed_qty * cost_for_value,
-            "total_value": total_qty * cost_for_value,
+            "on_hand_value": on_hand_value,
+            "deployed_value": deployed_value,
+            "total_value": on_hand_value + deployed_value,
+            "reorder_level": reorder_level,
+            "location_names": location_names,
         }
 
     result = []
-    for category_id_, category_name, custody_type, sku, name, on_hand, deployed, avg_cost in asset_rows:
-        result.append(_row(category_id_, category_name, custody_type, "asset_serialized", sku, name, on_hand, deployed, avg_cost))
-    for category_id_, category_name, custody_type, sku, name, on_hand, avg_cost in quantity_rows:
-        result.append(_row(category_id_, category_name, custody_type, "inventory_quantity", sku, name, on_hand, 0, avg_cost))
-    for category_id_, category_name, custody_type, spec, name, on_hand, deployed in length_rows:
+    for category_id_, category_name, custody_type, sku, name, on_hand, deployed, avg_cost, location_names in asset_rows:
+        result.append(_row(category_id_, category_name, custody_type, "asset_serialized", sku, name, on_hand, deployed, avg_cost, location_names))
+    for category_id_, category_name, custody_type, sku, name, on_hand, avg_cost, location_names in quantity_rows:
+        result.append(_row(category_id_, category_name, custody_type, "inventory_quantity", sku, name, on_hand, 0, avg_cost, location_names))
+    for category_id_, category_name, custody_type, spec, name, on_hand, deployed, on_hand_value, deployed_value, location_names in length_rows:
         avg_cost = length_unit_cost.get((category_id_, spec))
-        result.append(_row(category_id_, category_name, custody_type, "inventory_length", spec, name, on_hand, deployed, avg_cost))
+        result.append(_row(
+            category_id_, category_name, custody_type, "inventory_length", spec, name, on_hand, deployed, avg_cost, location_names,
+            value_override=(float(on_hand_value or 0), float(deployed_value or 0)),
+        ))
 
     result.sort(key=lambda r: (r["category_name"], r["sku_or_spec"]))
     return result
@@ -374,18 +433,22 @@ _OFFCUT_JOIN = """
         AND inventory_transactions.length_used IS NULL
 """
 
-def get_offcut_summary_by_spec():
+def get_offcut_summary_by_spec(category_id=None):
     conn = get_connection()
     cur = conn.cursor()
+    category_filter = "AND inventory_items.category_id = %s" if category_id is not None else ""
+    params = (category_id,) if category_id is not None else ()
     cur.execute(
         f"""
         SELECT inventory_items.spec, SUM(inventory_items.length_remaining), COUNT(*)
         {_OFFCUT_JOIN}
         WHERE inventory_items.is_active = true
           AND inventory_items.length_status = 'In Stock'
+          {category_filter}
         GROUP BY inventory_items.spec
         ORDER BY inventory_items.spec;
-        """
+        """,
+        params
     )
     rows = cur.fetchall()
     cur.close()

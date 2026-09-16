@@ -37,11 +37,26 @@ const ROUTE_PERMISSION_MAP = {
     roles: ["roles", "view"],
     movements: ["movements", "view"],
     "check-sites": ["site_checks", "view"],
-    inventory: ["inventory_items", "view"],
+    // Independently gated from the Inventory master permission (below) —
+    // "Inventory Items" and "Stock" are each their own toggle in roles.js's
+    // permissions panel now, controlling access to these two routes
+    // specifically, distinct from inventory_items:view (the domain-level
+    // master toggle that hides the whole Inventory nav group regardless of
+    // these — see NAV_GROUP_MASTER_PERMISSION below).
+    inventory: ["inventory_items", "view_items"],
+    stock: ["inventory_items", "view_stock"],
     "inventory-log": ["inventory_transactions", "view"],
-    "issue-materials": ["inventory_transactions", "add"],
-    "return-materials": ["inventory_transactions", "add"],
-    "inventory-reports": ["inventory_items", "view"],
+    "issue-materials": ["inventory_transactions", "issue"],
+    "return-materials": ["inventory_transactions", "return"],
+    // Its own dedicated master permission (reports:view) — not
+    // inventory_items:view, so Reports can be denied/granted independently
+    // of the rest of the Inventory domain (see the "Reports" top-level
+    // section in roles.js's PERM_SECTIONS). Reports is its own top-level
+    // .nav-category (not nested under Inventory's group, unlike inventory/
+    // stock/inventory-log/inventory-manage above), so it's gated by the
+    // plain heading[data-view] branch in applyPermissionVisibility() below —
+    // no NAV_GROUP_MASTER_PERMISSION entry needed for it.
+    "inventory-reports": ["reports", "view"],
     "inventory-manage": ["inventory_categories", "view"],
 };
 
@@ -49,6 +64,21 @@ function isRouteAllowed(name) {
     const mapping = ROUTE_PERMISSION_MAP[name];
     return mapping ? can(mapping[0], mapping[1]) : true;
 }
+
+// The first route the current user is actually allowed to see, computed once
+// per login by applyPermissionVisibility() and cached here so dispatchRoute
+// (below) has somewhere to redirect a denied navigation — permissions don't
+// change mid-session (loadPermissions() also only runs once, at login), so a
+// single cached value stays correct for the life of the session.
+let cachedFirstAllowedRoute = null;
+
+// The domain-level master permission for a sub-grouped nav category
+// (currently just Inventory) — this must be true for the whole group to
+// show at all, on top of each sub-link's own permission. Mirrors the
+// permissions panel's own master-toggle-collapses-everything cascade
+// (roles.js), so turning "Inventory" off hides Items/Stock/Log/Manage
+// together even though each is now independently permissioned.
+const NAV_GROUP_MASTER_PERMISSION = { inventory: ["inventory_items", "view"] };
 
 function applyPermissionVisibility() {
     let firstAllowed = null;
@@ -60,10 +90,12 @@ function applyPermissionVisibility() {
     document.querySelectorAll(".nav-category").forEach(category => {
         const subLinks = category.querySelectorAll(".nav-link.sub[data-view]");
         if (subLinks.length) {
+            const groupMapping = NAV_GROUP_MASTER_PERMISSION[category.dataset.navGroup];
+            const masterAllowed = groupMapping ? can(groupMapping[0], groupMapping[1]) : true;
             let anyAllowed = false;
             subLinks.forEach(link => {
                 const mapping = ROUTE_PERMISSION_MAP[link.dataset.view];
-                const allowed = mapping ? can(mapping[0], mapping[1]) : true;
+                const allowed = masterAllowed && (mapping ? can(mapping[0], mapping[1]) : true);
                 link.hidden = !allowed;
                 if (allowed) {
                     anyAllowed = true;
@@ -89,8 +121,12 @@ function applyPermissionVisibility() {
         "add-user-open-btn": ["users", "add"],
         "add-role-open-btn": ["roles", "add"],
         "add-inventory-category-open-btn": ["inventory_categories", "add"],
-        "add-inventory-item-open-btn": ["inventory_items", "add"],
         "add-inventory-transaction-open-btn": ["inventory_transactions", "add"],
+        // Add Item opens a wizard covering both New Product (create a new
+        // SKU) and Existing Product (add stock to one that already exists)
+        // — one permission gates both now that "Add Stock" was folded into
+        // "Add item".
+        "add-inventory-item-open-btn": ["inventory_items", "add"],
     };
     Object.entries(addBtnMap).forEach(([id, mapping]) => {
         const el = document.getElementById(id);
@@ -113,13 +149,11 @@ function applyPermissionVisibility() {
     const inventoryCategoriesActionsTh = document.getElementById("inventory-categories-actions-th");
     if (inventoryCategoriesActionsTh) inventoryCategoriesActionsTh.hidden = !(can("inventory_categories", "edit") || can("inventory_categories", "delete"));
 
-    // No visibility toggle for inventory-items-actions-th: it always holds
-    // at least the View action, which every inventory_items:view role can
-    // use — edit/delete buttons inside it are individually gated in
-    // inventory.js's itemActionsCell instead.
-
-    const pendingCutsActionsTh = document.getElementById("pending-cuts-actions-th");
-    if (pendingCutsActionsTh) pendingCutsActionsTh.hidden = !can("inventory_transactions", "reconcile");
+    // No visibility toggle needed for the Items or Stock tables' Actions
+    // columns: Items' Edit/Delete/View buttons are individually gated inline
+    // in inventory.js's renderItemsTable and stock.js's renderStockTable —
+    // View specifically now checks inventory_items:view_history, not just
+    // :view (see roles.js's "View Stock History" permission).
 
     const movementsLinkBtn = document.getElementById("movements-link-btn");
     if (movementsLinkBtn) movementsLinkBtn.hidden = !can("movements", "view");
@@ -128,15 +162,10 @@ function applyPermissionVisibility() {
     if (checkSitesLinkBtn) checkSitesLinkBtn.hidden = !can("site_checks", "view");
 
     const issueMaterialsLinkBtn = document.getElementById("issue-materials-link-btn");
-    if (issueMaterialsLinkBtn) issueMaterialsLinkBtn.hidden = !can("inventory_transactions", "add");
+    if (issueMaterialsLinkBtn) issueMaterialsLinkBtn.hidden = !can("inventory_transactions", "issue");
 
     const returnMaterialsLinkBtn = document.getElementById("return-materials-link-btn");
-    if (returnMaterialsLinkBtn) returnMaterialsLinkBtn.hidden = !can("inventory_transactions", "add");
-
-    // sku-summary-actions-th holds the reorder-level Save button, gated the
-    // same as any other items-actions column.
-    const skuSummaryActionsTh = document.getElementById("sku-summary-actions-th");
-    if (skuSummaryActionsTh) skuSummaryActionsTh.hidden = !can("inventory_items", "edit");
+    if (returnMaterialsLinkBtn) returnMaterialsLinkBtn.hidden = !can("inventory_transactions", "return");
 
     return firstAllowed;
 }
@@ -267,17 +296,25 @@ function parseRoute(hash) {
 }
 
 // Maps a collapsible sidebar group's id prefix to the route names that
-// belong to it — used only to auto-*expand* (never auto-collapse) the group
-// when the active route lands inside it, e.g. on a page refresh or a deep
-// link straight to a sub-route while the group still shows collapsed.
-const NAV_GROUP_ROUTES = { inventory: ["inventory", "inventory-log", "inventory-manage"] };
+// belong to it. Drives the group heading's .active state exactly the same
+// way every plain [data-view] nav item's active state works (Batteries lit
+// up only while you're on the Batteries page, no separate click needed to
+// "arm" it) — the heading has no data-view of its own to be picked up by the
+// generic loop below, so this fills that in for it — plus auto-*expands*
+// (never auto-collapses) the group when the active route lands inside it,
+// e.g. a page refresh or a deep link straight to a sub-route while the group
+// still shows collapsed.
+const NAV_GROUP_ROUTES = { inventory: ["inventory", "stock", "inventory-log", "inventory-manage"] };
 
 function setActiveNav(name) {
     document.querySelectorAll("[data-view]").forEach(l => l.classList.toggle("active", l.dataset.view === name));
 
     Object.entries(NAV_GROUP_ROUTES).forEach(([group, routes]) => {
-        if (!routes.includes(name)) return;
-        document.getElementById(`${group}-nav-toggle`)?.classList.remove("collapsed");
+        const toggle = document.getElementById(`${group}-nav-toggle`);
+        const inGroup = routes.includes(name);
+        toggle?.classList.toggle("active", inGroup);
+        if (!inGroup) return;
+        toggle?.classList.remove("collapsed");
         document.getElementById(`${group}-nav-subitems`)?.classList.remove("collapsed");
     });
 }
@@ -286,6 +323,17 @@ function dispatchRoute() {
     const { name, params } = parseRoute(location.hash);
     const handler = routeHandlers[name];
     if (!handler) return;
+    // Nav links/headings for a denied route are already hidden by
+    // applyPermissionVisibility, but that alone doesn't stop a hash typed
+    // directly into the address bar (or set via the console) — every
+    // navigation, not just the first one at login, has to re-check the
+    // permission a route maps to, or hiding the link is only cosmetic.
+    if (!isRouteAllowed(name)) {
+        if (cachedFirstAllowedRoute && cachedFirstAllowedRoute !== name) {
+            navigate(cachedFirstAllowedRoute, { replace: true });
+        }
+        return;
+    }
     routeResetters.forEach(fn => fn());
     setActiveNav(name);
     handler(params);
@@ -388,6 +436,7 @@ export async function showApp() {
     document.getElementById("app-layout").hidden = false;
     await loadPermissions();
     const firstAllowed = applyPermissionVisibility();
+    cachedFirstAllowedRoute = firstAllowed;
     renderTopbarUser();
     initHeaderLinkIcons();
     await Promise.all([
@@ -427,7 +476,10 @@ function getEntityItems() {
 }
 
 function cmdkTypeLabel(type) {
-    return { section: "Go to", action: "Action", battery: "Battery", site: "Site", user: "User", role: "Role" }[type] || "";
+    return {
+        section: "Go to", action: "Action", battery: "Battery", site: "Site", user: "User", role: "Role",
+        "inventory-item": "Item", "inventory-transaction": "Transaction",
+    }[type] || "";
 }
 
 let cmdkOverlay, cmdkInput, cmdkResults;
@@ -457,8 +509,13 @@ function renderCmdkResults(query) {
     const sectionItems = getSectionItems();
     const entityItems = getEntityItems();
 
+    // searchText is an optional richer haystack (e.g. SKU/serial/category
+    // alongside the name) an entity can supply when its label alone isn't
+    // enough to find it by — falls back to label for every provider that
+    // doesn't set one (battery/site/user/role), so their matching is
+    // unchanged.
     cmdkCurrentItems = q
-        ? [...sectionItems, ...entityItems].filter(i => i.label.toLowerCase().includes(q))
+        ? [...sectionItems, ...entityItems].filter(i => (i.searchText || i.label).toLowerCase().includes(q))
         : sectionItems;
 
     if (cmdkCurrentItems.length === 0) {
@@ -485,7 +542,7 @@ function renderCmdkResults(query) {
 // ---- Fragment loader: fetches every view's HTML and injects it into its
 // mount point. Loaded eagerly, all at once, at startup — the app is small
 // enough that lazy-per-nav loading isn't worth the added state-tracking. ----
-const VIEW_NAMES = ["dashboard", "sites", "movements", "check-sites", "users", "roles", "settings", "inventory", "inventory-log", "issue-materials", "return-materials", "inventory-reports", "inventory-manage"];
+const VIEW_NAMES = ["dashboard", "sites", "movements", "check-sites", "users", "roles", "settings", "inventory", "stock", "inventory-log", "issue-materials", "return-materials", "inventory-reports", "inventory-manage"];
 
 export async function loadViewFragments() {
     await Promise.all(VIEW_NAMES.map(async (name) => {
@@ -603,13 +660,57 @@ export function initShell() {
 
     sidebarBackdrop.addEventListener("click", () => setNavOpen(false));
 
-    // ---- Collapsible sidebar groups: a heading with no data-view is a pure
-    // expand/collapse toggle, not a navigation target — its sub-items handle
-    // navigation individually via the generic [data-view] wiring below. ----
-    document.querySelectorAll(".nav-heading:not([data-view])").forEach(toggle => {
+    // ---- Desktop-only scroll handoff between nav and content ----
+    // The app shell is a fixed-height flexbox on desktop (see common.css) —
+    // .sidebar and .content each scroll independently, the same contained-
+    // scroll-region technique .table-scroll already uses on mobile, just
+    // applied to the outer shell. Once the nav hits either end of its own
+    // scroll range, continued scrolling in that direction hands off to the
+    // content panel instead of the nav just stopping dead; there's no
+    // reverse handoff (content maxing out never scrolls the nav). Scoped to
+    // desktop widths — mobile's sidebar is an off-canvas overlay, not a
+    // persistent side-by-side region, so there's nothing to hand off there.
+    const contentPanel = document.querySelector(".content");
+    if (contentPanel) {
+        sidebar.addEventListener("wheel", (e) => {
+            if (window.innerWidth <= 760) return;
+            const atTop = sidebar.scrollTop <= 0;
+            const atBottom = sidebar.scrollTop + sidebar.clientHeight >= sidebar.scrollHeight - 1;
+            if ((e.deltaY < 0 && atTop) || (e.deltaY > 0 && atBottom)) {
+                e.preventDefault();
+                contentPanel.scrollTop += e.deltaY;
+            }
+        }, { passive: false });
+    }
+
+    // ---- Collapsible sidebar groups: the heading carries its own data-view
+    // (its default child route), so clicking it navigates just like
+    // Batteries/Sites/any other nav item. This listener toggles the group
+    // open/closed on every click — click Inventory to drop the list down,
+    // click it again to send it back up, no separate arrow needed either
+    // way. That's the *complete* answer only while you're already on one of
+    // this group's own routes, where navigate() below is a no-op (see
+    // common.js's navigate() — it does nothing when the hash isn't actually
+    // changing) and this toggle is the only thing that runs. When you're
+    // navigating in from somewhere else, this toggle still fires first, but
+    // navigate() then genuinely changes the route, and setActiveNav's
+    // NAV_GROUP_ROUTES handling (elsewhere in this file) unconditionally
+    // re-opens the group right after — so arriving from another page always
+    // lands open, even on the (rare) click where this toggle's own guess
+    // happened to close it. Registered before the generic [data-view]
+    // listener below so that correction always runs after this, not before.
+    // The chevron remains a second, dedicated way to close it without
+    // navigating away — stopPropagation keeps its click from also
+    // triggering the heading's own listeners here. ----
+    document.querySelectorAll(".nav-heading").forEach(toggle => {
         const subitems = toggle.nextElementSibling;
         if (!subitems || !subitems.classList.contains("nav-subitems")) return;
         toggle.addEventListener("click", () => {
+            toggle.classList.toggle("collapsed");
+            subitems.classList.toggle("collapsed");
+        });
+        toggle.querySelector(".chevron")?.addEventListener("click", (e) => {
+            e.stopPropagation();
             toggle.classList.toggle("collapsed");
             subitems.classList.toggle("collapsed");
         });
@@ -617,11 +718,17 @@ export function initShell() {
 
     // ---- Nav view switching ----
     document.querySelectorAll("[data-view]").forEach(link => {
+        // A collapsible group's heading (has a .nav-subitems sibling) is
+        // both a link and an expand toggle — closing the whole mobile
+        // drawer the instant it's tapped would hide the very sub-items it
+        // just revealed, before there's any chance to see or pick a
+        // different one. Only a genuine leaf link dismisses the drawer.
+        const isGroupHeading = link.nextElementSibling?.classList.contains("nav-subitems");
         link.addEventListener("click", () => {
             const category = link.closest(".nav-category");
             if (category && category.hidden) return; // no permission — don't switch
             navigate(link.dataset.view);
-            setNavOpen(false); // picking a section dismisses the drawer on phones
+            if (!isGroupHeading) setNavOpen(false); // picking a section dismisses the drawer on phones
         });
     });
 

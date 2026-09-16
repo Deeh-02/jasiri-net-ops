@@ -1,37 +1,41 @@
 import {
     can, authHeaders, showMessage, editIconSvg, deleteIconSvg, viewIconSvg,
-    registerAppShownHandler, showView, registerRoute, navigate,
+    registerAppShownHandler, showView, registerRoute, registerCmdkProvider, navigate,
 } from "./common.js";
 import {
     loadInventoryCategories, getInventoryCategories,
-    loadInventoryLocations, getInventoryLocations,
-    loadInventoryAssignableUsers, getInventoryAssignableUsers, assignableUserName,
-    openUnitDetailModal, initUnitDetailModal,
-    openSkuHistoryModal, initSkuHistoryModal,
+    loadInventoryLocations, getInventoryLocations, loadInventoryAssignableUsers,
+    loadAllInventoryItems, getAllInventoryItems,
+    showTypeFields, buildProductList, numOrNull, money, unitCostCell, unitCostText, todayDateString,
+    populateLocationDropdowns, populateAssignedToDropdowns,
+    openStockHistory, initUnitListModal, initUnitDetailModal, initSkuHistoryModal,
+    openEditProductModal, deleteProduct, initEditProductModal,
+    exportRowsToCsv, inventorySummaryRowMatchesQuery, initQtyStepper,
 } from "./inventory-common.js";
 
-let editItemId = null;
-// Holds whichever unit list is currently open in the unit-list modal — the
-// only place individual item rows are edited/deleted from now that the main
-// Items table is a SKU-level rollup, not a per-row list.
-let unitListCache = [];
+// Items: the catalog-plus-holdings reference page — Name, SKU, Category,
+// Qty/Cost/Value (off get_items_summary, same as Stock), Location, and
+// View/Edit/Delete. Filtered only by Category — the Status/Custody filter
+// selects live on Stock instead. Qty/Total Value here default to the
+// on-hand figures (on_hand_qty/on_hand_value), same basis Stock's "In Store"
+// filter computes — not total_qty/total_value (on-hand + deployed), since a
+// deployed unit isn't available to issue right now and showing it in "Qty"
+// read as the app under-reporting what got issued out. The combined
+// total-owned figure (for asset-register purposes) is still reachable via
+// Stock's Status filter set to "All" — not duplicated here. See
+// architecture.md's note on the Items/Stock split. The Add Item wizard (Add
+// Product / Add Unit) is this page's own header action; Issue/Return
+// Materials live on Stock.
+
 let itemsSummaryCache = [];
 let itemsCategoryFilter = "";
-let itemsStatusFilter = "";
-let itemsCustodyFilter = "";
+let itemsSearchQuery = "";
 
-// ---- Items ----
+// ---- Items table ----
 
-// Keeps the category select (add form + the items table's filter) and the
-// location selects (add + edit forms) in sync with the cached lists —
-// called after every categories/locations refresh, not just once at load,
-// so a category added mid-session shows up without a full page reload.
-function populateCategoryDropdowns() {
+function populateCategoryFilter() {
     const categories = getInventoryCategories();
     const options = categories.map(c => `<option value="${c.id}">${c.name}</option>`).join("");
-
-    const addSelect = document.getElementById("inventory-item-category");
-    if (addSelect) addSelect.innerHTML = `<option value="" disabled selected>Category...</option>${options}`;
 
     const filterSelect = document.getElementById("inventory-items-category-filter");
     if (filterSelect) {
@@ -39,82 +43,23 @@ function populateCategoryDropdowns() {
         filterSelect.innerHTML = `<option value="">All Categories</option>${options}`;
         filterSelect.value = categories.some(c => String(c.id) === previous) ? previous : "";
     }
+
+    const addSelect = document.getElementById("add-item-product-category");
+    if (addSelect) addSelect.innerHTML = `<option value="" disabled selected>Category...</option>${options}`;
 }
 
-// The item add/edit form's Location picker answers "which store is this new
-// stock initially shelved at" — scoped to is_store rows only, distinct from
-// the free-typed Site field on Issue/Return Materials (see
-// inventory-common.js's getInventoryLocations, which caches every location
-// unfiltered for that autocomplete's use).
-function populateLocationDropdowns() {
-    const storeLocations = getInventoryLocations().filter(l => l.is_store);
-    const options = storeLocations.map(l => `<option value="${l.id}">${l.name}</option>`).join("");
-
-    const addSelect = document.getElementById("inventory-item-location");
-    if (addSelect) addSelect.innerHTML = `<option value="">Location (optional)</option>${options}`;
-
-    const editSelect = document.getElementById("edit-inventory-item-location");
-    if (editSelect) editSelect.innerHTML = `<option value="">Location (optional)</option>${options}`;
-}
-
-function populateAssignedToDropdowns() {
-    const users = getInventoryAssignableUsers();
-    const options = users.map(u => `<option value="${u.id}">${u.name}</option>`).join("");
-
-    const addSelect = document.getElementById("inventory-item-assigned-to");
-    if (addSelect) addSelect.innerHTML = `<option value="">Assigned to (optional)</option>${options}`;
-
-    const editSelect = document.getElementById("edit-inventory-item-assigned-to");
-    if (editSelect) editSelect.innerHTML = `<option value="">Assigned to (optional)</option>${options}`;
-}
-
-// Shows only the field block matching the selected/existing tracking_type —
-// the plain if/else this drives (not a schema-driven form builder) matches
-// the phase plan's explicit instruction.
-function showTypeFields(form, trackingType) {
-    form.querySelectorAll("[data-item-type-fields]").forEach(block => {
-        block.hidden = block.dataset.itemTypeFields !== trackingType;
-    });
-}
-
-function numOrNull(value) {
-    return value === "" || value === null || value === undefined ? null : Number(value);
-}
-
-function money(n) {
-    return n == null ? "—" : Number(n).toFixed(2);
-}
-
-async function refreshItems() {
+async function refreshCatalog() {
     const qs = itemsCategoryFilter ? `?category_id=${itemsCategoryFilter}` : "";
     const res = await fetch(`/inventory/items/summary${qs}`, { headers: authHeaders() });
     itemsSummaryCache = res.ok ? await res.json() : [];
     renderItemsTable();
 }
 
-// Status/Custody narrow the already-fetched rows client-side and just
-// switch which of on_hand/deployed/total is displayed — no re-fetch, since
-// get_items_summary already returns both halves of the split per row.
-function filteredItemsForDisplay() {
-    return itemsSummaryCache.filter(row => {
-        if (itemsCustodyFilter && row.custody_type !== itemsCustodyFilter) return false;
-        return true;
-    });
-}
-
-function qtyAndValueFor(row) {
-    if (itemsStatusFilter === "on_hand") return { qty: row.on_hand_qty, value: row.on_hand_value };
-    if (itemsStatusFilter === "deployed") return { qty: row.deployed_qty, value: row.deployed_value };
-    return { qty: row.total_qty, value: row.total_value };
-}
-
-function unitCostCell(row) {
-    if (row.avg_unit_cost == null) return "—";
-    // Assets get the "~" cue since it's a computed average across
-    // differently-priced batches — Consumables/Cable show a plain number.
-    return row.tracking_type === "asset_serialized"
-        ? `<span class="inventory-avg-cost" title="Weighted average across all units of this SKU">~${money(row.avg_unit_cost)}</span>`
-        : money(row.avg_unit_cost);
+// Narrows the already-fetched (category-scoped) rows client-side by the
+// search box — no refetch, same "filter what's already on screen"
+// convention as the Status/Custody filters on Stock.
+function visibleItemsRows() {
+    return itemsSummaryCache.filter(row => inventorySummaryRowMatchesQuery(row, itemsSearchQuery));
 }
 
 function renderItemsTable() {
@@ -122,380 +67,669 @@ function renderItemsTable() {
     const tbody = document.getElementById("inventory-items-rows");
     if (!thead || !tbody) return;
 
-    thead.innerHTML = `<tr><th>Name</th><th>SKU</th><th>Category</th><th>Qty</th><th>Unit Cost</th><th>Total Value</th><th>Actions</th></tr>`;
+    thead.innerHTML = `<tr><th>Name</th><th>SKU</th><th>Category</th><th>Qty</th><th>Unit Cost</th><th>Total Value</th><th>Location</th><th>Actions</th></tr>`;
 
-    const rows = filteredItemsForDisplay();
-    tbody.innerHTML = rows.map(row => {
-        const { qty, value } = qtyAndValueFor(row);
-        return `
-            <tr>
-                <td>${row.name || "—"}</td>
-                <td>${row.sku_or_spec}</td>
-                <td>${row.category_name}</td>
-                <td>${qty}</td>
-                <td>${unitCostCell(row)}</td>
-                <td>${money(value)}</td>
-                <td>
-                    <button type="button" class="inventory-icon-btn view view-item-btn"
-                        data-category-id="${row.category_id}" data-sku="${encodeURIComponent(row.sku_or_spec)}"
-                        data-tracking-type="${row.tracking_type}" data-category-name="${row.category_name}"
-                        title="View stock history">
-                        ${viewIconSvg()}
-                    </button>
-                </td>
-            </tr>
-        `;
-    }).join("");
-
-    tbody.querySelectorAll(".view-item-btn").forEach(btn => {
-        btn.addEventListener("click", () => onViewSku(btn.dataset));
-    });
-}
-
-// Reframes View as "stock history", branching by Core: Asset/Cable open a
-// list of the individual units under this SKU/spec (drilling further into
-// the tabbed unit detail); Consumable has no individual units, so it opens
-// the flat running-balance history directly.
-function onViewSku({ categoryId, sku, trackingType, categoryName }) {
-    const skuDecoded = decodeURIComponent(sku);
-    if (trackingType === "inventory_quantity") {
-        openSkuHistoryModal(categoryId, skuDecoded, `${categoryName} — ${skuDecoded}`);
-    } else {
-        openUnitListModal(Number(categoryId), skuDecoded, trackingType, categoryName);
-    }
-}
-
-// ---- Unit list (Asset/Cable) — the individual serials/reels behind one SKU
-// row, each carrying its own View/Edit/Delete now that the main table is an
-// aggregate. Lives here (not inventory-common.js) since Edit/Delete need
-// this view's own item-form modal and itemsCache-backed lookups.
-
-function unitRowCells(item) {
-    if (item.tracking_type === "asset_serialized") {
-        const holder = assignableUserName(item.assigned_to_user_id);
-        return `
-            <td>${item.id}</td>
-            <td>${item.serial_number || "—"}</td>
-            <td>${item.asset_status || "—"}</td>
-            <td>${holder || item.location_name || "—"}</td>
-        `;
-    }
-    return `
-        <td>${item.cut_reel_id || "—"}</td>
-        <td>${item.length_remaining ?? "—"} ${item.unit_of_measure || "m"}</td>
-        <td>${item.location_name || "—"}</td>
-    `;
-}
-
-// "Asset ID" is the row's own id — a stable per-unit identifier distinct
-// from the SKU shared by every row in this list (already shown in the
-// modal's header) and from Serial Number, which can be blank before one's
-// assigned.
-function unitListHeadRow(trackingType) {
-    return trackingType === "asset_serialized"
-        ? `<tr><th>Asset ID</th><th>Serial Number</th><th>Status</th><th>Location/Holder</th><th>Actions</th></tr>`
-        : `<tr><th>Reel ID</th><th>Remaining</th><th>Location</th><th>Actions</th></tr>`;
-}
-
-function renderUnitList() {
-    const thead = document.getElementById("unit-list-thead");
-    const tbody = document.getElementById("unit-list-rows");
-    if (!thead || !tbody || unitListCache.length === 0) return;
-
-    const trackingType = unitListCache[0].tracking_type;
-    thead.innerHTML = unitListHeadRow(trackingType);
-
-    tbody.innerHTML = unitListCache.map(item => `
+    const canEdit = can("inventory_items", "edit");
+    const canDelete = can("inventory_items", "delete");
+    const canViewHistory = can("inventory_items", "view_history");
+    tbody.innerHTML = visibleItemsRows().map(row => `
         <tr>
-            ${unitRowCells(item)}
+            <td>${row.name || "—"}</td>
+            <td>${row.sku_or_spec}</td>
+            <td>${row.category_name}</td>
+            <td>${row.on_hand_qty}</td>
+            <td>${unitCostCell(row)}</td>
+            <td>${money(row.on_hand_value)}</td>
+            <td>${row.location_names || "—"}</td>
             <td>
-                <button type="button" class="inventory-icon-btn view unit-view-btn" data-id="${item.id}" title="View history">
+                ${canViewHistory ? `
+                <button type="button" class="inventory-icon-btn view view-item-btn"
+                    data-category-id="${row.category_id}" data-sku="${encodeURIComponent(row.sku_or_spec)}"
+                    data-tracking-type="${row.tracking_type}" data-category-name="${row.category_name}"
+                    title="View stock history">
                     ${viewIconSvg()}
-                </button>
-                ${can("inventory_items", "edit") ? `
-                <button type="button" class="inventory-icon-btn edit unit-edit-btn" data-id="${item.id}" title="Edit">
+                </button>` : ""}
+                ${canEdit ? `
+                <button type="button" class="inventory-icon-btn edit edit-product-btn"
+                    data-category-id="${row.category_id}" data-sku="${encodeURIComponent(row.sku_or_spec)}"
+                    title="Edit product">
                     ${editIconSvg()}
                 </button>` : ""}
-                ${can("inventory_items", "delete") ? `
-                <button type="button" class="inventory-icon-btn delete unit-delete-btn" data-id="${item.id}" data-name="${item.name}" title="Delete">
+                ${canDelete ? `
+                <button type="button" class="inventory-icon-btn delete delete-product-btn"
+                    data-category-id="${row.category_id}" data-sku="${encodeURIComponent(row.sku_or_spec)}"
+                    data-name="${row.name || row.sku_or_spec}"
+                    title="Delete product">
                     ${deleteIconSvg()}
                 </button>` : ""}
             </td>
         </tr>
     `).join("");
 
-    tbody.querySelectorAll(".unit-view-btn").forEach(btn => {
+    tbody.querySelectorAll(".view-item-btn").forEach(btn => {
         btn.addEventListener("click", () => {
-            document.getElementById("unit-list-overlay").hidden = true;
-            openUnitDetailModal(btn.dataset.id);
+            const { categoryId, sku, trackingType, categoryName } = btn.dataset;
+            openStockHistory({
+                categoryId, sku: decodeURIComponent(sku), trackingType, categoryName,
+                onChanged: refreshCatalog,
+            });
         });
     });
-    tbody.querySelectorAll(".unit-edit-btn").forEach(btn => {
-        btn.addEventListener("click", () => openEditItemModal(btn.dataset.id));
+
+    tbody.querySelectorAll(".edit-product-btn").forEach(btn => {
+        btn.addEventListener("click", () => openEditProductModal(Number(btn.dataset.categoryId), decodeURIComponent(btn.dataset.sku), refreshCatalog));
     });
-    tbody.querySelectorAll(".unit-delete-btn").forEach(btn => {
-        btn.addEventListener("click", () => deleteItem(btn.dataset.id, btn.dataset.name));
+
+    tbody.querySelectorAll(".delete-product-btn").forEach(btn => {
+        btn.addEventListener("click", () => deleteProduct(Number(btn.dataset.categoryId), decodeURIComponent(btn.dataset.sku), btn.dataset.name, refreshCatalog));
     });
 }
 
-async function openUnitListModal(categoryId, sku, trackingType, categoryName) {
-    const overlay = document.getElementById("unit-list-overlay");
-    if (!overlay) return;
-
-    document.getElementById("unit-list-label").textContent = `— ${categoryName} — ${sku}`;
-    const res = await fetch(`/inventory/items?category_id=${categoryId}&sku=${encodeURIComponent(sku)}`, { headers: authHeaders() });
-    unitListCache = res.ok ? await res.json() : [];
-    renderUnitList();
-    overlay.hidden = false;
+// Exports whatever's currently in the table — already scoped by
+// itemsCategoryFilter (server-side) and itemsSearchQuery (client-side, same
+// rows visibleItemsRows() renders), not an unfiltered dump.
+function exportItemsCsv() {
+    exportRowsToCsv("items.csv", [
+        { header: "Name", value: row => row.name || "—" },
+        { header: "SKU", value: row => row.sku_or_spec },
+        { header: "Category", value: row => row.category_name },
+        { header: "Qty", value: row => row.on_hand_qty },
+        { header: "Unit Cost", value: row => unitCostText(row) },
+        { header: "Total Value", value: row => money(row.on_hand_value) },
+        { header: "Location", value: row => row.location_names || "—" },
+    ], visibleItemsRows());
 }
 
-async function refreshUnitListIfOpen() {
-    const overlay = document.getElementById("unit-list-overlay");
-    if (!overlay || overlay.hidden || unitListCache.length === 0) return;
-    const { category_id, sku, tracking_type } = unitListCache[0];
-    const sku_or_spec = tracking_type === "inventory_length" ? unitListCache[0].spec : sku;
-    const res = await fetch(`/inventory/items?category_id=${category_id}&sku=${encodeURIComponent(sku_or_spec)}`, { headers: authHeaders() });
-    unitListCache = res.ok ? await res.json() : [];
-    renderUnitList();
+// ---- Add Item wizard: Add Product (Step 1, one-time per SKU/spec) then
+// Add Unit (Step 2, repeats per physical item/batch/cut) — splits what used
+// to be one form, so adding another unit of an already-known product never
+// re-asks for Name/Make-Model/Spec/Supplier. "New product" walks Step 1
+// first (and also creates the catalog entry that shows up on this table);
+// "Existing product" searches and skips straight to Step 2.
+let addItemMode = null; // "existing" | "new"
+let addItemProduct = null; // { category_id, tracking_type, sku, name, make_model, spec_capacity, spec, supplier, unit_of_measure }
+let addItemEventGroupId = null; // shared across every unit saved in one sitting, once the first save returns it
+let addItemHasSavedInSitting = false;
+let addItemBatchItems = []; // items just created by the batch endpoint, powers the Batch Review step's editable list
+
+function showAddItemStep(step) {
+    ["choice", "search", "product", "unit", "batch", "batch-review", "success"].forEach(name => {
+        document.getElementById(`add-item-step-${name}`).hidden = name !== step;
+    });
 }
 
-async function deleteItem(id, name) {
-    if (!confirm(`Delete item "${name}"? This can't be undone.`)) return;
+function resetAddItemWizard() {
+    addItemMode = null;
+    addItemProduct = null;
+    addItemEventGroupId = null;
+    addItemHasSavedInSitting = false;
+    addItemBatchItems = [];
 
-    const response = await fetch(`/inventory/items/${id}`, { method: "DELETE", headers: authHeaders() });
-    if (response.ok) {
-        await Promise.all([refreshItems(), refreshUnitListIfOpen()]);
-    } else {
-        alert("Failed to delete item — it may still have transaction history tied to it.");
+    document.getElementById("add-item-product-search-input").value = "";
+    document.getElementById("add-item-product-results").innerHTML = "";
+    document.getElementById("add-item-choice-existing").classList.remove("active");
+    document.getElementById("add-item-choice-new").classList.remove("active");
+
+    const productForm = document.getElementById("add-item-product-form");
+    productForm.reset();
+    productForm.querySelectorAll("[data-item-type-fields]").forEach(block => { block.hidden = true; });
+    document.getElementById("add-item-product-spec").required = false;
+    // Restored to its HTML default (visible, required) until a category
+    // picks a Core — the category-change handler hides/unrequires it again
+    // for Cable Core specifically.
+    const skuField = document.getElementById("add-item-product-sku");
+    skuField.hidden = false;
+    skuField.required = true;
+
+    document.getElementById("add-item-unit-form").reset();
+    document.getElementById("add-item-batch-form").reset();
+    applyAddItemDateDefaults();
+    document.getElementById("inventory-item-msg").textContent = "";
+
+    showAddItemStep("choice");
+}
+
+// "Today" is almost always right for Install Date/Expiry Date, so every
+// date input across the wizard pre-fills with it — form.reset() reverts to
+// each field's HTML default (none set), not whatever was last assigned via
+// .value, so this has to run again after every reset, not just once at
+// module load.
+function applyAddItemDateDefaults() {
+    const today = todayDateString();
+    const installDate = document.getElementById("add-item-unit-install-date");
+    if (installDate) installDate.value = today;
+    const expiryDate = document.getElementById("add-item-unit-expiry-date");
+    if (expiryDate) expiryDate.value = today;
+    const batchInstallDate = document.getElementById("add-item-batch-install-date");
+    if (batchInstallDate) batchInstallDate.value = today;
+}
+
+function productSummaryText() {
+    if (!addItemProduct) return "";
+    const skuOrSpec = addItemProduct.tracking_type === "inventory_length" ? addItemProduct.spec : addItemProduct.sku;
+    return `${addItemProduct.name} — ${skuOrSpec}`;
+}
+
+function renderUnitProductSummary() {
+    const el = document.getElementById("add-item-unit-product-summary");
+    if (el) el.textContent = productSummaryText();
+}
+
+function renderBatchProductSummary() {
+    const el = document.getElementById("add-item-batch-product-summary");
+    if (el) el.textContent = productSummaryText();
+}
+
+// Assigned To only matters for custody-type categories (per_job assets
+// don't have a "who's holding it" concept the same way) — everything else
+// here just mirrors showTypeFields' plain if/else dispatch.
+function showUnitTypeFields(trackingType) {
+    const form = document.getElementById("add-item-unit-form");
+    form.querySelectorAll("[data-item-type-fields]").forEach(block => {
+        block.hidden = block.dataset.itemTypeFields !== trackingType;
+    });
+    if (trackingType === "asset_serialized") {
+        const category = getInventoryCategories().find(c => c.id === addItemProduct.category_id);
+        document.getElementById("add-item-unit-assigned-to-row").hidden = !(category && category.custody_type === "custody");
     }
 }
 
-function openEditItemModal(itemId) {
-    const item = unitListCache.find(i => String(i.id) === String(itemId));
-    if (!item) return;
+function enterUnitStep() {
+    renderUnitProductSummary();
+    showUnitTypeFields(addItemProduct.tracking_type);
+    // Once a unit's already been saved this sitting, there's nothing to go
+    // "back" to — re-picking a different product mid-batch isn't the flow.
+    document.getElementById("add-item-unit-back").hidden = addItemHasSavedInSitting;
+    showAddItemStep("unit");
+}
 
-    editItemId = item.id;
-    const form = document.getElementById("edit-inventory-item-form");
-    showTypeFields(form, item.tracking_type);
+// Existing-product path, Asset Core only (see selectExistingProduct) — asks
+// how many units arrived together instead of repeating the single-unit form
+// per serial. Location/Status/Cost/Install Date/Notes are entered once and
+// apply to the whole batch; each unit's own serial number is filled in
+// afterward on the Batch Review step.
+function enterBatchStep() {
+    renderBatchProductSummary();
+    const category = getInventoryCategories().find(c => c.id === addItemProduct.category_id);
+    document.getElementById("add-item-batch-assigned-to-row").hidden = !(category && category.custody_type === "custody");
+    showAddItemStep("batch");
+}
 
-    document.getElementById("edit-inventory-item-sku").value = item.sku || "";
-    document.getElementById("edit-inventory-item-name").value = item.name || "";
-    document.getElementById("edit-inventory-item-location").value = item.location_id || "";
-    document.getElementById("edit-inventory-item-unit-cost").value = item.unit_cost ?? "";
-    document.getElementById("edit-inventory-item-supplier").value = item.supplier || "";
-    document.getElementById("edit-inventory-item-uom").value = item.unit_of_measure || "";
-    document.getElementById("edit-inventory-item-notes").value = item.notes || "";
+function renderProductSearchResults(query) {
+    const resultsEl = document.getElementById("add-item-product-results");
+    const q = query.trim().toLowerCase();
+    const products = buildProductList().filter(p => {
+        if (!q) return true;
+        const skuOrSpec = p.tracking_type === "inventory_length" ? p.spec : p.sku;
+        return (p.name || "").toLowerCase().includes(q) || (skuOrSpec || "").toLowerCase().includes(q);
+    }).slice(0, 30);
 
+    if (products.length === 0) {
+        resultsEl.innerHTML = `<div class="add-item-product-empty">No matching products — try "New product" instead.</div>`;
+        return;
+    }
+
+    resultsEl.innerHTML = products.map(p => {
+        const skuOrSpec = p.tracking_type === "inventory_length" ? p.spec : p.sku;
+        return `
+            <button type="button" class="add-item-product-result" data-item-id="${p.id}">
+                <span class="add-item-product-result-name">${p.name}</span>
+                <span class="add-item-product-result-meta">${skuOrSpec} — ${p.category_name}</span>
+            </button>
+        `;
+    }).join("");
+
+    resultsEl.querySelectorAll(".add-item-product-result").forEach(btn => {
+        btn.addEventListener("click", () => {
+            const item = products.find(p => String(p.id) === btn.dataset.itemId);
+            if (item) selectExistingProduct(item);
+        });
+    });
+}
+
+function selectExistingProduct(item) {
+    addItemProduct = {
+        category_id: item.category_id, tracking_type: item.tracking_type,
+        sku: item.sku, name: item.name,
+        spec_capacity: item.spec_capacity, spec: item.spec,
+        unit_of_measure: item.unit_of_measure,
+    };
+    // Batch quantity only makes sense for Asset Core — Consumables Core's
+    // batch total already lives in one row's Quantity field, and Cable
+    // Core's units are individually distinct cuts with their own lengths.
     if (item.tracking_type === "asset_serialized") {
-        document.getElementById("edit-inventory-item-serial-number").value = item.serial_number || "";
-        document.getElementById("edit-inventory-item-asset-status").value = item.asset_status || "Active";
-        document.getElementById("edit-inventory-item-assigned-to").value = item.assigned_to_user_id || "";
-        document.getElementById("edit-inventory-item-make-model").value = item.make_model || "";
-        document.getElementById("edit-inventory-item-spec-capacity").value = item.spec_capacity || "";
-        document.getElementById("edit-inventory-item-install-date").value = item.install_date || "";
-    } else if (item.tracking_type === "inventory_quantity") {
-        document.getElementById("edit-inventory-item-batch-lot").value = item.batch_lot || "";
-        document.getElementById("edit-inventory-item-expiry-date").value = item.expiry_date || "";
-        document.getElementById("edit-inventory-item-quantity-on-hand").value = item.quantity_on_hand ?? "";
-    } else if (item.tracking_type === "inventory_length") {
-        document.getElementById("edit-inventory-item-cut-reel-id").value = item.cut_reel_id || "";
-        document.getElementById("edit-inventory-item-spec").value = item.spec || "";
-        document.getElementById("edit-inventory-item-length-received").value = item.length_received ?? "";
-        document.getElementById("edit-inventory-item-length-remaining").value = item.length_remaining ?? "";
-        document.getElementById("edit-inventory-item-length-status").value = item.length_status || "In Stock";
+        enterBatchStep();
+    } else {
+        enterUnitStep();
+    }
+}
+
+function unitFormBody() {
+    const trackingType = addItemProduct.tracking_type;
+    const body = {
+        category_id: addItemProduct.category_id,
+        sku: addItemProduct.sku,
+        name: addItemProduct.name,
+        spec_capacity: addItemProduct.spec_capacity,
+        spec: addItemProduct.spec,
+        unit_of_measure: addItemProduct.unit_of_measure,
+        // Free-typed — resolved server-side to a location_id (creating a
+        // new is_store=true row if the name doesn't match one yet), same
+        // pattern as Issue/Return Materials' Site field.
+        location_name: document.getElementById("add-item-unit-location").value.trim() || null,
+        unit_cost: numOrNull(document.getElementById("add-item-unit-cost").value),
+        // Unit-level, not product-level — read fresh from this form every
+        // time rather than carried from addItemProduct, since Supplier can
+        // genuinely differ per unit even under one SKU.
+        supplier: document.getElementById("add-item-unit-supplier").value || null,
+        notes: document.getElementById("add-item-unit-notes").value || null,
+        event_group_id: addItemEventGroupId,
+    };
+
+    if (trackingType === "asset_serialized") {
+        body.serial_number = document.getElementById("add-item-unit-serial-number").value || null;
+        body.make_model = document.getElementById("add-item-unit-make-model").value || null;
+        body.asset_status = document.getElementById("add-item-unit-asset-status").value;
+        const assignedToHidden = document.getElementById("add-item-unit-assigned-to-row").hidden;
+        body.assigned_to_user_id = assignedToHidden ? null : numOrNull(document.getElementById("add-item-unit-assigned-to").value);
+        body.install_date = document.getElementById("add-item-unit-install-date").value || null;
+    } else if (trackingType === "inventory_quantity") {
+        body.batch_lot = document.getElementById("add-item-unit-batch-lot").value || null;
+        body.expiry_date = document.getElementById("add-item-unit-expiry-date").value || null;
+        body.quantity_on_hand = numOrNull(document.getElementById("add-item-unit-quantity-on-hand").value);
+    } else if (trackingType === "inventory_length") {
+        body.cut_reel_id = document.getElementById("add-item-unit-cut-reel-id").value || null;
+        body.length_received = numOrNull(document.getElementById("add-item-unit-length-received").value);
     }
 
-    document.getElementById("edit-inventory-item-overlay").hidden = false;
+    return body;
 }
 
-function closeEditItemModal() {
-    document.getElementById("edit-inventory-item-overlay").hidden = true;
-    editItemId = null;
-}
+// Same six values as every other Asset Status <select> in this codebase
+// (inventory.html's Step 2 unit form, Stock's Edit Unit form) — kept as a
+// plain inline option list here too rather than a shared JS constant, since
+// no other page's <select> here is dynamically generated the way this
+// per-row one is.
+const ASSET_STATUS_OPTIONS = `
+    <option value="Active">Active</option>
+    <option value="Deployed">Deployed</option>
+    <option value="Faulty">Faulty</option>
+    <option value="In Repair">In Repair</option>
+    <option value="Decommissioned">Decommissioned</option>
+`;
 
-function initItemForms() {
-    const addOverlay = document.getElementById("add-inventory-item-overlay");
-    const addOpenBtn = document.getElementById("add-inventory-item-open-btn");
-    const addCancelBtn = document.getElementById("add-inventory-item-cancel");
-    const addForm = document.getElementById("inventory-item-form");
-    const categorySelect = document.getElementById("inventory-item-category");
+// Batch Review — the editable list shown right after a batch save. Each
+// field commits immediately via PATCH /inventory/items/{id} on blur/change,
+// same click-to-edit-and-save pattern as Stock's Reorder Level column,
+// rather than a single "Save all" button — a click-away partway through the
+// list shouldn't lose the rows already filled in.
+function renderBatchReviewTable() {
+    const heading = document.getElementById("add-item-batch-review-heading");
+    if (heading) {
+        heading.textContent = `${addItemBatchItems.length} unit${addItemBatchItems.length === 1 ? "" : "s"} added. `
+            + `Enter each one's manufacturer serial number if known, and correct Location/Status for any unit that differs from the rest.`;
+    }
 
-    addOpenBtn.addEventListener("click", () => {
-        addForm.reset();
-        addForm.querySelectorAll("[data-item-type-fields]").forEach(block => { block.hidden = true; });
-        addOverlay.hidden = false;
-    });
+    const storeLocations = getInventoryLocations().filter(l => l.is_store);
+    const locationOptions = storeLocations.map(l => `<option value="${l.id}">${l.name}</option>`).join("");
 
-    addCancelBtn.addEventListener("click", () => { addOverlay.hidden = true; });
-    addOverlay.addEventListener("click", (e) => { if (e.target === addOverlay) addOverlay.hidden = true; });
+    const tbody = document.getElementById("add-item-batch-review-rows");
+    tbody.innerHTML = addItemBatchItems.map(item => `
+        <tr data-item-id="${item.id}">
+            <td>${item.id}</td>
+            <td><input type="text" class="add-item-batch-review-serial" placeholder="Manufacturer serial (optional)"></td>
+            <td><select class="add-item-batch-review-location"><option value="">—</option>${locationOptions}</select></td>
+            <td><select class="add-item-batch-review-status">${ASSET_STATUS_OPTIONS}</select></td>
+        </tr>
+    `).join("");
 
-    categorySelect.addEventListener("change", () => {
-        const category = getInventoryCategories().find(c => String(c.id) === categorySelect.value);
-        if (category) showTypeFields(addForm, category.tracking_type);
-    });
-
-    addForm.addEventListener("submit", async (e) => {
-        e.preventDefault();
-        const category = getInventoryCategories().find(c => String(c.id) === categorySelect.value);
-
-        const body = {
-            category_id: Number(categorySelect.value),
-            sku: document.getElementById("inventory-item-sku").value,
-            name: document.getElementById("inventory-item-name").value,
-            location_id: numOrNull(document.getElementById("inventory-item-location").value),
-            unit_cost: numOrNull(document.getElementById("inventory-item-unit-cost").value),
-            supplier: document.getElementById("inventory-item-supplier").value || null,
-            unit_of_measure: document.getElementById("inventory-item-uom").value || null,
-            notes: document.getElementById("inventory-item-notes").value || null,
-        };
-
-        if (category && category.tracking_type === "asset_serialized") {
-            body.serial_number = document.getElementById("inventory-item-serial-number").value || null;
-            body.asset_status = document.getElementById("inventory-item-asset-status").value;
-            body.assigned_to_user_id = numOrNull(document.getElementById("inventory-item-assigned-to").value);
-            body.make_model = document.getElementById("inventory-item-make-model").value || null;
-            body.spec_capacity = document.getElementById("inventory-item-spec-capacity").value || null;
-            body.install_date = document.getElementById("inventory-item-install-date").value || null;
-        } else if (category && category.tracking_type === "inventory_quantity") {
-            body.batch_lot = document.getElementById("inventory-item-batch-lot").value || null;
-            body.expiry_date = document.getElementById("inventory-item-expiry-date").value || null;
-            body.quantity_on_hand = numOrNull(document.getElementById("inventory-item-quantity-on-hand").value);
-        } else if (category && category.tracking_type === "inventory_length") {
-            body.cut_reel_id = document.getElementById("inventory-item-cut-reel-id").value || null;
-            body.spec = document.getElementById("inventory-item-spec").value || null;
-            body.length_received = numOrNull(document.getElementById("inventory-item-length-received").value);
-        }
-
-        const response = await fetch("/inventory/items", {
-            method: "POST",
-            headers: authHeaders({ "Content-Type": "application/json" }),
-            body: JSON.stringify(body)
-        });
-
-        if (response.ok) {
-            showMessage("inventory-item-msg", "Item added", false);
-            addForm.reset();
-            addOverlay.hidden = true;
-            await refreshItems();
-        } else {
-            const err = await response.json().catch(() => ({}));
-            showMessage("inventory-item-msg", err.detail || "Failed to add item", true);
-        }
-    });
-
-    const editOverlay = document.getElementById("edit-inventory-item-overlay");
-    const editCancelBtn = document.getElementById("edit-inventory-item-cancel");
-    const editForm = document.getElementById("edit-inventory-item-form");
-
-    editCancelBtn.addEventListener("click", closeEditItemModal);
-    editOverlay.addEventListener("click", (e) => { if (e.target === editOverlay) closeEditItemModal(); });
-
-    editForm.addEventListener("submit", async (e) => {
-        e.preventDefault();
-        if (!editItemId) return;
-        const item = unitListCache.find(i => String(i.id) === String(editItemId));
+    tbody.querySelectorAll("tr").forEach(row => {
+        const item = addItemBatchItems.find(i => String(i.id) === row.dataset.itemId);
         if (!item) return;
 
-        const body = {
-            sku: document.getElementById("edit-inventory-item-sku").value,
-            name: document.getElementById("edit-inventory-item-name").value,
-            location_id: numOrNull(document.getElementById("edit-inventory-item-location").value),
-            unit_cost: numOrNull(document.getElementById("edit-inventory-item-unit-cost").value),
-            supplier: document.getElementById("edit-inventory-item-supplier").value || null,
-            unit_of_measure: document.getElementById("edit-inventory-item-uom").value || null,
-            notes: document.getElementById("edit-inventory-item-notes").value || null,
-        };
+        const serialInput = row.querySelector(".add-item-batch-review-serial");
+        serialInput.value = item.serial_number || "";
+        const locationSelect = row.querySelector(".add-item-batch-review-location");
+        locationSelect.value = item.location_id || "";
+        const statusSelect = row.querySelector(".add-item-batch-review-status");
+        statusSelect.value = item.asset_status || "Active";
 
-        if (item.tracking_type === "asset_serialized") {
-            body.serial_number = document.getElementById("edit-inventory-item-serial-number").value || null;
-            body.asset_status = document.getElementById("edit-inventory-item-asset-status").value;
-            body.assigned_to_user_id = numOrNull(document.getElementById("edit-inventory-item-assigned-to").value);
-            body.make_model = document.getElementById("edit-inventory-item-make-model").value || null;
-            body.spec_capacity = document.getElementById("edit-inventory-item-spec-capacity").value || null;
-            body.install_date = document.getElementById("edit-inventory-item-install-date").value || null;
-        } else if (item.tracking_type === "inventory_quantity") {
-            body.batch_lot = document.getElementById("edit-inventory-item-batch-lot").value || null;
-            body.expiry_date = document.getElementById("edit-inventory-item-expiry-date").value || null;
-            body.quantity_on_hand = numOrNull(document.getElementById("edit-inventory-item-quantity-on-hand").value);
-        } else if (item.tracking_type === "inventory_length") {
-            body.cut_reel_id = document.getElementById("edit-inventory-item-cut-reel-id").value || null;
-            body.spec = document.getElementById("edit-inventory-item-spec").value || null;
-            body.length_received = numOrNull(document.getElementById("edit-inventory-item-length-received").value);
-            body.length_remaining = numOrNull(document.getElementById("edit-inventory-item-length-remaining").value);
-            body.length_status = document.getElementById("edit-inventory-item-length-status").value;
-        }
-
-        const response = await fetch(`/inventory/items/${editItemId}`, {
-            method: "PATCH",
-            headers: authHeaders({ "Content-Type": "application/json" }),
-            body: JSON.stringify(body)
-        });
-
-        if (response.ok) {
-            closeEditItemModal();
-            await Promise.all([refreshItems(), refreshUnitListIfOpen()]);
-        } else {
-            const err = await response.json().catch(() => ({}));
-            alert(err.detail || "Failed to update item");
-        }
-    });
-
-    document.getElementById("inventory-items-category-filter").addEventListener("change", async (e) => {
-        itemsCategoryFilter = e.target.value;
-        await refreshItems();
-    });
-
-    document.getElementById("inventory-items-status-filter").addEventListener("change", (e) => {
-        itemsStatusFilter = e.target.value;
-        renderItemsTable();
-    });
-
-    document.getElementById("inventory-items-custody-filter").addEventListener("change", (e) => {
-        itemsCustodyFilter = e.target.value;
-        renderItemsTable();
+        serialInput.addEventListener("blur", () => saveBatchReviewRow(item, { serial_number: serialInput.value || null }));
+        locationSelect.addEventListener("change", () => saveBatchReviewRow(item, { location_id: numOrNull(locationSelect.value) }));
+        statusSelect.addEventListener("change", () => saveBatchReviewRow(item, { asset_status: statusSelect.value }));
     });
 }
 
-function initUnitListModal() {
-    const overlay = document.getElementById("unit-list-overlay");
-    document.getElementById("unit-list-close").addEventListener("click", () => { overlay.hidden = true; });
-    overlay.addEventListener("click", (e) => { if (e.target === overlay) overlay.hidden = true; });
+async function saveBatchReviewRow(item, changes) {
+    // Carries every other field through unchanged from the just-created item
+    // — same "unedited fields ride along as-is" convention the Edit Unit
+    // form already uses, since PATCH /inventory/items/{id} still requires
+    // the full unit-level field set.
+    const body = {
+        sku: item.sku, name: item.name,
+        make_model: item.make_model, spec_capacity: item.spec_capacity,
+        supplier: item.supplier, unit_of_measure: item.unit_of_measure,
+        location_id: item.location_id, unit_cost: item.unit_cost, notes: item.notes,
+        serial_number: item.serial_number, asset_status: item.asset_status,
+        assigned_to_user_id: item.assigned_to_user_id, install_date: item.install_date,
+        ...changes,
+    };
+
+    const response = await fetch(`/inventory/items/${item.id}`, {
+        method: "PATCH",
+        headers: authHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify(body),
+    });
+
+    if (response.ok) {
+        Object.assign(item, changes);
+        await Promise.all([refreshCatalog(), loadAllInventoryItems()]);
+    } else {
+        showMessage("inventory-item-msg", "Failed to save — try again", true);
+    }
+}
+
+function initAddItemWizard() {
+    const addOverlay = document.getElementById("add-inventory-item-overlay");
+    const addOpenBtn = document.getElementById("add-inventory-item-open-btn");
+
+    function closeWizard() {
+        addOverlay.hidden = true;
+        resetAddItemWizard();
+    }
+
+    addOpenBtn.addEventListener("click", () => {
+        resetAddItemWizard();
+        addOverlay.hidden = false;
+        // Both paths — New Product (create a fresh SKU) and Existing
+        // Product (add a unit to one already on file) — are gated by the
+        // same "Add item" permission now that "Add Stock" was folded into
+        // it, so both pills show/hide together. Evaluated here (on open),
+        // not at initAddItemWizard's own call time — that runs once at app
+        // boot, before login has populated currentUser/currentPermissions,
+        // so can() would see no one logged in yet and hide both pills for
+        // everyone, admins included.
+        choiceNewBtn.hidden = !can("inventory_items", "add");
+        choiceExistingBtn.hidden = !can("inventory_items", "add");
+    });
+    document.getElementById("add-item-close").addEventListener("click", closeWizard);
+    addOverlay.addEventListener("click", (e) => { if (e.target === addOverlay) closeWizard(); });
+
+    initQtyStepper("add-item-product-reorder-level");
+    initQtyStepper("add-item-unit-quantity-on-hand");
+    initQtyStepper("add-item-unit-length-received");
+    initQtyStepper("add-item-unit-cost");
+    initQtyStepper("add-item-batch-quantity");
+    initQtyStepper("add-item-batch-unit-cost");
+
+    // Picking either pill immediately advances the wizard, so without a
+    // beat between the two, the .active green tint and the step swap land
+    // in the same synchronous tick — the browser never gets a chance to
+    // paint the pill before its container is hidden, so the click reads as
+    // dead. This delay is just long enough to let that one frame render.
+    const choiceExistingBtn = document.getElementById("add-item-choice-existing");
+    const choiceNewBtn = document.getElementById("add-item-choice-new");
+    choiceExistingBtn.addEventListener("click", () => {
+        choiceExistingBtn.classList.add("active");
+        choiceNewBtn.classList.remove("active");
+        addItemMode = "existing";
+        renderProductSearchResults("");
+        setTimeout(() => showAddItemStep("search"), 160);
+    });
+    choiceNewBtn.addEventListener("click", () => {
+        choiceNewBtn.classList.add("active");
+        choiceExistingBtn.classList.remove("active");
+        addItemMode = "new";
+        setTimeout(() => showAddItemStep("product"), 160);
+    });
+
+    document.getElementById("add-item-product-search-input").addEventListener("input", (e) => {
+        renderProductSearchResults(e.target.value);
+    });
+    document.getElementById("add-item-search-back").addEventListener("click", () => showAddItemStep("choice"));
+
+    const productForm = document.getElementById("add-item-product-form");
+    const productCategorySelect = document.getElementById("add-item-product-category");
+    productCategorySelect.addEventListener("change", () => {
+        const category = getInventoryCategories().find(c => String(c.id) === productCategorySelect.value);
+        if (category) {
+            productForm.querySelectorAll("[data-item-type-fields]").forEach(block => {
+                block.hidden = block.dataset.itemTypeFields !== category.tracking_type;
+            });
+            // A `required` field inside a hidden block still fails
+            // checkValidity() in Chromium — hiding an ancestor isn't enough,
+            // the attribute itself has to come off (same fix already used in
+            // inventory-log.js's updateAssetStatusVisibility).
+            document.getElementById("add-item-product-spec").required = category.tracking_type === "inventory_length";
+
+            // Cable Core has no separate SKU concept — Spec is the sole
+            // identifying field, so the SKU input is hidden (not just
+            // optional) for this Core specifically. The backend forces
+            // sku to mirror spec regardless of what's sent, so it's safe
+            // to leave this field blank/stale rather than special-casing
+            // its value on submit.
+            const isCable = category.tracking_type === "inventory_length";
+            const skuField = document.getElementById("add-item-product-sku");
+            skuField.hidden = isCable;
+            skuField.required = !isCable;
+            if (isCable) skuField.value = "";
+        }
+    });
+    document.getElementById("add-item-product-back").addEventListener("click", () => showAddItemStep("choice"));
+
+    productForm.addEventListener("submit", (e) => {
+        e.preventDefault();
+        const category = getInventoryCategories().find(c => String(c.id) === productCategorySelect.value);
+        if (!category) return;
+
+        addItemProduct = {
+            category_id: category.id, tracking_type: category.tracking_type,
+            sku: document.getElementById("add-item-product-sku").value,
+            name: document.getElementById("add-item-product-name").value,
+            spec_capacity: document.getElementById("add-item-product-spec-capacity").value || null,
+            spec: document.getElementById("add-item-product-spec").value || null,
+            // Optional — can be left blank here and set later via
+            // edit-on-click on Stock's Reorder Level column. Both write to
+            // the same inventory_sku_thresholds row (PATCH /inventory/
+            // reorder-level is an upsert), so there's no separate "set it
+            // later" flow distinct from "edit it now".
+            reorder_level: numOrNull(document.getElementById("add-item-product-reorder-level").value),
+        };
+        enterUnitStep();
+    });
+
+    document.getElementById("add-item-unit-back").addEventListener("click", () => {
+        showAddItemStep(addItemMode === "existing" ? "search" : "product");
+    });
+
+    document.getElementById("add-item-unit-form").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        if (!addItemProduct) return;
+
+        const response = await fetch("/inventory/units", {
+            method: "POST",
+            headers: authHeaders({ "Content-Type": "application/json" }),
+            body: JSON.stringify(unitFormBody())
+        });
+
+        if (response.ok) {
+            const result = await response.json();
+            addItemEventGroupId = result.event_group_id;
+            // Reorder Level (Step 1, New product path only) is product-level,
+            // so it's only ever applied once per sitting — on the first unit
+            // saved, not on every "+Add another unit" that follows.
+            const isFirstSaveThisSitting = !addItemHasSavedInSitting;
+            addItemHasSavedInSitting = true;
+            const identifier = addItemProduct.tracking_type === "inventory_length"
+                ? result.item.cut_reel_id
+                : (result.item.serial_number || result.item.sku);
+            document.getElementById("add-item-success-message").textContent =
+                `Added ${result.item.name}${identifier ? ` (${identifier})` : ""} — logged as an In transaction.`;
+
+            const setReorderLevel = isFirstSaveThisSitting && addItemProduct.reorder_level != null
+                ? fetch("/inventory/reorder-level", {
+                    method: "PATCH",
+                    headers: authHeaders({ "Content-Type": "application/json" }),
+                    body: JSON.stringify({
+                        category_id: addItemProduct.category_id,
+                        sku_or_spec: addItemProduct.tracking_type === "inventory_length" ? addItemProduct.spec : addItemProduct.sku,
+                        reorder_level: addItemProduct.reorder_level,
+                    }),
+                })
+                : Promise.resolve();
+
+            // Refreshes the location cache too — a brand-new store typed
+            // into the Location field above needs to show up in the
+            // autocomplete's suggestions for the next unit in this same
+            // "+Add another unit" sitting, same as Issue Materials already
+            // does for its own Site field after a submit.
+            await Promise.all([refreshCatalog(), loadAllInventoryItems(), loadInventoryLocations(), setReorderLevel]);
+            populateLocationDropdowns();
+            showAddItemStep("success");
+        } else {
+            const err = await response.json().catch(() => ({}));
+            showMessage("inventory-item-msg", err.detail || "Failed to add unit", true);
+        }
+    });
+
+    document.getElementById("add-item-add-another-btn").addEventListener("click", () => {
+        document.getElementById("add-item-unit-form").reset();
+        applyAddItemDateDefaults();
+        enterUnitStep();
+    });
+    document.getElementById("add-item-done-btn").addEventListener("click", closeWizard);
+
+    document.getElementById("add-item-batch-back").addEventListener("click", () => {
+        showAddItemStep("search");
+    });
+
+    document.getElementById("add-item-batch-form").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        if (!addItemProduct) return;
+
+        const quantity = Number(document.getElementById("add-item-batch-quantity").value);
+        const assignedToHidden = document.getElementById("add-item-batch-assigned-to-row").hidden;
+
+        const response = await fetch("/inventory/units/batch", {
+            method: "POST",
+            headers: authHeaders({ "Content-Type": "application/json" }),
+            body: JSON.stringify({
+                category_id: addItemProduct.category_id,
+                sku: addItemProduct.sku,
+                name: addItemProduct.name,
+                // Make/Model and Supplier are unit-level, not product-level
+                // — shared across this one batch sitting (like Location/
+                // Status/Cost below), read fresh from the batch form rather
+                // than carried from addItemProduct.
+                make_model: document.getElementById("add-item-batch-make-model").value || null,
+                spec_capacity: addItemProduct.spec_capacity,
+                supplier: document.getElementById("add-item-batch-supplier").value || null,
+                unit_of_measure: addItemProduct.unit_of_measure,
+                quantity,
+                // Free-typed, resolved server-side — same as Add Unit's
+                // Location field above.
+                location_name: document.getElementById("add-item-batch-location").value.trim() || null,
+                unit_cost: numOrNull(document.getElementById("add-item-batch-unit-cost").value),
+                asset_status: document.getElementById("add-item-batch-asset-status").value,
+                assigned_to_user_id: assignedToHidden ? null : numOrNull(document.getElementById("add-item-batch-assigned-to").value),
+                install_date: document.getElementById("add-item-batch-install-date").value || null,
+                notes: document.getElementById("add-item-batch-notes").value || null,
+                event_group_id: addItemEventGroupId,
+            }),
+        });
+
+        if (response.ok) {
+            const result = await response.json();
+            addItemEventGroupId = result.event_group_id;
+            addItemHasSavedInSitting = true;
+            addItemBatchItems = result.items;
+            await Promise.all([refreshCatalog(), loadAllInventoryItems(), loadInventoryLocations()]);
+            populateLocationDropdowns();
+            renderBatchReviewTable();
+            showAddItemStep("batch-review");
+        } else {
+            const err = await response.json().catch(() => ({}));
+            showMessage("inventory-item-msg", err.detail || "Failed to add units", true);
+        }
+    });
+
+    document.getElementById("add-item-batch-review-done-btn").addEventListener("click", closeWizard);
 }
 
 export function initInventory() {
-    initItemForms();
+    initAddItemWizard();
+    initEditProductModal();
     initUnitListModal();
     initUnitDetailModal();
     initSkuHistoryModal();
 
-    // These header buttons live in this view's own fragment (loaded after
-    // initShell()'s generic [data-view] click wiring already ran over
-    // index.html's contents), so — like every other header quick-link in
-    // this codebase (movements.js, check-sites.js) — they need their own
-    // explicit wiring rather than relying on that generic pass to find them.
-    document.getElementById("issue-materials-link-btn").addEventListener("click", () => {
-        navigate("issue-materials");
+    document.getElementById("inventory-items-category-filter").addEventListener("change", async (e) => {
+        itemsCategoryFilter = e.target.value;
+        await refreshCatalog();
     });
 
-    document.getElementById("return-materials-link-btn").addEventListener("click", () => {
-        navigate("return-materials");
+    document.getElementById("inventory-items-search").addEventListener("input", (e) => {
+        itemsSearchQuery = e.target.value;
+        renderItemsTable();
     });
+
+    document.getElementById("export-items-csv-btn").addEventListener("click", exportItemsCsv);
 
     registerAppShownHandler(async () => {
-        await Promise.all([loadInventoryCategories(), loadInventoryLocations(), loadInventoryAssignableUsers()]);
-        populateCategoryDropdowns();
+        await Promise.all([
+            loadInventoryCategories(), loadInventoryLocations(),
+            loadInventoryAssignableUsers(), loadAllInventoryItems(),
+        ]);
+        populateCategoryFilter();
         populateLocationDropdowns();
         populateAssignedToDropdowns();
-        await refreshItems();
+        await refreshCatalog();
     });
 
     registerRoute("inventory", async () => {
         showView("view-inventory");
-        // Re-fetched on every visit, not just at login, so a category or
-        // location added/edited on the Manage page shows up here immediately.
-        await Promise.all([loadInventoryCategories(), loadInventoryLocations()]);
-        populateCategoryDropdowns();
+        // Re-fetched on every visit, not just at login, so a category added
+        // on Manage or a unit added on this page's own wizard shows up
+        // immediately.
+        await Promise.all([loadInventoryCategories(), loadInventoryLocations(), loadAllInventoryItems()]);
+        populateCategoryFilter();
         populateLocationDropdowns();
-        await refreshItems();
+        await refreshCatalog();
+    });
+
+    // Global ⌘K coverage for inventory — getAllInventoryItems() is already
+    // populated at login (this view's own registerAppShownHandler above),
+    // so no ensureLoaded is needed here. One result per (category, SKU/spec)
+    // group, not per physical unit — Items and Stock are two views over the
+    // same rows, and every unit in a group opens the identical action
+    // anyway (the SKU-level stock-history view, type-dispatched correctly
+    // for all three Cores rather than assuming a per-unit modal exists,
+    // which Consumables don't have) — so one entry per real unit would just
+    // be the same product repeated N times in the results. searchText still
+    // covers every unit's own serial/batch/reel id under that group, so
+    // typing a specific serial number still finds the right product.
+    registerCmdkProvider({
+        getItems: () => {
+            if (!can("inventory_items", "view")) return [];
+            const groups = new Map();
+            getAllInventoryItems().forEach(item => {
+                const key = `${item.category_id}::${item.sku}`;
+                if (!groups.has(key)) groups.set(key, { item, extras: [] });
+                groups.get(key).extras.push(item.serial_number, item.batch_lot, item.cut_reel_id);
+            });
+            return Array.from(groups.values()).map(({ item, extras }) => ({
+                type: "inventory-item",
+                label: item.name,
+                sublabel: [item.sku, item.category_name].filter(Boolean).join(" — "),
+                searchText: [item.name, item.sku, item.category_name, ...extras].filter(Boolean).join(" "),
+                action: () => {
+                    navigate("stock");
+                    openStockHistory({
+                        categoryId: item.category_id, sku: item.sku,
+                        trackingType: item.tracking_type, categoryName: item.category_name,
+                    });
+                },
+            }));
+        },
     });
 }

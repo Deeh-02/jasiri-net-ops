@@ -7,6 +7,7 @@ import { initUsers } from "./users.js";
 import { initRoles } from "./roles.js";
 import { initSettings } from "./settings.js";
 import { initInventory } from "./inventory.js";
+import { initStock } from "./stock.js";
 import { initInventoryManage } from "./inventory-manage.js";
 import { initInventoryLog } from "./inventory-log.js";
 import { initIssueMaterials } from "./issue-materials.js";
@@ -25,6 +26,7 @@ async function boot() {
     initRoles();
     initSettings();
     initInventory();
+    initStock();
     initInventoryManage();
     initInventoryLog();
     initIssueMaterials();

@@ -93,17 +93,75 @@ const PERM_SECTIONS = [
     },
     { key: "users", label: "Users", actions: ["add", "edit", "delete"] },
     { key: "roles", label: "Roles", actions: ["add", "edit", "delete"] },
+    // A plain master toggle, same shape as Users/Roles above — no flat
+    // actions or children, since "view" is the only capability the Reports
+    // page needs (every panel on it, SKU Summary/Cable Summary/Offcuts, is
+    // read-only). Deliberately its own section, independent of
+    // inventory_items:view, so a role can see item stock without seeing
+    // rollup reports, or the reverse — mirrors ROUTE_PERMISSION_MAP's
+    // "inventory-reports" entry and every report endpoint's own check in
+    // routers/inventory.py (both now read reports:view, not
+    // inventory_items:view).
+    { key: "reports", label: "Reports", actions: [] },
     {
-        key: "inventory_items", label: "Inventory Items", actions: ["add", "edit", "delete"],
+        // "Inventory" is the master switch for the whole domain — its own
+        // toggle reads/writes inventory_items:view, which now gates only the
+        // domain as a whole (the entire Inventory nav group hides when this
+        // is off, see NAV_GROUP_MASTER_PERMISSION in common.js) rather than
+        // literally being the same permission any specific sub-view checks.
+        // No flat actions of its own any more — every capability below is a
+        // nested, independently toggleable/checkable child; each is fully
+        // hidden/unchecked — cascading through every checkbox and toggle
+        // beneath it — the moment this master toggle goes off (see
+        // renderPermGrid's change handler, unchanged from before this
+        // reorganization).
+        key: "inventory_items", label: "Inventory",
+        actions: [],
         children: [
+            // Real toggle now (not noToggle) — view_items is its own
+            // backend-enforced permission (routers/inventory.py, and
+            // common.js's ROUTE_PERMISSION_MAP for the "inventory" route),
+            // independent of the master's inventory_items:view, so a role
+            // can have Stock access without Items access or vice versa. `id`
+            // keeps its menu-visibility wiring from colliding with the
+            // master's own (both key off "inventory_items").
+            // "Add item" here covers both creating a brand-new product/SKU
+            // (POST /inventory/items) and adding stock to one that already
+            // exists (POST /inventory/units[/batch]) — collapsed into one
+            // permission (previously split as "Add Stock", its own toggle)
+            // since the two-permission version was more granularity than
+            // this app actually wants.
+            {
+                id: "inventory_items_view_items", key: "inventory_items", label: "Inventory Items",
+                toggleAction: "view_items", actions: ["add", "edit", "delete"],
+            },
+            // Stock's own view permission (view_stock) gates the "stock"
+            // route the same way view_items gates "inventory" above. The
+            // four checkboxes nested under it are each their own
+            // backend-enforced permission already (edit_reorder_level,
+            // issue, return, view_history) — moved here from directly under
+            // the master, unchanged in what they write, just regrouped so a
+            // role can be denied Stock access outright without having to
+            // deny each of the four individually.
+            {
+                id: "inventory_items_view_stock", key: "inventory_items", label: "Stock",
+                toggleAction: "view_stock",
+                actions: [
+                    { label: "Edit Reorder Level", action: "edit_reorder_level" },
+                    { label: "Issue Materials", section: "inventory_transactions", action: "issue" },
+                    { label: "Return Materials", section: "inventory_transactions", action: "return" },
+                    { label: "View Stock History", action: "view_history" },
+                ],
+            },
             { key: "inventory_categories", label: "Inventory Categories", actions: ["add", "edit", "delete"] },
             // Inventory Locations has no permission section of its own any
             // more — Issue/Return Materials' free-typed Site field creates a
             // location implicitly, gated the same as issuing/returning
-            // itself (inventory_transactions:add), not as a separate
-            // grantable capability.
+            // itself, not as a separate grantable capability.
             // "add" covers logging In/Transfer/Adjustment/Return/Write-off
-            // and issuing a cart; "Reconcile Cut" is separate and gated
+            // through the generic Log Transaction form specifically (Issue
+            // and Return Materials are their own dedicated permissions
+            // above, not this "add"); "Reconcile Cut" is separate and gated
             // Manager-level per the phase plan, since it closes out a job.
             { key: "inventory_transactions", label: "Inventory Log", actions: ["add", { label: "Reconcile Cut", action: "reconcile" }] },
         ]
@@ -145,20 +203,46 @@ function renderPermGrid(permissions) {
         }).join("");
     }
 
+    // A child normally toggles its own inventory_items:view-shaped
+    // permission and reveals nested actions — but two variants exist here:
+    // toggleAction lets the switch itself target a different action (e.g.
+    // "Inventory Items" toggles inventory_items:view_items, "Stock" toggles
+    // inventory_items:view_stock, neither is :view), and noToggle (currently
+    // unused, but still supported for a future child with no independent
+    // permission of its own) drops the switch entirely, leaving the master
+    // above it as the only control. id lets a child's own DOM
+    // menu-visibility wiring stay unique even when its key duplicates
+    // another section's — "Inventory Items", "Stock" and the master toggle
+    // above all key off "inventory_items" but must not fight over the same
+    // [data-section-menu] element.
     function renderChild(child) {
-        const viewChecked = allowedSet.has(`${child.key}:view`);
         const noun = ACTION_NOUN[child.key];
+        if (child.noToggle) {
+            return `
+                <div class="perm-subsection" style="margin-left:20px;margin-top:10px;">
+                    <div class="perm-section-header perm-subsection-header">
+                        <span class="perm-section-name">${child.label}</span>
+                    </div>
+                    <div class="perm-menu">
+                        <div class="perm-checkbox-grid">${renderActionCheckboxes(child.key, child.actions, noun)}</div>
+                    </div>
+                </div>
+            `;
+        }
+        const toggleAction = child.toggleAction || "view";
+        const menuId = child.id || child.key;
+        const viewChecked = allowedSet.has(`${child.key}:${toggleAction}`);
         return `
             <div class="perm-subsection" style="margin-left:20px;margin-top:10px;">
                 <div class="perm-section-header perm-subsection-header">
                     <span class="perm-section-name">${child.label}</span>
                     <label class="perm-toggle">
-                        <input type="checkbox" class="perm-view-toggle" data-section="${child.key}" ${viewChecked ? "checked" : ""}>
+                        <input type="checkbox" class="perm-view-toggle" data-section="${child.key}" data-action="${toggleAction}" data-menu="${menuId}" ${viewChecked ? "checked" : ""}>
                         <span class="perm-toggle-track"></span>
                         <span class="perm-toggle-thumb"></span>
                     </label>
                 </div>
-                <div class="perm-menu" data-section-menu="${child.key}" ${viewChecked ? "" : "hidden"}>
+                <div class="perm-menu" data-section-menu="${menuId}" ${viewChecked ? "" : "hidden"}>
                     <div class="perm-checkbox-grid">${renderActionCheckboxes(child.key, child.actions, noun)}</div>
                 </div>
             </div>
@@ -174,7 +258,7 @@ function renderPermGrid(permissions) {
                 <div class="perm-section-header">
                     <span class="perm-section-name">${section.label}</span>
                     <label class="perm-toggle">
-                        <input type="checkbox" class="perm-view-toggle" data-section="${section.key}" ${viewChecked ? "checked" : ""}>
+                        <input type="checkbox" class="perm-view-toggle" data-section="${section.key}" data-action="view" data-menu="${section.key}" ${viewChecked ? "checked" : ""}>
                         <span class="perm-toggle-track"></span>
                         <span class="perm-toggle-thumb"></span>
                     </label>
@@ -189,14 +273,16 @@ function renderPermGrid(permissions) {
 
     grid.querySelectorAll(".perm-view-toggle").forEach(toggle => {
         toggle.addEventListener("change", () => {
-            const sectionKey = toggle.dataset.section;
-            const menu = grid.querySelector(`[data-section-menu="${sectionKey}"]`);
+            const menuId = toggle.dataset.menu || toggle.dataset.section;
+            const menu = grid.querySelector(`[data-section-menu="${menuId}"]`);
+            if (!menu) return;
             menu.hidden = !toggle.checked;
             if (!toggle.checked) {
                 menu.querySelectorAll(".perm-action-checkbox").forEach(cb => cb.checked = false);
                 menu.querySelectorAll(".perm-view-toggle").forEach(childToggle => {
                     childToggle.checked = false;
-                    const childMenu = grid.querySelector(`[data-section-menu="${childToggle.dataset.section}"]`);
+                    const childMenuId = childToggle.dataset.menu || childToggle.dataset.section;
+                    const childMenu = grid.querySelector(`[data-section-menu="${childMenuId}"]`);
                     if (childMenu) {
                         childMenu.hidden = true;
                         childMenu.querySelectorAll(".perm-action-checkbox").forEach(cb => cb.checked = false);
@@ -269,9 +355,16 @@ export function initRoles() {
         const roleId = editRoleId || saved.id;
 
         const permissions = [
+            // Most toggles still gate :view (hardcoding it was harmless
+            // before), but "Inventory Items" and "Stock" target view_items/
+            // view_stock instead — reading dataset.action
+            // (set for every toggle at render time, see renderPermGrid)
+            // instead of assuming "view" is what actually saves that
+            // distinction, rather than silently writing every toggle here
+            // to :view regardless of what it displayed as controlling.
             ...Array.from(document.querySelectorAll(".perm-view-toggle")).map(t => ({
                 section: t.dataset.section,
-                action: "view",
+                action: t.dataset.action || "view",
                 allowed: t.checked
             })),
             ...Array.from(document.querySelectorAll(".perm-action-checkbox")).map(cb => ({

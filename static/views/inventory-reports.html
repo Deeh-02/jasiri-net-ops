@@ -22,15 +22,20 @@
     </div>
 
     <div class="modal-overlay" id="cable-drilldown-overlay" hidden>
-        <div class="modal-box">
+        <div class="modal-box dashboard-modal-box-lg">
             <h3>Cable <span id="cable-drilldown-label"></span></h3>
+            <!-- Every reel ever created for this spec, not just in-stock ones
+                 (unlike the Units view, which excludes depleted reels by
+                 default) — this is the one place a depleted reel's status and
+                 last known location before it closed out are still visible. -->
             <div class="table-scroll">
                 <table id="cable-drilldown-table">
                     <thead>
                         <tr>
                             <th>Cut/Reel ID</th>
+                            <th>Status</th>
+                            <th>Last Known Location</th>
                             <th>Remaining</th>
-                            <th>Location</th>
                             <th>Unit Cost</th>
                             <th>Created</th>
                             <th></th>
@@ -48,65 +53,74 @@
     <section class="view" id="view-inventory-reports" hidden>
         <div class="page-header-row">
             <h1 class="page-title">Inventory Reports</h1>
-        </div>
-
-        <div class="inventory-panel">
-            <div class="inventory-panel-header">
-                <h2>SKU / Spec Summary</h2>
-            </div>
-            <div class="table-scroll">
-                <table id="sku-summary-table">
-                    <thead>
-                        <tr>
-                            <th>Category</th>
-                            <th>SKU / Spec</th>
-                            <th>Total On Hand</th>
-                            <th>Avg Unit Cost</th>
-                            <th>Reorder Level</th>
-                            <th id="sku-summary-actions-th">Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody id="sku-summary-rows"></tbody>
-                </table>
-            </div>
-            <div class="form-msg" id="sku-summary-msg"></div>
-        </div>
-
-        <div class="inventory-panel">
-            <div class="inventory-panel-header">
-                <h2>Cable Type Summary</h2>
-            </div>
-            <div class="table-scroll">
-                <table id="cable-summary-table">
-                    <thead>
-                        <tr>
-                            <th>Spec</th>
-                            <th>Reels In Stock</th>
-                            <th>Total Remaining</th>
-                            <th>Details</th>
-                        </tr>
-                    </thead>
-                    <tbody id="cable-summary-rows"></tbody>
-                </table>
+            <div class="header-action-group">
+                <select id="inventory-reports-category-filter" class="inventory-filter-select">
+                    <option value="">All Categories</option>
+                </select>
+                <button type="button" id="export-reports-csv-btn" class="header-sub-link">Export CSV</button>
             </div>
         </div>
 
-        <div class="inventory-panel">
-            <div class="inventory-panel-header">
-                <h2>Offcut Rollup</h2>
+        <div class="inventory-item-tab-row" id="reports-tab-row">
+            <button type="button" class="inventory-item-tab active" id="reports-tab-btn-sku" data-tab="sku">SKU Summary</button>
+            <button type="button" class="inventory-item-tab" id="reports-tab-btn-cable" data-tab="cable">Cable Summary</button>
+            <button type="button" class="inventory-item-tab" id="reports-tab-btn-offcut" data-tab="offcut">Offcut Rollup</button>
+        </div>
+
+        <div class="dashboard-tab-panel" id="reports-tab-sku">
+            <div class="inventory-panel">
+                <div class="table-scroll">
+                    <table id="sku-summary-table">
+                        <thead>
+                            <tr>
+                                <th>Name</th>
+                                <th>SKU / Spec</th>
+                                <th>Total On Hand</th>
+                                <th>Avg Unit Cost</th>
+                                <th>Total Value</th>
+                                <th>Reorder Level</th>
+                            </tr>
+                        </thead>
+                        <tbody id="sku-summary-rows"></tbody>
+                    </table>
+                </div>
+                <div class="inventory-report-total" id="sku-summary-total"></div>
             </div>
-            <div class="table-scroll">
-                <table id="offcut-summary-table">
-                    <thead>
-                        <tr>
-                            <th>Spec</th>
-                            <th>Total Length In Stock</th>
-                            <th>Cuts</th>
-                            <th>Details</th>
-                        </tr>
-                    </thead>
-                    <tbody id="offcut-summary-rows"></tbody>
-                </table>
+        </div>
+
+        <div class="dashboard-tab-panel" id="reports-tab-cable" hidden>
+            <div class="inventory-panel">
+                <div class="table-scroll">
+                    <table id="cable-summary-table">
+                        <thead>
+                            <tr>
+                                <th>Spec</th>
+                                <th>Reels In Stock</th>
+                                <th>Total Remaining</th>
+                                <th>Details</th>
+                            </tr>
+                        </thead>
+                        <tbody id="cable-summary-rows"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="dashboard-tab-panel" id="reports-tab-offcut" hidden>
+            <div class="inventory-panel">
+                <div class="table-scroll">
+                    <table id="offcut-summary-table">
+                        <thead>
+                            <tr>
+                                <th>Spec</th>
+                                <th>Total Length In Stock</th>
+                                <th>Cuts</th>
+                                <th>Details</th>
+                            </tr>
+                        </thead>
+                        <tbody id="offcut-summary-rows"></tbody>
+                    </table>
+                </div>
             </div>
         </div>
     </section>

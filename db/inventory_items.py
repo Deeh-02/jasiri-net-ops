@@ -1,3 +1,5 @@
+import re
+
 from db.connection import get_connection
 
 # Columns are a plain, generic insert/update surface — routers/inventory.py
@@ -53,6 +55,73 @@ def deactivate_item(item_id):
     cur.close()
     conn.close()
 
+# Product-level fields (sku, name, category_id, make_model, spec_capacity,
+# spec, supplier, unit_of_measure) are denormalized across every unit row of
+# a SKU/spec group — there's no separate products table (see
+# architecture.md). Editing "the product" from the Items table's aggregate
+# row means applying the same values to every active unit in that group at
+# once, matched the same way get_all_items' sku param already does: sku for
+# Asset/Quantity, spec for Length, via the same (sku = %s OR spec = %s) test.
+def update_product(category_id, sku_or_spec, fields):
+    conn = get_connection()
+    cur = conn.cursor()
+    columns = [c for c in _ITEM_COLUMNS if c in fields]
+    set_clause = ", ".join(f"{c} = %s" for c in columns)
+    cur.execute(
+        f"""
+        UPDATE inventory_items SET {set_clause}
+        WHERE category_id = %s AND (sku = %s OR spec = %s) AND is_active = true;
+        """,
+        [fields[c] for c in columns] + [category_id, sku_or_spec, sku_or_spec]
+    )
+    updated = cur.rowcount
+    conn.commit()
+    cur.close()
+    conn.close()
+    return updated
+
+def next_serial_seq(category_id, sku):
+    """Smallest N such that '{sku}-{N:02d}' doesn't collide with any existing
+    serial_number under this SKU — checked against every row regardless of
+    is_active (a deactivated unit's identifier still shouldn't be reissued).
+    Powers the Add Unit batch flow's auto-assigned internal placeholder
+    (e.g. SPL-001-01, SPL-001-02, ...) for adding several units of an
+    already-known Asset Core product in one sitting. Only ever matches
+    serials shaped exactly like the placeholder pattern — a manually-typed
+    manufacturer serial that happens to look different doesn't collide."""
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT serial_number FROM inventory_items WHERE category_id = %s AND sku = %s AND serial_number IS NOT NULL;",
+        (category_id, sku)
+    )
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+
+    pattern = re.compile(rf"^{re.escape(sku)}-(\d+)$")
+    max_seq = 0
+    for (serial,) in rows:
+        m = pattern.match(serial)
+        if m:
+            max_seq = max(max_seq, int(m.group(1)))
+    return max_seq + 1
+
+def count_active_units(category_id, sku_or_spec):
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT COUNT(*) FROM inventory_items
+        WHERE category_id = %s AND (sku = %s OR spec = %s) AND is_active = true;
+        """,
+        (category_id, sku_or_spec, sku_or_spec)
+    )
+    count = cur.fetchone()[0]
+    cur.close()
+    conn.close()
+    return count
+
 _SELECT_COLUMNS = """
     inventory_items.id, inventory_items.category_id, inventory_categories.name,
     inventory_categories.tracking_type, inventory_items.sku, inventory_items.name,
@@ -102,8 +171,15 @@ def get_all_items(category_id=None, sku=None):
         JOIN inventory_categories ON inventory_categories.id = inventory_items.category_id
         LEFT JOIN inventory_locations ON inventory_locations.id = inventory_items.location_id
         WHERE {' AND '.join(where_clauses)}
-        ORDER BY inventory_items.name;
+        ORDER BY inventory_items.name, inventory_items.id;
         """,
+        # id is a tiebreaker, not an afterthought — every unit under one
+        # SKU/spec shares the same name, and Postgres gives no guaranteed
+        # order among rows that tie on the ORDER BY clause. Without this,
+        # which serial lands "first"/"last" in this list (and therefore in
+        # Issue/Return Materials' Quick Issue/Quick Return auto-select,
+        # which picks off one end of this exact order) could shift between
+        # requests with no visible cause.
         params
     )
     rows = cur.fetchall()

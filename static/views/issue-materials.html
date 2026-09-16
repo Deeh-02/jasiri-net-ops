@@ -4,15 +4,18 @@
         </div>
 
         <div class="issue-layout">
-            <div class="issue-search-panel">
-                <input type="text" id="issue-search" placeholder="Search anything in stock — name, SKU, serial, lot, reel..." autocomplete="off">
-                <div class="issue-results" id="issue-results"></div>
-            </div>
+            <div class="issue-left-col">
+                <div class="issue-search-panel">
+                    <input type="text" id="issue-search" placeholder="Search anything in stock — name, SKU, serial, lot, reel..." autocomplete="off">
+                    <div class="issue-results" id="issue-results"></div>
+                </div>
 
-            <div class="issue-cart-panel">
-                <h2>Cart</h2>
-                <div class="issue-cart" id="issue-cart"></div>
-
+                <!-- form wraps only the fields, not the Cart/submit button on
+                     the right — the button below is associated back to it via
+                     its own form="issue-form" attribute (HTML5 supports a
+                     submit control living outside the <form> element it
+                     submits), so .panel-form's input/select/textarea styling
+                     stays scoped to exactly these fields. -->
                 <form id="issue-form" class="panel-form">
                     <input type="text" id="issue-site" list="issue-site-suggestions" placeholder="Site / destination..." required autocomplete="off">
                     <datalist id="issue-site-suggestions"></datalist>
@@ -29,8 +32,13 @@
                         <option value="">Issued to (optional)</option>
                     </select>
                     <textarea id="issue-notes" placeholder="Notes" required></textarea>
-                    <button type="submit" class="btn-primary" id="issue-submit">Issue Materials</button>
                 </form>
+            </div>
+
+            <div class="issue-cart-panel">
+                <h2>Cart</h2>
+                <div class="issue-cart" id="issue-cart"></div>
+                <button type="submit" class="btn-primary" id="issue-submit" form="issue-form">Issue Materials</button>
                 <div class="form-msg" id="issue-msg"></div>
             </div>
         </div>

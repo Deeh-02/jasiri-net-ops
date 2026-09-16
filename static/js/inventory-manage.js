@@ -149,6 +149,12 @@ function initCategoryForms() {
             closeEditCategoryModal();
             await refreshCategories();
         } else if (response.status === 400) {
+            // The router is the source of truth on the exact wording (item
+            // count, current Core's label) — shown verbatim rather than a
+            // second hardcoded copy here, so the modal's hint and the API's
+            // error detail can never drift out of sync with each other.
+            const err = await response.json().catch(() => ({}));
+            lockHint.textContent = err.detail || "Core can't change while this category still has items.";
             lockHint.hidden = false;
         } else {
             alert("Failed to update category");

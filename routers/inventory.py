@@ -15,20 +15,32 @@ router = APIRouter()
 # constraint per the codebase's enum-like-field convention (see
 # MOVEMENT_REASONS in routers/batteries.py), validated here instead.
 TRACKING_TYPES = {"asset_serialized", "inventory_quantity", "inventory_length"}
+# Display-only "Core" naming for error messages — must match
+# TRACKING_TYPE_LABELS in static/js/inventory-common.js exactly (that file's
+# own comment is the source-of-truth note; this is the one other place that
+# needs updating if the labels ever change).
+TRACKING_TYPE_LABELS = {
+    "asset_serialized": "Asset Core",
+    "inventory_quantity": "Consumables Core",
+    "inventory_length": "Cable Core",
+}
 CUSTODY_TYPES = {"per_job", "custody"}
-ASSET_STATUSES = {"Active", "Deployed", "Faulty", "In Repair", "Decommissioned", "Spare — In Storage"}
+ASSET_STATUSES = {"Active", "Deployed", "Faulty", "In Repair", "Decommissioned"}
 LENGTH_STATUSES = {"In Stock", "Out — Pending Reconciliation", "Depleted"}
 # Out (issuing) is Milestone 5's issue_cart; Reconciled is Milestone 6's
-# reconcile_cut. This endpoint only covers the single-line actions.
-TRANSACTION_ACTIONS = {"In", "Transfer", "Adjustment", "Return", "Write-off"}
+# reconcile_cut. This endpoint only covers the single-line actions on things
+# that already exist — "In" is deliberately NOT one of them: receiving new
+# stock only ever happens through Add Product/Add Unit (which auto-generates
+# serials/reel IDs, supports batch quantities, and writes its own "In" row
+# via add_unit/add_unit_batch below). Allowing a second, manual "In" path
+# here would let the same event be recorded two divergent ways — one with
+# consistent auto-generated IDs and batch support, one without.
+TRANSACTION_ACTIONS = {"Transfer", "Adjustment", "Return", "Write-off"}
 ACTIVITIES = {"Installation", "Expansion", "Maintenance", "Repair-Replacement", "Relocation", "Decommission"}
 
 # A returned cable remainder at least this long is worth re-stocking as its
 # own cut; anything shorter is scrap that stays logged against the original.
 USABLE_LENGTH_THRESHOLD_M = 20
-# A cut still out and unreconciled past this many days gets flagged, so a job
-# that drags on doesn't leave stock unaccounted for indefinitely.
-PENDING_CUT_AGING_DAYS = 14
 
 # Universal columns every item has regardless of tracking_type.
 _UNIVERSAL_ITEM_FIELDS = {
@@ -45,12 +57,13 @@ _TYPE_FIELDS = {
     "inventory_length": {"cut_reel_id", "spec", "length_received", "length_remaining", "length_status"},
 }
 
-# Locations have no management screen any more — Issue/Return Materials'
-# free-typed Site field creates rows implicitly (see
-# locations_db.get_or_create_location_by_name), so there's no user-facing
-# add/edit/delete action left to gate. GET stays: it backs the item-location
-# dropdown (is_store=true only) and the Site autocomplete's suggestion list
-# (every location, store or job site).
+# Locations have no management screen any more — every free-typed location
+# field (Issue/Return Materials' Site, Add/Edit Unit's Location) creates
+# rows implicitly (see locations_db.get_or_create_location_by_name), so
+# there's no user-facing add/edit/delete action left to gate. GET stays: it
+# backs both autocompletes' suggestion lists — Add/Edit Unit's Location
+# filters to is_store=true, Site's suggests every location, store or job
+# site.
 @router.get("/inventory/locations")
 def read_all_inventory_locations(is_store: Optional[bool] = None, current_user: dict = Depends(get_current_user)):
     if not user_has_permission(current_user, "inventory_items", "view"):
@@ -97,11 +110,18 @@ def edit_inventory_category(category_id: int, category: InventoryCategoryUpdate,
     existing = categories_db.get_category_by_id(category_id)
     if existing is None:
         raise HTTPException(status_code=404, detail="Category not found")
-    if category.tracking_type != existing["tracking_type"] and categories_db.category_has_items(category_id):
-        raise HTTPException(
-            status_code=400,
-            detail="Tracking type can't change — this category already has items."
-        )
+    if category.tracking_type != existing["tracking_type"]:
+        item_count = categories_db.count_active_items(category_id)
+        if item_count > 0:
+            core_label = TRACKING_TYPE_LABELS.get(existing["tracking_type"], existing["tracking_type"])
+            item_word = "item" if item_count == 1 else "items"
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"This category has {item_count} {item_word} using {core_label}-specific fields, "
+                    f"so its Core can't be changed. Create a new category with the Core you want instead."
+                ),
+            )
     categories_db.update_category(category_id, category.name, category.tracking_type, category.custody_type, category.description)
     return {"id": category_id, **category.dict()}
 
@@ -117,6 +137,13 @@ class InventoryItemCreate(BaseModel):
     sku: str
     name: str
     location_id: Optional[int] = None
+    # Free-typed, same pattern as Issue/Return Materials' Site field —
+    # resolved server-side via locations_db.get_or_create_location_by_name
+    # (is_store=True) by _resolve_unit_location_id below, which takes
+    # precedence over location_id when both a name and an id could apply.
+    # Add/Edit Unit send this; location_id stays for any other caller that
+    # already has a resolved id (e.g. Batch Review's per-row correction).
+    location_name: Optional[str] = None
     unit_cost: Optional[float] = None
     supplier: Optional[str] = None
     unit_of_measure: Optional[str] = None
@@ -141,6 +168,17 @@ class InventoryItemCreate(BaseModel):
 
 class InventoryItemUpdate(InventoryItemCreate):
     category_id: Optional[int] = None  # ignored — an item's category/tracking_type never changes after creation
+
+def _resolve_unit_location_id(location_id, location_name):
+    """Add/Edit Unit's Location field is free-typed (mirrors Issue/Return's
+    Site field), matching or creating against is_store=true rows only —
+    never job sites, even if one happens to share the name (see the
+    is_store note on get_or_create_location_by_name). A plain location_id
+    is still honored when no name was sent, for callers that already have
+    a resolved id."""
+    if location_name is not None and location_name.strip():
+        return locations_db.get_or_create_location_by_name(location_name, is_store=True)
+    return location_id
 
 def _fields_for_type(payload: dict, tracking_type: str) -> dict:
     """Keeps only the universal columns plus whichever type-specific columns
@@ -174,6 +212,16 @@ def _validate_type_fields(tracking_type: str, fields: dict):
             fields["length_status"] = "In Stock"
         if fields["length_status"] not in LENGTH_STATUSES:
             raise HTTPException(status_code=400, detail=f"length_status must be one of {sorted(LENGTH_STATUSES)}")
+        if not fields.get("spec"):
+            raise HTTPException(status_code=400, detail="Spec is required for a Cable Core item")
+        # Cable Core has no separate SKU concept — Spec is the sole
+        # identifying field (this is exactly what sku_or_spec already
+        # computes server-side throughout reporting/grouping). sku stays a
+        # NOT NULL column, so it's forced to mirror spec here rather than
+        # left as whatever (if anything) the client sent — the frontend no
+        # longer even shows a SKU input for this Core, but this holds
+        # regardless of what any caller sends.
+        fields["sku"] = fields["spec"]
 
 @router.get("/inventory/items")
 def read_all_inventory_items(category_id: Optional[int] = None, sku: Optional[str] = None, current_user: dict = Depends(get_current_user)):
@@ -186,7 +234,13 @@ def read_all_inventory_items(category_id: Optional[int] = None, sku: Optional[st
 # item_id and 422 before ever reaching this handler.
 @router.get("/inventory/items/summary")
 def read_items_summary(category_id: Optional[int] = None, current_user: dict = Depends(get_current_user)):
-    if not user_has_permission(current_user, "inventory_items", "view"):
+    # Backs both the Items page (inventory.js) and the Stock page (stock.js) —
+    # each now independently permissioned (view_items / view_stock), and this
+    # one shared endpoint has no way to tell which page is asking, so either
+    # is enough to call it. A role with only Stock access still needs this to
+    # load Stock's table, and likewise for Items-only.
+    if not (user_has_permission(current_user, "inventory_items", "view_items")
+            or user_has_permission(current_user, "inventory_items", "view_stock")):
         raise HTTPException(status_code=403, detail="You don't have permission to view inventory items")
     return reports_db.get_items_summary(category_id)
 
@@ -214,6 +268,120 @@ def create_inventory_item(item: InventoryItemCreate, current_user: dict = Depend
     new_id = items_db.add_item(fields)
     return items_db.get_item_by_id(new_id)
 
+class InventoryUnitCreate(InventoryItemCreate):
+    # Threaded through by the frontend across a "+ Add another unit" sitting
+    # — the first call leaves this unset (the response hands back a fresh
+    # one), every following call in the same sitting passes that same value
+    # back in, so every unit added lands under one event_group_id.
+    event_group_id: Optional[str] = None
+
+@router.post("/inventory/units")
+def create_inventory_unit(unit: InventoryUnitCreate, current_user: dict = Depends(get_current_user)):
+    """Add Item's Step 2 ("Add Unit") — unlike plain POST /inventory/items,
+    this also writes the unit's arrival as an In transaction row in the same
+    commit, so receiving stock never needs a separate manual log-the-arrival
+    step. Kept as its own endpoint (not folded into POST /inventory/items)
+    since the two are genuinely different operations — this one always
+    produces a log row, the other never does.
+
+    Gated on add — creating a brand-new product/SKU row (POST
+    /inventory/items) and adding a physical unit of one (here) share the
+    single "Add item" permission; restocking is no longer a separately
+    grantable capability."""
+    if not user_has_permission(current_user, "inventory_items", "add"):
+        raise HTTPException(status_code=403, detail="You don't have permission to add stock")
+    category = categories_db.get_category_by_id(unit.category_id)
+    if category is None:
+        raise HTTPException(status_code=404, detail="Category not found")
+    tracking_type = category["tracking_type"]
+
+    unit.location_id = _resolve_unit_location_id(unit.location_id, unit.location_name)
+    fields = _fields_for_type(unit.dict(), tracking_type)
+    _validate_type_fields(tracking_type, fields)
+    fields["category_id"] = unit.category_id
+
+    sku_or_spec = fields["spec"] if tracking_type == "inventory_length" else fields["sku"]
+    qty_or_length = None
+    if tracking_type == "inventory_quantity":
+        qty_or_length = fields.get("quantity_on_hand")
+    elif tracking_type == "inventory_length":
+        qty_or_length = fields.get("length_received")
+
+    result = transactions_db.add_unit(
+        fields, qty_or_length, sku_or_spec, fields.get("location_id"),
+        current_user["id"], unit.notes, unit.event_group_id,
+    )
+    return {
+        "item": items_db.get_item_by_id(result["item_id"]),
+        "event_group_id": result["event_group_id"],
+    }
+
+class InventoryUnitBatchCreate(BaseModel):
+    category_id: int
+    sku: str
+    name: str
+    make_model: Optional[str] = None
+    spec_capacity: Optional[str] = None
+    supplier: Optional[str] = None
+    unit_of_measure: Optional[str] = None
+    quantity: int
+    location_id: Optional[int] = None
+    # Same free-typed pattern as InventoryItemCreate.location_name above —
+    # shared across this whole batch sitting.
+    location_name: Optional[str] = None
+    unit_cost: Optional[float] = None
+    asset_status: Optional[str] = None
+    assigned_to_user_id: Optional[int] = None
+    install_date: Optional[str] = None
+    notes: Optional[str] = None
+    # Same threading convention as InventoryUnitCreate.event_group_id above.
+    event_group_id: Optional[str] = None
+
+@router.post("/inventory/units/batch")
+def create_inventory_unit_batch(batch: InventoryUnitBatchCreate, current_user: dict = Depends(get_current_user)):
+    """Add Item's Step 2 ("Add Unit"), Existing-product batch variant —
+    lets several units of an already-known product be added in one action
+    (e.g. 5 splicing machines arriving together) instead of repeating the
+    single-unit form N times. Asset Core only: Consumables Core's "batch"
+    quantity already lives in one row's quantity_on_hand (no need for N
+    rows), and Cable Core's units are individually distinct cuts/reels with
+    their own lengths, so both still go through POST /inventory/units one at
+    a time. New product creation is unaffected — this endpoint is never
+    reached from that path. Gated on add — see POST /inventory/units'
+    docstring."""
+    if not user_has_permission(current_user, "inventory_items", "add"):
+        raise HTTPException(status_code=403, detail="You don't have permission to add stock")
+    category = categories_db.get_category_by_id(batch.category_id)
+    if category is None:
+        raise HTTPException(status_code=404, detail="Category not found")
+    if category["tracking_type"] != "asset_serialized":
+        raise HTTPException(status_code=400, detail="Batch quantity add is only available for Asset Core products")
+    if batch.quantity < 1:
+        raise HTTPException(status_code=400, detail="Quantity must be at least 1")
+
+    asset_status = batch.asset_status or "Active"
+    if asset_status not in ASSET_STATUSES:
+        raise HTTPException(status_code=400, detail=f"asset_status must be one of {sorted(ASSET_STATUSES)}")
+
+    batch.location_id = _resolve_unit_location_id(batch.location_id, batch.location_name)
+    item_fields = {
+        "category_id": batch.category_id, "sku": batch.sku, "name": batch.name,
+        "make_model": batch.make_model, "spec_capacity": batch.spec_capacity,
+        "supplier": batch.supplier, "unit_of_measure": batch.unit_of_measure,
+        "location_id": batch.location_id, "unit_cost": batch.unit_cost,
+        "asset_status": asset_status, "assigned_to_user_id": batch.assigned_to_user_id,
+        "install_date": batch.install_date,
+    }
+    start_seq = items_db.next_serial_seq(batch.category_id, batch.sku)
+    result = transactions_db.add_unit_batch(
+        item_fields, batch.quantity, batch.sku, batch.location_id,
+        current_user["id"], batch.notes, start_seq, batch.event_group_id,
+    )
+    return {
+        "items": [items_db.get_item_by_id(i) for i in result["item_ids"]],
+        "event_group_id": result["event_group_id"],
+    }
+
 @router.patch("/inventory/items/{item_id}")
 def edit_inventory_item(item_id: int, item: InventoryItemUpdate, current_user: dict = Depends(get_current_user)):
     if not user_has_permission(current_user, "inventory_items", "edit"):
@@ -222,6 +390,8 @@ def edit_inventory_item(item_id: int, item: InventoryItemUpdate, current_user: d
     if existing is None:
         raise HTTPException(status_code=404, detail="Item not found")
 
+    item.location_id = _resolve_unit_location_id(item.location_id, item.location_name)
+
     # tracking_type is resolved from the item's own (unchangeable) category —
     # never from anything the client sends.
     fields = _fields_for_type(item.dict(), existing["tracking_type"])
@@ -229,6 +399,74 @@ def edit_inventory_item(item_id: int, item: InventoryItemUpdate, current_user: d
 
     items_db.update_item(item_id, fields)
     return items_db.get_item_by_id(item_id)
+
+class ProductUpdate(BaseModel):
+    # Identifies the current SKU/spec group to update — the "primary key"
+    # of a product that has no table of its own.
+    category_id: int
+    sku_or_spec: str
+    # New values. new_category_id is only allowed to move within the same
+    # Core (tracking_type) — reassigning across Cores would corrupt every
+    # unit's type-specific columns, which only make sense for one type.
+    new_category_id: int
+    sku: str
+    name: str
+    spec_capacity: Optional[str] = None
+    spec: Optional[str] = None
+
+@router.patch("/inventory/products")
+def update_product(payload: ProductUpdate, current_user: dict = Depends(get_current_user)):
+    """Edits a SKU/spec group's product-level fields across every active
+    unit under it at once — the Items table's aggregate-row Edit action.
+    Deliberately separate from PATCH /inventory/items/{id}, which is
+    unit-level only (see that form's own fields for the split)."""
+    if not user_has_permission(current_user, "inventory_items", "edit"):
+        raise HTTPException(status_code=403, detail="You don't have permission to edit inventory items")
+    old_category = categories_db.get_category_by_id(payload.category_id)
+    if old_category is None:
+        raise HTTPException(status_code=404, detail="Category not found")
+    new_category = categories_db.get_category_by_id(payload.new_category_id)
+    if new_category is None:
+        raise HTTPException(status_code=404, detail="New category not found")
+    if new_category["tracking_type"] != old_category["tracking_type"]:
+        raise HTTPException(status_code=400, detail="Can't move a product to a category of a different Core")
+
+    tracking_type = old_category["tracking_type"]
+    fields = {
+        "sku": payload.sku, "name": payload.name, "category_id": payload.new_category_id,
+    }
+    if tracking_type == "asset_serialized":
+        fields["spec_capacity"] = payload.spec_capacity
+    elif tracking_type == "inventory_length":
+        if not payload.spec:
+            raise HTTPException(status_code=400, detail="Spec is required for a Cable Core product")
+        fields["spec"] = payload.spec
+        # Same sku-mirrors-spec invariant as _validate_type_fields — Cable
+        # Core has no separate SKU concept, so this overrides whatever
+        # payload.sku held (the frontend no longer collects it for this
+        # Core at all).
+        fields["sku"] = payload.spec
+
+    updated_count = items_db.update_product(payload.category_id, payload.sku_or_spec, fields)
+    if updated_count == 0:
+        raise HTTPException(status_code=404, detail="No units found under this product")
+    return {"updated_count": updated_count}
+
+@router.delete("/inventory/products")
+def delete_product(category_id: int, sku_or_spec: str, current_user: dict = Depends(get_current_user)):
+    """Deletes a whole product/SKU — blocked outright (never a cascade) if
+    any unit still exists under it. There's no separate product row to
+    remove once that count hits zero; this just confirms there's nothing
+    left standing in the way."""
+    if not user_has_permission(current_user, "inventory_items", "delete"):
+        raise HTTPException(status_code=403, detail="You don't have permission to delete inventory items")
+    count = items_db.count_active_units(category_id, sku_or_spec)
+    if count > 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Can't delete — {count} unit{'s' if count != 1 else ''} still exist under this product, remove those first"
+        )
+    return {"deleted": True}
 
 @router.delete("/inventory/items/{item_id}")
 def remove_inventory_item(item_id: int, current_user: dict = Depends(get_current_user)):
@@ -242,7 +480,14 @@ class InventoryTransactionCreate(BaseModel):
     item_id: int
     qty_or_length: Optional[float] = None
     from_location_id: Optional[int] = None
+    # Free-typed, same pattern as Add/Edit Unit's Location field — resolved
+    # server-side via _resolve_unit_location_id (is_store=True) below, taking
+    # precedence over a plain id when both are sent. Only meaningful for
+    # Transfer; Return always resolves to the single default store instead
+    # (see _plan_return) and the other two actions have no location fields.
+    from_location_name: Optional[str] = None
     to_location_id: Optional[int] = None
+    to_location_name: Optional[str] = None
     site_location_id: Optional[int] = None
     activity: Optional[str] = None
     issued_to_user_id: Optional[int] = None
@@ -252,27 +497,74 @@ class InventoryTransactionCreate(BaseModel):
     asset_status: Optional[str] = None
     notes: Optional[str] = None
 
-def _plan_return(item: dict, asset_status: Optional[str]):
+def _plan_return(item: dict, asset_status: Optional[str], qty_or_length: Optional[float] = None):
     """Shared by the generic transaction-log Return option and the Return
-    Materials cart. Returns (item_updates, to_location_id). Unlike every
-    other action, Return never takes a destination from the caller — neither
-    entry point collects one any more, so it always resolves to the single
+    Materials cart. Returns (item_updates, to_location_id,
+    split_new_item_fields, resolved_qty_or_length). Unlike every other
+    action, Return never takes a destination from the caller — neither entry
+    point collects one any more, so it always resolves to the single
     configured default store. An Asset's status must be explicitly chosen by
     the user (never inferred from what it was before), while
-    assigned_to_user_id always clears regardless of the chosen status."""
+    assigned_to_user_id always clears regardless of the chosen status.
+
+    A Quantity return splits exactly like a partial Transfer when
+    qty_or_length is less than the item's full quantity_on_hand: the
+    original row (wherever it was — e.g. still out at a site) decrements by
+    the returned amount, and a new row is created at the default store
+    holding the returned quantity — same split_new_item_fields shape
+    _plan_transaction's Transfer branch already produces, consumed the same
+    way by record_transaction/return_cart. qty_or_length of None (the
+    generic Log Transaction form doesn't collect one) means "return
+    everything," matching the previous behavior exactly — the whole row's
+    location just moves, nothing splits."""
+    # Cable/Length items never go through Return — every outcome (fully
+    # used, partially used, never touched) is already expressible via
+    # Reconciliation's Length Used/Length Returned fields (a Length
+    # Returned equal to the full issued amount just closes the cut out
+    # clean, no new remainder reel). Guarded here rather than only in the
+    # frontend since both Return entry points (the dedicated Return
+    # Materials cart and the generic Log Transaction form's Return option)
+    # call into this same function.
+    if item["tracking_type"] == "inventory_length":
+        raise HTTPException(
+            status_code=400,
+            detail="Cable/Length items can't be returned — reconcile the cut instead (Transaction Log)",
+        )
+
     default_store = locations_db.get_default_store_location()
     if default_store is None:
         raise HTTPException(status_code=500, detail="No default store location is configured for Returns")
     to_location_id = default_store["id"]
-    item_updates = {"location_id": to_location_id}
-    if item["tracking_type"] == "asset_serialized":
-        item_updates["assigned_to_user_id"] = None
-        if asset_status is None:
-            raise HTTPException(status_code=400, detail=f"A status is required to return '{item['name']}'")
-        if asset_status not in ASSET_STATUSES:
-            raise HTTPException(status_code=400, detail=f"asset_status must be one of {sorted(ASSET_STATUSES)}")
-        item_updates["asset_status"] = asset_status
-    return item_updates, to_location_id
+    split_new_item_fields = None
+    resolved_qty = qty_or_length
+
+    if item["tracking_type"] == "inventory_quantity":
+        current_qty = float(item["quantity_on_hand"] or 0)
+        return_qty = qty_or_length if qty_or_length is not None else current_qty
+        if return_qty <= 0 or return_qty > current_qty:
+            raise HTTPException(status_code=400, detail="qty_or_length must be greater than 0 and no more than the item's current quantity_on_hand")
+        resolved_qty = return_qty
+        if return_qty == current_qty:
+            item_updates = {"location_id": to_location_id}
+        else:
+            item_updates = {"quantity_on_hand": current_qty - return_qty}
+            split_new_item_fields = {
+                "category_id": item["category_id"], "sku": item["sku"], "name": item["name"],
+                "location_id": to_location_id, "unit_cost": item["unit_cost"], "supplier": item["supplier"],
+                "unit_of_measure": item["unit_of_measure"], "batch_lot": item["batch_lot"],
+                "expiry_date": item["expiry_date"], "quantity_on_hand": return_qty,
+            }
+    else:
+        item_updates = {"location_id": to_location_id}
+        if item["tracking_type"] == "asset_serialized":
+            item_updates["assigned_to_user_id"] = None
+            if asset_status is None:
+                raise HTTPException(status_code=400, detail=f"A status is required to return '{item['name']}'")
+            if asset_status not in ASSET_STATUSES:
+                raise HTTPException(status_code=400, detail=f"asset_status must be one of {sorted(ASSET_STATUSES)}")
+            item_updates["asset_status"] = asset_status
+
+    return item_updates, to_location_id, split_new_item_fields, resolved_qty
 
 def _plan_transaction(item: dict, txn: InventoryTransactionCreate):
     """The single place every single-line action's item-side effect is
@@ -288,16 +580,7 @@ def _plan_transaction(item: dict, txn: InventoryTransactionCreate):
     item_updates = None
     split_new_item_fields = None
 
-    if txn.action == "In":
-        # Pure log entry — the item already reflects its arrival, having
-        # been created (Milestone 3's add_item) with that state. No item
-        # write here; a new batch/cut/serial with a different cost or
-        # expiry is a NEW row, never a top-up of an existing one.
-        to_location_id = to_location_id or item["location_id"]
-        if qty_or_length is None:
-            qty_or_length = item["quantity_on_hand"] if tracking_type == "inventory_quantity" else item["length_received"]
-
-    elif txn.action == "Transfer":
+    if txn.action == "Transfer":
         if to_location_id is None:
             raise HTTPException(status_code=400, detail="to_location_id is required for a Transfer")
         from_location_id = from_location_id or item["location_id"]
@@ -340,7 +623,7 @@ def _plan_transaction(item: dict, txn: InventoryTransactionCreate):
 
     elif txn.action == "Return":
         from_location_id = from_location_id or item["location_id"]
-        item_updates, to_location_id = _plan_return(item, txn.asset_status)
+        item_updates, to_location_id, split_new_item_fields, qty_or_length = _plan_return(item, txn.asset_status, qty_or_length)
 
     elif txn.action == "Write-off":
         from_location_id = from_location_id or item["location_id"]
@@ -370,6 +653,12 @@ def create_inventory_transaction(txn: InventoryTransactionCreate, current_user: 
     if item is None:
         raise HTTPException(status_code=404, detail="Item not found")
 
+    # Transfer's From/To are free-typed autocomplete fields, same resolution
+    # as Add/Edit Unit's Location field (is_store=True) — a name takes
+    # precedence over a plain id when both are sent.
+    txn.to_location_id = _resolve_unit_location_id(txn.to_location_id, txn.to_location_name)
+    txn.from_location_id = _resolve_unit_location_id(txn.from_location_id, txn.from_location_name)
+
     item_updates, split_new_item_fields, qty_or_length, from_location_id, to_location_id = _plan_transaction(item, txn)
 
     sku_or_spec = item["spec"] if item["tracking_type"] == "inventory_length" else item["sku"]
@@ -388,7 +677,16 @@ def read_transaction_log(
     item_id: Optional[int] = None, category_id: Optional[int] = None, action: Optional[str] = None,
     limit: int = 200, current_user: dict = Depends(get_current_user),
 ):
-    if not user_has_permission(current_user, "inventory_transactions", "view"):
+    # This one endpoint backs two different UI surfaces with two different
+    # permissions: called with item_id, it's the per-unit history tab inside
+    # Asset/Cable Core's detail modal — the same "View Stock History"
+    # capability sku-history above gates, not the full Transaction Log page.
+    # Called without it (from the Inventory Log page itself), it's gated by
+    # that page's own inventory_transactions:view as before.
+    if item_id is not None:
+        if not user_has_permission(current_user, "inventory_items", "view_history"):
+            raise HTTPException(status_code=403, detail="You don't have permission to view stock history")
+    elif not user_has_permission(current_user, "inventory_transactions", "view"):
         raise HTTPException(status_code=403, detail="You don't have permission to view inventory transactions")
     return transactions_db.get_transaction_log(item_id, category_id, action, limit)
 
@@ -456,7 +754,10 @@ def _plan_issue_line(item: dict, line: IssueCartLine, site_location_id: int, iss
 
 @router.post("/inventory/issue")
 def issue_materials(cart: IssueCart, current_user: dict = Depends(get_current_user)):
-    if not user_has_permission(current_user, "inventory_transactions", "add"):
+    # Its own permission, independent of the generic Log Transaction form's
+    # inventory_transactions:add — a role can issue materials without being
+    # able to log arbitrary Transfer/Adjustment/Write-off rows, or vice versa.
+    if not user_has_permission(current_user, "inventory_transactions", "issue"):
         raise HTTPException(status_code=403, detail="You don't have permission to issue materials")
     if not cart.lines:
         raise HTTPException(status_code=400, detail="Nothing to issue — the cart is empty")
@@ -501,6 +802,12 @@ class ReturnCartLine(BaseModel):
     # Required for an asset_serialized line, ignored otherwise — see
     # _plan_return. Never inferred from the item's prior state.
     asset_status: Optional[str] = None
+    # Only meaningful for inventory_quantity — how much of this line's
+    # quantity_on_hand is being returned. None returns the whole row (see
+    # _plan_return); less than the full amount splits it. Ignored for
+    # asset_serialized; Cable/Length never reaches here at all (see
+    # _plan_return's guard).
+    qty_or_length: Optional[float] = None
 
 class ReturnCart(BaseModel):
     lines: list[ReturnCartLine]
@@ -508,7 +815,10 @@ class ReturnCart(BaseModel):
 
 @router.post("/inventory/return")
 def return_materials(cart: ReturnCart, current_user: dict = Depends(get_current_user)):
-    if not user_has_permission(current_user, "inventory_transactions", "add"):
+    # Its own permission, independent of Issue Materials and of the generic
+    # Log Transaction form's inventory_transactions:add — see issue_materials
+    # above for the same reasoning.
+    if not user_has_permission(current_user, "inventory_transactions", "return"):
         raise HTTPException(status_code=403, detail="You don't have permission to return materials")
     if not cart.lines:
         raise HTTPException(status_code=400, detail="Nothing to return — the cart is empty")
@@ -526,7 +836,7 @@ def return_materials(cart: ReturnCart, current_user: dict = Depends(get_current_
         if item is None:
             raise HTTPException(status_code=404, detail=f"Item {line.item_id} not found")
 
-        item_updates, to_location_id = _plan_return(item, line.asset_status)
+        item_updates, to_location_id, split_new_item_fields, resolved_qty = _plan_return(item, line.asset_status, line.qty_or_length)
 
         prepared_lines.append({
             "item_id": line.item_id,
@@ -535,6 +845,8 @@ def return_materials(cart: ReturnCart, current_user: dict = Depends(get_current_
             "from_location_id": item["location_id"],
             "to_location_id": to_location_id,
             "item_updates": item_updates,
+            "split_new_item_fields": split_new_item_fields,
+            "qty_or_length": resolved_qty,
         })
 
     return transactions_db.return_cart(prepared_lines, current_user["id"], cart.notes)
@@ -595,12 +907,6 @@ def reconcile_cut(reconcile: ReconcileCut, current_user: dict = Depends(get_curr
         new_cut_fields=new_cut_fields, from_location_id=item["location_id"], notes=reconcile.notes,
     )
 
-@router.get("/inventory/pending-cuts")
-def read_pending_cuts(current_user: dict = Depends(get_current_user)):
-    if not user_has_permission(current_user, "inventory_transactions", "view"):
-        raise HTTPException(status_code=403, detail="You don't have permission to view inventory transactions")
-    return transactions_db.get_open_pending_cuts(PENDING_CUT_AGING_DAYS)
-
 class InventoryTransactionEdit(BaseModel):
     qty_or_length: Optional[float] = None
     from_location_id: Optional[int] = None
@@ -628,15 +934,25 @@ def edit_transaction(transaction_id: int, edit: InventoryTransactionEdit, curren
     return transactions_db.get_transaction_by_id(transaction_id)
 
 @router.get("/inventory/sku-summary")
-def read_sku_summary(current_user: dict = Depends(get_current_user)):
-    if not user_has_permission(current_user, "inventory_items", "view"):
-        raise HTTPException(status_code=403, detail="You don't have permission to view inventory items")
-    return reports_db.get_sku_summary()
+def read_sku_summary(category_id: Optional[int] = None, current_user: dict = Depends(get_current_user)):
+    # Reports is its own grantable capability (reports:view), independent of
+    # inventory_items:view — a role can browse the item catalog without
+    # seeing rollup reports, or the reverse. Backs every panel on the
+    # Reports page (this, cable-summary, offcuts below), matching the
+    # dedicated "Reports" nav toggle (see NAV_GROUP_MASTER_PERMISSION-style
+    # gating in common.js's ROUTE_PERMISSION_MAP for "inventory-reports").
+    if not user_has_permission(current_user, "reports", "view"):
+        raise HTTPException(status_code=403, detail="You don't have permission to view reports")
+    return reports_db.get_sku_summary(category_id)
 
 @router.get("/inventory/sku-history")
 def read_sku_transaction_history(category_id: int, sku: str, current_user: dict = Depends(get_current_user)):
-    if not user_has_permission(current_user, "inventory_items", "view"):
-        raise HTTPException(status_code=403, detail="You don't have permission to view inventory items")
+    # This backs Consumables Core's flat stock-history table specifically
+    # (the "View" action on Stock/Items rows) — its own permission,
+    # independent of inventory_items:view, so a role can browse the item
+    # catalog without seeing its movement history, or the reverse.
+    if not user_has_permission(current_user, "inventory_items", "view_history"):
+        raise HTTPException(status_code=403, detail="You don't have permission to view stock history")
     return reports_db.get_sku_transaction_history(category_id, sku)
 
 class ReorderLevelSet(BaseModel):
@@ -646,11 +962,15 @@ class ReorderLevelSet(BaseModel):
 
 @router.patch("/inventory/reorder-level")
 def set_inventory_reorder_level(payload: ReorderLevelSet, current_user: dict = Depends(get_current_user)):
-    # Reorder Level is item-level metadata, not its own grantable capability —
-    # it rides on the same "manage item records" permission Milestone 8 gives
-    # a Manager role, rather than inventing a new permission section for one
-    # field.
-    if not user_has_permission(current_user, "inventory_items", "edit"):
+    # Its own grantable capability, independent of inventory_items:edit — a
+    # role can manage reorder thresholds without full item-edit rights, or
+    # the reverse. Note this endpoint is also called (fire-and-forget, no
+    # error surfaced on failure — a pre-existing gap, not introduced by this
+    # permission split) from the Add Item wizard's New Product step when a
+    # reorder level is set at creation time, so a role with "Add item" but
+    # not this permission will silently have that one optional field not
+    # take, while the rest of product creation still succeeds.
+    if not user_has_permission(current_user, "inventory_items", "edit_reorder_level"):
         raise HTTPException(status_code=403, detail="You don't have permission to edit reorder levels")
     if payload.reorder_level < 0:
         raise HTTPException(status_code=400, detail="reorder_level can't be negative")
@@ -658,25 +978,25 @@ def set_inventory_reorder_level(payload: ReorderLevelSet, current_user: dict = D
     return payload.dict()
 
 @router.get("/inventory/cable-summary")
-def read_cable_type_summary(current_user: dict = Depends(get_current_user)):
-    if not user_has_permission(current_user, "inventory_items", "view"):
-        raise HTTPException(status_code=403, detail="You don't have permission to view inventory items")
-    return reports_db.get_cable_type_summary()
+def read_cable_type_summary(category_id: Optional[int] = None, current_user: dict = Depends(get_current_user)):
+    if not user_has_permission(current_user, "reports", "view"):
+        raise HTTPException(status_code=403, detail="You don't have permission to view reports")
+    return reports_db.get_cable_type_summary(category_id)
 
 @router.get("/inventory/cable-summary/drill-down")
 def read_cable_drill_down(spec: str, current_user: dict = Depends(get_current_user)):
-    if not user_has_permission(current_user, "inventory_items", "view"):
-        raise HTTPException(status_code=403, detail="You don't have permission to view inventory items")
+    if not user_has_permission(current_user, "reports", "view"):
+        raise HTTPException(status_code=403, detail="You don't have permission to view reports")
     return reports_db.get_cable_drill_down(spec)
 
 @router.get("/inventory/offcuts")
-def read_offcut_summary(current_user: dict = Depends(get_current_user)):
-    if not user_has_permission(current_user, "inventory_items", "view"):
-        raise HTTPException(status_code=403, detail="You don't have permission to view inventory items")
-    return reports_db.get_offcut_summary_by_spec()
+def read_offcut_summary(category_id: Optional[int] = None, current_user: dict = Depends(get_current_user)):
+    if not user_has_permission(current_user, "reports", "view"):
+        raise HTTPException(status_code=403, detail="You don't have permission to view reports")
+    return reports_db.get_offcut_summary_by_spec(category_id)
 
 @router.get("/inventory/offcuts/drill-down")
 def read_offcut_drill_down(spec: str, current_user: dict = Depends(get_current_user)):
-    if not user_has_permission(current_user, "inventory_items", "view"):
-        raise HTTPException(status_code=403, detail="You don't have permission to view inventory items")
+    if not user_has_permission(current_user, "reports", "view"):
+        raise HTTPException(status_code=403, detail="You don't have permission to view reports")
     return reports_db.get_offcut_drill_down(spec)

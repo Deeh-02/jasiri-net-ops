@@ -1,5 +1,4 @@
 from db.connection import get_connection, utc_iso
-from datetime import datetime, timezone
 import uuid
 
 # Same generic, type-agnostic column surface pattern as inventory_items.py —
@@ -88,6 +87,80 @@ def record_transaction(action, item_id, category_id, sku_or_spec, qty_or_length=
     conn.close()
     return {"transaction_id": txn_id, "item_id": item_id}
 
+def add_unit(item_fields, qty_or_length, sku_or_spec, location_id, logged_by_user_id, notes, event_group_id=None):
+    """Add Item's Step 2 ("Add Unit") — creates one physical unit AND its
+    arrival log row in one commit, so receiving stock never needs a separate
+    manual 'log the arrival' step the way the old single-step form did.
+
+    event_group_id is threaded through by the caller (routers/inventory.py),
+    not generated fresh every call: the first unit of a "+ Add another unit"
+    sitting gets a new one (returned here), and every subsequent unit in
+    that same sitting passes it back in, so the log displays the whole batch
+    as one event — same grouping pattern as issue_cart/return_cart."""
+    conn = get_connection()
+    cur = conn.cursor()
+
+    new_item_id = _insert_item_row(cur, item_fields)
+    resolved_group_id = event_group_id or str(uuid.uuid4())
+    txn_id = _insert_txn_row(cur, {
+        "item_id": new_item_id,
+        "category_id": item_fields["category_id"],
+        "sku_or_spec": sku_or_spec,
+        "action": "In",
+        "qty_or_length": qty_or_length,
+        "to_location_id": location_id,
+        "logged_by_user_id": logged_by_user_id,
+        "event_group_id": resolved_group_id,
+        "notes": notes,
+    })
+
+    conn.commit()
+    cur.close()
+    conn.close()
+    return {"item_id": new_item_id, "transaction_id": txn_id, "event_group_id": resolved_group_id}
+
+def add_unit_batch(item_fields, quantity, sku, location_id, logged_by_user_id, notes, start_seq, event_group_id=None):
+    """Add Item's Step 2 ("Add Unit"), Existing-product batch variant — Asset
+    Core only (see routers/inventory.py's type gate). Creates `quantity` item
+    rows and their matching "In" transaction rows in ONE commit (same
+    atomicity as issue_cart/return_cart below), all sharing one
+    event_group_id so the log renders the whole arrival as one receiving
+    event — same grouping pattern add_unit already uses for a manual
+    "+ Add another unit" sitting.
+
+    Each unit's serial_number is auto-assigned a sequential internal
+    placeholder ('{sku}-{NN}', starting at start_seq — see
+    inventory_items.next_serial_seq for how that number avoids colliding
+    with any existing unit under this SKU) rather than left blank, since
+    serial_number is a required column for this type. The placeholder is
+    meant to be overwritten per-unit afterward with the real manufacturer
+    serial once known — the frontend's batch-review list this powers is
+    plain PATCH /inventory/items/{id} calls, not special-cased here."""
+    conn = get_connection()
+    cur = conn.cursor()
+    resolved_group_id = event_group_id or str(uuid.uuid4())
+
+    created_ids = []
+    for i in range(quantity):
+        fields = {**item_fields, "serial_number": f"{sku}-{start_seq + i:02d}"}
+        new_item_id = _insert_item_row(cur, fields)
+        _insert_txn_row(cur, {
+            "item_id": new_item_id,
+            "category_id": item_fields["category_id"],
+            "sku_or_spec": sku,
+            "action": "In",
+            "to_location_id": location_id,
+            "logged_by_user_id": logged_by_user_id,
+            "event_group_id": resolved_group_id,
+            "notes": notes,
+        })
+        created_ids.append(new_item_id)
+
+    conn.commit()
+    cur.close()
+    conn.close()
+    return {"item_ids": created_ids, "event_group_id": resolved_group_id}
+
 def issue_cart(prepared_lines, site_location_id, activity, issued_to_user_id, logged_by_user_id, notes):
     """One checkout of a mixed cart — N log rows plus N item updates, one
     connection, one commit, so a cart either lands whole or not at all.
@@ -130,25 +203,37 @@ def issue_cart(prepared_lines, site_location_id, activity, issued_to_user_id, lo
 def return_cart(prepared_lines, logged_by_user_id, notes):
     """One Return Materials submission — same shape as issue_cart: N log rows
     plus N item updates, one connection, one commit, all sharing one
-    event_group_id so a multi-line return reads back as a single event."""
+    event_group_id so a multi-line return reads back as a single event.
+
+    A line with split_new_item_fields set is a partial-quantity return (see
+    _plan_return): item_updates decrements the ORIGIN row, a new row is
+    inserted at the default store from split_new_item_fields, and both get
+    their own log row — still sharing this cart's one event_group_id, same
+    as record_transaction's split-Transfer handling, just folded into this
+    per-line loop instead of a single line."""
     conn = get_connection()
     cur = conn.cursor()
     event_group_id = str(uuid.uuid4())
     transaction_ids = []
 
     for line in prepared_lines:
-        _update_item_row(cur, line["item_id"], line["item_updates"])
-        transaction_ids.append(_insert_txn_row(cur, {
-            "item_id": line["item_id"],
+        base_fields = {
             "category_id": line["category_id"],
             "sku_or_spec": line["sku_or_spec"],
             "action": "Return",
+            "qty_or_length": line.get("qty_or_length"),
             "from_location_id": line["from_location_id"],
             "to_location_id": line["to_location_id"],
             "logged_by_user_id": logged_by_user_id,
             "event_group_id": event_group_id,
             "notes": notes,
-        }))
+        }
+        _update_item_row(cur, line["item_id"], line["item_updates"])
+        transaction_ids.append(_insert_txn_row(cur, {**base_fields, "item_id": line["item_id"]}))
+
+        if line.get("split_new_item_fields"):
+            new_item_id = _insert_item_row(cur, line["split_new_item_fields"])
+            transaction_ids.append(_insert_txn_row(cur, {**base_fields, "item_id": new_item_id}))
 
     conn.commit()
     cur.close()
@@ -211,45 +296,6 @@ def reconcile_cut(item_id, category_id, sku_or_spec, length_used, length_returne
         "transaction_ids": transaction_ids, "item_id": item_id,
         "new_item_id": new_item_id, "event_group_id": event_group_id,
     }
-
-def get_open_pending_cuts(aging_threshold_days):
-    """Every cut that went out and hasn't been reconciled, oldest first, with
-    its age so a job that's dragging doesn't leave stock unaccounted for
-    indefinitely. Age is derived on read rather than stored — same approach
-    as db/sites.py's needs_check."""
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute(
-        """
-        SELECT inventory_transactions.id, inventory_transactions.item_id,
-               inventory_transactions.created_at, inventory_transactions.qty_or_length,
-               inventory_items.cut_reel_id, inventory_items.spec,
-               inventory_items.length_remaining, site_loc.name, inventory_categories.name
-        FROM inventory_transactions
-        JOIN inventory_items ON inventory_items.id = inventory_transactions.item_id
-        JOIN inventory_categories ON inventory_categories.id = inventory_transactions.category_id
-        LEFT JOIN inventory_locations AS site_loc ON site_loc.id = inventory_transactions.site_location_id
-        WHERE inventory_transactions.status = 'open_pending'
-        ORDER BY inventory_transactions.created_at;
-        """
-    )
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
-
-    now = datetime.now(timezone.utc)
-    result = []
-    for r in rows:
-        issued_at = r[2].replace(tzinfo=timezone.utc) if r[2].tzinfo is None else r[2]
-        days_out = (now - issued_at).days
-        result.append({
-            "transaction_id": r[0], "item_id": r[1], "issued_at": utc_iso(r[2]),
-            "length_out": r[3], "cut_reel_id": r[4], "spec": r[5],
-            "length_remaining": r[6], "site_location_name": r[7], "category_name": r[8],
-            "days_out": days_out,
-            "is_aging": days_out >= aging_threshold_days,
-        })
-    return result
 
 _LOG_SELECT_COLUMNS = """
     inventory_transactions.id, inventory_transactions.item_id, inventory_transactions.category_id,

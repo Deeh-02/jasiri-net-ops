@@ -109,6 +109,367 @@ either was committed**
   returnable this way, not just ones currently checked out to someone.
 - Issue Materials' Notes field is now required.
 
+**Third refinement pass (owner review, still on the same branch) — Transaction
+Log and Reports**
+- The standalone Pending Cable Cuts table is gone. A still-open cable cut now
+  shows as "Pending" right in the Transaction Log's own Action column
+  (computed at display time, not stored — the underlying log row is never
+  edited), switching back to "Issue" once it's reconciled; reconciling a cut
+  is now done from that row's own detail view instead of a dedicated table.
+- The main Transaction Log table is trimmed to Date / Action / SKU/Spec /
+  Qty/Length / Movement / By — Site, Activity, Issued To, exact From/To, and
+  Notes aren't gone, they're one click away on the row itself. Movement is a
+  single adaptive line per row instead of three separate location columns.
+- Inventory Reports is now three tabs (SKU Summary / Cable Summary / Offcut
+  Rollup) instead of three tables stacked on one page, with a Category filter
+  above the tabs that scopes all three.
+- SKU Summary now shows Name (not Category) alongside SKU/Spec, plus a Total
+  Value column and a standalone Total Value figure for whatever's currently
+  filtered. Reorder Level is read-only here now (with a Low badge) — it's
+  set/edited from the Items page instead, via a click-to-edit cell rather
+  than an always-open input box.
+
+**Fourth refinement pass (owner review, still on the same branch) — Add
+Item split into Add Product / Add Unit**
+- Add Item is now a two-step wizard instead of one long form: Add Product
+  (SKU, Name, Category, and the make/model-or-spec/supplier details that only
+  need entering once per product) then Add Unit (serial/batch/cut detail,
+  location, cost, notes — the part that repeats every time stock arrives).
+  Adding another unit of a product that already exists skips straight to Add
+  Unit via a product search, instead of re-asking for its product-level
+  details every time.
+- After saving one unit, "+ Add another unit" resets straight back to a
+  fresh Add Unit step for the same product, so a batch of new stock (48
+  enclosures, 5 splicing machines) can be entered in one sitting without
+  re-navigating — every unit added that way is grouped as one batch-receiving
+  event in the Transaction Log rather than looking like disconnected entries.
+- Every unit added this way now automatically generates its own In
+  transaction row — no separate manual "log the arrival" step required.
+- Assigned To only shows up on Add/Edit for custody-type categories now — a
+  per-job asset doesn't have a "who's holding it" concept the same way.
+
+**Fifth refinement pass (owner review, still on the same branch) — Edit/
+Delete restored on the Items table, split into product edit vs unit edit**
+- The Items table's Actions column is View/Edit/Delete again (was View-only
+  for one round). Edit now opens a proper "Edit Product" form scoped to
+  SKU, Name, Category, Make/Model, Spec/Capacity, Supplier, and Unit of
+  Measure — the same fields Add Item's product step collects — and applies
+  the change to every unit under that SKU at once, instead of showing one
+  arbitrary unit's serial number/location/status the way the old combined
+  form did.
+- The per-unit Edit form (opened from View → the unit list) had the same
+  product/unit mixing bug the old Add Item form had, and gets the same
+  fix: it's unit-level only now — Serial Number, Location, Status, Assigned
+  To, Unit Cost, Install Date, Notes — no SKU/Name/Make-Model/Spec.
+- Deleting a product from the Items table is a guard, not a cascade: it's
+  blocked with "Can't delete — N units still exist under this product,
+  remove those first" whenever any unit remains, rather than silently
+  removing everything under that SKU.
+
+**Sixth refinement pass (owner review, still on the same branch) — split
+Items into two pages: Items (catalog) and Stock (operational)**
+- New "Stock" sidebar item alongside Items, Transaction Log, and Manage
+  under the collapsible Inventory nav group.
+- Items is now catalog-only: Name, SKU, Category, and Edit/Delete on the
+  product — no quantities, cost, or stock movement. A low-traffic
+  reference page now, the same way Manage is for Categories.
+- Stock is the new operational home for everything else: Qty, Unit Cost,
+  Total Value, Reorder Level (still click-to-edit), the Category/Status/
+  Custody filters, the View action (stock-history drill-down), the Add
+  Item wizard, and the Issue Materials / Return Materials buttons — all
+  moved here from Items.
+- No backend or schema changes — this is a frontend-only reorganization of
+  the same data across two pages.
+
+**Seventh refinement pass (owner review, still on the same branch) — final
+Items/Stock column spec, shared View, quantity edits removed everywhere**
+- Items and Stock now show almost the same row (Name/SKU/Category/Qty/Unit
+  Cost/Total Value) but not the same Actions. Items adds a Location
+  column, filters by Category only, and has View/Edit/Delete. Stock
+  filters by Category/Status/Custody, has no Location column, and is
+  **View-only** — no Edit/Delete on Stock. Items keeps the Add Item wizard
+  as its header action; Stock keeps Issue Materials/Return Materials as
+  its own. (An initial pass also put Edit/Delete on Stock; corrected back
+  to View-only right after.)
+- View is one shared implementation, called identically from both pages —
+  not duplicated.
+- The per-unit Edit form no longer offers a way to directly change a
+  batch's quantity or a cut's remaining length. Quantity only ever changes
+  as the result of a logged transaction now (In, Transfer, Adjustment,
+  Issue, Return, Write-off) — a miscount is corrected via an Adjustment
+  transaction on the Transaction Log, which leaves an attributed record
+  instead of a silent overwrite.
+- Reorder Level no longer has an editable UI on Items or Stock (dropped
+  from both tables' final column spec). Reports' read-only "Low" badge
+  display is unaffected. The underlying endpoint/table are untouched in
+  case this needs a home again later.
+
+**Eighth refinement pass (owner review, still on the same branch) —
+Reorder Level gets a home again**
+- Reorder Level is now an optional field on the Add Item wizard's Step 1
+  (Add Product), alongside SKU/Name/Make-Model/Spec-Capacity/Supplier/UoM.
+  Can be left blank at creation.
+- Reorder Level is back on Stock as an editable column (click-to-edit,
+  same affordance as before). Not added to Items.
+- Both entry points write to the same underlying value via the same
+  upserting endpoint — there's no separate "set it later" flow distinct
+  from "edit it now."
+- Stock now shows a "Low" badge next to Qty, computed live, whenever a
+  row's currently-displayed Qty is at or below its Reorder Level. Rows
+  with no threshold set, or above it, show nothing.
+
+**Ninth refinement pass (owner review, still on the same branch) — batch
+quantity for Add Unit's Existing-product path**
+- Adding units of an already-known Asset Core product no longer requires
+  repeating the single-unit form once per unit. Selecting an existing Asset
+  Core product now asks "Quantity to add," with Location/Status/Unit
+  Cost/Install Date/Notes entered once and applied to the whole batch.
+- Each generated unit gets an auto-assigned internal serial placeholder
+  (`{SKU}-01`, `{SKU}-02`, ...), guaranteed not to collide with any existing
+  unit under that SKU.
+- A new Batch Review step lists every unit just created, with the
+  manufacturer's real serial number (if known) and per-unit Location/Status
+  correction available inline — each edit saves immediately.
+- All units in one batch still write their own "In" transaction row and
+  share one event group, so the Transaction Log displays the whole arrival
+  as a single receiving event.
+- Not applied to Consumables Core (its batch total already lives in one
+  row's Quantity field) or Cable Core (each cut/reel is its own distinct
+  length) — both keep the existing single-unit form. The New-product path is
+  unaffected.
+
+**Tenth refinement pass (owner review, still on the same branch) — statuses,
+dates, pagination, Edit Product fields**
+- Asset status list simplified to five values (Active, Deployed, Faulty, In
+  Repair, Decommissioned) — "Spare — In Storage" removed everywhere it
+  appeared, since it overlapped almost entirely with Active.
+- Every date input (Install Date, Expiry Date) now defaults to today's date
+  instead of blank, on Add Unit, the batch-add form, and Edit Unit — still
+  fully editable for backdating.
+- The unit drill-down list (View on Items/Stock) is now paginated
+  (page-size 10/20/50/100 + Prev/Next, same convention used elsewhere),
+  height-capped with a real internally-scrolling container (reusing the
+  Battery logs table's own scroll box rather than the generic table
+  wrapper, which didn't actually cap height on desktop), and renders
+  visibly denser rows than the Items/Stock tables — so large batches
+  (including ones created by the new batch-add flow) stay manageable
+  instead of blowing the modal out to fit every row.
+- Edit Product's field set is now Category, SKU, Name, Spec/Capacity, Unit
+  of Measure only. Make/Model and Supplier moved down to the unit level
+  (Edit Unit, and Add Unit's Step 2 / batch-mode form) instead, since both
+  can genuinely vary batch-to-batch or unit-to-unit even under one SKU.
+
+**Eleventh refinement pass (owner review, still on the same branch) —
+Location autocomplete, Unit of Measure dropped**
+- Add/Edit Unit's Location field is now a free-typed autocomplete (type an
+  existing store name to select it, or a new one to create it), identical
+  in behavior to Issue/Return Materials' Site field — previously it was a
+  fixed dropdown that could only ever show "Main store," with no way to add
+  a second store, warehouse, or van anywhere in the app.
+- This field only ever matches/creates store locations, never job sites,
+  even if a job site happens to share the same name — the two stay in
+  separate namespaces.
+- Unit of Measure removed entirely from Add Product and Edit Product — not
+  needed anywhere right now; can be added back if a real need for it
+  surfaces later.
+
+**Twelfth refinement pass (owner review, still on the same branch) — Cable
+Core's SKU/Spec conflict, Cable excluded from Return Materials, Pending
+row accent**
+- Add Product and Edit Product now hide the SKU field entirely for Cable
+  Core — Spec is the only identifying field for this Core, matching what
+  the backend already treated it as everywhere else. Fixes a real bug
+  where the Spec value was getting typed into SKU by mistake, since SKU
+  had nothing else to hold. The backend now also guarantees SKU always
+  mirrors Spec for Cable Core regardless of what's sent, closing the gap
+  for good rather than just hiding the symptom in the form.
+- Cable/Length items no longer appear in Return Materials' search at all
+  — every outcome for an issued cut (fully used, partially used, or never
+  touched) is already handled by Reconciliation's Length Used/Length
+  Returned fields on the Transaction Log. Returning a cable item is now
+  also rejected server-side with a clear message, closing off the generic
+  Log Transaction form as a back door too.
+- Transaction Log rows showing "Pending" (an open cable cut awaiting
+  reconciliation) now get a thin red left-border accent, so they're
+  scannable at a glance while scrolling a long log.
+
+**Thirteenth refinement pass (owner review, still on the same branch) —
+depleted reels excluded from Issue Materials**
+- A cable reel/cut with zero length remaining (from full usage or a
+  fully-reconciled cut) no longer appears as a selectable result when
+  searching in Issue Materials — filtered at search time, the same way a
+  zero-quantity Consumable is treated as out of stock, rather than left to
+  fail on submit.
+
+**Fourteenth refinement pass (owner review, still on the same branch) —
+Transaction Log / Item Logs UI fixes**
+- Fixed Date-column truncation in the per-unit Details/Logs modal: widened
+  the Date column and dropped the year from that one table's date format.
+- The View (eye) action icon now gets the same hover highlight as Edit and
+  Delete, on both the Items and Stock tables.
+- The main Transaction Log page had no pagination at all and could grow
+  unbounded — it now paginates with the same page-size/Prev-Next controls
+  used elsewhere in this phase (Battery's own `10/20/50/100` options, not
+  a fixed-height inner scrollbox — the table renders one page of rows and
+  stops, and the surrounding page/modal scrolls normally if needed).
+- Corrected within the same pass, before merge: the first version of the
+  pagination fix above nested a 360px scrollbox inside both the Transaction
+  Log page and the per-unit Logs modal, and used 10/30/100 as the page-size
+  options. Owner feedback: no inner scrollbar anywhere here, and match
+  Battery's actual 10/20/50/100 convention — both reverted.
+
+**Fifteenth refinement pass (owner review, still on the same branch) —
+Log Transaction's Item field is now a search box**
+- The generic Log Transaction form's Item field was a flat `<select>` listing
+  every individual unit — every serial, every cable reel — which meant
+  scrolling a long list to find one as unit counts grow. It's now a
+  type-to-filter search input, same interaction and same searchable fields
+  (name, SKU/spec, serial, lot, reel id) as Issue/Return Materials' existing
+  search box, applied to the same underlying unit data.
+- The search-matching logic itself was factored into one shared function
+  (`inventoryItemMatchesQuery`) used by Issue Materials, Return Materials,
+  and this new Log Transaction search, instead of being duplicated a third
+  time.
+
+**Sixteenth refinement pass (owner review, still on the same branch) —
+Cable Core: Units view vs Reports drill-down, full split**
+- The Units view (Items/Stock → View) now excludes fully-depleted cable
+  reels (`length_remaining = 0`) by default — it answers "what do I
+  currently have," and a used-up reel isn't part of that. Asset/Consumable
+  units are unaffected.
+- Reports → Cable Type Summary's drill-down now lists every reel ever
+  created for a spec, not just in-stock ones — including depleted reels,
+  with their Status and last known Location before they closed out. The
+  top-level Cable Type Summary counts are unchanged (still in-stock only).
+- Clicking View on a reel in that drill-down opens the same per-unit
+  tabbed Details/Logs modal used everywhere else, showing its full history
+  regardless of whether it's currently in-stock or depleted (already wired
+  up from an earlier round, confirmed still working here).
+
+**Seventeenth refinement pass (owner review, still on the same branch) —
+Log Transaction: final field spec per Action, plus two UI fixes**
+- Removed "In" as an option from the Log Transaction form entirely, front-
+  and back-end — receiving new stock only ever happens through Add Product/
+  Add Unit now (`POST /inventory/transactions` rejects `action: "In"` with a
+  400, not just a hidden dropdown option).
+- The form's field set now changes shape by Action: Transfer shows Item,
+  Qty/Length, From/To location, Notes; Adjustment and Write-off show Item,
+  Qty/Length, Notes only; Return shows Item, Qty/Length, Notes, plus the
+  existing required Status picker for a serialized asset — none of the four
+  show a location field for Return, since it always resolves to the single
+  default store. Site, Activity, and Issued To are gone from this form
+  entirely — those only ever applied to Issue, which has its own dedicated
+  screen.
+- Qty/Length's number input now has a themed custom up/down stepper instead
+  of the browser's plain, unstyled native spinner.
+- Transfer's From/To location fields are free-typed autocomplete (type to
+  match an existing store or create a new one), matching the same pattern
+  already used by Add/Edit Unit's Location field and Issue Materials' Site
+  field — no longer a fixed dropdown.
+
+**Legacy data import — `items_2026-09-12.csv` (2026-09-12)**
+- Imported the old flat inventory export (70 products, no Core distinction,
+  no per-unit tracking, no transaction history) into the new model, entirely
+  through the real Add Product/Add Unit flow — no direct table writes. 308
+  physical units created across 66 products (4 zero-quantity source rows
+  skipped, nothing to import from those), each with its own auto-generated
+  ID and its own "In" transaction log row.
+- 9 new categories created (Passive Network Material, Access Network
+  Equipment (Last-Mile), Network Infrastructure Equipment, Power Equipment —
+  all Asset Core; Batteries, Installation Materials & Consumables,
+  Transmission & Backhaul Equipment — Consumable Core; CAT 6 Cable, Drop
+  Cable — Cable Core), plus the existing "Tools" category reused as-is —
+  Core assignment was decided per-product by nature, not mechanically copied
+  from the old flat "Category" column, since several old categories mixed
+  Cores (e.g. CAT 6 Cable and two Enclosure rows both sat under the old
+  "Installation Materials & Consumables" label despite needing Cable Core
+  and Asset Core respectively).
+- Data-quality fixes applied during import: "Enlosure" → "Enclosure" and
+  "Saftey belt" → "Safety belt" typos corrected before product creation;
+  "Battery" split into Consumable AA/AAA vs. a separate Asset "Battery —
+  Vestwood 1kWh"; Cable ties / Cable ties packet merged under one Name with
+  two Spec-driven SKUs; Universal Pole Bracket (UPB) / UPB merged into one
+  SKU across two batches (61 @ 250 KES, 121 @ 230 KES — same product,
+  different receiving costs); the "drum-used" Drop Cable reel got a Notes
+  annotation instead of being silently trusted as new stock, since the
+  source Condition column was confirmed unreliable; "Kwa Mlima"/"Kwamlima"
+  spelling normalized to one location.
+- Owner-confirmed: Hithium Battery and TP Link EAP225 Outdoor AP (both
+  listed as Qty 3 across "Njeri House, ACK, Kwamlima" with no breakdown in
+  the source) are entirely at the existing "Jasiri Net Office" location, not
+  split across those three sites.
+- Selling Price and Reorder Level columns dropped per the import brief
+  (always 0/meaningless in the source); Condition dropped as unreliable
+  except the one annotated case above.
+
+**CSV export — Items, Stock, Transaction Log, Reports**
+- Added an Export CSV action to Items, Stock, the Transaction Log, and each
+  tab of Reports (SKU Summary / Cable Type Summary / Offcut Rollup) —
+  client-side only, no new endpoint. Each button downloads exactly the rows
+  already on screen for that page, so it respects whatever Category/Status/
+  Custody/Action filter is currently applied rather than always dumping the
+  full table.
+- Column sets match each page's own on-screen table exactly (Items: Name/
+  SKU/Category/Qty/Unit Cost/Total Value/Location; Stock: same minus
+  Location, plus Reorder Level; Transaction Log: Date/Action/SKU-Spec/
+  Qty-Length/Movement/By; Reports: each tab's own columns) — this was a
+  deliberate choice over the original request's suggested column list, since
+  that list (e.g. Unit of Measure on Items) named fields since dropped from
+  the UI in earlier refinement passes.
+- The Transaction Log export uses the full filtered result set, not just
+  the current page — pagination narrows what's rendered, not what's
+  fetched, so the export isn't limited to whatever page size is selected.
+- New shared `exportRowsToCsv()` helper in `inventory-common.js` (RFC
+  4180 field quoting, `Blob` + a throwaway `<a download>`) — one
+  implementation, called from all four pages instead of four copies.
+
+**Import correction pass (owner review, 2026-09-16) — Tools split, CAT 6
+downgrade, ADSS placeholders, dev debris cleanup**
+- Along the way, found that the dev database had accumulated leftover
+  test/seed data from earlier milestone verification, sitting alongside
+  the real September import under the same "Tools" category and a fake
+  "ADSS Cable" category (confirmed via `created_at` timestamps and
+  absence from the real source file — not real stock). Deactivated all
+  of it through the app's own delete endpoints rather than a raw DB
+  write.
+- "Tools" split into five real categories — PPE / Apparel (Custody),
+  Field Tools (Per-Job), Office Furniture (Per-Job — no separate
+  "unassignable" custody type exists, so this is the closest fit and
+  nothing enables assignment on it in practice), Personal Equipment
+  (Custody), Vehicles (Custody) — 21 real products reassigned via
+  `PATCH /inventory/products`, not a raw insert.
+- CAT 6 Cable downgraded from Cable Core to Consumable Core: the 10
+  existing 305m reels retired, the category's tracking type flipped
+  (only possible with zero active items under it), and one Consumable
+  product created — Qty 10, Unit of Measure "drum". Issue/Return now
+  moves whole drums, no partial-length tracking.
+- ADSS Cable (24C/48C/96C): real per-reel breakdown isn't available yet
+  (reel sizes vary per purchase, and the source only had spec-level
+  totals), so this now holds mock placeholder reels instead — 2 per
+  spec, clearly marked in both the reel ID and Notes as placeholder,
+  pending the owner's real reel-by-reel entry.
+- Drop Cable's "used" drum (`DROP-56`) corrected from its imported
+  default (full length, just a Notes flag) to its real measured
+  remaining length (300m), via a logged Adjustment transaction, not a
+  direct column edit.
+- The 7 products still genuinely blank-location after the original
+  import (Baofeng Radios, Battery — Vestwood 1kWh, Ethernet Adapter,
+  Helmet, Splicing Machine, Tension clamps PA-1500, J-Hooks — 13 units
+  total) set to Jasiri Net Office.
+
+**Bug fix — Cable Core's Total Value on Items/Stock**
+- `get_items_summary()` was pricing Cable Core rows as `qty (metres) x
+  unit_cost (per reel)` — the same formula that's correct for Asset/
+  Quantity, where qty is a count of individually-priced units, but wrong
+  for Cable, where a reel is priced as a whole unit regardless of its
+  length. Two 7,000/reel Drop Cable drums summing 2,001m priced out at
+  7,000 x 2,001 instead of 7,000 x 2 reels — a difference of orders of
+  magnitude, caught by the owner reviewing the exported Items CSV.
+- Fixed to `SUM(unit_cost)` across the actual reels instead — Drop
+  Cable's two drums now correctly total 14,000. SKU Summary (Reports)
+  was never affected — it already deliberately shows "—" for Cable's
+  Total Value rather than computing one.
+
 ## Phase 2 — Finish Incomplete Functionality (completed 2026-09-06)
 
 One item (inline record detail in global search) was dropped by the
