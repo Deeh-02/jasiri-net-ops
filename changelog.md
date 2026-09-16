@@ -470,6 +470,94 @@ downgrade, ADSS placeholders, dev debris cleanup**
   was never affected — it already deliberately shows "—" for Cable's
   Total Value rather than computing one.
 
+**Eighteenth refinement pass (owner review, 2026-09-17) — Stock table
+styling, sidebar divider, Issue/Return Materials layout**
+- Stock's Qty column moves the "Low" badge inline next to the number
+  instead of stacking it below; Reorder Level renders as plain red/green
+  text (red at/below the level, green healthy, uncolored when unset)
+  instead of a grey badge.
+- Added a vertical divider between the sidebar and main content, matching
+  the existing horizontal divider under the header.
+- Issue Materials and Return Materials are now a two-column layout: search
+  + form fields on the left, Cart (heading, lines, submit) on the right —
+  a pure repositioning, no component restyling.
+
+**Nineteenth refinement pass (owner review, 2026-09-17) — Inventory
+permissions restructure**
+- The Inventory permissions panel is now a real hierarchy: Inventory
+  (master) → Inventory Items (toggle, its own Add/Edit/Delete checkboxes)
+  and Stock (toggle, Edit Reorder Level/Issue Materials/Return Materials/
+  View Stock History checkboxes) as independent nested children, plus
+  Inventory Categories and Inventory Log as their own independent toggles.
+  Every toggle here gates real nav visibility and route access (a route
+  denied by permission now redirects away even via a typed-in hash, not
+  just a hidden nav link) — a gap found and fixed during this pass.
+- The separate "Add Stock" permission is gone, merged into "Add item" —
+  creating a new product and adding a unit/batch to an existing one are
+  the same grantable capability now.
+
+**Twentieth refinement pass (owner review, 2026-09-17) — Quick Issue /
+Quick Return**
+- Asset-core lines in the Issue/Return Materials cart can now be filled by
+  typing a quantity ("5") instead of picking every serial individually —
+  Quick Issue auto-selects from in-stock/eligible serials, Quick Return
+  auto-selects from serials actually checked out to a chosen site or
+  person. Manual per-serial picking still works side by side with it. The
+  auto-picked serials show up as an expandable list in the cart line so one
+  can be reviewed or swapped out before confirming.
+- Auto-select order is deterministic (picks from the bottom of a stable
+  list order), not effectively random — fixed alongside a real ordering
+  bug: `get_all_items()`'s `ORDER BY name` had no tiebreaker, and every
+  unit under one SKU shares the same name, so which serial came "first"
+  could silently shift between requests.
+- Return Materials' search (and Quick Return's pool) is now scoped to only
+  what's actually issued out (Deployed assets) — it previously showed the
+  same full/available stock list Issue Materials does, which is backwards
+  for a Return screen.
+- Every place an asset's status (Active/Deployed/Faulty/In Repair/
+  Decommissioned) displays as read-only text now shows a color-coded pill
+  instead of plain text, consistently across Items, Stock, and Issue/
+  Return Materials. The Return cart's status `<select>` also picked up
+  real dark-theme styling — it had none before (a plain unstyled browser
+  dropdown).
+
+**Reports — independent permission toggle (2026-09-17)**
+- Reports now has its own dedicated master permission (`reports:view`),
+  separate from Inventory Items — previously it piggybacked on
+  `inventory_items:view`, so a role couldn't be granted one without the
+  other. Enforced both in nav/route gating and on every report endpoint
+  server-side.
+
+**Items page Qty — reverted to on-hand default (2026-09-17)**
+- Supersedes the Sixth/Seventh refinement passes' "Qty = total owned
+  (on-hand + deployed)" decision above: Items' Qty (and Total Value) now
+  default to on-hand/available quantity, not the combined total — showing
+  the total by default read as the app under-reporting what had actually
+  been issued out. Applies to Asset and Cable Core; Consumables were
+  already correct (no separate "deployed" bucket exists for that Core).
+  Stock's own Status filter (All/In Store/Deployed) is unchanged.
+- Along the way, the Core-lock error (editing a category's Core when it
+  still has items) was upgraded from a generic block to a specific message
+  stating the exact item count and suggesting the real workaround (create
+  a new category with the desired Core) — the inline modal hint and the
+  API's own 400 detail share the same wording now, sourced from one place.
+
+**ATB / Passive Network Material Core correction (data migration,
+2026-09-17)**
+- ATB items (55 units) were sitting in an Asset-core category as
+  individually "serialized" rows despite being fungible stock nobody
+  tracks by serial — moved into a new Consumables-core category ("ATB /
+  Passive Enclosures") as quantity-tracked rows (2 + 53 units); the old
+  serialized rows were soft-deleted, not hard-deleted, so their original
+  "In" history stays intact.
+- "Passive Network Material" was split three ways: Splitter/SFP (46
+  units) moved into a new Consumables-core category ("Passive Optical
+  Consumables"), same migration pattern as ATB; Enclosure/ODF/Bridge (12
+  units) stayed in "Passive Network Material" as Asset Core, correctly
+  narrowed; Media converter/8-Port Reverse POE (3 units) moved into the
+  existing "Network Infrastructure Equipment" category — a same-Core
+  product move, no row recreation needed.
+
 ## Phase 2 — Finish Incomplete Functionality (completed 2026-09-06)
 
 One item (inline record detail in global search) was dropped by the

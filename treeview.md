@@ -23,7 +23,11 @@ battery-tracker/
 │   │                                 #   no migration framework/runner in this repo
 │   ├── 0001_add_in_transit_at.sql
 │   ├── 0002_backfill_in_transit_at.sql
-│   └── 0003_close_out_site_still_down.sql
+│   ├── 0003_close_out_site_still_down.sql
+│   ├── 0004_inventory_core_tables.sql # Phase 3: inventory_locations/categories/items/
+│   │                                 #   transactions/sku_thresholds — six new tables, zero
+│   │                                 #   ALTERs against existing ones (see ARCHITECTURE.md)
+│   └── 0005_inventory_custody_type.sql # one additive column: inventory_categories.custody_type
 │
 ├── routers/                        # FastAPI route handlers — one file per domain
 │   ├── __init__.py
@@ -32,7 +36,13 @@ battery-tracker/
 │   │                                  #   used by every other router, lives nowhere else
 │   ├── sites.py                      # locations CRUD, hourly online/offline verification
 │   ├── batteries.py                  # batteries CRUD + movements (create/list/lifecycle actions)
-│   └── users.py                      # users + roles + role_permissions CRUD
+│   ├── users.py                      # users + roles + role_permissions CRUD
+│   └── inventory.py                  # the whole Inventory domain's routes — categories,
+│                                      #   locations, items/products, issue/return carts,
+│                                      #   transaction log, reconciliation, reports/summaries.
+│                                      #   One router over five db/ files (see below) — the
+│                                      #   domain covers six tables, still one domain either
+│                                      #   way (see ARCHITECTURE.md)
 │
 ├── db/                              # raw-SQL data access — one file per domain, psycopg2 only
 │   ├── __init__.py
@@ -43,11 +53,30 @@ battery-tracker/
 │   ├── batteries.py                   # includes battery_movements — grouped with batteries,
 │   │                                   #   not a separate domain (see ARCHITECTURE.md)
 │   ├── permissions.py                  # roles + role_permissions data access
-│   └── users.py                       # users CRUD
+│   ├── users.py                       # users CRUD
+│   ├── inventory_locations.py          # inventory_locations CRUD + get_or_create_location_by_name
+│   │                                   #   (Issue/Return's free-typed Site field, Add/Edit Unit's
+│   │                                   #   Location field) + get_default_store_location (Return's
+│   │                                   #   single fixed destination)
+│   ├── inventory_categories.py         # category CRUD; count_active_items backs the Core-lock
+│   │                                   #   check in routers/inventory.py (see ARCHITECTURE.md)
+│   ├── inventory_items.py              # item/unit CRUD at the correct row granularity per Core
+│   │                                   #   (one row per serial/batch-lot/cut); update_product
+│   │                                   #   moves a whole SKU/spec group between same-Core
+│   │                                   #   categories at once
+│   ├── inventory_transactions.py       # the append-only log: record_transaction (single-line
+│   │                                   #   actions), issue_cart/return_cart (N-line, one commit,
+│   │                                   #   one event_group_id), reconcile_cut
+│   └── inventory_reports.py            # get_items_summary (Items/Stock's SKU-aggregate rows,
+│                                       #   on_hand_qty/deployed_qty/total_qty split — see
+│                                       #   ARCHITECTURE.md), get_sku_summary (Reports' on-hand-
+│                                       #   only rollup), cable/offcut summaries, sku transaction
+│                                       #   history
 │
 └── static/                          # frontend — plain HTML/CSS/JS, no build step, no framework
-    ├── index.html                     # SPA shell: login screen, topbar, sidebar nav, cmdk
-    │                                   #   palette, per-view mount points
+    ├── index.html                     # SPA shell: login screen, topbar, sidebar nav (incl. the
+    │                                   #   collapsible Inventory group), cmdk palette, per-view
+    │                                   #   mount points
     ├── jn-logo.png
     │
     ├── views/                         # one HTML fragment per view, fetched + injected at startup
@@ -58,18 +87,41 @@ battery-tracker/
     │   ├── check-sites.html
     │   ├── users.html
     │   ├── roles.html                   # role list + permission-grid edit form
-    │   └── settings.html                # Profile + Password tabs
+    │   ├── settings.html                # Profile + Password tabs
+    │   ├── inventory.html                # Items: one row per SKU/spec (Qty/Cost/Value), View/
+    │   │                                 #   Edit/Delete + Add Item wizard; also hosts the shared
+    │   │                                 #   unit-list/unit-detail/sku-history modal markup
+    │   │                                 #   (addressable from Stock/Reports too regardless of
+    │   │                                 #   which view is active)
+    │   ├── stock.html                    # same SKU-aggregate rows as Items, View-only, with
+    │   │                                 #   Status/Custody filters + Issue/Return header links
+    │   ├── inventory-log.html            # Transaction Log — generic Log Transaction form
+    │   │                                 #   (Transfer/Adjustment/Return/Write-off) + reconcile
+    │   ├── inventory-manage.html         # Categories only — Locations has no management screen
+    │   ├── inventory-reports.html        # SKU/Spec Summary, Cable Type Summary, Offcut Rollup
+    │   ├── issue-materials.html          # Issue cart: search+form left column, Cart right column
+    │   └── return-materials.html         # Return cart — same layout, no Site/Activity/Issued-To,
+    │                                     #   shares issue-materials.css (no CSS file of its own)
     │
     ├── js/                             # one ES module per view, imports only from common.js —
-    │   │                                 #   EXCEPT dashboard.js <-> movements.js (see below).
-    │   │                                 #   Each view module registers a route with common.js's
-    │   │                                 #   router (registerRoute) instead of switching views itself
+    │   │                                 #   EXCEPT dashboard.js <-> movements.js, and EXCEPT
+    │   │                                 #   inventory.js/stock.js/inventory-log.js/
+    │   │                                 #   inventory-manage.js/inventory-reports.js/
+    │   │                                 #   issue-materials.js/return-materials.js, which all
+    │   │                                 #   import from inventory-common.js (a shared domain
+    │   │                                 #   module, not a pairwise cross-import — see
+    │   │                                 #   ARCHITECTURE.md). Each view module registers a route
+    │   │                                 #   with common.js's router (registerRoute) instead of
+    │   │                                 #   switching views itself
     │   ├── app.js                        # bootstrap — the only file that imports every view module
     │   ├── common.js                     # shared state, auth, permission checks (can()), fragment
     │   │                                 #   loader, cmdk command palette, app-shown handler
     │   │                                 #   registry, refreshBadges(), hash router (navigate/
-    │   │                                 #   registerRoute/registerRouteResetter — URL + browser
-    │   │                                 #   back/forward reflect the current view)
+    │   │                                 #   registerRoute/registerRouteResetter/dispatchRoute —
+    │   │                                 #   re-checks permission on every navigation, not just at
+    │   │                                 #   login — URL + browser back/forward reflect the
+    │   │                                 #   current view), ROUTE_PERMISSION_MAP +
+    │   │                                 #   NAV_GROUP_MASTER_PERMISSION (see ARCHITECTURE.md)
     │   ├── dashboard.js                  # battery table, stat cards + click-through detail, move
     │   │                                 #   modal (incl. "Moved by"/"Move to" typeahead + the
     │   │                                 #   "Reason" custom dropdown), imports MOVEMENT_STATUS_META
@@ -84,13 +136,43 @@ battery-tracker/
     │   ├── check-sites.js
     │   ├── users.js
     │   ├── roles.js                      # permission-grid rendering — flat + nested checkbox
-    │   │                                 #   sections, some remapped to a different backend
-    │   │                                 #   section/action than where they're rendered
-    │   └── settings.js                   # Profile/Password tabs, password show/hide toggle
+    │   │                                 #   sections (incl. Inventory's Items/Stock/Categories/
+    │   │                                 #   Log tree and the independent Reports toggle — see
+    │   │                                 #   ARCHITECTURE.md), some remapped to a different
+    │   │                                 #   backend section/action than where they're rendered
+    │   ├── settings.js                   # Profile/Password tabs, password show/hide toggle
+    │   ├── inventory-common.js            # shared Inventory domain module: category/location
+    │   │                                 #   caches, TRACKING_TYPE_LABELS ("Core" naming), the
+    │   │                                 #   shared unit-list/unit-detail-modal/sku-history View
+    │   │                                 #   drill-down (openStockHistory), cartQtyStepperHtml,
+    │   │                                 #   assetStatusBadgeHtml, exportRowsToCsv
+    │   ├── inventory.js                   # Items page — renderItemsTable off get_items_summary
+    │   │                                 #   (Qty defaults to on_hand_qty, not total — see
+    │   │                                 #   ARCHITECTURE.md), Add Item wizard (New Product / Add
+    │   │                                 #   Unit, incl. Asset batch-add)
+    │   ├── stock.js                       # Stock page — same SKU-aggregate rows, Status (All/In
+    │   │                                 #   Store/Deployed)/Custody filters switch which of
+    │   │                                 #   on_hand/deployed/total displays, client-side, no
+    │   │                                 #   re-fetch; click-to-edit Reorder Level
+    │   ├── inventory-log.js               # generic Log Transaction form + log table
+    │   ├── inventory-manage.js            # Categories CRUD (Add/Edit modals, Core-lock hint
+    │   │                                 #   sourced from the API's own 400 detail — see
+    │   │                                 #   ARCHITECTURE.md)
+    │   ├── inventory-reports.js           # SKU/Spec Summary, Cable Type Summary, Offcut Rollup
+    │   │                                 #   panels + CSV export per panel
+    │   ├── issue-materials.js             # search+cart, Quick Issue (auto-select N eligible
+    │   │                                 #   Active serials, deterministic bottom-of-list order —
+    │   │                                 #   see ARCHITECTURE.md), qty stepper for Quantity lines
+    │   └── return-materials.js            # search scoped to only Deployed assets (what's
+    │                                     #   actually issued out — see ARCHITECTURE.md), Quick
+    │                                     #   Return scoped to a chosen site/person source,
+    │                                     #   per-line explicit status pick
     │
     └── css/                            # one file per view + common.css for shared chrome
-        ├── common.css                    # topbar, sidebar nav, modals, base table styling,
-        │                                 #   stat-grid, mobile breakpoint (max-width:760px)
+        ├── common.css                    # topbar, sidebar nav (incl. collapsible group/chevron/
+        │                                 #   subitems), sidebar/content vertical divider, modals,
+        │                                 #   base table styling, stat-grid, shared .qty-stepper
+        │                                 #   component, mobile breakpoint (max-width:760px)
         ├── dashboard.css                  # stat cards (incl. .deployed-flagged red pill variant),
         │                                 #   move/charge/reason dropdowns, "Moved by" typeahead
         │                                 #   dropdown, View Battery + stat-detail modals (incl.
@@ -101,9 +183,19 @@ battery-tracker/
         ├── users.css
         ├── roles.css                      # permission-grid layout, slant-tab-free (Roles has no
         │                                 #   tab group — Settings and the View Battery modal do)
-        └── settings.css                   # slant-tab styling (shared visual pattern with
-                                            #   dashboard.css's View Battery modal tabs, kept as a
-                                            #   separate class on purpose — see DESIGN.md)
+        ├── settings.css                   # slant-tab styling (shared visual pattern with
+        │                                 #   dashboard.css's View Battery modal tabs, kept as a
+        │                                 #   separate class on purpose — see DESIGN.md)
+        ├── inventory.css                  # shared by Items, Stock, and Manage (no CSS files of
+        │                                 #   their own) — SKU-aggregate table, asset-status pill
+        │                                 #   colors (Active/Deployed/Faulty/In Repair/
+        │                                 #   Decommissioned — see ARCHITECTURE.md), unit-list/
+        │                                 #   unit-detail modal, Add Item wizard
+        ├── inventory-log.css
+        ├── issue-materials.css            # shared by Issue AND Return Materials — two-column
+        │                                 #   layout, Quick Issue/Return controls, expandable
+        │                                 #   cart-group serial list
+        └── inventory-reports.css
 ```
 
 ## Governance / reference docs (repo root, not shown in the tree above)

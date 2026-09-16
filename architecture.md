@@ -1155,6 +1155,196 @@ all scoped to the generic Log Transaction form (`inventory-log.html`/`.js`):
   same "unedited fields ride along as-is" convention still applies to
   everything else in that form (SKU/Name/Spec/UoM).
 
+## Inventory: Core system & permissions — settled decisions
+
+Everything above this point in Schema choices is a chronological log of each
+round of feedback, in the order it happened. This section is the opposite:
+a topic-indexed reference to the Inventory domain's settled decisions,
+written so a future reader (human or Claude) can look up *why* something
+works the way it does without reading the whole history above, and — just
+as important — doesn't re-propose something that was already deliberately
+rejected. Nothing here is new; it's all already implemented and live on
+`phase-3-ops-inventory` as of this writing.
+
+### Core (`tracking_type`) is permanent once a category has items
+
+A category's Core — `asset_serialized` / `inventory_quantity` /
+`inventory_length` — can only change while it has **zero** active items.
+`PATCH /inventory/categories/{id}` (`routers/inventory.py`) checks this via
+`categories_db.count_active_items(category_id)` and returns a 400 with the
+exact item count if it's nonzero.
+
+**This is intentional, not a limitation to lift later.** The three Cores
+don't just mean different labels — they mean different row granularity and
+disjoint column sets: Asset is one row per serial with `asset_status`/
+`assigned_to_user_id`, Consumables is one row per batch with
+`quantity_on_hand`, Cable is one row per reel with `length_remaining`. A
+category that switched Core with existing rows would leave those rows'
+columns meaning something they were never validated or entered for — there
+is no safe automatic conversion between "one row per physical unit" and
+"one row holding a batch quantity." If a category is ever found with the
+wrong Core, the fix is the migration pattern below, never a "convert this
+category's Core in place" feature.
+
+### An item/product can only move to a category of the same Core
+
+Same reasoning, one level down. Moving a product (a whole SKU/spec group)
+between categories is `PATCH /inventory/products` — `update_product` in
+`routers/inventory.py` — which 400s with `"Can't move a product to a
+category of a different Core"` if `new_category["tracking_type"] !=
+old_category["tracking_type"]`. This is enforced at two layers, confirmed
+independently:
+- **Frontend:** the Edit Product modal's category dropdown
+  (`populateEditProductCategoryOptions` in `inventory-common.js`) only ever
+  lists categories matching the product's current `tracking_type` — so an
+  incompatible target never appears as an option in the first place.
+- **Backend:** the same-Core check above, so the dropdown filter isn't the
+  only thing stopping a cross-Core move (a direct API call is rejected too).
+
+A single unit's own `PATCH /inventory/items/{id}` doesn't even accept a
+category change — `category_id` is present in the request shape but
+explicitly ignored (`InventoryItemUpdate`'s comment: "ignored — an item's
+category/tracking_type never changes after creation"). Recategorizing is
+only ever a bulk, whole-product operation, never a one-off per unit.
+
+### Heuristic: spotting a miscategorized Core
+
+When auditing an existing category, the concrete signal that was used to
+catch a real instance of this (see below): **a SKU under an Asset-core
+category where quantity > 1 and the individual units aren't meaningfully
+serialized** — i.e. nothing about them is ever tracked or reasoned about
+per-unit (no real per-unit status history, no individual assignment, the
+serial number if any is just an auto-generated placeholder, not a
+manufacturer/asset-tag identifier anyone actually looks up). That's a sign
+the business treats them as fungible stock, which is what Consumables Core
+is for.
+
+- **Real example — ATB (fixed):** ATB enclosures were sitting in an
+  Asset-core category as dozens of individually "serialized" rows, but
+  they're batteries/enclosures nobody tracks by serial in practice —
+  fungible stock. Fixed by creating a new Consumables-core category ("ATB /
+  Passive Enclosures"), adding fresh quantity-tracked rows there, and
+  soft-deleting the old serialized rows (their original "In" transaction
+  history stays intact for audit purposes — soft delete, not hard delete).
+- **Counterexample — FAT / Router (correctly Asset Core):** also many
+  units under one SKU, but each one genuinely warrants individual tracking
+  — a specific router's status, location and assignment history matters on
+  its own. Quantity alone isn't the signal; it's quantity *combined with*
+  nothing meaningful happening at the per-unit level.
+
+**The migration path, once a miscategorization is confirmed** (this is the
+repeatable pattern, not a one-off script): create the new, correctly-Cored
+category; add fresh rows there via the normal `POST /inventory/units` path
+(so each gets its own "In" transaction, not a bare row with no history);
+soft-delete the old rows via the normal `DELETE /inventory/items/{id}`
+path. Never attempt to convert a row's Core in place — there is no code
+path for that and none should be built, per the section above.
+
+### Inventory permissions hierarchy
+
+The permissions panel (`static/js/roles.js`'s `PERM_SECTIONS`) settled on
+this shape:
+
+```
+Inventory (master toggle, inventory_items:view)
+├── Inventory Items (toggle, inventory_items:view_items)
+│   └── Add / Edit / Delete item (checkboxes)
+├── Stock (toggle, inventory_items:view_stock)
+│   └── Edit Reorder Level / Issue Materials / Return Materials /
+│       View Stock History (checkboxes)
+├── Inventory Categories (toggle, inventory_categories:view)
+│   └── Add / Edit / Delete category (checkboxes)
+└── Inventory Log (toggle, inventory_transactions:view)
+    └── Add / Reconcile Cut (checkboxes)
+
+Reports (its own top-level master toggle, reports:view — NOT nested
+under Inventory)
+```
+
+Two decisions worth calling out so they aren't relitigated:
+
+- **"Add Stock" was a separate toggle at one point and was deliberately
+  collapsed into "Add item."** Creating a brand-new product (`POST
+  /inventory/items`) and adding a physical unit/batch to an existing one
+  (`POST /inventory/units`, `/inventory/units/batch`) both check
+  `inventory_items:add` now — there is no separate "add stock" permission
+  any more, and re-introducing one as its own toggle would be re-litigating
+  a decision made specifically because the two-permission version was more
+  granularity than this app actually wants.
+- **Reports is deliberately independent, not nested under Inventory**,
+  even though it only ever shows inventory data. It's a plain top-level
+  master toggle — same shape as Users/Roles/Inventory's own master, not a
+  child of it — specifically so a role can see Reports without needing
+  Inventory Items access, or vice versa. Every report endpoint in
+  `routers/inventory.py` (`/inventory/sku-summary`, `/inventory/cable-
+  summary` + its drill-down, `/inventory/offcuts` + its drill-down) checks
+  `reports:view`, not `inventory_items:view`.
+
+**Every toggle here gates real UI/route access, not just what the
+permissions panel shows** — this was a real, previously-existing gap, not
+an assumption:
+- `common.js`'s `ROUTE_PERMISSION_MAP` maps each route name to the
+  `(section, action)` pair that must be `true` to reach it (e.g.
+  `inventory: ["inventory_items", "view_items"]`, `stock:
+  ["inventory_items", "view_stock"]`, `"inventory-reports": ["reports",
+  "view"]`).
+- `NAV_GROUP_MASTER_PERMISSION` additionally requires the Inventory
+  master's own permission for the *whole* grouped nav section to show at
+  all, on top of each sub-item's individual permission — mirrors the
+  permissions panel's own master-toggle-collapses-everything cascade.
+- Critically, `dispatchRoute()` re-checks `isRouteAllowed(name)` on
+  **every** navigation, not just once at login — `applyPermissionVisibility()`
+  hiding a nav link is cosmetic on its own; a hash typed directly into the
+  address bar (or set via the console) would otherwise still reach a denied
+  view. A denied navigation redirects to `cachedFirstAllowedRoute` instead.
+  This fixed a real gap found during testing (a Stock-only role could reach
+  `#/inventory` via direct hash navigation despite the nav link being
+  hidden) — the fix generalizes to every route, including Reports.
+
+### Items page Qty: on-hand, not total-owned
+
+The Items page's Qty column shows `on_hand_qty`, not `total_qty`
+(`on_hand_qty + deployed_qty`) — this was a deliberate reversal of an
+earlier decision. `db/inventory_reports.py`'s `get_items_summary()`
+computes both: for Asset Core, `on_hand_qty` = active rows where
+`asset_status != 'Deployed'`, `deployed_qty` = active rows where it
+**is** `'Deployed'`. Showing the combined total by default read as the app
+under-reporting how much stock had actually been issued out — a deployed
+router still "existing" doesn't mean it's available to hand out today, and
+"Qty" on an inventory page reads as "how much can I use right now."
+
+**Applies to Asset Core and Cable Core, not Consumables** — Consumables
+has no separate deployed bucket at all (issuing a consumable decrements
+`quantity_on_hand` in place rather than moving stock to a tracked "out"
+state), so `deployed_qty` is hardcoded to `0` for that Core and
+`on_hand_qty` already equals the true live total.
+
+The Stock page is **unaffected** — it kept its own explicit Status filter
+(All / In Store / Deployed, `stock.js`'s `stockStatusFilter`), which
+already let a user choose which number to see; the Items page had no such
+filter and was hardcoded to the total, which is what actually needed
+fixing. Total Value on the Items page follows the same on-hand basis
+(`on_hand_value`, not `total_value`) — showing a Qty of 33 next to a Value
+priced for 50 units would have been its own, new inconsistency.
+
+### Lesson: a CSV handed to you may be an export, not new data
+
+Not a code decision, but worth recording so it isn't repeated: asked to
+"import" `items.csv`/`stock.csv` into the database, the files turned out to
+match the live database exactly, row for row — they were CSV *exports*
+(the app has an export feature on the Items/Stock/Reports/Log pages, via
+`inventory-common.js`'s `exportRowsToCsv`; it has no CSV *import* feature
+anywhere) rather than a new external data source. One of the tells:
+`items.csv`'s Location column held values like `"Main store, Ndambaki"` —
+literally `get_items_summary()`'s comma-joined `location_names` display
+field, not a real single location a row could actually hold.
+
+**Rule going forward:** before writing a CSV's contents into the database,
+diff it against the current live state first (matching on category + SKU
+is enough, as done here). There is no upsert-by-SKU import path in this
+app — blindly inserting rows from what turns out to be a report export
+would have created duplicate item rows on top of already-correct data.
+
 ## Infra / hosting choices
 
 Backend: FastAPI (`main.py` + `routers/`), served by Uvicorn. Frontend:
