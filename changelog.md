@@ -5,9 +5,7 @@ Phase-based, not version-based — this project ships in named phases (see
 concise, user-facing summary; full technical detail lives in the git log
 and in `phase.md`'s own per-phase writeups.
 
-## Phase 3 — Ops Inventory System (implementation complete on branch
-`phase-3-ops-inventory`, awaiting the owner's own click-through and merge
-per phase.md's process — not yet marked done)
+## Phase 3 — Ops Inventory System (completed 2026-09-17, merged to `main`)
 
 A new inventory/asset-tracking domain for field operations, entirely
 separate from battery tracking: enclosures, cabling, consumables, and
