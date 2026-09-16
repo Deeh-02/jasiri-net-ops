@@ -116,9 +116,8 @@ picking this up too:
 
 ## Current status
 
-Phases 0–2 (structural split, mobile fixes, finish-incomplete-
-functionality) are confirmed done. Phase 3 ("Ops Inventory System" — the
-Inventory domain described above) is implemented on branch
-`phase-3-ops-inventory` and awaiting the owner's own click-through before
-it's marked done and merged to `main` — see [phase.md](phase.md) and
+Phases 0–3 are confirmed done and merged to `main` — structural split,
+mobile fixes, finish-incomplete-functionality, and Phase 3 ("Ops Inventory
+System," the Inventory domain described above). No phase is currently
+active; Phase 4 ("Notifications") is next up. See [phase.md](phase.md) and
 [changelog.md](changelog.md) for the full breakdown.

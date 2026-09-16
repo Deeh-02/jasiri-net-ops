@@ -11,21 +11,74 @@ and whatever's still upcoming.
 
 ## ACTIVE PHASE: none currently
 
-Phase 2 confirmed done — see COMPLETED PHASES below. Phase 3 has not been
+Phase 3 confirmed done — see COMPLETED PHASES below. Phase 4 has not been
 kicked off yet; see UPCOMING PHASES for what's next once the owner starts
 it.
 
 ---
 
-## UPCOMING PHASES (order locked; Phase 3 detail below supplied in full
-## by the owner ahead of activation — the rest stay one-liners per the
-## usual convention until each becomes active)
+## UPCOMING PHASES (order locked; each stays a one-liner per the usual
+## convention until it becomes active, at which point its full brief goes
+## here the same way Phase 3's did before it was completed)
 
-**Phase 3 — Ops Inventory System.** Supersedes the old one-liner "Phase 4
-— Inventory" entry (dropped; this phase now covers that scope in full).
-Full brief as given by the owner (2026-09-06):
+**Phase 4 — Notifications.** Lowest-effort new addition — SMS templates
+already designed, this is mostly wiring them in. (Previously numbered
+Phase 3; renumbered to make room for the Phase 3 Ops Inventory System
+brief, per owner's explicit call 2026-09-06 — see COMPLETED PHASES for
+that phase's outcome.)
 
-> ### Context
+**Phase 5 — Ticketing.** Close in shape to the existing site verification/
+check-in flow.
+
+**Phase 6 — Basic CRM.** Likely just views/notes on top of the existing
+customers table — to be CONFIRMED, not assumed, once this phase starts.
+
+**Phase 7 — Chat.** Deliberately deferred and flagged for reassessment.
+Most technically demanding of the set, and WhatsApp already works as a
+contact channel. Confirm this solves a real operational gap before
+building anything.
+
+Each phase runs in its own branch (one branch per phase — see CLAUDE.md).
+Before confirming any phase done, the owner checks it out locally
+(`git checkout <phase-branch>`) and runs it on localhost — not just
+Claude's word that "done when" criteria are met. Merges to `main` happen
+only after that. Detail (scope, done-when criteria) expands here from a
+one-liner when a phase becomes active. The DeepSeek delegation
+confirmation checkpoint (see DELEGATION.md) resets at the start of each
+new phase.
+
+---
+
+## COMPLETED PHASES
+
+**Phase 3 — Ops Inventory System.** Completed 2026-09-17, merged to
+`main`. Full inventory/asset-tracking domain for field operations
+(enclosures, cable, consumables, power/network gear), entirely separate
+from battery tracking. User-created categories tagged with one of three
+fixed Cores (Asset-Serialized / Consumables-Quantity / Cable-Length) drive
+row granularity and which fields apply — locked once a category has
+items, since the three Cores use disjoint, non-convertible column sets.
+Every item state change happens only as a side effect of a logged
+transaction (In/Transfer/Adjustment/Issue/Return/Write-off/Reconciled),
+never a direct edit. Delivered: the Categories/Items/Transaction Log core;
+a unified Issue/Return Materials cart covering mixed-Core carts in one
+action, with Quick Issue/Return auto-selecting eligible serials by
+quantity; two-stage cable reconciliation (full cut out, actual usage
+reconciled once the job closes, with usable-remainder/offcut split);
+SKU/Spec Summary + Cable Type Summary + Offcut Rollup reporting; a full
+permissions hierarchy for the domain (Inventory Items/Stock/Categories/
+Log, plus an independent Reports toggle), enforced at both the UI/route
+layer and the backend, not just the permissions panel. Went through
+several owner-review refinement passes after the initial build (nav
+restructure, Items/Stock split, Quick Issue/Return, on-hand-vs-total Qty
+reporting, among others — see changelog.md's Phase 3 section for the full
+list) before this final confirmation. See architecture.md's "Inventory:
+Core system & permissions" section for the settled design reasoning.
+Production DB migrations (`0004_inventory_core_tables.sql`,
+`0005_inventory_custody_type.sql`) confirmed applied ahead of the `main`
+merge. Owner confirmed done (2026-09-17).
+
+**Phase 2 — Finish Incomplete Functionality.** Completed 2026-09-06.
 > This is **Phase 3** of an ongoing project to build an inventory/asset
 > tracking system for field operations (telecom-adjacent: enclosures,
 > cabling, and power/network equipment). Phases 1–2 established the data
