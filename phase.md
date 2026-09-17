@@ -180,6 +180,7 @@ This is precisely the "site up, hotspot broken" failure the review called out as
 - **Render plan.** Free tier sleeps after ~15 min idle and cold-starts in 30–60s. A 60s heartbeat keeps it permanently awake — a genuine side benefit — but any gap causes a cold start, which causes more gaps.
 - **Supabase plan and current DB size.** Drives the retention design in 4.1.
 - **Migration approach.** Alembic, or hand-applied SQL? Claude Code can answer this itself from the repo.
+- **M-Pesa data access, for 4.7's reconciliation.** Automated (an API/export Ops can pull programmatically) or manual (someone reading Safaricom statements)? This decides whether daily reconciliation is free or a recurring manual chore — see 4.7.
 
 ### 4.0c — The site mapping table: STILL OPEN, and now the critical path
 
@@ -353,7 +354,10 @@ Attribute to a site by the user's address subnet where the user is currently act
 
 `hp support users` and `default` price at 0. Confirm `default` is genuinely comped and not a misconfiguration.
 
-Because this is a *sales* measure, it should reconcile against M-Pesa directly. Log the weekly delta; a persistent gap is a bug, not drift.
+Because this is a *sales* measure, it should reconcile against M-Pesa. Split this into two pieces so the system side costs nothing regardless of how the M-Pesa side turns out:
+
+- **Automatic, always:** an Ops-side scheduled job logs that day's `revenue_events` total per site every day, no human involved. This alone costs nothing and should just always run.
+- **Comparison against M-Pesa, frequency TBD by 4.0b:** if M-Pesa data is pullable programmatically, do this comparison daily too — it's then free, and same-day mismatches are cheaper to debug than week-old ones. If it's a manual statement check, don't force it to daily; let Ops pick a cadence (could stay weekly) without changing the system side. Either way, a single day's gap alone isn't a bug — settlement timing can shift a sale across the midnight boundary — only a gap that repeats across the compared period is.
 
 #### 4.8 — Alerting + external watchdog
 
@@ -429,7 +433,7 @@ Extending DELEGATION.md's rule that an agent shows each command before running i
 5. A user without `sites/view_revenue` receives responses containing **no revenue field** — verified by reading the raw response, not the UI.
 6. Uptime for a deliberately induced 10-minute outage on one test site matches wall-clock within 60 seconds.
 7. An Ops restart mid-outage produces *unknown* time, not phantom uptime — verified by killing Ops for 5 minutes during a real outage.
-8. One week's polled revenue reconciles against M-Pesa within a stated tolerance, with the delta logged.
+8. Router-side daily revenue totals logged automatically for 7 consecutive days, and compared against M-Pesa at whatever cadence 4.0b settles on (daily if automatable, otherwise Ops' chosen manual cadence); polled revenue matched M-Pesa within a stated tolerance over that comparison, with the delta logged each time and no unexplained repeat gap on any one site.
 9. Every `/tool fetch` carries `output=none keep-result=no check-certificate=yes`, and `/file print` shows no growth after 7 days.
 10. `keepalive-timeout` is still `10`.
 
