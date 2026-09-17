@@ -1,4 +1,4 @@
-import { loadViewFragments, initShell, bootAuth } from "./common.js";
+import { loadViewFragments, initShell, resolveAuthUI, bootAuth } from "./common.js";
 import { initDashboard } from "./dashboard.js";
 import { initSites } from "./sites.js";
 import { initMovements } from "./movements.js";
@@ -16,6 +16,7 @@ import { initInventoryReports } from "./inventory-reports.js";
 
 async function boot() {
     initShell();
+    resolveAuthUI();
     await loadViewFragments();
 
     initDashboard();

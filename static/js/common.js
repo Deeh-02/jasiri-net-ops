@@ -3,6 +3,40 @@ let authToken = localStorage.getItem("authToken");
 let currentUser = JSON.parse(localStorage.getItem("currentUser") || "null");
 let currentPermissions = new Set();
 
+// Reads a JWT's payload without verifying its signature — that's the
+// server's job on every request; this only exists so the client can avoid
+// trusting a token it can already tell is expired, before ever making a
+// network call. Returns null for anything that doesn't parse, which
+// isTokenExpired() below treats the same as "expired": a token we can't
+// read the expiry of isn't one we can trust either.
+function decodeJwtPayload(token) {
+    try {
+        const base64Url = token.split(".")[1];
+        const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
+        const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
+        return JSON.parse(atob(padded));
+    } catch {
+        return null;
+    }
+}
+
+function isTokenExpired(token) {
+    const payload = decodeJwtPayload(token);
+    if (!payload || typeof payload.exp !== "number") return true;
+    return Date.now() >= payload.exp * 1000;
+}
+
+// Single place that forgets a session — used on explicit logout, and by
+// resolveAuthUI() below when the stored token has already expired. Keeping
+// this in one function means the two can't drift (e.g. one clearing
+// currentUser from localStorage but not the in-memory copy `can()` reads).
+function clearSession() {
+    authToken = null;
+    currentUser = null;
+    localStorage.removeItem("authToken");
+    localStorage.removeItem("currentUser");
+}
+
 export function can(section, action) {
     if (currentUser && currentUser.role === "admin") return true;
     return currentPermissions.has(`${section}:${action}`);
@@ -634,10 +668,7 @@ export function initShell() {
     });
 
     document.getElementById("logout-btn").addEventListener("click", () => {
-        localStorage.removeItem("authToken");
-        localStorage.removeItem("currentUser");
-        authToken = null;
-        currentUser = null;
+        clearSession();
         document.getElementById("global-topbar").hidden = true;
         document.getElementById("app-layout").hidden = true;
         document.getElementById("login-screen").hidden = false;
@@ -767,12 +798,37 @@ export function initShell() {
     });
 }
 
+// ---- Called synchronously, before view fragments are fetched, so a
+// refresh with a saved token never paints the login screen at all: the DOM
+// starts on a neutral #auth-loading placeholder (see index.html) and this
+// either reveals the login form (no token, so we already know for certain
+// there's no session) or leaves everything hidden for showApp() below to
+// take over once it's ready. Splitting this out of bootAuth() matters
+// because loadViewFragments() is an async gap — dispatching the "logged
+// out" UI only after that gap resolves is exactly what caused the flash. ----
+export function resolveAuthUI() {
+    // A present-but-expired token is exactly as unauthenticated as no token
+    // at all — trusting its mere presence here is what used to render the
+    // full app shell (sidebar, topbar, whichever route was in the hash)
+    // against a session the server was already going to reject on the
+    // very first request, instead of the login screen. This runs before
+    // bootAuth() below ever checks `authToken`, so clearing it here means
+    // that check — and everything downstream of it — sees "logged out"
+    // exactly like the no-token case, with no separate expiry check needed
+    // there.
+    if (authToken && isTokenExpired(authToken)) {
+        clearSession();
+    }
+    document.getElementById("auth-loading").hidden = true;
+    if (!authToken) {
+        document.getElementById("login-screen").hidden = false;
+    }
+}
+
 // ---- Resolves whether a saved session should jump straight back into the
 // app, once view fragments are loaded and every view has registered. ----
 export function bootAuth() {
     if (authToken) {
         showApp();
-    } else {
-        document.getElementById("login-screen").hidden = false;
     }
 }

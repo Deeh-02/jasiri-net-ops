@@ -1,8 +1,25 @@
 import { can, authHeaders, formatDate, capitalize, deleteIconSvg, showView, navigate, registerRoute, refreshBadges } from "./common.js";
 import { refreshData as refreshDashboardData } from "./dashboard.js";
 
-let movementsCache = [];
+// null (not []) whenever nothing currently on screen can be trusted as
+// "the cache" — before the first fetch ever completes, and again every
+// time loadMovements() blanks the tbody to the loading placeholder (see
+// there). That keeps the invariant "cache is non-null only while it
+// accurately describes what's rendered" true by construction, so the
+// dedup in refreshMovements() below can never compare a fresh fetch
+// against stale data left over from a previous visit and wrongly decide
+// nothing changed.
+let movementsCache = null;
 let showMovementHistory = false;
+
+// Bumped by loadMovements() on every route re-dispatch and history-filter
+// toggle. A refreshMovements() call captures the value at its own start and
+// checks it again once the fetch resolves — if a newer call has started in
+// the meantime, this one's response is stale (however it got that way: a
+// slower request, or one that simply started earlier) and is discarded
+// instead of overwriting the screen with an answer to a question nobody's
+// asking anymore.
+let movementsRequestId = 0;
 
 export const MOVEMENT_STATUS_META = {
     pending: { label: "Pending", cls: "pending" },
@@ -21,28 +38,47 @@ const MOVEMENT_REASON_LABELS = {
 
 // Quiet refresh: no blanking, just swaps rows in place — used by the live
 // sync poll and after an action, so a tick or a click doesn't flash
-// "Loading movements..." over a table that's already showing data.
+// "Loading movements..." over a table that's already showing data. Also
+// the one function every fetch of this list goes through, load or poll
+// alike, so the staleness guard below covers both.
 async function refreshMovements() {
+    const requestId = ++movementsRequestId;
     const res = await fetch(`/movements${showMovementHistory ? "?history=true" : ""}`, { headers: authHeaders() });
+    // A newer call (another poll tick, or a fresh loadMovements() from
+    // navigating away and back) has started since this fetch went out —
+    // whatever this response says, it's not the answer to display anymore.
+    // Without this, two overlapping requests race on nothing but network
+    // timing: whichever happens to resolve *last* wins the render, even if
+    // it was the *first* one issued and is now describing an older state
+    // than what the newer request already put on screen.
+    if (requestId !== movementsRequestId) return;
     if (!res.ok) {
         document.getElementById("movements-rows").innerHTML = '<tr><td colspan="6" class="loading-text">Failed to load movements</td></tr>';
         return;
     }
     const data = await res.json();
-    // Most polls land on an unchanged list — rebuilding the tbody anyway
-    // would tear down and recreate every action button, which drops
-    // whatever button the mouse happens to be hovering (its :hover style
-    // blinks off then back on) even though nothing actually changed. Skip
-    // the render entirely when the fetched data matches what's on screen.
-    if (JSON.stringify(data) === JSON.stringify(movementsCache)) return;
+    if (requestId !== movementsRequestId) return;
+    // movementsCache is null exactly when there's nothing on screen yet to
+    // compare against (see its declaration above) — most other polls land
+    // on an unchanged list, where rebuilding the tbody anyway would tear
+    // down and recreate every action button, dropping whatever button the
+    // mouse happens to be hovering (its :hover style blinks off then back
+    // on) even though nothing actually changed.
+    if (movementsCache !== null && JSON.stringify(data) === JSON.stringify(movementsCache)) return;
     movementsCache = data;
     renderMovementsList(movementsCache);
 }
 
-// Initial/tab-switch load: shows the loading text once, then defers to the
-// quiet refresh above.
+// Initial/tab-switch/history-toggle load: shows the loading text once, then
+// defers to the quiet refresh above. Resetting movementsCache here — not
+// just at declaration — is what makes refreshMovements() always render on
+// this path even when the fetch happens to return exactly what was on
+// screen during a previous visit: there's nothing left on screen right
+// now (it's the loading placeholder), so nothing can legitimately compare
+// equal to it.
 async function loadMovements() {
     document.getElementById("movements-rows").innerHTML = '<tr><td colspan="6" class="loading-text">Loading movements...</td></tr>';
+    movementsCache = null;
     await refreshMovements();
 }
 
