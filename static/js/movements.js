@@ -1,4 +1,4 @@
-import { can, authHeaders, formatDate, capitalize, deleteIconSvg, showView, navigate, registerRoute, refreshBadges } from "./common.js";
+import { can, authHeaders, formatDate, capitalize, deleteIconSvg, showView, navigate, registerRoute, refreshBadges, registerAppShownHandler, registerLogoutHandler } from "./common.js";
 import { refreshData as refreshDashboardData } from "./dashboard.js";
 
 // null (not []) whenever nothing currently on screen can be trusted as
@@ -200,13 +200,27 @@ function attachMovementActionListeners() {
 // interval so a change made here is reflected there in under 2s either way.
 const LIVE_SYNC_INTERVAL_MS = 1500;
 
+// Not gated on auth state — only on this view being visible — so, like
+// dashboard.js's live sync, it's started/stopped in step with
+// login/logout (appShownHandler / logoutHandler below) rather than once
+// at boot. Otherwise it keeps ticking after logout and a tick landing
+// before the next login finishes fires /movements with no Authorization
+// header, drawing a 401 — only visible in a logout-then-relogin flow.
+let liveSyncIntervalId = null;
+
 function startLiveSync() {
-    setInterval(() => {
+    clearInterval(liveSyncIntervalId); // idempotent — see dashboard.js's startLiveSync
+    liveSyncIntervalId = setInterval(() => {
         const view = document.getElementById("view-movements");
         if (!view || view.hidden) return;
         if (document.visibilityState !== "visible") return;
         refreshMovements();
     }, LIVE_SYNC_INTERVAL_MS);
+}
+
+function stopLiveSync() {
+    clearInterval(liveSyncIntervalId);
+    liveSyncIntervalId = null;
 }
 
 export function initMovements() {
@@ -226,5 +240,6 @@ export function initMovements() {
         loadMovements();
     });
 
-    startLiveSync();
+    registerAppShownHandler(startLiveSync);
+    registerLogoutHandler(stopLiveSync);
 }

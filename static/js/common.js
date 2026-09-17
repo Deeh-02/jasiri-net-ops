@@ -461,6 +461,22 @@ export function registerAppShownHandler(fn) {
     appShownHandlers.push(fn);
 }
 
+// ---- Logout handlers: view modules register cleanup that must happen the
+// instant the session ends, run synchronously from the logout click below —
+// currently just each view's live-sync interval. Without this, an interval
+// started at boot (dashboard.js, movements.js) has no way to learn a logout
+// happened: it isn't gated on auth state, only on its own view being
+// visible, and logging out hides #app-layout, not the view element inside
+// it. A tick landing in the gap between logout and the next login fires
+// with authToken already null, hitting protected endpoints with no
+// Authorization header and drawing a 401 — reproducible specifically via
+// logout-then-immediate-relogin, not a fresh page load, since only the
+// logout path leaves the interval running unattended. ----
+const logoutHandlers = [];
+export function registerLogoutHandler(fn) {
+    logoutHandlers.push(fn);
+}
+
 export async function showApp() {
     document.getElementById("login-screen").hidden = true;
     document.getElementById("global-topbar").hidden = false;
@@ -665,6 +681,7 @@ export function initShell() {
     });
 
     document.getElementById("logout-btn").addEventListener("click", () => {
+        logoutHandlers.forEach(fn => fn());
         clearSession();
         document.getElementById("global-topbar").hidden = true;
         document.getElementById("app-layout").hidden = true;

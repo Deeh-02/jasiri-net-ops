@@ -3,6 +3,7 @@ import {
     batteryIconSvg, moveIconSvg, editIconSvg, viewIconSvg, deleteIconSvg,
     registerAppShownHandler, registerCmdkProvider, refreshBadges,
     showView, navigate, registerRoute, registerRouteResetter,
+    registerLogoutHandler,
 } from "./common.js";
 import { MOVEMENT_STATUS_META } from "./movements.js";
 
@@ -652,14 +653,34 @@ function isDashboardBusy() {
     return !!document.querySelector(".charge-menu:not([hidden])");
 }
 
+// Not gated on auth state at all — only on this view being visible — so it
+// has to be started and stopped in step with login/logout instead: started
+// as an appShownHandler (every login and every session-restore) and
+// stopped as a logoutHandler (see below), rather than once at boot. If it
+// kept running unconditionally after logout, a tick landing before the
+// next login finishes would fire with authToken already null, hitting
+// /batteries and /locations with no Authorization header — a spurious 401
+// that only shows up in a logout-then-relogin flow, not a fresh page load.
+let liveSyncIntervalId = null;
+
 function startLiveSync() {
-    setInterval(() => {
+    // Idempotent: showApp() runs this on every login and session-restore,
+    // so a stale interval from a previous call (there shouldn't be one,
+    // since stopLiveSync() below always runs first on logout, but this
+    // costs nothing and rules out ever doubling up) is cleared first.
+    clearInterval(liveSyncIntervalId);
+    liveSyncIntervalId = setInterval(() => {
         const view = document.getElementById("view-dashboard");
         if (!view || view.hidden) return;
         if (document.visibilityState !== "visible") return;
         if (isDashboardBusy()) return;
         refreshData();
     }, LIVE_SYNC_INTERVAL_MS);
+}
+
+function stopLiveSync() {
+    clearInterval(liveSyncIntervalId);
+    liveSyncIntervalId = null;
 }
 
 export function initDashboard() {
@@ -842,6 +863,8 @@ export function initDashboard() {
     });
 
     registerAppShownHandler(loadDashboard);
+    registerAppShownHandler(startLiveSync);
+    registerLogoutHandler(stopLiveSync);
 
     registerCmdkProvider({
         getItems: () => {
@@ -884,6 +907,4 @@ export function initDashboard() {
         }
     });
     registerRouteResetter(closeViewBatteryModal);
-
-    startLiveSync();
 }
