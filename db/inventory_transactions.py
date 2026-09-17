@@ -1,4 +1,4 @@
-from db.connection import get_connection, utc_iso
+from db.connection import db_cursor, utc_iso
 import uuid
 
 # Same generic, type-agnostic column surface pattern as inventory_items.py —
@@ -53,38 +53,32 @@ def record_transaction(action, item_id, category_id, sku_or_spec, qty_or_length=
     event_group_id — the origin decrement and the new row each need their
     own row to explain them, per the plan's split-Transfer design.
     """
-    conn = get_connection()
-    cur = conn.cursor()
-
-    base_txn_fields = {
-        "category_id": category_id, "sku_or_spec": sku_or_spec, "action": action,
-        "qty_or_length": qty_or_length, "from_location_id": from_location_id,
-        "to_location_id": to_location_id, "site_location_id": site_location_id,
-        "activity": activity, "issued_to_user_id": issued_to_user_id,
-        "logged_by_user_id": logged_by_user_id, "notes": notes,
-    }
-
-    if split_new_item_fields:
-        event_group_id = str(uuid.uuid4())
-        _update_item_row(cur, item_id, item_updates)
-        new_item_id = _insert_item_row(cur, split_new_item_fields)
-
-        txn_a = _insert_txn_row(cur, {**base_txn_fields, "item_id": item_id, "event_group_id": event_group_id})
-        txn_b = _insert_txn_row(cur, {**base_txn_fields, "item_id": new_item_id, "event_group_id": event_group_id})
-
-        conn.commit()
-        cur.close()
-        conn.close()
-        return {
-            "transaction_ids": [txn_a, txn_b], "item_id": item_id,
-            "new_item_id": new_item_id, "event_group_id": event_group_id,
+    with db_cursor() as (conn, cur):
+        base_txn_fields = {
+            "category_id": category_id, "sku_or_spec": sku_or_spec, "action": action,
+            "qty_or_length": qty_or_length, "from_location_id": from_location_id,
+            "to_location_id": to_location_id, "site_location_id": site_location_id,
+            "activity": activity, "issued_to_user_id": issued_to_user_id,
+            "logged_by_user_id": logged_by_user_id, "notes": notes,
         }
 
-    _update_item_row(cur, item_id, item_updates)
-    txn_id = _insert_txn_row(cur, {**base_txn_fields, "item_id": item_id})
-    conn.commit()
-    cur.close()
-    conn.close()
+        if split_new_item_fields:
+            event_group_id = str(uuid.uuid4())
+            _update_item_row(cur, item_id, item_updates)
+            new_item_id = _insert_item_row(cur, split_new_item_fields)
+
+            txn_a = _insert_txn_row(cur, {**base_txn_fields, "item_id": item_id, "event_group_id": event_group_id})
+            txn_b = _insert_txn_row(cur, {**base_txn_fields, "item_id": new_item_id, "event_group_id": event_group_id})
+
+            conn.commit()
+            return {
+                "transaction_ids": [txn_a, txn_b], "item_id": item_id,
+                "new_item_id": new_item_id, "event_group_id": event_group_id,
+            }
+
+        _update_item_row(cur, item_id, item_updates)
+        txn_id = _insert_txn_row(cur, {**base_txn_fields, "item_id": item_id})
+        conn.commit()
     return {"transaction_id": txn_id, "item_id": item_id}
 
 def add_unit(item_fields, qty_or_length, sku_or_spec, location_id, logged_by_user_id, notes, event_group_id=None):
@@ -97,26 +91,22 @@ def add_unit(item_fields, qty_or_length, sku_or_spec, location_id, logged_by_use
     sitting gets a new one (returned here), and every subsequent unit in
     that same sitting passes it back in, so the log displays the whole batch
     as one event — same grouping pattern as issue_cart/return_cart."""
-    conn = get_connection()
-    cur = conn.cursor()
+    with db_cursor() as (conn, cur):
+        new_item_id = _insert_item_row(cur, item_fields)
+        resolved_group_id = event_group_id or str(uuid.uuid4())
+        txn_id = _insert_txn_row(cur, {
+            "item_id": new_item_id,
+            "category_id": item_fields["category_id"],
+            "sku_or_spec": sku_or_spec,
+            "action": "In",
+            "qty_or_length": qty_or_length,
+            "to_location_id": location_id,
+            "logged_by_user_id": logged_by_user_id,
+            "event_group_id": resolved_group_id,
+            "notes": notes,
+        })
 
-    new_item_id = _insert_item_row(cur, item_fields)
-    resolved_group_id = event_group_id or str(uuid.uuid4())
-    txn_id = _insert_txn_row(cur, {
-        "item_id": new_item_id,
-        "category_id": item_fields["category_id"],
-        "sku_or_spec": sku_or_spec,
-        "action": "In",
-        "qty_or_length": qty_or_length,
-        "to_location_id": location_id,
-        "logged_by_user_id": logged_by_user_id,
-        "event_group_id": resolved_group_id,
-        "notes": notes,
-    })
-
-    conn.commit()
-    cur.close()
-    conn.close()
+        conn.commit()
     return {"item_id": new_item_id, "transaction_id": txn_id, "event_group_id": resolved_group_id}
 
 def add_unit_batch(item_fields, quantity, sku, location_id, logged_by_user_id, notes, start_seq, event_group_id=None):
@@ -136,29 +126,26 @@ def add_unit_batch(item_fields, quantity, sku, location_id, logged_by_user_id, n
     meant to be overwritten per-unit afterward with the real manufacturer
     serial once known — the frontend's batch-review list this powers is
     plain PATCH /inventory/items/{id} calls, not special-cased here."""
-    conn = get_connection()
-    cur = conn.cursor()
-    resolved_group_id = event_group_id or str(uuid.uuid4())
+    with db_cursor() as (conn, cur):
+        resolved_group_id = event_group_id or str(uuid.uuid4())
 
-    created_ids = []
-    for i in range(quantity):
-        fields = {**item_fields, "serial_number": f"{sku}-{start_seq + i:02d}"}
-        new_item_id = _insert_item_row(cur, fields)
-        _insert_txn_row(cur, {
-            "item_id": new_item_id,
-            "category_id": item_fields["category_id"],
-            "sku_or_spec": sku,
-            "action": "In",
-            "to_location_id": location_id,
-            "logged_by_user_id": logged_by_user_id,
-            "event_group_id": resolved_group_id,
-            "notes": notes,
-        })
-        created_ids.append(new_item_id)
+        created_ids = []
+        for i in range(quantity):
+            fields = {**item_fields, "serial_number": f"{sku}-{start_seq + i:02d}"}
+            new_item_id = _insert_item_row(cur, fields)
+            _insert_txn_row(cur, {
+                "item_id": new_item_id,
+                "category_id": item_fields["category_id"],
+                "sku_or_spec": sku,
+                "action": "In",
+                "to_location_id": location_id,
+                "logged_by_user_id": logged_by_user_id,
+                "event_group_id": resolved_group_id,
+                "notes": notes,
+            })
+            created_ids.append(new_item_id)
 
-    conn.commit()
-    cur.close()
-    conn.close()
+        conn.commit()
     return {"item_ids": created_ids, "event_group_id": resolved_group_id}
 
 def issue_cart(prepared_lines, site_location_id, activity, issued_to_user_id, logged_by_user_id, notes):
@@ -172,32 +159,29 @@ def issue_cart(prepared_lines, site_location_id, activity, issued_to_user_id, lo
     including the item_updates appropriate to its tracking type, which is
     read from the item's category server-side and never from the client.
     """
-    conn = get_connection()
-    cur = conn.cursor()
-    event_group_id = str(uuid.uuid4())
-    transaction_ids = []
+    with db_cursor() as (conn, cur):
+        event_group_id = str(uuid.uuid4())
+        transaction_ids = []
 
-    for line in prepared_lines:
-        _update_item_row(cur, line["item_id"], line["item_updates"])
-        transaction_ids.append(_insert_txn_row(cur, {
-            "item_id": line["item_id"],
-            "category_id": line["category_id"],
-            "sku_or_spec": line["sku_or_spec"],
-            "action": "Out",
-            "qty_or_length": line["qty_or_length"],
-            "from_location_id": line["from_location_id"],
-            "site_location_id": site_location_id,
-            "activity": activity,
-            "issued_to_user_id": issued_to_user_id,
-            "logged_by_user_id": logged_by_user_id,
-            "status": line["status"],
-            "event_group_id": event_group_id,
-            "notes": notes,
-        }))
+        for line in prepared_lines:
+            _update_item_row(cur, line["item_id"], line["item_updates"])
+            transaction_ids.append(_insert_txn_row(cur, {
+                "item_id": line["item_id"],
+                "category_id": line["category_id"],
+                "sku_or_spec": line["sku_or_spec"],
+                "action": "Out",
+                "qty_or_length": line["qty_or_length"],
+                "from_location_id": line["from_location_id"],
+                "site_location_id": site_location_id,
+                "activity": activity,
+                "issued_to_user_id": issued_to_user_id,
+                "logged_by_user_id": logged_by_user_id,
+                "status": line["status"],
+                "event_group_id": event_group_id,
+                "notes": notes,
+            }))
 
-    conn.commit()
-    cur.close()
-    conn.close()
+        conn.commit()
     return {"event_group_id": event_group_id, "transaction_ids": transaction_ids}
 
 def return_cart(prepared_lines, logged_by_user_id, notes):
@@ -211,33 +195,30 @@ def return_cart(prepared_lines, logged_by_user_id, notes):
     their own log row — still sharing this cart's one event_group_id, same
     as record_transaction's split-Transfer handling, just folded into this
     per-line loop instead of a single line."""
-    conn = get_connection()
-    cur = conn.cursor()
-    event_group_id = str(uuid.uuid4())
-    transaction_ids = []
+    with db_cursor() as (conn, cur):
+        event_group_id = str(uuid.uuid4())
+        transaction_ids = []
 
-    for line in prepared_lines:
-        base_fields = {
-            "category_id": line["category_id"],
-            "sku_or_spec": line["sku_or_spec"],
-            "action": "Return",
-            "qty_or_length": line.get("qty_or_length"),
-            "from_location_id": line["from_location_id"],
-            "to_location_id": line["to_location_id"],
-            "logged_by_user_id": logged_by_user_id,
-            "event_group_id": event_group_id,
-            "notes": notes,
-        }
-        _update_item_row(cur, line["item_id"], line["item_updates"])
-        transaction_ids.append(_insert_txn_row(cur, {**base_fields, "item_id": line["item_id"]}))
+        for line in prepared_lines:
+            base_fields = {
+                "category_id": line["category_id"],
+                "sku_or_spec": line["sku_or_spec"],
+                "action": "Return",
+                "qty_or_length": line.get("qty_or_length"),
+                "from_location_id": line["from_location_id"],
+                "to_location_id": line["to_location_id"],
+                "logged_by_user_id": logged_by_user_id,
+                "event_group_id": event_group_id,
+                "notes": notes,
+            }
+            _update_item_row(cur, line["item_id"], line["item_updates"])
+            transaction_ids.append(_insert_txn_row(cur, {**base_fields, "item_id": line["item_id"]}))
 
-        if line.get("split_new_item_fields"):
-            new_item_id = _insert_item_row(cur, line["split_new_item_fields"])
-            transaction_ids.append(_insert_txn_row(cur, {**base_fields, "item_id": new_item_id}))
+            if line.get("split_new_item_fields"):
+                new_item_id = _insert_item_row(cur, line["split_new_item_fields"])
+                transaction_ids.append(_insert_txn_row(cur, {**base_fields, "item_id": new_item_id}))
 
-    conn.commit()
-    cur.close()
-    conn.close()
+        conn.commit()
     return {"event_group_id": event_group_id, "transaction_ids": transaction_ids}
 
 def reconcile_cut(item_id, category_id, sku_or_spec, length_used, length_returned,
@@ -255,43 +236,39 @@ def reconcile_cut(item_id, category_id, sku_or_spec, length_used, length_returne
     it the new cut would appear in stock with nothing in the log accounting
     for where it came from.
     """
-    conn = get_connection()
-    cur = conn.cursor()
+    with db_cursor() as (conn, cur):
+        cur.execute(
+            "UPDATE inventory_transactions SET status = 'closed' WHERE item_id = %s AND status = 'open_pending';",
+            (item_id,)
+        )
+        _update_item_row(cur, item_id, original_updates)
 
-    cur.execute(
-        "UPDATE inventory_transactions SET status = 'closed' WHERE item_id = %s AND status = 'open_pending';",
-        (item_id,)
-    )
-    _update_item_row(cur, item_id, original_updates)
+        new_item_id = _insert_item_row(cur, new_cut_fields) if new_cut_fields else None
+        event_group_id = str(uuid.uuid4()) if new_cut_fields else None
 
-    new_item_id = _insert_item_row(cur, new_cut_fields) if new_cut_fields else None
-    event_group_id = str(uuid.uuid4()) if new_cut_fields else None
+        base_txn_fields = {
+            "category_id": category_id, "sku_or_spec": sku_or_spec, "action": "Reconciled",
+            "from_location_id": from_location_id, "to_location_id": to_location_id,
+            "logged_by_user_id": logged_by_user_id, "status": "closed",
+            "event_group_id": event_group_id, "notes": notes,
+        }
 
-    base_txn_fields = {
-        "category_id": category_id, "sku_or_spec": sku_or_spec, "action": "Reconciled",
-        "from_location_id": from_location_id, "to_location_id": to_location_id,
-        "logged_by_user_id": logged_by_user_id, "status": "closed",
-        "event_group_id": event_group_id, "notes": notes,
-    }
-
-    transaction_ids = [_insert_txn_row(cur, {
-        **base_txn_fields,
-        "item_id": item_id,
-        "qty_or_length": length_used,
-        "length_used": length_used,
-        "length_returned": length_returned,
-    })]
-
-    if new_item_id is not None:
-        transaction_ids.append(_insert_txn_row(cur, {
+        transaction_ids = [_insert_txn_row(cur, {
             **base_txn_fields,
-            "item_id": new_item_id,
-            "qty_or_length": length_returned,
-        }))
+            "item_id": item_id,
+            "qty_or_length": length_used,
+            "length_used": length_used,
+            "length_returned": length_returned,
+        })]
 
-    conn.commit()
-    cur.close()
-    conn.close()
+        if new_item_id is not None:
+            transaction_ids.append(_insert_txn_row(cur, {
+                **base_txn_fields,
+                "item_id": new_item_id,
+                "qty_or_length": length_returned,
+            }))
+
+        conn.commit()
     return {
         "transaction_ids": transaction_ids, "item_id": item_id,
         "new_item_id": new_item_id, "event_group_id": event_group_id,
@@ -332,51 +309,45 @@ def _log_row_to_dict(r):
     }
 
 def get_transaction_log(item_id=None, category_id=None, action=None, limit=200):
-    conn = get_connection()
-    cur = conn.cursor()
-    where_clauses = []
-    params = []
-    if item_id is not None:
-        where_clauses.append("inventory_transactions.item_id = %s")
-        params.append(item_id)
-    if category_id is not None:
-        where_clauses.append("inventory_transactions.category_id = %s")
-        params.append(category_id)
-    if action is not None:
-        where_clauses.append("inventory_transactions.action = %s")
-        params.append(action)
-    where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
-    params.append(limit)
+    with db_cursor() as (conn, cur):
+        where_clauses = []
+        params = []
+        if item_id is not None:
+            where_clauses.append("inventory_transactions.item_id = %s")
+            params.append(item_id)
+        if category_id is not None:
+            where_clauses.append("inventory_transactions.category_id = %s")
+            params.append(category_id)
+        if action is not None:
+            where_clauses.append("inventory_transactions.action = %s")
+            params.append(action)
+        where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+        params.append(limit)
 
-    cur.execute(
-        f"""
-        SELECT {_LOG_SELECT_COLUMNS}
-        {_LOG_FROM_JOINS}
-        {where_sql}
-        ORDER BY inventory_transactions.created_at DESC, inventory_transactions.id DESC
-        LIMIT %s;
-        """,
-        params
-    )
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
+        cur.execute(
+            f"""
+            SELECT {_LOG_SELECT_COLUMNS}
+            {_LOG_FROM_JOINS}
+            {where_sql}
+            ORDER BY inventory_transactions.created_at DESC, inventory_transactions.id DESC
+            LIMIT %s;
+            """,
+            params
+        )
+        rows = cur.fetchall()
     return [_log_row_to_dict(r) for r in rows]
 
 def get_transaction_by_id(transaction_id):
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute(
-        f"""
-        SELECT {_LOG_SELECT_COLUMNS}
-        {_LOG_FROM_JOINS}
-        WHERE inventory_transactions.id = %s;
-        """,
-        (transaction_id,)
-    )
-    row = cur.fetchone()
-    cur.close()
-    conn.close()
+    with db_cursor() as (conn, cur):
+        cur.execute(
+            f"""
+            SELECT {_LOG_SELECT_COLUMNS}
+            {_LOG_FROM_JOINS}
+            WHERE inventory_transactions.id = %s;
+            """,
+            (transaction_id,)
+        )
+        row = cur.fetchone()
     return _log_row_to_dict(row) if row else None
 
 # Admin-only historical correction — never touches the item row, only the
@@ -389,14 +360,11 @@ _EDITABLE_LOG_COLUMNS = [
 ]
 
 def update_transaction(transaction_id, fields):
-    conn = get_connection()
-    cur = conn.cursor()
-    columns = [c for c in _EDITABLE_LOG_COLUMNS if c in fields]
-    set_clause = ", ".join(f"{c} = %s" for c in columns)
-    cur.execute(
-        f"UPDATE inventory_transactions SET {set_clause} WHERE id = %s;",
-        [fields[c] for c in columns] + [transaction_id]
-    )
-    conn.commit()
-    cur.close()
-    conn.close()
+    with db_cursor() as (conn, cur):
+        columns = [c for c in _EDITABLE_LOG_COLUMNS if c in fields]
+        set_clause = ", ".join(f"{c} = %s" for c in columns)
+        cur.execute(
+            f"UPDATE inventory_transactions SET {set_clause} WHERE id = %s;",
+            [fields[c] for c in columns] + [transaction_id]
+        )
+        conn.commit()

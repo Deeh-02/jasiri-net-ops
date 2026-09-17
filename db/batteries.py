@@ -1,4 +1,4 @@
-from db.connection import get_connection, utc_iso
+from db.connection import db_cursor, utc_iso
 from db import sites
 
 # Movement lifecycle statuses that mean "away from anyone's hands, still
@@ -22,29 +22,23 @@ TERMINAL_STATUSES = {"completed", "site_confirmed_online"}
 
 
 def add_battery(battery_number, serial_number=None, model=None, capacity=None):
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute(
-        """
-        INSERT INTO batteries (battery_number, serial_number, model, capacity)
-        VALUES (%s, %s, %s, %s)
-        RETURNING id;
-        """,
-        (battery_number, serial_number, model, capacity)
-    )
-    new_id = cur.fetchone()[0]
-    conn.commit()
-    cur.close()
-    conn.close()
+    with db_cursor() as (conn, cur):
+        cur.execute(
+            """
+            INSERT INTO batteries (battery_number, serial_number, model, capacity)
+            VALUES (%s, %s, %s, %s)
+            RETURNING id;
+            """,
+            (battery_number, serial_number, model, capacity)
+        )
+        new_id = cur.fetchone()[0]
+        conn.commit()
     return new_id
 
 def update_charge_status(battery_id, charge_status):
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute("UPDATE batteries SET charge_status = %s WHERE id = %s;", (charge_status, battery_id))
-    conn.commit()
-    cur.close()
-    conn.close()
+    with db_cursor() as (conn, cur):
+        cur.execute("UPDATE batteries SET charge_status = %s WHERE id = %s;", (charge_status, battery_id))
+        conn.commit()
 
 def get_last_movement(battery_id):
     # NOTE: excludes cancelled movements, so a cancelled move doesn't leave
@@ -54,25 +48,22 @@ def get_last_movement(battery_id):
     # movement is still 'pending', the battery hasn't actually left yet, so
     # location/moved_by/since must keep showing whatever the movement BEFORE
     # it left behind, not this new movement's (future) destination.
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute(
-        """
-        SELECT battery_movements.status, battery_movements.moved_by,
-               battery_movements.created_at, battery_movements.in_transit_at,
-               to_loc.name, to_loc.is_online, to_loc.is_home_base
-        FROM battery_movements
-        JOIN locations AS to_loc ON battery_movements.to_location_id = to_loc.id
-        WHERE battery_movements.battery_id = %s
-          AND battery_movements.status != 'cancelled'
-        ORDER BY battery_movements.created_at DESC
-        LIMIT 2;
-        """,
-        (battery_id,)
-    )
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
+    with db_cursor() as (conn, cur):
+        cur.execute(
+            """
+            SELECT battery_movements.status, battery_movements.moved_by,
+                   battery_movements.created_at, battery_movements.in_transit_at,
+                   to_loc.name, to_loc.is_online, to_loc.is_home_base
+            FROM battery_movements
+            JOIN locations AS to_loc ON battery_movements.to_location_id = to_loc.id
+            WHERE battery_movements.battery_id = %s
+              AND battery_movements.status != 'cancelled'
+            ORDER BY battery_movements.created_at DESC
+            LIMIT 2;
+            """,
+            (battery_id,)
+        )
+        rows = cur.fetchall()
     if not rows:
         return None
 
@@ -184,41 +175,35 @@ def get_current_location(battery_id):
     return "Unknown (no movements recorded)"
 
 def get_movement_history(battery_id):
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute(
-        """
-        SELECT
-            battery_movements.created_at,
-            from_loc.name AS from_location,
-            to_loc.name AS to_location,
-            battery_movements.reason,
-            battery_movements.moved_by
-        FROM battery_movements
-        LEFT JOIN locations AS from_loc ON battery_movements.from_location_id = from_loc.id
-        JOIN locations AS to_loc ON battery_movements.to_location_id = to_loc.id
-        WHERE battery_movements.battery_id = %s
-        ORDER BY battery_movements.created_at DESC;
-        """,
-        (battery_id,)
-    )
-    results = cur.fetchall()
-    cur.close()
-    conn.close()
+    with db_cursor() as (conn, cur):
+        cur.execute(
+            """
+            SELECT
+                battery_movements.created_at,
+                from_loc.name AS from_location,
+                to_loc.name AS to_location,
+                battery_movements.reason,
+                battery_movements.moved_by
+            FROM battery_movements
+            LEFT JOIN locations AS from_loc ON battery_movements.from_location_id = from_loc.id
+            JOIN locations AS to_loc ON battery_movements.to_location_id = to_loc.id
+            WHERE battery_movements.battery_id = %s
+            ORDER BY battery_movements.created_at DESC;
+            """,
+            (battery_id,)
+        )
+        results = cur.fetchall()
     return results
 
 def get_all_batteries():
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT id, battery_number, model, capacity, charge_status
-        FROM batteries
-        WHERE status = 'active'
-        ORDER BY battery_number;
-    """)
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
+    with db_cursor() as (conn, cur):
+        cur.execute("""
+            SELECT id, battery_number, model, capacity, charge_status
+            FROM batteries
+            WHERE status = 'active'
+            ORDER BY battery_number;
+        """)
+        rows = cur.fetchall()
 
     batteries = []
     for r in rows:
@@ -262,24 +247,18 @@ def get_all_batteries():
     return batteries
 
 def deactivate_battery(battery_id):
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute("UPDATE batteries SET status = 'inactive' WHERE id = %s;", (battery_id,))
-    conn.commit()
-    cur.close()
-    conn.close()
+    with db_cursor() as (conn, cur):
+        cur.execute("UPDATE batteries SET status = 'inactive' WHERE id = %s;", (battery_id,))
+        conn.commit()
 
 def get_battery_by_id(battery_id):
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT id, battery_number, serial_number, model, capacity, charge_status, status
-        FROM batteries
-        WHERE id = %s;
-    """, (battery_id,))
-    row = cur.fetchone()
-    cur.close()
-    conn.close()
+    with db_cursor() as (conn, cur):
+        cur.execute("""
+            SELECT id, battery_number, serial_number, model, capacity, charge_status, status
+            FROM batteries
+            WHERE id = %s;
+        """, (battery_id,))
+        row = cur.fetchone()
 
     if row is None:
         return None
@@ -309,35 +288,29 @@ def get_battery_by_id(battery_id):
     }
 
 def update_battery(battery_id, battery_number, serial_number=None, model=None, capacity=None):
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute(
-        """
-        UPDATE batteries
-        SET battery_number = %s, serial_number = %s, model = %s, capacity = %s
-        WHERE id = %s;
-        """,
-        (battery_number, serial_number, model, capacity, battery_id)
-    )
-    conn.commit()
-    cur.close()
-    conn.close()
+    with db_cursor() as (conn, cur):
+        cur.execute(
+            """
+            UPDATE batteries
+            SET battery_number = %s, serial_number = %s, model = %s, capacity = %s
+            WHERE id = %s;
+            """,
+            (battery_number, serial_number, model, capacity, battery_id)
+        )
+        conn.commit()
 
 def get_movement_by_id(movement_id):
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute(
-        """
-        SELECT id, battery_id, from_location_id, to_location_id, reason,
-               status, created_at, arrived_at, confirmed_at, in_transit_at
-        FROM battery_movements
-        WHERE id = %s;
-        """,
-        (movement_id,)
-    )
-    row = cur.fetchone()
-    cur.close()
-    conn.close()
+    with db_cursor() as (conn, cur):
+        cur.execute(
+            """
+            SELECT id, battery_id, from_location_id, to_location_id, reason,
+                   status, created_at, arrived_at, confirmed_at, in_transit_at
+            FROM battery_movements
+            WHERE id = %s;
+            """,
+            (movement_id,)
+        )
+        row = cur.fetchone()
     if row is None:
         return None
     return {
@@ -355,26 +328,23 @@ def get_movement_by_id(movement_id):
 
 def get_active_movements():
     """Default view for the Movements list — anything not yet fully resolved."""
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute(
-        """
-        SELECT
-            battery_movements.id, batteries.battery_number,
-            from_loc.name, to_loc.name,
-            battery_movements.status, battery_movements.created_at,
-            battery_movements.reason
-        FROM battery_movements
-        JOIN batteries ON battery_movements.battery_id = batteries.id
-        LEFT JOIN locations AS from_loc ON battery_movements.from_location_id = from_loc.id
-        JOIN locations AS to_loc ON battery_movements.to_location_id = to_loc.id
-        WHERE battery_movements.status IN ('pending', 'in_transit', 'arrived')
-        ORDER BY battery_movements.created_at DESC;
-        """
-    )
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
+    with db_cursor() as (conn, cur):
+        cur.execute(
+            """
+            SELECT
+                battery_movements.id, batteries.battery_number,
+                from_loc.name, to_loc.name,
+                battery_movements.status, battery_movements.created_at,
+                battery_movements.reason
+            FROM battery_movements
+            JOIN batteries ON battery_movements.battery_id = batteries.id
+            LEFT JOIN locations AS from_loc ON battery_movements.from_location_id = from_loc.id
+            JOIN locations AS to_loc ON battery_movements.to_location_id = to_loc.id
+            WHERE battery_movements.status IN ('pending', 'in_transit', 'arrived')
+            ORDER BY battery_movements.created_at DESC;
+            """
+        )
+        rows = cur.fetchall()
     return [
         {
             "id": r[0], "battery_number": r[1], "from_location": r[2],
@@ -387,25 +357,22 @@ def get_active_movements():
 
 def get_all_movements_history():
     """Everything, including cancelled / confirmed-online / completed — the 'show history' toggle."""
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute(
-        """
-        SELECT
-            battery_movements.id, batteries.battery_number,
-            from_loc.name, to_loc.name,
-            battery_movements.status, battery_movements.created_at,
-            battery_movements.reason
-        FROM battery_movements
-        JOIN batteries ON battery_movements.battery_id = batteries.id
-        LEFT JOIN locations AS from_loc ON battery_movements.from_location_id = from_loc.id
-        JOIN locations AS to_loc ON battery_movements.to_location_id = to_loc.id
-        ORDER BY battery_movements.created_at DESC;
-        """
-    )
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
+    with db_cursor() as (conn, cur):
+        cur.execute(
+            """
+            SELECT
+                battery_movements.id, batteries.battery_number,
+                from_loc.name, to_loc.name,
+                battery_movements.status, battery_movements.created_at,
+                battery_movements.reason
+            FROM battery_movements
+            JOIN batteries ON battery_movements.battery_id = batteries.id
+            LEFT JOIN locations AS from_loc ON battery_movements.from_location_id = from_loc.id
+            JOIN locations AS to_loc ON battery_movements.to_location_id = to_loc.id
+            ORDER BY battery_movements.created_at DESC;
+            """
+        )
+        rows = cur.fetchall()
     return [
         {
             "id": r[0], "battery_number": r[1], "from_location": r[2],
@@ -422,35 +389,29 @@ def get_active_movement_count():
     badge and the default (non-history) Movements list always agree on
     what counts as still-open. Not time-gated, same as Check Sites'
     unconfirmed-count badge: it reflects what needs attention right now."""
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute(
-        """
-        SELECT COUNT(*) FROM battery_movements
-        WHERE status IN ('pending', 'in_transit', 'arrived');
-        """
-    )
-    count = cur.fetchone()[0]
-    cur.close()
-    conn.close()
+    with db_cursor() as (conn, cur):
+        cur.execute(
+            """
+            SELECT COUNT(*) FROM battery_movements
+            WHERE status IN ('pending', 'in_transit', 'arrived');
+            """
+        )
+        count = cur.fetchone()[0]
     return count
 
 def mark_movement_in_transit(movement_id):
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute(
-        """
-        UPDATE battery_movements SET status = 'in_transit', in_transit_at = NOW()
-        WHERE id = %s
-        RETURNING battery_id;
-        """,
-        (movement_id,)
-    )
-    row = cur.fetchone()
-    battery_id = row[0] if row else None
-    conn.commit()
-    cur.close()
-    conn.close()
+    with db_cursor() as (conn, cur):
+        cur.execute(
+            """
+            UPDATE battery_movements SET status = 'in_transit', in_transit_at = NOW()
+            WHERE id = %s
+            RETURNING battery_id;
+            """,
+            (movement_id,)
+        )
+        row = cur.fetchone()
+        battery_id = row[0] if row else None
+        conn.commit()
 
     # Once a battery is actually in transit, nobody can plug it in to check
     # or charge it — charge becomes unknown right here (not at creation,
@@ -463,69 +424,56 @@ def mark_movement_in_transit(movement_id):
 def mark_movement_arrived(movement_id):
     """Only used for the 'site_down' path — lands on 'arrived' and waits for
     the site-check answer."""
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute(
-        "UPDATE battery_movements SET status = 'arrived', arrived_at = NOW() WHERE id = %s;",
-        (movement_id,)
-    )
-    conn.commit()
-    cur.close()
-    conn.close()
+    with db_cursor() as (conn, cur):
+        cur.execute(
+            "UPDATE battery_movements SET status = 'arrived', arrived_at = NOW() WHERE id = %s;",
+            (movement_id,)
+        )
+        conn.commit()
 
 def complete_movement(movement_id):
     """Terminal state for any reason other than 'site_down' — once the battery
     has physically arrived there's nothing left to confirm, so it resolves
     straight to 'completed' instead of waiting on a site-check answer."""
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute(
-        "UPDATE battery_movements SET status = 'completed', arrived_at = NOW(), confirmed_at = NOW() WHERE id = %s;",
-        (movement_id,)
-    )
-    conn.commit()
-    cur.close()
-    conn.close()
+    with db_cursor() as (conn, cur):
+        cur.execute(
+            "UPDATE battery_movements SET status = 'completed', arrived_at = NOW(), confirmed_at = NOW() WHERE id = %s;",
+            (movement_id,)
+        )
+        conn.commit()
 
 def cancel_movement(movement_id):
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute("UPDATE battery_movements SET status = 'cancelled' WHERE id = %s;", (movement_id,))
-    conn.commit()
-    cur.close()
-    conn.close()
+    with db_cursor() as (conn, cur):
+        cur.execute("UPDATE battery_movements SET status = 'cancelled' WHERE id = %s;", (movement_id,))
+        conn.commit()
 
 def record_movement(battery_id, from_location_id, to_location_id, reason=None, moved_by=None, moved_by_user_id=None):
-    conn = get_connection()
-    cur = conn.cursor()
+    with db_cursor() as (conn, cur):
+        if from_location_id is None:
+            cur.execute(
+                """
+                SELECT to_location_id FROM battery_movements
+                WHERE battery_id = %s AND status != 'cancelled'
+                ORDER BY created_at DESC
+                LIMIT 1;
+                """,
+                (battery_id,)
+            )
+            last = cur.fetchone()
+            from_location_id = last[0] if last else None
 
-    if from_location_id is None:
+        # New movement always starts life as 'pending' (DB column default handles this,
+        # so we don't need to pass status explicitly here).
         cur.execute(
             """
-            SELECT to_location_id FROM battery_movements
-            WHERE battery_id = %s AND status != 'cancelled'
-            ORDER BY created_at DESC
-            LIMIT 1;
+            INSERT INTO battery_movements (battery_id, from_location_id, to_location_id, reason, moved_by, moved_by_user_id)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            RETURNING id;
             """,
-            (battery_id,)
+            (battery_id, from_location_id, to_location_id, reason, moved_by, moved_by_user_id)
         )
-        last = cur.fetchone()
-        from_location_id = last[0] if last else None
-
-    # New movement always starts life as 'pending' (DB column default handles this,
-    # so we don't need to pass status explicitly here).
-    cur.execute(
-        """
-        INSERT INTO battery_movements (battery_id, from_location_id, to_location_id, reason, moved_by, moved_by_user_id)
-        VALUES (%s, %s, %s, %s, %s, %s)
-        RETURNING id;
-        """,
-        (battery_id, from_location_id, to_location_id, reason, moved_by, moved_by_user_id)
-    )
-    new_id = cur.fetchone()[0]
-    conn.commit()
-    cur.close()
-    conn.close()
+        new_id = cur.fetchone()[0]
+        conn.commit()
 
     # Charge/location/moved-by/since all stay exactly as they were while the
     # movement is 'pending' — the battery hasn't physically left yet. Charge
@@ -540,22 +488,19 @@ def confirm_site_online(movement_id):
     destination site's is_online to TRUE and stamps verification_confirmed_at —
     this IS the hourly confirmation, not a separate write. If the site was
     sitting Offline in the Check Sites list, this brings it back Online there too."""
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute(
-        """
-        UPDATE battery_movements
-        SET status = 'site_confirmed_online', confirmed_at = NOW()
-        WHERE id = %s
-        RETURNING to_location_id;
-        """,
-        (movement_id,)
-    )
-    row = cur.fetchone()
-    to_location_id = row[0] if row else None
-    conn.commit()
-    cur.close()
-    conn.close()
+    with db_cursor() as (conn, cur):
+        cur.execute(
+            """
+            UPDATE battery_movements
+            SET status = 'site_confirmed_online', confirmed_at = NOW()
+            WHERE id = %s
+            RETURNING to_location_id;
+            """,
+            (movement_id,)
+        )
+        row = cur.fetchone()
+        to_location_id = row[0] if row else None
+        conn.commit()
 
     if to_location_id is not None:
         sites.set_location_online_status(to_location_id, True, stamp_confirmed=True)
@@ -572,22 +517,19 @@ def mark_site_still_down(movement_id):
     Check Sites list too. Deliberately does NOT stamp verification_confirmed_at —
     the site keeps getting flagged as needing a check every hour until someone
     reports it back online, rather than going quiet just because we know it's down."""
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute(
-        """
-        UPDATE battery_movements
-        SET status = 'completed', confirmed_at = NOW()
-        WHERE id = %s
-        RETURNING to_location_id;
-        """,
-        (movement_id,)
-    )
-    row = cur.fetchone()
-    to_location_id = row[0] if row else None
-    conn.commit()
-    cur.close()
-    conn.close()
+    with db_cursor() as (conn, cur):
+        cur.execute(
+            """
+            UPDATE battery_movements
+            SET status = 'completed', confirmed_at = NOW()
+            WHERE id = %s
+            RETURNING to_location_id;
+            """,
+            (movement_id,)
+        )
+        row = cur.fetchone()
+        to_location_id = row[0] if row else None
+        conn.commit()
 
     if to_location_id is not None:
         sites.set_location_online_status(to_location_id, False, stamp_confirmed=False)

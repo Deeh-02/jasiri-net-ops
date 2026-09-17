@@ -1,6 +1,6 @@
 import re
 
-from db.connection import get_connection
+from db.connection import db_cursor
 
 # Columns are a plain, generic insert/update surface — routers/inventory.py
 # is the layer that decides which of these apply to a given item's
@@ -16,44 +16,35 @@ _ITEM_COLUMNS = [
 ]
 
 def add_item(fields):
-    conn = get_connection()
-    cur = conn.cursor()
-    columns = [c for c in _ITEM_COLUMNS if c in fields]
-    placeholders = ", ".join(["%s"] * len(columns))
-    cur.execute(
-        f"""
-        INSERT INTO inventory_items ({", ".join(columns)})
-        VALUES ({placeholders})
-        RETURNING id;
-        """,
-        [fields[c] for c in columns]
-    )
-    new_id = cur.fetchone()[0]
-    conn.commit()
-    cur.close()
-    conn.close()
+    with db_cursor() as (conn, cur):
+        columns = [c for c in _ITEM_COLUMNS if c in fields]
+        placeholders = ", ".join(["%s"] * len(columns))
+        cur.execute(
+            f"""
+            INSERT INTO inventory_items ({", ".join(columns)})
+            VALUES ({placeholders})
+            RETURNING id;
+            """,
+            [fields[c] for c in columns]
+        )
+        new_id = cur.fetchone()[0]
+        conn.commit()
     return new_id
 
 def update_item(item_id, fields):
-    conn = get_connection()
-    cur = conn.cursor()
-    columns = [c for c in _ITEM_COLUMNS if c in fields]
-    set_clause = ", ".join(f"{c} = %s" for c in columns)
-    cur.execute(
-        f"UPDATE inventory_items SET {set_clause} WHERE id = %s;",
-        [fields[c] for c in columns] + [item_id]
-    )
-    conn.commit()
-    cur.close()
-    conn.close()
+    with db_cursor() as (conn, cur):
+        columns = [c for c in _ITEM_COLUMNS if c in fields]
+        set_clause = ", ".join(f"{c} = %s" for c in columns)
+        cur.execute(
+            f"UPDATE inventory_items SET {set_clause} WHERE id = %s;",
+            [fields[c] for c in columns] + [item_id]
+        )
+        conn.commit()
 
 def deactivate_item(item_id):
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute("UPDATE inventory_items SET is_active = false WHERE id = %s;", (item_id,))
-    conn.commit()
-    cur.close()
-    conn.close()
+    with db_cursor() as (conn, cur):
+        cur.execute("UPDATE inventory_items SET is_active = false WHERE id = %s;", (item_id,))
+        conn.commit()
 
 # Product-level fields (sku, name, category_id, make_model, spec_capacity,
 # spec, supplier, unit_of_measure) are denormalized across every unit row of
@@ -63,21 +54,18 @@ def deactivate_item(item_id):
 # once, matched the same way get_all_items' sku param already does: sku for
 # Asset/Quantity, spec for Length, via the same (sku = %s OR spec = %s) test.
 def update_product(category_id, sku_or_spec, fields):
-    conn = get_connection()
-    cur = conn.cursor()
-    columns = [c for c in _ITEM_COLUMNS if c in fields]
-    set_clause = ", ".join(f"{c} = %s" for c in columns)
-    cur.execute(
-        f"""
-        UPDATE inventory_items SET {set_clause}
-        WHERE category_id = %s AND (sku = %s OR spec = %s) AND is_active = true;
-        """,
-        [fields[c] for c in columns] + [category_id, sku_or_spec, sku_or_spec]
-    )
-    updated = cur.rowcount
-    conn.commit()
-    cur.close()
-    conn.close()
+    with db_cursor() as (conn, cur):
+        columns = [c for c in _ITEM_COLUMNS if c in fields]
+        set_clause = ", ".join(f"{c} = %s" for c in columns)
+        cur.execute(
+            f"""
+            UPDATE inventory_items SET {set_clause}
+            WHERE category_id = %s AND (sku = %s OR spec = %s) AND is_active = true;
+            """,
+            [fields[c] for c in columns] + [category_id, sku_or_spec, sku_or_spec]
+        )
+        updated = cur.rowcount
+        conn.commit()
     return updated
 
 def next_serial_seq(category_id, sku):
@@ -89,15 +77,12 @@ def next_serial_seq(category_id, sku):
     already-known Asset Core product in one sitting. Only ever matches
     serials shaped exactly like the placeholder pattern — a manually-typed
     manufacturer serial that happens to look different doesn't collide."""
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute(
-        "SELECT serial_number FROM inventory_items WHERE category_id = %s AND sku = %s AND serial_number IS NOT NULL;",
-        (category_id, sku)
-    )
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
+    with db_cursor() as (conn, cur):
+        cur.execute(
+            "SELECT serial_number FROM inventory_items WHERE category_id = %s AND sku = %s AND serial_number IS NOT NULL;",
+            (category_id, sku)
+        )
+        rows = cur.fetchall()
 
     pattern = re.compile(rf"^{re.escape(sku)}-(\d+)$")
     max_seq = 0
@@ -108,18 +93,15 @@ def next_serial_seq(category_id, sku):
     return max_seq + 1
 
 def count_active_units(category_id, sku_or_spec):
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute(
-        """
-        SELECT COUNT(*) FROM inventory_items
-        WHERE category_id = %s AND (sku = %s OR spec = %s) AND is_active = true;
-        """,
-        (category_id, sku_or_spec, sku_or_spec)
-    )
-    count = cur.fetchone()[0]
-    cur.close()
-    conn.close()
+    with db_cursor() as (conn, cur):
+        cur.execute(
+            """
+            SELECT COUNT(*) FROM inventory_items
+            WHERE category_id = %s AND (sku = %s OR spec = %s) AND is_active = true;
+            """,
+            (category_id, sku_or_spec, sku_or_spec)
+        )
+        count = cur.fetchone()[0]
     return count
 
 _SELECT_COLUMNS = """
@@ -154,53 +136,47 @@ def get_all_items(category_id=None, sku=None):
     (Length, whose SKU surrogate is its spec) — the caller (the Items
     table's per-SKU unit drill-down) has one string and doesn't need to know
     which column it maps to for this item's type."""
-    conn = get_connection()
-    cur = conn.cursor()
-    where_clauses = ["inventory_items.is_active = true"]
-    params = []
-    if category_id is not None:
-        where_clauses.append("inventory_items.category_id = %s")
-        params.append(category_id)
-    if sku is not None:
-        where_clauses.append("(inventory_items.sku = %s OR inventory_items.spec = %s)")
-        params.extend([sku, sku])
-    cur.execute(
-        f"""
-        SELECT {_SELECT_COLUMNS}
-        FROM inventory_items
-        JOIN inventory_categories ON inventory_categories.id = inventory_items.category_id
-        LEFT JOIN inventory_locations ON inventory_locations.id = inventory_items.location_id
-        WHERE {' AND '.join(where_clauses)}
-        ORDER BY inventory_items.name, inventory_items.id;
-        """,
-        # id is a tiebreaker, not an afterthought — every unit under one
-        # SKU/spec shares the same name, and Postgres gives no guaranteed
-        # order among rows that tie on the ORDER BY clause. Without this,
-        # which serial lands "first"/"last" in this list (and therefore in
-        # Issue/Return Materials' Quick Issue/Quick Return auto-select,
-        # which picks off one end of this exact order) could shift between
-        # requests with no visible cause.
-        params
-    )
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
+    with db_cursor() as (conn, cur):
+        where_clauses = ["inventory_items.is_active = true"]
+        params = []
+        if category_id is not None:
+            where_clauses.append("inventory_items.category_id = %s")
+            params.append(category_id)
+        if sku is not None:
+            where_clauses.append("(inventory_items.sku = %s OR inventory_items.spec = %s)")
+            params.extend([sku, sku])
+        cur.execute(
+            f"""
+            SELECT {_SELECT_COLUMNS}
+            FROM inventory_items
+            JOIN inventory_categories ON inventory_categories.id = inventory_items.category_id
+            LEFT JOIN inventory_locations ON inventory_locations.id = inventory_items.location_id
+            WHERE {' AND '.join(where_clauses)}
+            ORDER BY inventory_items.name, inventory_items.id;
+            """,
+            # id is a tiebreaker, not an afterthought — every unit under one
+            # SKU/spec shares the same name, and Postgres gives no guaranteed
+            # order among rows that tie on the ORDER BY clause. Without this,
+            # which serial lands "first"/"last" in this list (and therefore in
+            # Issue/Return Materials' Quick Issue/Quick Return auto-select,
+            # which picks off one end of this exact order) could shift between
+            # requests with no visible cause.
+            params
+        )
+        rows = cur.fetchall()
     return [_row_to_dict(r) for r in rows]
 
 def get_item_by_id(item_id):
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute(
-        f"""
-        SELECT {_SELECT_COLUMNS}
-        FROM inventory_items
-        JOIN inventory_categories ON inventory_categories.id = inventory_items.category_id
-        LEFT JOIN inventory_locations ON inventory_locations.id = inventory_items.location_id
-        WHERE inventory_items.id = %s;
-        """,
-        (item_id,)
-    )
-    row = cur.fetchone()
-    cur.close()
-    conn.close()
+    with db_cursor() as (conn, cur):
+        cur.execute(
+            f"""
+            SELECT {_SELECT_COLUMNS}
+            FROM inventory_items
+            JOIN inventory_categories ON inventory_categories.id = inventory_items.category_id
+            LEFT JOIN inventory_locations ON inventory_locations.id = inventory_items.location_id
+            WHERE inventory_items.id = %s;
+            """,
+            (item_id,)
+        )
+        row = cur.fetchone()
     return _row_to_dict(row) if row else None

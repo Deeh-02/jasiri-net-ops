@@ -1,4 +1,5 @@
 import os
+from contextlib import contextmanager
 from datetime import datetime, timezone, timedelta
 import psycopg2
 
@@ -34,6 +35,24 @@ def get_connection():
     cur.execute("SET TIME ZONE 'UTC';")
     cur.close()
     return conn
+
+@contextmanager
+def db_cursor():
+    """Yields (conn, cur) and guarantees both are closed on the way out —
+    including when the query raises. The old pattern (get_connection() +
+    manual cur.close()/conn.close() at the end of each function) skipped
+    cleanup on any exception, leaking the connection until the process
+    happened to exit. Under real concurrent load against Supabase's
+    session-mode pooler (hard-capped at 15 connections), that leak was
+    enough to exhaust the pool and take down every DB-touching endpoint,
+    including login, with psycopg2.OperationalError: EMAXCONNSESSION."""
+    conn = get_connection()
+    cur = conn.cursor()
+    try:
+        yield conn, cur
+    finally:
+        cur.close()
+        conn.close()
 
 def utc_iso(dt):
     """Serializes a naive (UTC, per the session TIME ZONE set above) datetime

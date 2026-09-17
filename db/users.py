@@ -1,4 +1,4 @@
-from db.connection import get_connection, utc_iso
+from db.connection import db_cursor, utc_iso
 from passlib.context import CryptContext
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -10,33 +10,27 @@ def verify_password(plain_password, password_hash):
     return pwd_context.verify(plain_password, password_hash)
 
 def add_user(name, email, password, phone=None, role="technician", role_id=None):
-    conn = get_connection()
-    cur = conn.cursor()
-    password_hash = hash_password(password)
-    cur.execute(
-        """
-        INSERT INTO users (name, email, phone, password_hash, role, role_id)
-        VALUES (%s, %s, %s, %s, %s, %s)
-        RETURNING id;
-        """,
-        (name, email, phone, password_hash, role, role_id)
-    )
-    new_id = cur.fetchone()[0]
-    conn.commit()
-    cur.close()
-    conn.close()
+    with db_cursor() as (conn, cur):
+        password_hash = hash_password(password)
+        cur.execute(
+            """
+            INSERT INTO users (name, email, phone, password_hash, role, role_id)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            RETURNING id;
+            """,
+            (name, email, phone, password_hash, role, role_id)
+        )
+        new_id = cur.fetchone()[0]
+        conn.commit()
     return new_id
 
 def get_user_by_email(email):
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute(
-        "SELECT id, name, email, phone, password_hash, role, status, role_id FROM users WHERE email = %s;",
-        (email,)
-    )
-    row = cur.fetchone()
-    cur.close()
-    conn.close()
+    with db_cursor() as (conn, cur):
+        cur.execute(
+            "SELECT id, name, email, phone, password_hash, role, status, role_id FROM users WHERE email = %s;",
+            (email,)
+        )
+        row = cur.fetchone()
     if row:
         return {
             "id": row[0],
@@ -51,16 +45,13 @@ def get_user_by_email(email):
     return None
 
 def get_all_users():
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT id, name, email, phone, role, status, created_at, role_id
-        FROM users
-        ORDER BY name;
-    """)
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
+    with db_cursor() as (conn, cur):
+        cur.execute("""
+            SELECT id, name, email, phone, role, status, created_at, role_id
+            FROM users
+            ORDER BY name;
+        """)
+        rows = cur.fetchall()
     return [
         {
             "id": r[0],
@@ -76,27 +67,21 @@ def get_all_users():
     ]
 
 def update_user(user_id, name, email, phone, role, role_id):
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute(
-        """
-        UPDATE users
-        SET name = %s, email = %s, phone = %s, role = %s, role_id = %s
-        WHERE id = %s;
-        """,
-        (name, email, phone, role, role_id, user_id)
-    )
-    conn.commit()
-    cur.close()
-    conn.close()
+    with db_cursor() as (conn, cur):
+        cur.execute(
+            """
+            UPDATE users
+            SET name = %s, email = %s, phone = %s, role = %s, role_id = %s
+            WHERE id = %s;
+            """,
+            (name, email, phone, role, role_id, user_id)
+        )
+        conn.commit()
 
 def deactivate_user(user_id):
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute("UPDATE users SET status = 'inactive' WHERE id = %s;", (user_id,))
-    conn.commit()
-    cur.close()
-    conn.close()
+    with db_cursor() as (conn, cur):
+        cur.execute("UPDATE users SET status = 'inactive' WHERE id = %s;", (user_id,))
+        conn.commit()
 
 def verify_user_password(email, plain_password):
     """Look up a user by email and check their password.
@@ -109,12 +94,9 @@ def verify_user_password(email, plain_password):
     return user
 
 def update_user_password(user_id, new_password):
-    conn = get_connection()
-    cur = conn.cursor()
-    new_hash = hash_password(new_password)
-    cur.execute("UPDATE users SET password_hash = %s WHERE id = %s;", (new_hash, user_id))
-    updated = cur.rowcount > 0
-    conn.commit()
-    cur.close()
-    conn.close()
+    with db_cursor() as (conn, cur):
+        new_hash = hash_password(new_password)
+        cur.execute("UPDATE users SET password_hash = %s WHERE id = %s;", (new_hash, user_id))
+        updated = cur.rowcount > 0
+        conn.commit()
     return updated
