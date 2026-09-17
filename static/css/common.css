@@ -304,18 +304,39 @@ body {
         position: relative; /* stacking context, so it stays above the dim backdrop */
         z-index: 90;
         width: 0;
-        padding: 0;
+        max-width: 82vw;
+        /* Constant, not transitioned — box-sizing: border-box (global, see
+           top of file) already makes width:0 collapse the box fully
+           regardless of padding, so animating padding too never bought
+           anything but a second layout property recalculating in lockstep
+           with width every frame. One animated property is cheaper than
+           two. */
+        padding: 24px 16px;
         border-right: none;
         overflow: hidden;
-        transition: width 0.25s ease, padding 0.25s ease;
+        transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        will-change: width;
     }
 
     .sidebar.open {
         width: 240px;
-        max-width: 82vw;
-        padding: 24px 16px;
         border-right: 1px solid var(--border);
         overflow-y: auto;
+    }
+
+    /* The actual source of the roughness: with align-items:stretch (flex's
+       default), every direct child was resizing to match .sidebar's current
+       width on every animation frame — every nav label and icon was
+       reflowing/re-wrapping continuously for the whole 250ms, not just
+       .sidebar's own box. Pinning children at the fully-open content width
+       (240px sidebar − 16px×2 padding = 208px) keeps their layout stable for
+       the entire transition — .sidebar's shrinking width just clips more or
+       less of that fixed-width content via overflow:hidden above, instead of
+       forcing it to relayout. A transform-based slide gets this same benefit
+       for free (the moving box's own content never resizes); here it's
+       applied to content stability instead of position. */
+    .nav-category {
+        min-width: 208px;
     }
 
     /* Taller than the desktop nav rows — thumb targets, not cursor targets. */
