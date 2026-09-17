@@ -425,10 +425,13 @@ function initHeaderLinkIcons() {
 }
 
 export async function refreshBadges() {
-    const [movRes, siteRes, notifRes] = await Promise.all([
+    // No /notifications/unread-count call here: there's no notifications
+    // feature on the backend yet (no route, no table) — the bell icon in
+    // the topbar is a placeholder with no click handler either. Add the
+    // fetch back once that feature actually exists server-side.
+    const [movRes, siteRes] = await Promise.all([
         fetch("/movements/active-count", { headers: authHeaders() }),
         fetch("/locations/unconfirmed-count", { headers: authHeaders() }),
-        fetch("/notifications/unread-count", { headers: authHeaders() })
     ]);
 
     if (movRes.ok) {
@@ -448,12 +451,6 @@ export async function refreshBadges() {
         const navBadge = document.getElementById("sites-nav-badge");
         navBadge.textContent = count;
         navBadge.hidden = count === 0;
-    }
-    if (notifRes.ok) {
-        const { count } = await notifRes.json();
-        const badge = document.getElementById("notifications-badge");
-        badge.textContent = count;
-        badge.hidden = count === 0;
     }
 }
 
