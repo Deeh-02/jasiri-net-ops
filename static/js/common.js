@@ -728,25 +728,19 @@ export function initShell() {
         }, { passive: false });
     }
 
-    // ---- Collapsible sidebar groups: the heading carries its own data-view
-    // (its default child route), so clicking it navigates just like
-    // Batteries/Sites/any other nav item. This listener toggles the group
-    // open/closed on every click — click Inventory to drop the list down,
-    // click it again to send it back up, no separate arrow needed either
-    // way. That's the *complete* answer only while you're already on one of
-    // this group's own routes, where navigate() below is a no-op (see
-    // common.js's navigate() — it does nothing when the hash isn't actually
-    // changing) and this toggle is the only thing that runs. When you're
-    // navigating in from somewhere else, this toggle still fires first, but
-    // navigate() then genuinely changes the route, and setActiveNav's
-    // NAV_GROUP_ROUTES handling (elsewhere in this file) unconditionally
-    // re-opens the group right after — so arriving from another page always
-    // lands open, even on the (rare) click where this toggle's own guess
-    // happened to close it. Registered before the generic [data-view]
-    // listener below so that correction always runs after this, not before.
-    // The chevron remains a second, dedicated way to close it without
-    // navigating away — stopPropagation keeps its click from also
-    // triggering the heading's own listeners here. ----
+    // ---- Collapsible sidebar groups: the heading (Inventory) is a pure
+    // expand/collapse toggle, not a link — clicking it only opens or closes
+    // its submenu and never navigates or changes the active page; only the
+    // submenu's own items (Items, Stock, Transaction Log, Manage) do that,
+    // via the generic [data-view] listener below, which explicitly skips
+    // any element that has a group heading's shape (see isGroupHeading
+    // there). The chevron is a second, dedicated way to toggle without
+    // relying on the label area — stopPropagation keeps its click from
+    // also re-triggering this same toggle via bubbling. Landing on one of
+    // this group's routes from somewhere else (a submenu click, a deep
+    // link, back/forward) still auto-expands the group — that's
+    // setActiveNav's NAV_GROUP_ROUTES handling elsewhere in this file, not
+    // this listener. ----
     document.querySelectorAll(".nav-heading").forEach(toggle => {
         const subitems = toggle.nextElementSibling;
         if (!subitems || !subitems.classList.contains("nav-subitems")) return;
@@ -763,17 +757,22 @@ export function initShell() {
 
     // ---- Nav view switching ----
     document.querySelectorAll("[data-view]").forEach(link => {
-        // A collapsible group's heading (has a .nav-subitems sibling) is
-        // both a link and an expand toggle — closing the whole mobile
-        // drawer the instant it's tapped would hide the very sub-items it
-        // just revealed, before there's any chance to see or pick a
-        // different one. Only a genuine leaf link dismisses the drawer.
+        // A collapsible group's heading (has a .nav-subitems sibling) is a
+        // pure expand/collapse toggle now, not a link — the listener above
+        // already handles opening/closing its submenu. Only its sub-items
+        // (Items, Stock, Transaction Log, Manage) carry their own data-view
+        // and should actually navigate; the heading itself keeps its
+        // data-view attribute only so setActiveNav can style it, but this
+        // listener must never call navigate() for it, or clicking the
+        // group would both toggle the submenu *and* jump to whichever
+        // route the heading happens to be tagged with.
         const isGroupHeading = link.nextElementSibling?.classList.contains("nav-subitems");
+        if (isGroupHeading) return;
         link.addEventListener("click", () => {
             const category = link.closest(".nav-category");
             if (category && category.hidden) return; // no permission — don't switch
             navigate(link.dataset.view);
-            if (!isGroupHeading) setNavOpen(false); // picking a section dismisses the drawer on phones
+            setNavOpen(false); // picking a section dismisses the drawer on phones
         });
     });
 
