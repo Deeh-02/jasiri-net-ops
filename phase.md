@@ -9,11 +9,429 @@ and whatever's still upcoming.
 
 ---
 
-## ACTIVE PHASE: none currently
+## ACTIVE PHASE: Phase 4 — Network Monitoring (Site Status)
 
-Phase 3 confirmed done — see COMPLETED PHASES below. Phase 4 has not been
-kicked off yet; see UPCOMING PHASES for what's next once the owner starts
-it.
+Phase 4.0 (router reconnaissance) is **COMPLETE** — its findings are
+recorded below and they replace several assumptions in the original
+monitoring spec. Phase 4.0b (infrastructure facts) and Phase 4.0c (the
+site mapping table) are still open and still block implementation.
+
+### Purpose
+
+Give Ops a machine-measured answer to "is this site up, how many devices
+are on it, what has its uptime been, and what did it earn" — sourced from
+the MikroTik CCR2004, because the billing/RADIUS system is closed.
+
+---
+
+### 4.0 — Router reconnaissance: COMPLETE
+
+Run against `JS-Core2-CCR2004` on 2026-09-18. **RouterOS 7.24.2**,
+CCR2004-16G-2S+, ARM64, 4 cores, 4 GB RAM, 4–5% CPU load, 7-day uptime,
+102 MiB of 128 MiB storage free.
+
+#### Verdict on the four goals
+
+| Goal | Status | Source |
+|---|---|---|
+| 1. Site online/offline | ✅ possible — **but only for ~13 of 21 sites via PPPoE**; the rest need a different signal | `/ppp active`, plus per-VLAN ping |
+| 2. Device headcount per site | ✅ possible, cleanly | `/ip hotspot active`, grouped by `10.50.NN.x` |
+| 3. Revenue | ✅ **possible, and far more cheaply than the spec assumed** | `/ip hotspot user` + profile name |
+| 4. Uptime % | ✅ possible | derived from 1 and the heartbeat |
+
+**Revenue is in.** That was the open question and the answer is yes.
+
+#### What the network actually looks like
+
+One SFP+ trunk (`sfp-sfpplus1`) carries everything, split by VLAN:
+
+- **21 hotspot servers**, one per VLAN sub-interface, each with the CCR holding the gateway on its own `/24`:
+  `5, 10, 15, 20, 25, 30, 35, 40, 45, 55, 60, 65, 70, 75, 77, 80, 85, 90, 105, 110, 115`
+  → `hs-vNN` on `sfp-sfpplus1-vNN`, gateway `10.50.NN.1/24`, pool `hs-vNN`, all on profile `hsprof1`.
+  (VLAN 5's server is named `PHASE3`, not `hs-v5` — the only naming exception.)
+- **A 22nd hotspot**, `hotspot1` on `hotspot-bridge` (`192.168.180.1/22`) — separate, legacy-looking, zero active users in both snapshots. **Open question: is this retired?**
+- **VLAN 50 is the PPPoE trunk**, not a hotspot. One PPPoE server instance, `service-name="FTTH-HS"`, on `sfp-sfpplus1-v50`.
+- **71 active hotspot sessions** at 00:46, spread across 13 VLANs.
+- **21 active PPPoE sessions** on `192.168.185.x`, authenticated by RADIUS at `192.168.116.1` over the `l2tp-out2` tunnel (FreeISPRadius).
+
+#### Correction 1 — the spec's addressing premise was wrong, and that is good news
+
+The spec said *"each site's XPON router is `192.168.100.1` on every site, same address reused per-VLAN."* **That is not this network.** Every VLAN already has a unique subnet (`10.50.5.0/24` … `10.50.115.0/24`) and the CCR itself holds `.1` on each.
+
+Consequence: the review's warning that a ping fallback would break the CCR's routing table **does not apply here**. It was correct about the design the spec described; the spec mis-described the network. **Per-VLAN ping/netwatch is viable** and is now the recommended liveness signal for the sites that have no PPPoE session — see Correction 3.
+
+#### Correction 2 — revenue needs no script in the customer login path
+
+`/radius print` shows exactly one entry: `service=ppp`. **There is no RADIUS entry for hotspot.** Hotspot authenticates against the router's *local* user database — **206 local users** — which the billing system writes into the CCR from outside (the `freeisphotspotap` tunnel at `16.0.0.20/16`).
+
+So everything needed for revenue is already sitting on the router in readable form:
+
+**Prices are literally in the profile names.**
+
+| Profile | Price (KES) |
+|---|---|
+| `Quick Surf10` | 10 |
+| `Half day pass20` | 20 |
+| `Full day pass30` | 30 |
+| `24hr pass40` | 40 |
+| `3day pass70` | 70 |
+| `5day pass100` | 100 |
+| `10day pass150` | 150 |
+| `Monthly pass400` | 400 |
+| `Monthly pass500` | 500 |
+| `hp support users` | **0** — comped (`shared-users=2`) |
+| `default` | **0** — confirm intent |
+
+Usernames are `<phone>-<mac fragment>` (e.g. `254796130050-F:D2`) and each carries an `Exp: <datetime>` comment — the billing system's own expiry bookkeeping.
+
+**This kills the riskiest change in the whole phase.** The original spec's "ideal trigger" was a hotspot `on-login` script — code executing inside the login path of every paying customer, on profiles a third-party system owns and can overwrite. **Delete that approach.** Instead:
+
+> Poll `/ip hotspot user` read-only. A username that is new, or whose `Exp:` has moved forward, is a **sale**. Price comes from its profile name.
+
+Three things improve at once:
+1. **Zero code in the authentication path.** Nothing Phase 4 does can stall a customer login.
+2. **Nothing for the billing vendor to overwrite.** No script on a profile they manage.
+3. **It measures *sales*, not *usage*** — which is the number that reconciles against M-Pesa. The spec's unresolved "sales or usage?" question answers itself, in favour of the more useful one. Vouchers sold-and-never-used are now counted correctly instead of being a permanent invisible undercount.
+
+*(Whether `on-login` is currently free is now moot. If anyone wants to know anyway: `/ip hotspot user profile get [find name="Quick Surf10"] on-login` — the recon output omitted the field entirely, which is ambiguous.)*
+
+#### Correction 3 — "one PPPoE session per site" holds for only about 13 of 21 sites
+
+The 21 PPPoE session names:
+
+```
+ACK                  Kamutini_Hotspot      Phase3_HOTSPOT       Stage
+Benbro               Kwamlima              Policelin_Hotspot    Stima_Hotspot
+CatholicRd_Hotspot   LowerSunton_Hotspot   Policelinestreet9    Sunton_Hotspot
+GarageRd_Hotspot     Maji_Hotspot          Prisca
+Garage_Hotspot       Maternity_Hotspot     Redsoil_Hotspot
+Hunters_Hotspot      Ndambaki              Njeri_House
+```
+
+Thirteen end in `_Hotspot`/`HOTSPOT`. The other eight (`ACK`, `Benbro`, `Kwamlima`, `Ndambaki`, `Njeri_House`, `Policelinestreet9`, `Prisca`, `Stage`) are **not obviously hotspot-site uplinks** — they may be home PPPoE customers, or sites named after a building.
+
+Meanwhile there are **21 hotspot VLANs**. The counts do not reconcile, and **nothing in the router config links a VLAN number to a PPPoE username.** That mapping exists only in your head.
+
+Two hard consequences:
+
+1. **Site status cannot be "PPPoE session state" for every site.** For VLANs with no PPPoE uplink, liveness must come from something else — per-VLAN ping of the site AP (now viable, see Correction 1), or simply "does this VLAN have hotspot activity".
+2. **`monitored_sites` must be populated by hand.** This is Phase 4.0c below and it is now the main blocking task.
+
+#### Correction 4 — keepalive tuning is fleet-wide, and should be skipped
+
+```
+0  service-name="FTTH-HS" interface=sfp-sfpplus1-v50 keepalive-timeout=10
+   one-session-per-host=yes pppoe-over-vlan-range="" default-profile=php
+```
+
+**One** PPPoE server instance, `pppoe-over-vlan-range` empty. So `keepalive-timeout` is a single fleet-wide knob affecting all 21 sessions — **including real home internet customers.** There is no way to stage it on one site. The review flagged this as a risk; it is confirmed.
+
+**Recommendation: do not tune it.** The ~5-second detection target in the original spec was never justified, and on this network it is incoherent:
+
+- Hotspot user profiles run `keepalive-timeout=2m` and `status-autorefresh=1m`, so **headcount is inherently up to two minutes stale** no matter what.
+- For a street hotspot site, the response to "down" is to phone someone or drive there. 60 seconds versus 6 seconds changes nothing operationally.
+- The default 10s already gives ~20s detection on the PPPoE path.
+
+Chasing 6s means touching session-liveness for paying home customers, for no operational gain. **Leave `keepalive-timeout=10`.** The 60-second heartbeat is the design, and it carries zero production risk.
+
+This also demotes the event-driven `on-up`/`on-down` path (was 4.6) from core work to optional polish.
+
+#### Correction 5 — the router's clock is one hour wrong. Fix this tonight.
+
+```
+time-zone-autodetect: yes
+time-zone-name: Indian/Mauritius
+gmt-offset: +04:00
+```
+
+The CCR thinks it is in **Mauritius (UTC+4)**. Nairobi is UTC+3. The router reported `00:46` while local time was `23:46` the previous day — off by exactly one hour, and across a date boundary.
+
+NTP itself is healthy (`synchronized`, stratum 1, `system-offset: 0.873 ms`, drift 6.058 PPM) — UTC is correct. Only the display timezone is wrong, almost certainly because `time-zone-autodetect` geolocated the upstream/tunnel IP.
+
+Every locally-formatted timestamp the router produces is therefore an hour ahead, and "today" rolls over at 23:00 local. Fix before any timestamp is trusted:
+
+```
+/system clock set time-zone-autodetect=no time-zone-name=Africa/Nairobi
+```
+
+Autodetect must go off in the same command or it will revert. This is read-safe and affects no traffic.
+
+The review's recommendation to store both `router_ts` and `received_at` and compute from `received_at` stands regardless — this is exactly the class of bug it was insurance against, and it was live.
+
+#### Correction 6 — eight VLANs had zero users, and that needs explaining before it gets coded
+
+VLANs with active hotspot sessions at 00:46: `5, 10, 15, 25, 30, 35, 45, 55, 60, 65, 70, 75, 80`.
+
+Zero active sessions: **`20, 40, 77, 85, 90, 105, 110, 115`** — eight of twenty-one — plus `hotspot1` on the bridge.
+
+This is precisely the "site up, hotspot broken" failure the review called out as probably the highest-value alert in the system, and it is showing up in the very first snapshot. Before building the anomaly detector, **you need to say which of those eight are expected to be empty** (new, not yet live, genuinely quiet at 1am) versus actually broken. Otherwise the detector gets calibrated against a baseline that already contains faults.
+
+#### Other facts worth recording
+
+- **PPP profiles: all nine have `on-up=""` and `on-down=""`** — free to use if the event path is ever wanted. But profiles are assigned by FreeISPRadius (note the profile literally named `EXPIRED FREEISPRADIUS expired_pppoe_pool`), and the `Jasiri 5/10/15/20mbps` profiles are shared between site uplinks and home customers. Any `on-up` hook would fire for home customers too — so the script must stay dumb and POST everything, with Ops filtering by username against `monitored_sites`.
+- **Storage is fine** — 102 MiB free of 128 MiB. But `write-sect-total` is already 2.13M sectors on ARM flash, so `keep-result=no` stays mandatory for wear, not for space.
+- **`/radius print` exposed no secret** in non-detail form. Nothing sensitive was shared.
+- **Untracked scripts already on the router:** `jasccr2004.rsc` (83.4 KiB), `mainhotspot.rsc` (5.7 KiB), `mesh.rsc` (modified 2026-09-18 00:35). Phase 4's script must not collide with names or schedulers these define — read them before adding anything.
+
+---
+
+### 4.0b — Infrastructure facts: STILL OPEN
+
+- **Render plan.** Free tier sleeps after ~15 min idle and cold-starts in 30–60s. A 60s heartbeat keeps it permanently awake — a genuine side benefit — but any gap causes a cold start, which causes more gaps.
+- **Supabase plan and current DB size.** Drives the retention design in 4.1.
+- **Migration approach.** Alembic, or hand-applied SQL? Claude Code can answer this itself from the repo.
+
+### 4.0c — The site mapping table: STILL OPEN, and now the critical path
+
+Per Correction 3, this cannot be derived from the router. Produce one row per monitored site:
+
+| VLAN | Gateway | Ops `location_id` | PPPoE username (if any) | Site AP IP (for ping, if no PPPoE) | Expected quiet hours |
+|---|---|---|---|---|---|
+| 35 | 10.50.35.1 | ? | `Sunton_Hotspot`? | | |
+| … | | | | | |
+
+Also needed:
+- Which of the eight empty VLANs are live (Correction 6).
+- Whether `hotspot1` / `hotspot-bridge` is in scope or retired.
+- Which of the eight non-`_Hotspot` PPPoE names are sites versus home customers.
+- Whether every VLAN corresponds to a row that already exists in `locations`, or whether some sites must be created first.
+
+**Nothing in 4.1 onward can be verified without this table.** It is 21 rows and only you can write it.
+
+---
+
+### Isolation invariant (non-negotiable)
+
+Per the domain-isolation principle in RULES.md:
+
+- The monitoring domain **reads** `locations` by `location_id` and nothing else.
+- `locations`, `batteries`, `movements`, `inventory`, `users`, `roles` gain **zero** new columns and **zero** awareness of monitoring.
+- No monitoring table is joined into an existing domain's queries.
+- **Do not add `vlan_id` to `locations`.** A location may be unmonitored (home base, a store); a VLAN may exist before anyone maps it. Separate lifecycles, separate tables.
+
+**Proof obligation:** dropping every monitoring table must leave Phases 0–3 passing unchanged.
+
+---
+
+### Naming decision
+
+The codebase already uses three words for one thing — `locations` (table/routes), "Sites" (nav), `SiteOnlineAnswer` (schemas). **Do not add a fourth.** New domain is `monitoring`, routes under `/monitoring/…`, DB keeps `locations`, UI keeps saying "Sites". No `sites` table, no `/sites` route.
+
+---
+
+### Where it lands in the UI
+
+Nav already has **Sites** → the `locations` directory plus the verification/confirm flow. Same noun, so:
+
+- **Sites** becomes two tabs: **Status** (new, default) and **Directory** (existing, unchanged).
+- **Non-goal:** a new top-level nav entry. No "Network", no "Monitoring".
+
+---
+
+### The collision that needs a policy: two answers to one question
+
+Ops already asks a human whether a site is online:
+
+```
+GET  /locations/verification          "List Site Verification"
+POST /locations/{id}/confirm          SiteVerificationAnswer { is_online }
+GET  /locations/unconfirmed-count     (drives a nav badge)
+POST /movements/{id}/confirm-online   SiteOnlineAnswer { is_online }
+```
+
+After this phase the router answers the same question in ~60 seconds.
+
+**Decision:**
+
+1. Monitoring becomes the system of record for *"is this site's uplink up"*.
+2. The human confirmation is **not** removed and **not** auto-closed — "the site is online" and "the battery I just installed is what is powering it" are different claims, and only a person on site can make the second.
+3. `confirm-online` becomes a **prefilled one-tap**: *"Monitoring saw Sunton come back online at 14:32, 12m after you marked arrived"* — accept or contradict.
+4. **Both answers stored.** A contradiction is a finding: uplink up while the tech says otherwise usually means something else at the site is dead.
+5. Re-check whether `unconfirmed-count` still earns its nav badge once most confirmations are pre-answered. The re-check is in scope; changing it is not.
+
+---
+
+### Sub-phases, ordered by blast radius
+
+#### 4.1 — Schema + migration · *Ops only, zero router contact*
+
+| Table | Grain | Purpose |
+|---|---|---|
+| `monitored_sites` | one row per VLAN | `location_id` FK, `vlan_id` UNIQUE, `gateway_cidr`, `pppoe_username` NULLABLE UNIQUE, `ap_ip` NULLABLE, `liveness_source` enum(`pppoe`,`ping`,`activity`), `quiet_hours`, `active` |
+| `site_status_log` | **transitions only** | `location_id`, `state` (online/offline/unknown/flapping), `router_ts`, `received_at`, `source` |
+| `ingest_snapshots` | one row per **fleet** snapshot | `seq`, `router_ts`, `received_at`, `sites_reporting` — makes *unknown* time computable |
+| `site_session_counts` | per site, downsampled | `location_id`, `sessions`, `received_at` |
+| `hotspot_packages` | one row per profile | `profile_name` UNIQUE, `price_kes`, `is_comped` — seeded from the table in Correction 2 |
+| `revenue_events` | one row per sale | `location_id`, `hotspot_username`, `profile_name`, `price_kes`, `expiry_seen`, `first_seen_at` |
+
+`pppoe_username` is **nullable** — Correction 3 means not every site has one.
+
+**Retention is mandatory in v1.** One row per site per minute is 30k rows/day → ~1 GB/year, past the Supabase free tier inside six months. By design:
+
+- `site_status_log` — transitions only, keep forever.
+- `ingest_snapshots` — one row for the whole fleet per snapshot (1,440/day), enough to prove "we were watching".
+- `site_session_counts` — written **every 5 minutes**, since hotspot data is already up to 2 minutes stale (Correction 4); rolled up hourly after 14 days.
+
+Two timestamps everywhere: `router_ts` as reported, `received_at` as Ops saw it. **Compute uptime from `received_at`.** Store UTC; aggregate on Africa/Nairobi boundaries. Correction 5 is exactly why.
+
+#### 4.2 — Ingest endpoint · *Ops only, zero router contact*
+
+`POST /monitoring/ingest`.
+
+**Documented auth exception.** Every existing endpoint uses `HTTPBearer` (user JWT); a RouterOS script cannot hold one. This endpoint uses a static shared-secret token in a custom header on its own middleware, bypassing the user-auth dependency. **Write this into ARCHITECTURE.md as intentional**, or a future session reads it as a hole.
+
+- Long random token in an environment variable, never in the repo.
+- Accepts a single reading **or a batch**; idempotent against retries.
+- Unknown `vlan_id` or unknown PPPoE username → **quarantine table, return 200.** Never drop silently, never 4xx — the router has no retry and nobody reads its logs.
+- Record sequence numbers so gaps are detectable.
+
+#### 4.3 — Read-only heartbeat on the router · *fleet-wide, safe at any hour*
+
+One `/system scheduler` entry, 60s, running a script that reads `/ppp active`, `/ip hotspot active` and `/ip hotspot user`, and POSTs **one** JSON payload for the whole fleet.
+
+Changes nothing. Cannot disconnect anyone. Rollback is disabling one scheduler entry.
+
+Mandatory on every `/tool fetch`:
+
+```
+output=none keep-result=no check-certificate=yes
+```
+
+`keep-result` defaults to `yes` and would write a file per call — flash wear on ARM (Correction: 2.13M sectors already written). `check-certificate` defaults to `no`, which would make the shared secret interceptable.
+
+Wrap every fetch so it can never block or throw:
+
+```
+:onerror e in={ /tool/fetch ... } do={}
+```
+
+Check `jasccr2004.rsc`, `mainhotspot.rsc` and `mesh.rsc` for existing scheduler/script name collisions before adding anything.
+
+**After one day of 4.3 alone you have all four goals at 60-second resolution**, with zero production risk taken.
+
+#### 4.4 — Status + revenue API, permission wiring · *Ops only*
+
+Permissions here are `(section, action, allowed)` triples — `PermissionEntry { section, action, allowed }` — **not** flat flags. So `can_view_revenue` becomes:
+
+```
+section = "sites"        (confirm against the existing Sites view's string)
+action  = "view_revenue"
+```
+
+Revenue must be **absent from the payload**, not nulled, for users without it; the client renders the locked placeholder from the permission flag alone. Gating covers the Status tab, per-site detail, exports **and alert message bodies** — an SMS with a revenue figure walks straight past the permission model.
+
+#### 4.5 — Dashboard UI (Status tab) · *Ops only*
+
+Build to the canvas design already produced. Load-bearing parts:
+
+- Hero is a **sentence** ("2 sites down"), largest element, meaning in the words not the colour.
+- **Exception-first** — problem cards above fleet totals; both collapse to nothing on a calm day.
+- **Acknowledgement** moves a known-bad site into a muted strip. Without it, a site waiting three days for a battery holds the page red permanently and trains everyone to stop seeing red.
+- Status = colour **+ shape + text**, always. Screenshots into WhatsApp are how this travels.
+- Problem cards carry **sessions-at-drop** — the number that decides whether anyone drives out tonight.
+- Revenue-hidden renders as a lock and the word "Hidden", never an absent column.
+- **SSE** for live updates (FastAPI async generator, `text/event-stream`, no new dependency). The page must show its own connection state and dim the dots when the stream dies.
+- Mobile: hero + problem cards + one line per site.
+
+#### 4.6 — Per-VLAN liveness for sites without PPPoE · *reads only, small config addition*
+
+Required by Correction 3. Because every VLAN has a unique subnet (Correction 1), this is straightforward:
+
+- Where a site AP has a stable IP in `10.50.NN.0/24`, add a netwatch probe per site. `src-address` is unambiguous here — the overlapping-subnet problem in the original spec does not exist on this network.
+- Where it does not, fall back to `activity`: a VLAN with recent hotspot sessions is up; a VLAN with none is *unknown*, never *down* (Correction 6 is why — eight VLANs are already empty and we do not yet know if that is a fault).
+
+**Netwatch is available.** In RouterOS 7 the old `advanced-tools` package was merged into the single bundled `routeros` package — which is why the recon lists only `routeros` 7.24.2 while hotspot and PPP (also formerly separate packages) both plainly work. One command confirms if anyone wants certainty: `/tool netwatch print`.
+
+#### 4.7 — Revenue via hotspot-user polling · *reads only*
+
+Per Correction 2. Seed `hotspot_packages` from the price table. In the heartbeat, read `/ip hotspot user` and detect:
+
+- a username not seen before → **a sale**, priced from its profile;
+- an existing username whose `Exp:` moved forward → **a renewal**, priced the same way.
+
+Attribute to a site by the user's address subnet where the user is currently active; where it is not, attribute to the site that last saw it, and mark the attribution as inferred.
+
+`hp support users` and `default` price at 0. Confirm `default` is genuinely comped and not a misconfiguration.
+
+Because this is a *sales* measure, it should reconcile against M-Pesa directly. Log the weekly delta; a persistent gap is a bug, not drift.
+
+#### 4.8 — Alerting + external watchdog
+
+- Debounce **alerting**, never logging. Log every transition; alert only on down persisting > N minutes, rate-limited per site per hour.
+- **Flapping** is a distinct state — a site bouncing 40 times a night reads green on any single poll.
+- **Per-site quiet hours** from `monitored_sites`. Solar/battery sites drop predictably overnight; without this the dashboard is red every morning.
+- **Router-restart marker** via a startup-triggered scheduler script, so a reboot is not logged as 21 genuine simultaneous outages.
+- **Sessions-dropped-to-zero anomaly** — calibrate only after Correction 6 is resolved.
+- External uptime monitor on an Ops health endpoint, alerting distinctly from a site-down alert.
+
+#### 4.9 — Reconcile monitor against human `confirm-online`
+
+Implement the prefill above, store both answers, surface contradictions.
+
+#### 4.10 — OPTIONAL: event-driven fast path · *touches the router*
+
+Deferred by Correction 4 — the operational case for 6s over 60s is weak, and the heartbeat is free. If it is ever wanted:
+
+- Set `on-up`/`on-down` on the PPP profiles the site sessions use. All nine are currently empty.
+- Profiles are RADIUS-assigned and shared with home customers, so the script must POST everything and let Ops filter by `monitored_sites`.
+- Verified RouterOS facts: variables are `user`, `local-address`, `remote-address`, `caller-id`, `called-id`, `interface`; `$interface` returns an internal ID (`*f00001`), not a name — use `[/interface get $interface name]`; dashed names **must be quoted** (`$"remote-address"`) or they parse as subtraction and silently yield nothing.
+- **There is no `/interface` up/down script hook in RouterOS.** The spec's "VLAN interface state" backup signal does not exist; 4.3 and 4.6 replace it.
+
+**Do not tune `keepalive-timeout`.** See Correction 4.
+
+---
+
+### Out of scope
+
+- Tuning `keepalive-timeout` (Correction 4).
+- Any hotspot `on-login` / `on-logout` script (Correction 2 removes the need).
+- Any change to `locations`, `batteries`, `movements`, `inventory`, `users`, `roles` schemas.
+- A new top-level nav entry.
+- Per-site subnet re-addressing or VRFs — unnecessary, the network is already uniquely subnetted.
+- Customer-facing status pages.
+- New-site onboarding automation (follow-on phase once the pattern is proven).
+
+---
+
+### Rollback
+
+**Not** a config re-import — that drops every session and risks a state matching neither old nor new. Keep the export for "the router is bricked" only.
+
+Phase 4 as scoped touches the router in only three places, each reversed by one command:
+
+| Change | Rollback |
+|---|---|
+| Timezone fix (Correction 5) | `/system clock set time-zone-autodetect=yes` |
+| 4.3 heartbeat scheduler | `/system scheduler disable [find name="ops-heartbeat"]` |
+| 4.6 netwatch probes | `/tool netwatch disable [find comment~"ops-monitor"]` |
+| 4.10 (if ever done) | clear the two PPP profile fields |
+
+Before any of it: `/export file=` **and** `/system backup save`, both pulled off the device and verified openable. Note there are already two `freeispradius_backup_*.backup` files on the router — do not confuse them with yours.
+
+---
+
+### Agent boundaries
+
+Extending DELEGATION.md's rule that an agent shows each command before running it:
+
+**An agent should not run 4.10 against the live router at all**, and should not touch `keepalive-timeout` under any circumstances.
+
+4.3 and 4.6 are read-only and low-risk; an agent may draft the scripts, but a human pastes them. Agents are well suited to 4.1, 4.2, 4.4, 4.5, 4.7's Ops-side logic, and the netwatch rollout repetition in 4.6.
+
+---
+
+### Exit criteria
+
+1. 4.0c mapping table complete — all 21 VLANs mapped, with the eight empty VLANs and the eight ambiguous PPPoE names classified.
+2. Router timezone reads `Africa/Nairobi` with autodetect off.
+3. All mapped sites reporting via heartbeat for 7 consecutive days with no gap longer than the staleness window.
+4. Dropping every monitoring table leaves Phases 0–3 green.
+5. A user without `sites/view_revenue` receives responses containing **no revenue field** — verified by reading the raw response, not the UI.
+6. Uptime for a deliberately induced 10-minute outage on one test site matches wall-clock within 60 seconds.
+7. An Ops restart mid-outage produces *unknown* time, not phantom uptime — verified by killing Ops for 5 minutes during a real outage.
+8. One week's polled revenue reconciles against M-Pesa within a stated tolerance, with the delta logged.
+9. Every `/tool fetch` carries `output=none keep-result=no check-certificate=yes`, and `/file print` shows no growth after 7 days.
+10. `keepalive-timeout` is still `10`.
 
 ---
 
@@ -21,19 +439,20 @@ it.
 ## convention until it becomes active, at which point its full brief goes
 ## here the same way Phase 3's did before it was completed)
 
-**Phase 4 — Notifications.** Lowest-effort new addition — SMS templates
-already designed, this is mostly wiring them in. (Previously numbered
-Phase 3; renumbered to make room for the Phase 3 Ops Inventory System
+**Phase 5 — Notifications.** Lowest-effort new addition — SMS templates
+already designed, this is mostly wiring them in. (Originally Phase 3;
+renumbered to Phase 4 to make room for the Phase 3 Ops Inventory System
 brief, per owner's explicit call 2026-09-06 — see COMPLETED PHASES for
-that phase's outcome.)
+that phase's outcome. Renumbered again to Phase 5 to make room for the
+Phase 4 Network Monitoring brief, per owner's explicit call 2026-09-18.)
 
-**Phase 5 — Ticketing.** Close in shape to the existing site verification/
+**Phase 6 — Ticketing.** Close in shape to the existing site verification/
 check-in flow.
 
-**Phase 6 — Basic CRM.** Likely just views/notes on top of the existing
+**Phase 7 — Basic CRM.** Likely just views/notes on top of the existing
 customers table — to be CONFIRMED, not assumed, once this phase starts.
 
-**Phase 7 — Chat.** Deliberately deferred and flagged for reassessment.
+**Phase 8 — Chat.** Deliberately deferred and flagged for reassessment.
 Most technically demanding of the set, and WhatsApp already works as a
 contact channel. Confirm this solves a real operational gap before
 building anything.
@@ -78,356 +497,6 @@ Production DB migrations (`0004_inventory_core_tables.sql`,
 `0005_inventory_custody_type.sql`) confirmed applied ahead of the `main`
 merge. Owner confirmed done (2026-09-17).
 
-**Phase 2 — Finish Incomplete Functionality.** Completed 2026-09-06.
-> This is **Phase 3** of an ongoing project to build an inventory/asset
-> tracking system for field operations (telecom-adjacent: enclosures,
-> cabling, and power/network equipment). Phases 1–2 established the data
-> model and category structure through design discussion. Phase 3 is
-> about **implementing the system** (spreadsheet or lightweight app)
-> based on the finalized structure below.
->
-> ### Goal
-> Build a working inventory + asset tracking system that:
-> 1. Separates **Assets** (reusable, tracked individually, long-lived)
->    from **Inventory** (consumed/depleted, tracked by quantity or
->    length)
-> 2. Gives every category consistent core fields, with category-specific
->    extensions layered on top
-> 3. Logs every movement/transaction in one central log, so current-state
->    tables are always derived from history — never manually overwritten
-> 4. Handles **partial/delayed reconciliation** for bulk cable (a full
->    reel/cut goes out, but actual usage is only known once the job
->    closes)
-> 5. Provides a **single unified "issue materials" entry point** so a
->    user handing over a mixed batch (e.g. 1 enclosure + 2 packs of ties
->    + 150m of cable) never has to navigate between separate
->    Assets/Inventory views to do it — that separation is a backend
->    data-organization choice, not a user-facing workflow
->
-> ### Top-Level Structure: Assets vs Inventory, with User-Defined
-> ### Categories
-> Rather than hardcoding fixed categories (Enclosures, Consumables,
-> Bulk-Reel, Power-Network Assets) into the schema, categories should be
-> **user-created and user-assignable**. A user can create a new category
-> at any time (e.g. "Enclosures", "Solar Equipment", "Tools", "Cabling")
-> without needing a developer/schema change.
->
-> #### Category Table
-> | Field | Notes |
-> |---|---|
-> | Category Name | Free text, user-defined (e.g. "Enclosures", "Power/Network Assets", "Consumables", "ADSS/Drop Cable") |
-> | Tracking Type | Fixed dropdown, chosen when the category is created — this is what drives which fields/behavior apply to items in that category (see below). Options: `Asset (Serialized)`, `Inventory (Quantity-based)`, `Inventory (Length-based)` |
-> | Description | Optional, free text |
->
-> The **Tracking Type** is the only thing that must be fixed at the
-> system level, because it determines behavior (individual lifecycle
-> tracking vs. depletion tracking vs. length/reel tracking). Everything
-> else about a category — its name, what items belong to it — is fully
-> user-defined and open-ended.
->
-> #### Item Table (applies to every item, regardless of category)
-> Row granularity differs by Tracking Type — see the per-type breakdown
-> below (one row per serial for Asset-Serialized, one row per Batch/Lot
-> for Quantity-based, one row per Cut/Reel for Length-based). The fields
-> below are universal regardless of that granularity:
-> | Field | Notes |
-> |---|---|
-> | Category | Dropdown, references the user-created Category table |
-> | SKU | Identifies the product/model, NOT the individual physical unit. Stays constant across purchases even if unit cost changes (e.g. same enclosure bought at 600 then 800 — same SKU, different cost recorded per batch) |
-> | Name/Description | Human-readable label |
-> | Location | Current physical location — updates live as items move |
-> | Unit Cost | Per unit / per meter, ties into costing method below |
-> | Supplier | If applicable — some assets may have no repeat supplier |
-> | Unit of Measure (UoM) | pcs / pack / box / meter — explicit field to avoid ambiguity |
-> | Notes | Free text catch-all |
->
-> **Reorder Level is deliberately NOT listed here.** See the SKU/Spec
-> Summary section below — it doesn't belong on a per-row Item record for
-> any tracking type.
->
-> ### Fields Driven by Tracking Type (not by category name)
-> Instead of hardcoding fields per named category, fields should
-> show/apply based on the category's **Tracking Type**. This means a
-> newly created category automatically gets the right fields just by
-> picking its type — no schema change needed.
->
-> #### Tracking Type: `Asset (Serialized)`
-> (applies to whatever categories the user tags this way — e.g.
-> Enclosures, Power/Network Assets, or any future category like "Tools")
-> - Serial Number (manufacturer's if present, otherwise internal — e.g.
->   `ENC-2026-001`)
-> - Unit Cost recorded directly per serialized unit — no costing method
->   (FIFO/weighted-average) needed here, since each unit has a known
->   individual cost tied to its own serial. Costing methods exist to
->   handle *fungible* stock where you don't know which physical unit was
->   consumed; a serialized asset never has that ambiguity.
-> - Status: `Active`, `Faulty`, `In Repair`, `Decommissioned`, `Spare —
->   In Storage`
-> - Assigned To (person/site currently holding it)
-> - Make/Model + Spec/Capacity (optional — useful for anything where
->   compatibility matters, e.g. inverter kW, battery Ah, CCR core count)
-> - Install Date (optional)
->
-> #### Tracking Type: `Inventory (Quantity-based)`
-> (applies to categories like Consumables, or any future quantity-based
-> category)
-> - **Row granularity: one row per Batch/Lot, not one row per SKU.** If a
->   SKU has multiple batches with different unit costs or expiry dates,
->   each batch gets its own row (its own Quantity On Hand, Unit Cost,
->   Expiry). SKU-level totals (e.g. "total cable ties across all
->   batches") are a rollup/pivot over these rows, not a field maintained
->   directly on any single row. This avoids the system defaulting to
->   one-row-per-SKU and then breaking when batches diverge in cost or
->   expiry.
-> - Quantity On Hand (by UoM — pack/box/piece), per batch
-> - Batch/Lot + Expiry (Expiry optional — only relevant where
->   applicable, e.g. adhesives)
-> - **Costing method applies here**: since units within a SKU are
->   fungible (you can't tell which physical tie or patch cord came from
->   which batch once mixed), use FIFO (recommended) or weighted average
->   to determine which batch's cost is drawn down as stock is consumed,
->   and to value what's left on hand
-> - No serials — tracked at bin/shelf level, not individually
->
-> #### Tracking Type: `Inventory (Length-based)`
-> (applies to categories like ADSS/Drop Cable, or any future reel/
-> length-based category)
-> - **Row granularity: one row per Cut/Reel ID** — this one is already
->   unambiguous, since each physical cut is a distinct unit even when
->   nominal lengths repeat
-> - Cut/Reel ID (unique per physical cut, even if the same nominal
->   length recurs — e.g. two separate 400m purchases get two different
->   Cut IDs)
-> - Spec (core count, cable type)
-> - Length Received
-> - Length Remaining
-> - **Costing method applies here too**, at the aggregate/reporting
->   level: if you need a blended cost-per-meter figure across multiple
->   cuts of the same spec (e.g. for job costing), apply FIFO or weighted
->   average across the contributing cuts — the individual cut's own
->   recorded Unit Cost stays fixed, but consumption reporting draws down
->   using the chosen method
-> - Status: `In Stock`, `Out — Pending Reconciliation`, `Depleted` (see
->   reconciliation workflow below)
-> - Usable flag: computed field — e.g. `=IF(Length_Remaining < 20m, "No
->   — Offcut", "Yes")`, threshold configurable
->
-> This structure means: if the user later creates a brand-new category —
-> say "Tools" or "Vehicles" — they just assign it a Tracking Type at
-> creation, and it automatically inherits the right fields and behavior
-> without any redesign.
->
-> ### SKU/Spec Summary (where Reorder Level actually lives)
-> Reorder Level is an **aggregate concept**, not a per-row one — it
-> doesn't matter that one batch or one cut or one serial is low if the
-> SKU/Spec as a whole still has plenty on hand. It needs its own rollup
-> layer, grouped by SKU (for Asset-Serialized and Quantity-based) or by
-> Spec (for Length-based, since that's the level at which
-> interchangeability matters — e.g. "24-core ADSS" as a whole, not one
-> specific cut).
->
-> | Field | Notes |
-> |---|---|
-> | SKU / Spec | The grouping key — SKU for Asset/Quantity types, Spec for Length-based |
-> | Total On Hand | Rollup: sum of all serials currently `Active`/`Spare` (Asset), sum of Quantity On Hand across all batches (Quantity-based), sum of Length Remaining across all cuts (Length-based) |
-> | Reorder Level | Threshold set once per SKU/Spec, not per row |
-> | Below Threshold? | Computed flag: `Total On Hand < Reorder Level` |
->
-> This is a live formula/pivot view over the Item table (grouped by SKU
-> or Spec), same as the offcut Summary view described earlier — not a
-> manually maintained field. It answers "do we need to reorder SKU X"
-> correctly regardless of how many individual batches, cuts, or serials
-> that SKU is currently split across.
->
-> ### Transaction Log (central, shared across all categories)
-> This is the **primary "doing" surface** — the only place a user should
-> regularly interact with directly. All category tables (Enclosures,
-> Consumables, Bulk-Reel, Power-Network Assets) should be **derived
-> views**, ideally with quantity/status fields computed from this log
-> rather than manually edited.
->
-> | Field | Notes |
-> |---|---|
-> | Log ID | Sequential unique ID, e.g. `TXN-0001`, auto-incrementing |
-> | Date | |
-> | SKU / Category | Links to the relevant item, whatever category/tracking type it belongs to |
-> | Serial / Cut / Reel ID | If applicable |
-> | Action | Fixed set of values: `Out`, `In`, `Transfer`, `Adjustment`, `Return`, `Write-off`, `Reconciled` |
-> | Qty / Length | Amount moved |
-> | From Location | |
-> | To Location | |
-> | Site | Where the work is happening |
-> | Activity | Fixed list: `Installation`, `Expansion`, `Maintenance`, `Repair/Replacement`, `Relocation`, `Decommission` (no formal job IDs exist yet — Activity + Site + Date serve as the de facto reference) |
-> | Issued To | Person accountable in the field |
-> | Logged By | Person who recorded the transaction (accountability on the record-keeping side) |
-> | Status | For bulk/reel transactions: `Open/Pending` or `Closed` (see reconciliation below) |
-> | Notes | Free text |
->
-> #### Access control principle
-> - Implemented as a **Roles/Permissions section in the webapp** — an
->   admin screen where someone can click through and assign, per role
->   (or per user), what they're allowed to do: add transaction entries
->   only, edit item records, manage categories, edit historical log
->   rows, etc. No code change needed to adjust who can do what.
-> - Default recommended roles: **Field/Store users** (can only add new
->   transaction log entries — issue/receive), **Managers** (can also
->   edit item records directly — fix errors, add new SKUs/categories),
->   **Admin** (full access, including editing historical log entries if
->   ever needed)
-> - Master item table quantities/statuses should still be
->   formula-derived from the Transaction Log wherever feasible, so even
->   users with edit access aren't tempted to overwrite computed fields
->   directly — permissions and formula-derivation work together, not as
->   substitutes for each other
-> - This role-based permission model is realistic to build in an app
->   (row/field-level permissions tied to roles) but is one of the harder
->   things to enforce cleanly in a spreadsheet (would need protected
->   ranges + Apps Script, and is easy to accidentally break) —
->   reinforces the earlier recommendation toward an app over a
->   spreadsheet for this phase
->
-> ### Reconciliation Workflow (Length-based Inventory — cable usage
-> ### known only after job closes)
-> This applies to any category using Tracking Type `Inventory
-> (Length-based)` (e.g. ADSS/Drop Cable). This is a **two-stage
-> transaction**, not a single deduction, because the exact length
-> consumed is unknown until the job finishes:
->
-> **Stage 1 — Cable issued (full cut goes out):**
-> - Log entry: Action = `Out`, full length of the cut taken, Status =
->   `Open/Pending`
-> - Item record: that Cut ID's status becomes `Out — Pending
->   Reconciliation`, and **Location updates immediately to the
->   destination site** (it's physically there — Location should always
->   reflect physical whereabouts). The pending/unconfirmed state is
->   carried entirely by the **Status** field, not by holding Location
->   back at the warehouse. This keeps the two fields answering two
->   different questions cleanly: Location = "where is it," Status = "is
->   its consumption confirmed yet." Length is NOT yet deducted from
->   "available" stock reporting — it's in a pending state, neither
->   available nor confirmed consumed.
->
-> **Stage 2 — Job closes, actual usage confirmed:**
-> - Log entry: Action = `Reconciled`, records Length Used + Length
->   Returned
-> - Item record updates: Length Remaining on that Cut ID adjusts to
->   reflect actual return (if any)
-> - If returned remainder is long enough to be usable → becomes a **new
->   Cut ID** (e.g. `ADSS-2026-002-R`) with its own tracked remaining
->   length
-> - If returned remainder is too short → logged directly as
->   offcut/scrap against the original Cut ID
->
-> **Aging consideration**: flag any cut still in `Open/Pending` status
-> beyond a configurable threshold (e.g. 14 days) so pending items don't
-> get forgotten indefinitely while a job drags on.
->
-> ### Offcut/Usable-Length Reporting
-> Two linked views, not two separate data sets:
-> 1. **Roll-up view** (by Spec): Total Remaining, Usable Remaining,
->    Offcut Remaining, # of Cuts Contributing
-> 2. **Drill-down view** (filtered): lists the actual Cut IDs and their
->    individual remaining lengths that make up the offcut total for a
->    given spec
->
-> Both should be built as live formulas/pivots off the item table
-> (filtered to Length-based categories) — never maintained as separate
-> manually-updated data.
->
-> ### UX Requirement: Single Unified Issue Point
-> **Critical constraint**: the Assets/Inventory category split is a
-> backend data-organization decision only. A user issuing a mixed batch
-> of materials (e.g., 1 enclosure + 2 packs of cable ties + 150m of ADSS
-> for one job) must be able to do so via **one entry action** — not by
-> navigating into an "Assets" section and then separately into an
-> "Inventory" section. The system should route each line item to the
-> correct underlying table automatically based on what's selected, while
-> the person doing the handover experiences it as a single
-> transaction/list, similar to a checkout cart.
->
-> ### Suggested Implementation Structure
-> Core tables/views:
-> 1. `Categories` — user-managed list of categories, each tagged with a
->    Tracking Type (Asset-Serialized / Inventory-Quantity /
->    Inventory-Length)
-> 2. `Items` — single table for all items across all categories, with
->    Tracking-Type-driven fields shown/used as applicable (one row per
->    serial / batch / cut, per type)
-> 3. `Transaction Log` — primary data-entry surface, single source of
->    truth for all movement
-> 4. `SKU/Spec Summary` — rollup view holding Reorder Level and Total On
->    Hand per SKU (or per Spec for Length-based), computed from the Items
->    table
-> 5. `Offcut/Usable-Length Summary` — formula-driven roll-up + drill-down
->    views (filtered to Length-based items)
->
-> This is naturally better suited to a lightweight app/database (e.g.
-> Airtable-style or a small custom app) than a rigid spreadsheet, since
-> user-created categories with type-driven fields are harder to maintain
-> cleanly across separate static spreadsheet tabs. If a spreadsheet is
-> still preferred for now, the `Items` tab can hold all categories
-> together with conditional formatting/filtering by Category and
-> Tracking Type, rather than splitting into separate tabs per fixed
-> category.
->
-> A single "New Transaction" entry screen/form should remain the main UI
-> surface for day-to-day use, letting someone pick any item regardless
-> of category and log it in one action — the category/tracking-type
-> structure underneath stays invisible to that workflow.
->
-> ### Deliverables for Phase 3
-> 1. Implement the Categories table (user-creatable, each assigned a
->    Tracking Type) and the single Items table with type-driven fields
->    (correct row granularity per type — one row per serial, per batch,
->    or per cut)
-> 2. Wire up the Transaction Log as the single source of truth, with item
->    records computing their current state from it
-> 3. Implement the SKU/Spec Summary rollup (Total On Hand + Reorder Level
->    + Below-Threshold flag), grouped correctly (by SKU for
->    Asset/Quantity types, by Spec for Length-based)
-> 4. Implement the two-stage reconciliation flow for Length-based
->    inventory items
-> 5. Implement the offcut roll-up + drill-down reporting view
-> 6. Implement a single unified "issue materials" entry flow covering
->    mixed items from any category/tracking type in one transaction
-> 7. Build the Roles/Permissions admin screen (default roles: Field/
->    Store, Manager, Admin)
-> 8. Seed with real starting data: 48 enclosures (batch costs noted,
->    category = "Enclosures", type = Asset-Serialized), current
->    consumables stock, current ADSS/drop cable cuts, current power/
->    network assets on hand
-> 9. Confirm categories are fully user-manageable going forward
->    (add/rename/retire a category without any code change) — only the
->    Tracking Type options themselves are fixed at the system level
-
-**Phase 4 — Notifications.** Lowest-effort new addition — SMS templates
-already designed, this is mostly wiring them in. (Previously numbered
-Phase 3; renumbered to make room for the Phase 3 Ops Inventory System
-brief above, per owner's explicit call 2026-09-06.)
-
-**Phase 5 — Ticketing.** Close in shape to the existing site verification/
-check-in flow.
-
-**Phase 6 — Basic CRM.** Likely just views/notes on top of the existing
-customers table — to be CONFIRMED, not assumed, once this phase starts.
-
-**Phase 7 — Chat.** Deliberately deferred and flagged for reassessment.
-Most technically demanding of the set, and WhatsApp already works as a
-contact channel. Confirm this solves a real operational gap before
-building anything.
-
-Each phase runs in its own branch (one branch per phase — see CLAUDE.md).
-Before confirming any phase done, the owner checks it out locally
-(`git checkout <phase-branch>`) and runs it on localhost — not just
-Claude's word that "done when" criteria are met. Merges to `main` happen
-only after that. Detail (scope, done-when criteria) expands here from a
-one-liner when a phase becomes active. The DeepSeek delegation
-confirmation checkpoint (see DELEGATION.md) resets at the start of each
-new phase.
-
----
-
-## COMPLETED PHASES
 **Phase 2 — Finish Incomplete Functionality.** Completed 2026-09-06.
 Seventeen incomplete-feature items resolved (button styling, movement
 "Moved by" typeahead + recording fix, movement notifications/badges,
