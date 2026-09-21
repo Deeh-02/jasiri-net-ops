@@ -20,12 +20,23 @@
             <div class="inbox-items" id="pkg-unpriced-items"></div>
         </div>
 
+        <!-- Only appears once a package has a length set — without one there
+             is nothing to compare a jump against. -->
+        <div class="inbox-block" id="pkg-stacks-block" hidden>
+            <div class="inbox-head">
+                <h2 class="inbox-title">Might be more than one purchase</h2>
+                <p class="inbox-note">Each was counted as a single sale. Check the ones that look wrong against billing.</p>
+            </div>
+            <div class="inbox-items" id="pkg-stacks-items"></div>
+        </div>
+
         <div class="table-scroll">
             <table id="pkg-table">
                 <thead>
                     <tr>
                         <th class="col-frozen">Package</th>
                         <th>Price</th>
+                        <th>Lasts</th>
                         <th>Sold since Ops started</th>
                         <th>Last seen</th>
                         <th>On sale</th>
@@ -49,6 +60,20 @@
                 <!-- A hint, not a default: the name is the vendor's, and a
                      comped package whose name ends in a number is fine. -->
                 <p class="form-hint" id="pkg-edit-hint" hidden></p>
+
+                <label class="pkg-field-label" for="pkg-edit-duration">How long it lasts</label>
+                <div class="pkg-duration-row">
+                    <input type="number" id="pkg-edit-duration" min="0" step="1" placeholder="leave blank if unsure">
+                    <select id="pkg-edit-duration-unit">
+                        <option value="60">hours</option>
+                        <option value="1">minutes</option>
+                        <option value="1440">days</option>
+                    </select>
+                </div>
+                <p class="form-hint">
+                    Optional. With this set, Ops can spot someone buying several passes at once
+                    and flag them for you &mdash; it never changes the money by itself.
+                </p>
 
                 <label class="pkg-check">
                     <input type="checkbox" id="pkg-edit-comped">

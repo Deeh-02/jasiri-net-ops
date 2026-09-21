@@ -110,6 +110,55 @@ def _clean_users(users):
     return cleaned
 
 
+# How far past one package's length an expiry may jump before it is worth a
+# person's attention. A single purchase moves the expiry by roughly one
+# duration; several bought together between two polls move it by several, and
+# collapse into ONE revenue_event because (username, expiry) is one pair
+# however many payments made it.
+#
+# 1.8 rather than something tighter because the jump is measured from the
+# previous expiry, and a lapsed pass adds dead time on top of the duration.
+# That dead time is small in practice — a renewal can only happen to a user
+# billing has NOT yet deleted — but it is not zero, and it is measured in a
+# timezone (the billing system's) that Ops has never established. Everything
+# here stays inside that one timezone, subtracting two of its own timestamps,
+# so the unknown offset cancels and never has to be guessed.
+STACK_SUSPECT_RATIO = 1.8
+
+
+def _flag_possible_stack(cur, user, previous_expiry, package, snapshot_id):
+    """Records a renewal whose expiry jumped far enough to be several
+    purchases, WITHOUT changing what is booked.
+
+    Ops deliberately does not multiply the money here. Inferring "this jump
+    is 3 x KES 10" means inventing revenue from an arithmetic guess, and an
+    over-count is far more damaging than the under-count it would fix: a
+    total that is quietly too high is trusted until something expensive
+    depends on it. So the sale is recorded as one, exactly as before, and the
+    jump is put in front of a person who can tell three purchases from one
+    lapsed pass at a glance. If these turn out to be real and regular, the
+    multiplication can be turned on later with evidence behind it rather than
+    an assumption."""
+    duration = package.get("duration") if package else None
+    if not duration or duration <= 0 or previous_expiry is None or user["expiry"] is None:
+        return
+    jump_minutes = (user["expiry"] - previous_expiry).total_seconds() / 60
+    if jump_minutes < duration * STACK_SUSPECT_RATIO:
+        return
+    # A small dict, not raw_payload: the real payload is ~25 KB of user list,
+    # and what makes this reviewable is these six fields.
+    _quarantine(cur, "revenue_possible_stack", {
+        "hotspot_username": user["name"],
+        "profile_name": user["profile"],
+        "previous_expiry": previous_expiry.isoformat(),
+        "new_expiry": user["expiry"].isoformat(),
+        "jump_minutes": round(jump_minutes),
+        "package_minutes": duration,
+        "implied_purchases": round(jump_minutes / duration),
+        "snapshot_id": snapshot_id,
+    }, pppoe_username=user["name"])
+
+
 def _record_revenue(cur, users, active_by_vlan, vlan_to_site, snapshot_id, raw_payload):
     """Turns the router's hotspot-user list into revenue_events.
 
@@ -125,8 +174,11 @@ def _record_revenue(cur, users, active_by_vlan, vlan_to_site, snapshot_id, raw_p
     revenue. Baseline rows are excluded from every revenue total."""
     if not users:
         return
-    cur.execute("SELECT profile_name, price_kes, is_active FROM hotspot_packages")
-    packages = {r[0]: {"price": r[1], "is_active": r[2]} for r in cur.fetchall()}
+    cur.execute("SELECT profile_name, price_kes, is_active, duration_minutes FROM hotspot_packages")
+    packages = {
+        r[0]: {"price": r[1], "is_active": r[2], "duration": r[3]}
+        for r in cur.fetchall()
+    }
 
     cur.execute("SELECT EXISTS (SELECT 1 FROM revenue_events)")
     is_baseline = not cur.fetchone()[0]
@@ -143,11 +195,14 @@ def _record_revenue(cur, users, active_by_vlan, vlan_to_site, snapshot_id, raw_p
     known_pairs = set()
     seen_before = set()
     last_site = {}
+    latest_expiry = {}
     for username, expiry, site_id in cur.fetchall():
         known_pairs.add((username, expiry))
         seen_before.add(username)
         if site_id is not None:
             last_site.setdefault(username, site_id)
+        if expiry is not None and (username not in latest_expiry or expiry > latest_expiry[username]):
+            latest_expiry[username] = expiry
 
     # username -> vlan, from the same active list the session counts come from.
     name_to_vlan = {}
@@ -184,6 +239,9 @@ def _record_revenue(cur, users, active_by_vlan, vlan_to_site, snapshot_id, raw_p
             event_type = "baseline"
         else:
             event_type = "renewal" if user["name"] in seen_before else "sale"
+
+        if event_type == "renewal":
+            _flag_possible_stack(cur, user, latest_expiry.get(user["name"]), package, snapshot_id)
 
         cur.execute(
             """
@@ -686,7 +744,7 @@ def list_packages():
         cur.execute(
             """
             SELECT hp.id, hp.profile_name, hp.price_kes, hp.is_comped, hp.is_active, hp.notes,
-                   COALESCE(u.sold, 0), u.last_seen_at
+                   COALESCE(u.sold, 0), u.last_seen_at, hp.duration_minutes
             FROM hotspot_packages hp
             LEFT JOIN (
                 SELECT profile_name,
@@ -705,6 +763,9 @@ def list_packages():
                 "id": r[0], "profile_name": r[1], "price_kes": price,
                 "is_comped": r[3], "is_active": r[4], "notes": r[5],
                 "sold": r[6], "last_seen_at": utc_iso(r[7]),
+                # NULL means "not stated". Nothing guesses one from the name:
+                # "Full day pass30" and "24hr pass40" are both about a day.
+                "duration_minutes": r[8],
                 # Shown as a question, never auto-applied — a comped package
                 # priced 0 whose name ends in a number is a legitimate state.
                 "name_price_kes": claimed,
@@ -728,10 +789,25 @@ def list_packages():
              "name_price_kes": _price_from_name(r[0])}
             for r in cur.fetchall()
         ]
-    return {"packages": packages, "unpriced": unpriced}
+
+        # Renewals whose expiry jumped further than one package's length —
+        # possibly several purchases booked as one. Recorded, never applied;
+        # see _flag_possible_stack.
+        cur.execute(
+            """
+            SELECT id, raw_payload, received_at FROM ingest_quarantine
+            WHERE reason = 'revenue_possible_stack' AND resolved = false
+            ORDER BY received_at DESC LIMIT 50
+            """
+        )
+        stacks = [
+            {"id": r[0], **(r[1] or {}), "seen_at": utc_iso(r[2])}
+            for r in cur.fetchall()
+        ]
+    return {"packages": packages, "unpriced": unpriced, "stacks": stacks}
 
 
-_PACKAGE_EDITABLE = ("price_kes", "is_comped", "is_active", "notes")
+_PACKAGE_EDITABLE = ("price_kes", "is_comped", "is_active", "notes", "duration_minutes")
 
 
 def create_package(fields):

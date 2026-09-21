@@ -82,3 +82,15 @@
 }
 
 .pkg-check input { width: auto; margin: 0; cursor: pointer; }
+
+.pkg-duration-row { display: flex; gap: 8px; }
+.pkg-duration-row input { flex: 1 1 auto; min-width: 0; }
+.pkg-duration-row select { flex: 0 0 auto; width: auto; }
+
+/* The whole case for a flagged purchase, on one line: a person decides this
+   at a glance or not at all. */
+.pkg-stack-detail {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-dim);
+}

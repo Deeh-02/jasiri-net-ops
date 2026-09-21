@@ -237,6 +237,7 @@ class PackageCreate(BaseModel):
     profile_name: str
     price_kes: float = 0
     is_comped: bool = False
+    duration_minutes: Optional[int] = None
     notes: Optional[str] = None
 
 
@@ -244,6 +245,7 @@ class PackageUpdate(BaseModel):
     price_kes: Optional[float] = None
     is_comped: Optional[bool] = None
     is_active: Optional[bool] = None
+    duration_minutes: Optional[int] = None
     notes: Optional[str] = None
 
 

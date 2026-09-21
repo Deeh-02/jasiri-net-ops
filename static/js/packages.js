@@ -5,6 +5,7 @@ import {
 
 let packagesCache = [];
 let unpricedCache = [];
+let stacksCache = [];
 // The package being edited, or null when the modal is pricing a profile that
 // has no row yet (in which case pendingProfile carries its name).
 let editPackageId = null;
@@ -18,6 +19,15 @@ function esc(value) {
 
 function money(kes) {
     return `KES ${Number(kes || 0).toLocaleString()}`;
+}
+
+/* Minutes in, the largest clean unit out: 1440 -> "1d", 120 -> "2h". The
+   column has to be skimmable next to a price, not exact to the minute. */
+function durationLabel(mins) {
+    if (mins == null) return null;
+    if (mins % 1440 === 0) return `${mins / 1440}d`;
+    if (mins % 60 === 0) return `${mins / 60}h`;
+    return `${mins}m`;
 }
 
 function ago(iso) {
@@ -34,13 +44,15 @@ async function loadPackages() {
     const res = await fetch("/monitoring/packages", { headers: authHeaders() });
     if (!res.ok) {
         document.getElementById("pkg-rows").innerHTML =
-            `<tr><td colspan="6" class="loading-text">Could not load packages.</td></tr>`;
+            `<tr><td colspan="7" class="loading-text">Could not load packages.</td></tr>`;
         return;
     }
     const payload = await res.json();
     packagesCache = payload.packages;
     unpricedCache = payload.unpriced;
+    stacksCache = payload.stacks || [];
     renderUnpriced();
+    renderStacks();
     renderPackages();
 }
 
@@ -70,13 +82,53 @@ function renderUnpriced() {
     });
 }
 
+/* ---- Possible stacked purchases. Flagged, never applied: see
+   _flag_possible_stack in db/monitoring.py for why Ops refuses to multiply
+   money on an inference. ---- */
+
+function renderStacks() {
+    const block = document.getElementById("pkg-stacks-block");
+    block.hidden = stacksCache.length === 0;
+
+    document.getElementById("pkg-stacks-items").innerHTML = stacksCache.map(s => {
+        const implied = s.implied_purchases || 2;
+        return `
+        <div class="inbox-item">
+            <div class="inbox-item-main">
+                <span class="inbox-item-name">${esc(s.hotspot_username)}</span>
+                <span class="inbox-item-kind">${esc(s.profile_name)}</span>
+                <span class="inbox-item-guess">looks like ${implied} &times;</span>
+                <span class="pkg-stack-detail">expiry jumped ${esc(durationLabel(s.jump_minutes) || "?")} on a ${esc(durationLabel(s.package_minutes) || "?")} package &middot; ${esc(ago(s.seen_at))}</span>
+            </div>
+            <div class="inbox-item-actions">
+                <button type="button" class="btn-secondary pkg-stack-ok" data-id="${s.id}">Looks right</button>
+            </div>
+        </div>`;
+    }).join("");
+
+    document.getElementById("pkg-stacks-items").querySelectorAll(".pkg-stack-ok").forEach(btn => {
+        btn.addEventListener("click", () => clearStack(btn.dataset.id));
+    });
+}
+
+/* Reuses the quarantine dismiss endpoint — same table, same permission. It
+   only closes the note; nothing about the recorded sale changes either way. */
+async function clearStack(id) {
+    const res = await fetch(`/monitoring/inbox/${id}/dismiss`, { method: "POST", headers: authHeaders() });
+    if (res.ok) {
+        await loadPackages();
+    } else {
+        alert("Could not clear that one");
+    }
+}
+
 /* ---- The price list ---- */
 
 function renderPackages() {
     const tbody = document.getElementById("pkg-rows");
 
     if (packagesCache.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="6" class="loading-text">No packages yet.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="7" class="loading-text">No packages yet.</td></tr>`;
         return;
     }
 
@@ -90,10 +142,12 @@ function renderPackages() {
         const price = p.is_comped
             ? `<span class="pkg-comped">Free</span>`
             : `<span class="pkg-price">${esc(money(p.price_kes))}</span>`;
+        const lasts = durationLabel(p.duration_minutes);
         return `
         <tr class="${p.is_active ? "" : "site-row-off"}">
             <td class="col-frozen">${esc(p.profile_name)}</td>
             <td>${price}${warn}</td>
+            <td>${lasts ? `<span class="pkg-sold">${esc(lasts)}</span>` : `<span class="dim-cell">not set</span>`}</td>
             <td><span class="pkg-sold">${p.sold || 0}</span></td>
             <td><span class="status-since">${esc(ago(p.last_seen_at))}</span></td>
             <td>
@@ -154,6 +208,7 @@ function openPackageModal(packageId, profileName) {
         document.getElementById("pkg-edit-name").textContent = pkg.profile_name;
         document.getElementById("pkg-edit-price").value = pkg.price_kes;
         document.getElementById("pkg-edit-comped").checked = pkg.is_comped;
+        setDurationFields(pkg.duration_minutes);
         document.getElementById("pkg-edit-notes").value = pkg.notes || "";
         if (pkg.price_disagrees) {
             hint.hidden = false;
@@ -164,6 +219,7 @@ function openPackageModal(packageId, profileName) {
         pendingProfile = profileName;
         document.getElementById("pkg-edit-title").textContent = "Set a Price";
         document.getElementById("pkg-edit-name").textContent = profileName;
+        setDurationFields(null);
         if (found && found.name_price_kes != null) {
             document.getElementById("pkg-edit-price").value = found.name_price_kes;
             hint.hidden = false;
@@ -182,6 +238,29 @@ function openPackageModal(packageId, profileName) {
     document.getElementById("pkg-edit-overlay").hidden = false;
 }
 
+/* Shown back in whatever unit reads cleanest, so 1440 does not come back as
+   "1440 minutes" and get retyped wrong. */
+function setDurationFields(mins) {
+    const box = document.getElementById("pkg-edit-duration");
+    const unit = document.getElementById("pkg-edit-duration-unit");
+    if (mins == null) {
+        box.value = "";
+        unit.value = "60";
+        return;
+    }
+    const size = mins % 1440 === 0 ? 1440 : mins % 60 === 0 ? 60 : 1;
+    unit.value = String(size);
+    box.value = mins / size;
+}
+
+function readDurationMinutes() {
+    const raw = document.getElementById("pkg-edit-duration").value;
+    if (raw === "") return null;
+    const size = parseInt(document.getElementById("pkg-edit-duration-unit").value, 10) || 1;
+    const n = parseInt(raw, 10);
+    return Number.isFinite(n) && n > 0 ? n * size : null;
+}
+
 function closePackageModal() {
     document.getElementById("pkg-edit-overlay").hidden = true;
     editPackageId = null;
@@ -196,6 +275,7 @@ async function submitPackageForm(event) {
     const body = {
         price_kes: priceValue === "" ? 0 : parseFloat(priceValue),
         is_comped: document.getElementById("pkg-edit-comped").checked,
+        duration_minutes: readDurationMinutes(),
         notes: document.getElementById("pkg-edit-notes").value.trim() || null,
     };
 
