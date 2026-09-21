@@ -1,7 +1,9 @@
 import hmac
 import os
 from datetime import datetime, timedelta
+from typing import Optional
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from pydantic import BaseModel
 from db import monitoring as db
 from routers.auth import get_current_user
 from routers.permissions import user_has_permission
@@ -115,3 +117,104 @@ def site_detail(site_id: int, current_user: dict = Depends(require_status_access
     if detail is None:
         raise HTTPException(status_code=404, detail="Monitored site not found")
     return detail
+
+
+# ---- Site management ----
+# Admins pass user_has_permission unconditionally; other roles need
+# sites:manage_monitoring, a permission row to be granted from Roles.
+
+# 'ping' is deliberately absent: it needs an AP address, and there is no
+# field for one yet, so a ping site made here would never report.
+MANAGE_LIVENESS = ("pppoe", "activity")
+
+
+def require_manage_access(current_user: dict = Depends(get_current_user)):
+    if not user_has_permission(current_user, "sites", "manage_monitoring"):
+        raise HTTPException(status_code=403, detail="You don't have permission to manage monitored sites")
+    return current_user
+
+
+def _clean(value):
+    """Blank strings from a form mean 'not set', and '' would otherwise
+    collide on the UNIQUE columns the moment two sites left one empty."""
+    if isinstance(value, str):
+        value = value.strip()
+        return value or None
+    return value
+
+
+class SiteCreate(BaseModel):
+    name: Optional[str] = None
+    location_id: Optional[int] = None
+    vlan_id: Optional[int] = None
+    pppoe_username: Optional[str] = None
+    liveness_source: str = "pppoe"
+    notes: Optional[str] = None
+    inbox_item_id: Optional[int] = None
+
+
+class SiteUpdate(BaseModel):
+    name: Optional[str] = None
+    location_id: Optional[int] = None
+    vlan_id: Optional[int] = None
+    pppoe_username: Optional[str] = None
+    liveness_source: Optional[str] = None
+    notes: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+def _check_site_fields(fields, creating):
+    if "liveness_source" in fields and fields["liveness_source"] not in MANAGE_LIVENESS:
+        raise HTTPException(status_code=400, detail="Liveness must be 'pppoe' or 'activity'")
+    if creating:
+        if fields.get("liveness_source") == "pppoe" and not fields.get("pppoe_username"):
+            raise HTTPException(status_code=400, detail="A PPPoE site needs its PPPoE username")
+        if not (fields.get("name") or fields.get("location_id")):
+            raise HTTPException(status_code=400, detail="Give the site a name, or link it to a site from the Sites list")
+    # On update the PPPoE-needs-a-username rule is checked in the database
+    # layer against the real row: a PATCH that only flips liveness_source
+    # does not resend the username, and can't be judged from the body alone.
+
+
+@router.get("/monitoring/inbox")
+def inbox(current_user: dict = Depends(require_manage_access)):
+    """What the router has reported that has no site yet."""
+    return db.get_inbox()
+
+
+@router.post("/monitoring/inbox/{item_id}/dismiss")
+def dismiss_inbox(item_id: int, current_user: dict = Depends(require_manage_access)):
+    if not db.dismiss_inbox_item(item_id):
+        raise HTTPException(status_code=404, detail="Item not found or already handled")
+    return {"ok": True}
+
+
+@router.get("/monitoring/manage/sites")
+def manage_sites(current_user: dict = Depends(require_manage_access)):
+    return {"sites": db.list_managed_sites(), "locations": db.list_linkable_locations()}
+
+
+@router.post("/monitoring/sites")
+def create_site(body: SiteCreate, current_user: dict = Depends(require_manage_access)):
+    fields = {k: _clean(v) for k, v in body.model_dump().items() if k != "inbox_item_id"}
+    _check_site_fields(fields, creating=True)
+    try:
+        site_id = db.create_site(fields, inbox_item_id=body.inbox_item_id)
+    except db.SiteConflict as err:
+        raise HTTPException(status_code=409, detail=str(err))
+    return {"id": site_id}
+
+
+@router.patch("/monitoring/sites/{site_id}")
+def update_site(site_id: int, body: SiteUpdate, current_user: dict = Depends(require_manage_access)):
+    # exclude_unset: only what the caller actually sent, so a PATCH that
+    # omits vlan_id leaves it alone rather than clearing it.
+    fields = {k: _clean(v) for k, v in body.model_dump(exclude_unset=True).items()}
+    _check_site_fields(fields, creating=False)
+    try:
+        found = db.update_site(site_id, fields)
+    except db.SiteConflict as err:
+        raise HTTPException(status_code=409, detail=str(err))
+    if not found:
+        raise HTTPException(status_code=404, detail="Monitored site not found")
+    return {"ok": True}

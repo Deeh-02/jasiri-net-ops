@@ -1,6 +1,7 @@
 import hashlib
 import json
 from datetime import datetime, timedelta, timezone
+import psycopg2
 from psycopg2.extras import Json
 from db.connection import db_cursor, utc_iso, now_eat
 
@@ -24,7 +25,11 @@ def quarantine(reason, raw_payload, vlan_id=None, pppoe_username=None):
     """Records something ingest couldn't place. Deduplicated on unresolved
     (reason, vlan, pppoe): the router re-sends the same unknown every 60s, and
     /ppp active includes home customers that will never be sites — one open
-    row per distinct unknown is the useful signal, one per minute is noise."""
+    row per distinct unknown is the useful signal, one per minute is noise.
+
+    Resolved rows count too: dismissing a home customer must stick, or the
+    next heartbeat reopens it. A name that later becomes a site stops being
+    reported at all, so resolved rows never hide anything still unknown."""
     with db_cursor() as (conn, cur):
         _quarantine(cur, reason, raw_payload, vlan_id, pppoe_username)
         conn.commit()
@@ -34,7 +39,7 @@ def _quarantine(cur, reason, raw_payload, vlan_id=None, pppoe_username=None):
     cur.execute(
         """
         SELECT 1 FROM ingest_quarantine
-        WHERE resolved = false AND reason = %s
+        WHERE reason = %s
           AND vlan_id IS NOT DISTINCT FROM %s
           AND pppoe_username IS NOT DISTINCT FROM %s
         LIMIT 1
@@ -274,3 +279,152 @@ def get_site_detail(site_id, include_revenue, history_limit=50, hours=24):
     if include_revenue:
         detail["revenue_events"] = events
     return detail
+
+
+# ---- Site management (no code or SQL needed to add a site) ----
+
+LIVENESS_SOURCES = ("pppoe", "ping", "activity")
+
+# Columns update_site may touch. A whitelist, because the field names come
+# from a request body and are interpolated into the SET clause.
+_EDITABLE = ("name", "location_id", "vlan_id", "pppoe_username", "liveness_source", "notes", "is_active")
+
+
+class SiteConflict(Exception):
+    """A unique or foreign-key rule refused the change; the message is safe to show."""
+
+
+def get_inbox():
+    """Things the router reported that Ops has no site for — the to-do list
+    for whoever adds sites. Only the two kinds a person can act on."""
+    with db_cursor() as (conn, cur):
+        cur.execute(
+            """
+            SELECT id, reason, vlan_id, pppoe_username, received_at
+            FROM ingest_quarantine
+            WHERE resolved = false AND reason IN ('unknown_pppoe_user', 'unknown_vlan')
+            ORDER BY received_at DESC, id DESC
+            """
+        )
+        return [
+            {"id": r[0], "reason": r[1], "vlan_id": r[2], "pppoe_username": r[3], "seen_at": utc_iso(r[4])}
+            for r in cur.fetchall()
+        ]
+
+
+def dismiss_inbox_item(item_id):
+    """Marks one item as not-a-site (a home customer, say). Returns False if
+    it does not exist or was already handled."""
+    with db_cursor() as (conn, cur):
+        cur.execute(
+            "UPDATE ingest_quarantine SET resolved = true, resolved_at = now() WHERE id = %s AND resolved = false",
+            (item_id,),
+        )
+        changed = cur.rowcount
+        conn.commit()
+    return changed > 0
+
+
+def list_managed_sites():
+    """Every monitored site including switched-off ones — the status view
+    hides those, and a manager needs to be able to switch one back on."""
+    with db_cursor() as (conn, cur):
+        cur.execute(
+            """
+            SELECT ms.id, ms.name, ms.location_id, l.name, ms.vlan_id, ms.pppoe_username,
+                   ms.liveness_source, ms.notes, ms.is_active
+            FROM monitored_sites ms LEFT JOIN locations l ON l.id = ms.location_id
+            ORDER BY ms.is_active DESC, COALESCE(l.name, ms.name, 'VLAN ' || ms.vlan_id)
+            """
+        )
+        return [
+            {"id": r[0], "name": r[1], "location_id": r[2], "location_name": r[3], "vlan_id": r[4],
+             "pppoe_username": r[5], "liveness_source": r[6], "notes": r[7], "is_active": r[8]}
+            for r in cur.fetchall()
+        ]
+
+
+def _translate(err):
+    """Turns a constraint failure into something a person can act on."""
+    detail = str(err)
+    if isinstance(err, psycopg2.errors.UniqueViolation):
+        if "pppoe_username" in detail:
+            return "Another site already uses that PPPoE username"
+        if "vlan_id" in detail:
+            return "Another site already uses that VLAN"
+        return "That conflicts with an existing site"
+    if isinstance(err, psycopg2.errors.ForeignKeyViolation):
+        return "That linked site does not exist"
+    return "The database refused that change"
+
+
+def create_site(fields, inbox_item_id=None):
+    """Adds a monitored site. Any unresolved inbox item that this makes
+    known (same PPPoE name or VLAN) is closed in the same transaction, so it
+    leaves the inbox the moment the site exists."""
+    with db_cursor() as (conn, cur):
+        try:
+            cur.execute(
+                """
+                INSERT INTO monitored_sites
+                    (name, location_id, vlan_id, pppoe_username, liveness_source, notes)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                RETURNING id
+                """,
+                (fields.get("name"), fields.get("location_id"), fields.get("vlan_id"),
+                 fields.get("pppoe_username"), fields["liveness_source"], fields.get("notes")),
+            )
+        except (psycopg2.errors.UniqueViolation, psycopg2.errors.ForeignKeyViolation) as err:
+            conn.rollback()
+            raise SiteConflict(_translate(err))
+        site_id = cur.fetchone()[0]
+        cur.execute(
+            """
+            UPDATE ingest_quarantine SET resolved = true, resolved_at = now()
+            WHERE resolved = false AND (
+                (reason = 'unknown_pppoe_user' AND pppoe_username = %s)
+                OR (reason = 'unknown_vlan' AND vlan_id = %s)
+                OR id = %s
+            )
+            """,
+            (fields.get("pppoe_username"), fields.get("vlan_id"), inbox_item_id),
+        )
+        conn.commit()
+    return site_id
+
+
+def update_site(site_id, fields):
+    """Applies only the whitelisted fields present in `fields`. Returns False
+    if the site does not exist."""
+    changes = {k: v for k, v in fields.items() if k in _EDITABLE}
+    if not changes:
+        return True
+    assignments = ", ".join(f"{col} = %s" for col in changes)
+    with db_cursor() as (conn, cur):
+        try:
+            cur.execute(
+                f"UPDATE monitored_sites SET {assignments} WHERE id = %s",
+                (*changes.values(), site_id),
+            )
+        except (psycopg2.errors.UniqueViolation, psycopg2.errors.ForeignKeyViolation) as err:
+            conn.rollback()
+            raise SiteConflict(_translate(err))
+        found = cur.rowcount > 0
+        if found:
+            # A PPPoE site with no username would report Down forever.
+            cur.execute(
+                "SELECT 1 FROM monitored_sites WHERE id = %s AND liveness_source = 'pppoe' AND pppoe_username IS NULL",
+                (site_id,),
+            )
+            if cur.fetchone():
+                conn.rollback()
+                raise SiteConflict("A PPPoE site needs its PPPoE username")
+        conn.commit()
+    return found
+
+
+def list_linkable_locations():
+    """Sites from the Sites list that a monitored site can be linked to."""
+    with db_cursor() as (conn, cur):
+        cur.execute("SELECT id, name FROM locations ORDER BY name")
+        return [{"id": r[0], "name": r[1]} for r in cur.fetchall()]
