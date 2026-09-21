@@ -129,6 +129,7 @@ def _record_revenue(cur, users, active_by_vlan, vlan_to_site, snapshot_id, raw_p
         """
         SELECT hotspot_username, expiry_seen, monitored_site_id
         FROM revenue_events WHERE hotspot_username = ANY(%s)
+        ORDER BY first_seen_at DESC, id DESC
         """,
         (names,),
     )

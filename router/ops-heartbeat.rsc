@@ -46,6 +46,10 @@
 # resolution, nothing more: a sale seen 4 minutes late is still the same sale
 # on the same day. Set to 1 only if you want to pay 20 KB a minute for it.
 :local usersEvery 5
+# /tool fetch refuses http-data near 64 KB. Above this size the users list is
+# left out of that run rather than risking the whole heartbeat. 340 users is
+# about 25 KB, so this leaves room for roughly 700 before it ever triggers.
+:local maxPayload 55000
 # true = build and print the payload, send nothing. Use for the first run.
 :local dryRun true
 # ---------------------------------------------------------------------------
@@ -163,9 +167,19 @@
 # Appended only on a users run — see the payload contract at the top. The
 # keys are absent the rest of the time, which is NOT the same as empty.
 :if ($sendUsers) do={
-    :set payload ($payload . ",\"users\":[" . $usersJson . "],\"active\":[" . $activeJson . "]")
+    :local withUsers ($payload . ",\"users\":[" . $usersJson . "],\"active\":[" . $activeJson . "]}")
+    # The user list grows with the customer base. Past the cap the POST would
+    # be refused and this minute's up/down report would be lost with it, so
+    # liveness wins: send without revenue this run and say so in the log.
+    :if ([:len $withUsers] < $maxPayload) do={
+        :set payload $withUsers
+    } else={
+        :set payload ($payload . "}")
+        :log warning ("ops-heartbeat: user list too large (" . [:len $withUsers] . " bytes), sent without revenue")
+    }
+} else={
+    :set payload ($payload . "}")
 }
-:set payload ($payload . "}")
 
 :if ($dryRun) do={
     :put $payload
