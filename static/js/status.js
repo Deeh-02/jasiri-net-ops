@@ -94,9 +94,9 @@ function render(data) {
         </div>`).join("");
 }
 
-function setConn(ok) {
+function setConn(ok, reason) {
     const el = document.getElementById("status-conn");
-    el.textContent = ok ? "Live · updates every 30 s" : "Connection lost — showing old data";
+    el.textContent = ok ? "Live · updates every 30 s" : `Connection lost — showing old data (${reason})`;
     el.className = "status-conn" + (ok ? "" : " lost");
     document.getElementById("view-status").classList.toggle("dimmed", !ok);
 }
@@ -104,11 +104,15 @@ function setConn(ok) {
 async function load() {
     try {
         const res = await fetch("/monitoring/status", { headers: authHeaders() });
-        if (!res.ok) throw new Error(res.status);
+        if (!res.ok) {
+            setConn(false, res.status === 403 ? "no permission" : `server said ${res.status}`);
+            return;
+        }
         render(await res.json());
         setConn(true);
-    } catch {
-        setConn(false);
+    } catch (err) {
+        console.error("status tab:", err);
+        setConn(false, err && err.message ? err.message : "unknown error");
     }
 }
 
