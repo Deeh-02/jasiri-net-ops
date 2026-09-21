@@ -6,6 +6,7 @@ import {
 let sitesCache = [];
 let locationsCache = [];
 let inboxCache = [];
+let ignoredCache = [];
 let editSiteId = null;
 let pendingInboxItem = null;
 
@@ -16,9 +17,10 @@ function esc(value) {
 }
 
 async function loadManageSites() {
-    const [sitesRes, inboxRes] = await Promise.all([
+    const [sitesRes, inboxRes, ignoredRes] = await Promise.all([
         fetch("/monitoring/manage/sites", { headers: authHeaders() }),
         fetch("/monitoring/inbox", { headers: authHeaders() }),
+        fetch("/monitoring/inbox/dismissed", { headers: authHeaders() }),
     ]);
     if (!sitesRes.ok) {
         document.getElementById("manage-sites-rows").innerHTML =
@@ -29,7 +31,9 @@ async function loadManageSites() {
     sitesCache = payload.sites;
     locationsCache = payload.locations;
     inboxCache = inboxRes.ok ? await inboxRes.json() : [];
+    ignoredCache = ignoredRes.ok ? await ignoredRes.json() : [];
     renderInbox();
+    renderIgnored();
     renderSites();
 }
 
@@ -69,8 +73,39 @@ function renderInbox() {
     });
 }
 
+function renderIgnored() {
+    const block = document.getElementById("ignored-block");
+    block.hidden = ignoredCache.length === 0;
+    document.getElementById("ignored-count").textContent = ignoredCache.length;
+
+    const list = document.getElementById("ignored-items");
+    list.innerHTML = ignoredCache.map(item => `
+        <div class="inbox-item">
+            <div class="inbox-item-main">
+                <span class="inbox-item-name">${esc(inboxLabel(item))}</span>
+                <span class="inbox-item-kind">${item.reason === "unknown_vlan" ? "VLAN with no site" : "PPPoE login"}</span>
+            </div>
+            <div class="inbox-item-actions">
+                <button type="button" class="btn-secondary ignored-restore" data-id="${item.id}">Restore</button>
+            </div>
+        </div>`).join("");
+
+    list.querySelectorAll(".ignored-restore").forEach(btn => {
+        btn.addEventListener("click", () => restoreItem(btn.dataset.id));
+    });
+}
+
+async function restoreItem(id) {
+    const res = await fetch(`/monitoring/inbox/${id}/restore`, { method: "POST", headers: authHeaders() });
+    if (res.ok) {
+        await loadManageSites();
+    } else {
+        alert("Could not restore that item");
+    }
+}
+
 async function dismissItem(id, label) {
-    if (!confirm(`Mark "${label}" as not a site?\n\nIt will stop appearing here. A home customer's PPPoE login is the usual reason.`)) return;
+    if (!confirm(`Mark "${label}" as not a site?\n\nA home customer's PPPoE login is the usual reason. It moves to Ignored at the bottom of this list, where you can restore it.`)) return;
     const res = await fetch(`/monitoring/inbox/${id}/dismiss`, { method: "POST", headers: authHeaders() });
     if (res.ok) {
         await loadManageSites();

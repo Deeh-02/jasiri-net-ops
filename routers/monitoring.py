@@ -194,6 +194,18 @@ def dismiss_inbox(item_id: int, current_user: dict = Depends(require_manage_acce
     return {"ok": True}
 
 
+@router.get("/monitoring/inbox/dismissed")
+def dismissed_inbox(current_user: dict = Depends(require_manage_access)):
+    return db.get_dismissed()
+
+
+@router.post("/monitoring/inbox/{item_id}/restore")
+def restore_inbox(item_id: int, current_user: dict = Depends(require_manage_access)):
+    if not db.restore_inbox_item(item_id):
+        raise HTTPException(status_code=404, detail="That item can't be restored")
+    return {"ok": True}
+
+
 @router.get("/monitoring/manage/sites")
 def manage_sites(current_user: dict = Depends(require_manage_access)):
     return {"sites": db.list_managed_sites(), "locations": db.list_linkable_locations()}

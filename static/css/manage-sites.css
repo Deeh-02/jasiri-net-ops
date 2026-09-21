@@ -78,11 +78,75 @@
 
 .inbox-item-actions { display: flex; gap: 8px; }
 
-.inbox-item-actions .btn-primary,
-.inbox-item-actions .btn-secondary {
-    padding: 7px 12px;
+/* .btn-primary / .btn-secondary are only styled inside .modal-actions in
+   common.css, so out here they had padding and nothing else. Same look as
+   the modal buttons, scoped to the inbox rather than widening those rules. */
+.inbox-item-actions button {
+    border-radius: 6px;
+    padding: 8px 14px;
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
     font-size: 13px;
+    cursor: pointer;
+    border: none;
+    white-space: nowrap;
+    transition: opacity 0.15s ease, transform 0.1s ease, border-color 0.15s ease, color 0.15s ease;
 }
+
+.inbox-item-actions .btn-primary {
+    background: var(--accent);
+    color: #10141a;
+}
+
+.inbox-item-actions .btn-secondary {
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border);
+}
+
+.inbox-item-actions button:hover { opacity: 0.9; }
+.inbox-item-actions button:active { transform: scale(0.97); }
+
+/* Dismiss is the quieter action and a slightly destructive-feeling one, so
+   it only picks up colour on hover rather than sitting there in red. */
+.inbox-item-actions .inbox-dismiss:hover { border-color: var(--danger); color: var(--danger); opacity: 1; }
+.inbox-item-actions .ignored-restore:hover { border-color: var(--accent); color: var(--accent); opacity: 1; }
+
+/* ---- Ignored: collapsed by default, since it is the undo drawer and not
+   part of the daily work ---- */
+.ignored-block {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 16px;
+    margin-bottom: 24px;
+}
+
+.ignored-summary {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+    list-style: none;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-dim);
+}
+
+.ignored-summary::-webkit-details-marker { display: none; }
+.ignored-summary::before { content: "\25B8"; transition: transform 0.15s ease; }
+.ignored-block[open] .ignored-summary::before { transform: rotate(90deg); }
+.ignored-summary:hover { color: var(--text); }
+
+.ignored-count {
+    padding: 2px 7px;
+    border-radius: 4px;
+    background: rgba(139, 150, 165, 0.10);
+}
+
+.ignored-block .inbox-note { margin: 14px 0 12px; }
 
 /* ---- Table ---- */
 .dim-cell { color: var(--text-dim); }
@@ -206,5 +270,5 @@
     .inbox-block { padding: 14px 16px; margin-bottom: 20px; }
     .inbox-item { gap: 10px; }
     .inbox-item-actions { width: 100%; }
-    .inbox-item-actions button { flex: 1; }
+    .inbox-item-actions button { flex: 1; padding: 10px 14px; }
 }

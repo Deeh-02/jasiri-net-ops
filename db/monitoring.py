@@ -325,6 +325,58 @@ def dismiss_inbox_item(item_id):
     return changed > 0
 
 
+# A closed inbox item was either dismissed or turned into a site. The two look
+# identical in the table (resolved = true), so "dismissed" is defined by what
+# is true NOW: nothing in monitored_sites owns that name or VLAN.
+_NOT_OWNED = """
+    NOT EXISTS (SELECT 1 FROM monitored_sites ms
+                WHERE (q.reason = 'unknown_pppoe_user' AND ms.pppoe_username = q.pppoe_username)
+                   OR (q.reason = 'unknown_vlan' AND ms.vlan_id = q.vlan_id))
+"""
+
+
+def get_dismissed():
+    """Inbox items someone marked 'not a site', newest first, so a mistake can be undone."""
+    with db_cursor() as (conn, cur):
+        cur.execute(
+            f"""
+            SELECT DISTINCT ON (q.reason, q.vlan_id, q.pppoe_username)
+                   q.id, q.reason, q.vlan_id, q.pppoe_username, q.resolved_at
+            FROM ingest_quarantine q
+            WHERE q.resolved = true
+              AND q.reason IN ('unknown_pppoe_user', 'unknown_vlan')
+              AND {_NOT_OWNED}
+            ORDER BY q.reason, q.vlan_id, q.pppoe_username, q.resolved_at DESC NULLS LAST
+            """
+        )
+        rows = [
+            {"id": r[0], "reason": r[1], "vlan_id": r[2], "pppoe_username": r[3], "dismissed_at": utc_iso(r[4])}
+            for r in cur.fetchall()
+        ]
+    rows.sort(key=lambda r: r["dismissed_at"] or "", reverse=True)
+    return rows
+
+
+def restore_inbox_item(item_id):
+    """Puts a dismissed item back in the inbox. False if it is not a
+    dismissed item (unknown id, still open, or now owned by a site)."""
+    with db_cursor() as (conn, cur):
+        cur.execute(
+            f"""
+            UPDATE ingest_quarantine q SET resolved = false, resolved_at = NULL
+            WHERE q.id = %s AND q.resolved = true AND {_NOT_OWNED}
+              AND NOT EXISTS (SELECT 1 FROM ingest_quarantine o
+                              WHERE o.resolved = false AND o.reason = q.reason
+                                AND o.vlan_id IS NOT DISTINCT FROM q.vlan_id
+                                AND o.pppoe_username IS NOT DISTINCT FROM q.pppoe_username)
+            """,
+            (item_id,),
+        )
+        changed = cur.rowcount
+        conn.commit()
+    return changed > 0
+
+
 def list_managed_sites():
     """Every monitored site including switched-off ones — the status view
     hides those, and a manager needs to be able to switch one back on."""

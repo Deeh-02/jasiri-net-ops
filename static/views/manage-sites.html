@@ -13,6 +13,16 @@
             <div class="inbox-items" id="inbox-items"></div>
         </div>
 
+        <!-- Dismissals are never permanent: this is where a mistake is undone. -->
+        <details class="ignored-block" id="ignored-block" hidden>
+            <summary class="ignored-summary">
+                <span>Ignored</span>
+                <span class="ignored-count" id="ignored-count">0</span>
+            </summary>
+            <p class="inbox-note">You marked these as not a site. Restore one to put it back in the list above.</p>
+            <div class="inbox-items" id="ignored-items"></div>
+        </details>
+
         <div class="table-scroll">
             <table id="manage-sites-table">
                 <thead>
