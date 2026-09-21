@@ -1,8 +1,9 @@
-# JASIRI NET OPS — read-only heartbeat (Phase 4.3)
+# JASIRI NET OPS — read-only heartbeat (Phase 4.3, revenue added in 4.7)
 #
-# Reads /interface vlan, /ip hotspot active and /ppp active, and POSTs ONE JSON
-# payload for the whole fleet to Ops every 60s. Changes nothing on the router,
-# disconnects nobody. Rollback: /system scheduler disable ops-heartbeat
+# Reads /interface vlan, /ip hotspot active, /ppp active and /ip hotspot user,
+# and POSTs ONE JSON payload for the whole fleet to Ops every 60s. Changes
+# nothing on the router, disconnects nobody.
+# Rollback: /system scheduler disable ops-heartbeat
 #
 # A HUMAN pastes this onto the router — it is never run by an agent.
 # Before pasting, check for name collisions:
@@ -12,6 +13,16 @@
 # Payload contract (fixed by routers/monitoring.py validate_snapshot):
 #   {"seq":N,"router_ts":"YYYY-MM-DD HH:MM:SS","gmt_offset":"14400",
 #    "sites":[{"vlan_id":35,"sessions":12},...],"pppoe":["user",...]}
+#
+# Every $usersEvery-th run also carries the two revenue keys:
+#   "users":[{"n":"254716855331-1:FA","p":"Quick Surf10","e":"2026-09-21 17:00:08"},...]
+#   "active":[{"v":35,"n":"254716855331-1:FA"},...]
+# "users" is the whole hotspot user list (340 accounts, ~20 KB) — it is NOT
+# sent every minute because /tool fetch caps http-data at roughly 64 KB and
+# sales do not move minute to minute. "active" is only sent alongside it: it
+# is what attributes a sale to a site, and it is useless without it. An
+# ABSENT key means "nothing to say about revenue this run" — Ops must never
+# read it as "there are no users", or every account would look cancelled.
 #
 # gmt_offset is sent as a JSON STRING on purpose: /system clock get gmt-offset
 # returns a number on some builds and "+04:00" on others, and an unquoted
@@ -31,6 +42,10 @@
 # commas, so a comma inside the value would split the header.
 :local ingestToken "PASTE-MONITORING_INGEST_TOKEN-HERE"
 :local subnetPrefix "10.50"
+# Send the hotspot user list on every Nth run (5 = every 5 minutes). Revenue
+# resolution, nothing more: a sale seen 4 minutes late is still the same sale
+# on the same day. Set to 1 only if you want to pay 20 KB a minute for it.
+:local usersEvery 5
 # true = build and print the payload, send nothing. Use for the first run.
 :local dryRun true
 # ---------------------------------------------------------------------------
@@ -71,7 +86,9 @@
 # Sessions per VLAN: count active hotspot users by the third octet of their
 # address. Users on the hotspot1 bridge (192.168.180.0/22) do not match the
 # prefix and are skipped, which is intended — it is not a VLAN site.
+:local sendUsers (($opsHeartbeatSeq % $usersEvery) = 0)
 :local counts [:toarray ""]
+:local activeJson ""
 :local prefixLen [:len $subnetPrefix]
 :foreach a in=[/ip hotspot active find] do={
     # :tostr because 'address' is an ip value, not a string — :pick and :len
@@ -81,12 +98,48 @@
         :local rest [:pick $addr ($prefixLen + 1) [:len $addr]]
         :local dot [:find $rest "."]
         :if ([:typeof $dot] = "num") do={
+            :local vid [:pick $rest 0 $dot]
             # "v" prefix: a bare numeric key like "35" can be taken as a list
             # index rather than a key, which silently loses the count.
-            :local key ("v" . [:pick $rest 0 $dot])
+            :local key ("v" . $vid)
             :local n ($counts->$key)
             :if ([:typeof $n] != "num") do={ :set n 0 }
             :set ($counts->$key) ($n + 1)
+            # Same walk, so the headcount and the sale attribution can never
+            # disagree about which VLAN someone is on.
+            :if ($sendUsers) do={
+                :local who [:tostr [/ip hotspot active get $a user]]
+                :if ($activeJson != "") do={ :set activeJson ($activeJson . ",") }
+                :set activeJson ($activeJson . "{\"v\":" . $vid . ",\"n\":\"" . [$esc $who] . "\"}")
+            }
+        }
+    }
+}
+
+# The hotspot user list — one entry per sellable account, not per session.
+# Ops decides what is new; the router just reports.
+:local usersJson ""
+:if ($sendUsers) do={
+    :foreach u in=[/ip hotspot user find] do={
+        # One get for the whole record: an unset 'comment' read on its own
+        # is nothing, and reading it per-property risks failing the run.
+        :local rec [/ip hotspot user get $u]
+        :local nm [:tostr ($rec->"name")]
+        :local pf [:tostr ($rec->"profile")]
+        :local cm [:tostr ($rec->"comment")]
+        # A user with no explicit profile IS on 'default' as far as the
+        # router is concerned; say so rather than sending an empty string
+        # that Ops would have to treat as an unknown package.
+        :if ([:len $pf] = 0) do={ :set pf "default" }
+        # "Exp: 2026-09-21 17:00:08 | MAC: ..." — take the 19 characters
+        # after the marker. No marker (or a shorter comment) sends "", and
+        # Ops skips that user rather than guessing an expiry.
+        :local ex ""
+        :local at [:find $cm "Exp: "]
+        :if ([:typeof $at] = "num") do={ :set ex [:pick $cm ($at + 5) ($at + 24)] }
+        :if ([:len $nm] > 0) do={
+            :if ($usersJson != "") do={ :set usersJson ($usersJson . ",") }
+            :set usersJson ($usersJson . "{\"n\":\"" . [$esc $nm] . "\",\"p\":\"" . [$esc $pf] . "\",\"e\":\"" . [$esc $ex] . "\"}")
         }
     }
 }
@@ -106,7 +159,13 @@
     :set pppoeJson ($pppoeJson . "\"" . [$esc [:tostr [/ppp active get $p name]]] . "\"")
 }
 
-:local payload ("{\"seq\":" . [:tostr $opsHeartbeatSeq] . ",\"router_ts\":\"" . $routerTs . "\",\"gmt_offset\":\"" . $gmtOffset . "\",\"sites\":[" . $sitesJson . "],\"pppoe\":[" . $pppoeJson . "]}")
+:local payload ("{\"seq\":" . [:tostr $opsHeartbeatSeq] . ",\"router_ts\":\"" . $routerTs . "\",\"gmt_offset\":\"" . $gmtOffset . "\",\"sites\":[" . $sitesJson . "],\"pppoe\":[" . $pppoeJson . "]")
+# Appended only on a users run — see the payload contract at the top. The
+# keys are absent the rest of the time, which is NOT the same as empty.
+:if ($sendUsers) do={
+    :set payload ($payload . ",\"users\":[" . $usersJson . "],\"active\":[" . $activeJson . "]")
+}
+:set payload ($payload . "}")
 
 :if ($dryRun) do={
     :put $payload
@@ -178,6 +237,22 @@
 #      The scheduler's own policy must include the script's, or the run is
 #      silently refused.
 #
-# Not done here on purpose: /ip hotspot user reads for revenue belong to 4.7,
-# and Ops does not parse them yet.
+# UPGRADING AN ALREADY-INSTALLED HEARTBEAT (4.7):
+#
+#   The scheduler keeps running the old copy until the script body is
+#   replaced — editing this file changes nothing on the router. Replace the
+#   body in System > Scripts > ops-heartbeat, keeping the same name so the
+#   scheduler still finds it, and keep your ingestUrl/ingestToken values.
+#
+#   Set dryRun true for one run first. seq is a running counter, so to see a
+#   users payload either run it up to $usersEvery times or set usersEvery to
+#   1 for the test. Check before sending:
+#     - "users" holds ~340 entries, each with a non-empty "e"
+#     - "active" entries carry the VLAN the user is really on
+#     - the whole payload is well under 64 KB (:put [:len $payload])
+#
+#   THE FIRST REAL USERS PAYLOAD WRITES A BASELINE, NOT SALES. Every existing
+#   account is recorded once at price 0 so that today's revenue is not 340
+#   imaginary sales. Only movement after that is money. This means revenue
+#   starts at 0 on the day you install it and is correct from then on.
 

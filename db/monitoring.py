@@ -68,12 +68,142 @@ def _derive_state(site, sessions, pppoe_online):
     return None
 
 
+def _parse_expiry(text):
+    """The `Exp:` value the billing system writes into a hotspot user's
+    comment. Its timezone is still unestablished (PHASES.md Correction 5),
+    which is why it is only ever used as an IDENTITY for one purchase — a
+    renewal is 'the Exp moved forward' — and never as the time a sale is
+    counted at. That is first_seen_at, which is Ops' own clock."""
+    if not isinstance(text, str) or not text.strip():
+        return None
+    text = text.strip()
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(text, fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def _clean_users(users):
+    """Malformed user entries are dropped individually rather than failing the
+    snapshot: liveness matters more than revenue, and the whole payload is
+    quarantined if this raises."""
+    if not isinstance(users, list):
+        return []
+    cleaned = []
+    for u in users:
+        if not isinstance(u, dict):
+            continue
+        name = u.get("n")
+        profile = u.get("p")
+        if not isinstance(name, str) or not name or not isinstance(profile, str):
+            continue
+        cleaned.append({"name": name, "profile": profile, "expiry": _parse_expiry(u.get("e"))})
+    return cleaned
+
+
+def _record_revenue(cur, users, active_by_vlan, vlan_to_site, snapshot_id, raw_payload):
+    """Turns the router's hotspot-user list into revenue_events.
+
+    A user is identified by (username, Exp:). A pair never seen before is
+    money: a SALE if that username is new, a RENEWAL if its Exp moved
+    forward. The UNIQUE index on the pair is what makes a re-reported user
+    free — the same list arrives every few minutes and only changes insert.
+
+    THE FIRST RUN IS THE DANGEROUS ONE. Every one of the 340 existing users
+    looks new, which would book a day's worth of fake sales. So while
+    revenue_events is empty the whole list is written as 'baseline' at price
+    0: it establishes what already existed, and only movement after that is
+    revenue. Baseline rows are excluded from every revenue total."""
+    if not users:
+        return
+    cur.execute("SELECT profile_name, price_kes, is_active FROM hotspot_packages")
+    packages = {r[0]: {"price": r[1], "is_active": r[2]} for r in cur.fetchall()}
+
+    cur.execute("SELECT EXISTS (SELECT 1 FROM revenue_events)")
+    is_baseline = not cur.fetchone()[0]
+
+    names = [u["name"] for u in users]
+    cur.execute(
+        """
+        SELECT hotspot_username, expiry_seen, monitored_site_id
+        FROM revenue_events WHERE hotspot_username = ANY(%s)
+        """,
+        (names,),
+    )
+    known_pairs = set()
+    seen_before = set()
+    last_site = {}
+    for username, expiry, site_id in cur.fetchall():
+        known_pairs.add((username, expiry))
+        seen_before.add(username)
+        if site_id is not None:
+            last_site.setdefault(username, site_id)
+
+    # username -> vlan, from the same active list the session counts come from.
+    name_to_vlan = {}
+    for vlan_id, active_names in active_by_vlan.items():
+        for name in active_names:
+            name_to_vlan[name] = vlan_id
+
+    for user in users:
+        if user["expiry"] is None:
+            # NULLs are distinct in a UNIQUE index, so a user with no readable
+            # Exp would re-insert on every single poll. Skipped, and recorded
+            # once so a site billing without comments is visible rather than
+            # silently worth nothing. Reason is outside get_inbox()'s two, so
+            # this never reaches the Manage Sites inbox.
+            _quarantine(cur, "hotspot_user_no_expiry", raw_payload, pppoe_username=user["name"])
+            continue
+        if (user["name"], user["expiry"]) in known_pairs:
+            continue
+
+        package = packages.get(user["profile"])
+        if package is None:
+            # A profile Ops has never heard of. Recorded at 0 rather than
+            # guessed at, and flagged so someone can price it.
+            _quarantine(cur, "unknown_hotspot_profile", raw_payload, pppoe_username=user["profile"])
+        price = 0 if (is_baseline or package is None or not package["is_active"]) else package["price"]
+
+        site_id = vlan_to_site.get(name_to_vlan.get(user["name"]))
+        attribution = "direct"
+        if site_id is None:
+            site_id = last_site.get(user["name"])
+            attribution = "inferred"
+
+        if is_baseline:
+            event_type = "baseline"
+        else:
+            event_type = "renewal" if user["name"] in seen_before else "sale"
+
+        cur.execute(
+            """
+            INSERT INTO revenue_events
+                (monitored_site_id, hotspot_username, profile_name, price_kes,
+                 event_type, attribution, expiry_seen, snapshot_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (hotspot_username, expiry_seen) DO NOTHING
+            """,
+            (site_id, user["name"], user["profile"], price,
+             event_type, attribution, user["expiry"], snapshot_id),
+        )
+
+
 def ingest_snapshot(snapshot, raw_payload, router_ts, router_ts_utc, offset_minutes):
     """Stores one already-validated fleet snapshot in a single transaction.
     Returns "duplicate" for a retry, else "stored"."""
     digest = payload_hash(snapshot)
     sessions_by_vlan = {s["vlan_id"]: s["sessions"] for s in snapshot["sites"]}
     pppoe_online = set(snapshot["pppoe"])
+    # Optional (4.7): the heartbeat carries the hotspot user list only every
+    # few runs, so an absent key means "nothing to say about revenue this
+    # time", never "there are no users".
+    users = _clean_users(snapshot.get("users"))
+    active_by_vlan = {}
+    for entry in snapshot.get("active") or []:
+        if isinstance(entry, dict) and isinstance(entry.get("v"), int) and isinstance(entry.get("n"), str):
+            active_by_vlan.setdefault(entry["v"], []).append(entry["n"])
 
     with db_cursor() as (conn, cur):
         cur.execute(
@@ -148,6 +278,9 @@ def ingest_snapshot(snapshot, raw_payload, router_ts, router_ts_utc, offset_minu
                     (site["id"], sessions, router_ts, snapshot_id),
                 )
 
+        vlan_to_site = {s["vlan_id"]: s["id"] for s in sites if s["vlan_id"] is not None}
+        _record_revenue(cur, users, active_by_vlan, vlan_to_site, snapshot_id, raw_payload)
+
         conn.commit()
     return "stored"
 
@@ -201,6 +334,7 @@ def get_site_statuses(include_revenue):
                 SELECT monitored_site_id, COALESCE(sum(price_kes), 0), count(*)
                 FROM revenue_events
                 WHERE first_seen_at >= %s AND monitored_site_id IS NOT NULL
+                  AND event_type <> 'baseline'
                 GROUP BY monitored_site_id
                 """,
                 (_eat_day_start_utc(),),
@@ -261,7 +395,7 @@ def get_site_detail(site_id, include_revenue, history_limit=50, hours=24):
             cur.execute(
                 """
                 SELECT hotspot_username, profile_name, price_kes, event_type, attribution, first_seen_at
-                FROM revenue_events WHERE monitored_site_id = %s
+                FROM revenue_events WHERE monitored_site_id = %s AND event_type <> 'baseline'
                 ORDER BY first_seen_at DESC LIMIT 50
                 """,
                 (site_id,),
