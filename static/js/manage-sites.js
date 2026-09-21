@@ -327,7 +327,7 @@ function showFormError(text) {
 
 export function initManageSites() {
     document.getElementById("manage-sites-link-btn").addEventListener("click", () => navigate("manage-sites"));
-    document.getElementById("add-site-open-btn").addEventListener("click", () => navigate("manage-sites/new"));
+    document.getElementById("manage-site-add-btn").addEventListener("click", () => navigate("manage-sites/new"));
     document.getElementById("site-form-cancel").addEventListener("click", () => navigate("manage-sites"));
     document.getElementById("site-form").addEventListener("submit", submitSiteForm);
 
