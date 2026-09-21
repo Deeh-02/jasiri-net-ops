@@ -27,6 +27,7 @@ function esc(value) {
 }
 
 function plural(n, word) {
+    if (word === "person") return `${n} ${n === 1 ? "person" : "people"}`;
     return `${n} ${word}${n === 1 ? "" : "s"}`;
 }
 
@@ -61,20 +62,37 @@ function heroSentence(counts, stale) {
     return "All sites up";
 }
 
+function stateChip(state, count) {
+    const i = info(state);
+    return `<span class="status-chip ${i.cls}">
+        <span class="st-shape" aria-hidden="true">${i.shape}</span>
+        <b>${count}</b>${i.label}</span>`;
+}
+
 function renderHero(data, stale) {
     const hero = document.getElementById("status-hero");
     const hasProblem = (data.counts.offline || 0) + (data.counts.flapping || 0) > 0;
 
     hero.className = "status-hero" + (stale ? " is-stale" : hasProblem ? " has-problem" : "");
 
-    const online = data.counts.online || 0;
+    // Only states that actually occur get a chip — a row of zeros is four
+    // things to read and none of them are news.
+    const chips = ["offline", "flapping", "unknown", "online"]
+        .filter(state => data.counts[state])
+        .map(state => stateChip(state, data.counts[state]))
+        .join("");
+
+    const people = data.sites.reduce((sum, site) => sum + (site.sessions || 0), 0);
     const detail = stale
-        ? "The last report is too old to trust — these numbers may have moved"
-        : `${online} of ${plural(data.sites.length, "site")} reporting sessions`;
+        ? "The last report is too old to trust \u2014 these numbers may have moved"
+        : `${plural(people, "person")} online right now`;
 
     hero.innerHTML = `
-        <div class="status-hero-line">${esc(heroSentence(data.counts, stale))}</div>
-        <div class="status-hero-sub">${esc(detail)} &middot; router reported ${esc(ago(data.last_ingest_at))}</div>`;
+        <div class="status-hero-main">
+            <div class="status-hero-line">${esc(heroSentence(data.counts, stale))}</div>
+            <div class="status-hero-sub">${esc(detail)} &middot; router reported ${esc(ago(data.last_ingest_at))}</div>
+        </div>
+        <div class="status-hero-chips">${chips}</div>`;
 }
 
 function renderProblems(sites) {
@@ -90,23 +108,36 @@ function renderProblems(sites) {
         </div>`).join("");
 }
 
+/* The hero already carries the state counts, so repeating them as cards
+   would be the same four numbers twice. These answer the other question an
+   operator has -- where are the people -- which nothing else on the page
+   says. */
 function renderTotals(data, canRevenue) {
-    const c = data.counts;
+    const people = data.sites.reduce((sum, site) => sum + (site.sessions || 0), 0);
+    const busiest = data.sites.reduce(
+        (best, site) => ((site.sessions || 0) > (best.sessions || 0) ? site : best),
+        { sessions: 0, name: "\u2013" });
+    const quiet = data.sites.filter(site => !site.sessions).length;
+
     const cards = [
-        { label: "Online", value: c.online || 0, cls: "charged" },
-        { label: "Down", value: c.offline || 0, cls: "low" },
-        { label: "Flapping", value: c.flapping || 0, cls: "deployed" },
-        { label: "Unknown", value: c.unknown || 0, cls: "unknown" },
+        { label: "People online", value: people, cls: "charged" },
+        { label: "Busiest site", value: busiest.sessions ? `${busiest.name} (${busiest.sessions})` : "\u2013", cls: "", small: true },
+        // Deliberately not coloured as a warning: a site with nobody on it is
+        // not known to be a fault (see the liveness rules -- empty reads as
+        // unknown, never down), so it must not look like one.
+        { label: "Nobody online", value: quiet, cls: "" },
         {
             label: "Revenue today",
             value: canRevenue ? money(data.revenue_today_kes) : "\uD83D\uDD12 Hidden",
             cls: "",
+            small: !canRevenue,
         },
     ];
+
     document.getElementById("status-totals").innerHTML = cards.map(card => `
         <div class="stat-card ${card.cls}">
             <div class="stat-label">${card.label}</div>
-            <div class="stat-value">${esc(card.value)}</div>
+            <div class="stat-value ${card.small ? "is-small" : ""}">${esc(card.value)}</div>
         </div>`).join("");
 }
 
@@ -125,6 +156,10 @@ function renderRows(sites, canRevenue) {
         const diff = (rank[a.state] ?? 9) - (rank[b.state] ?? 9);
         return diff !== 0 ? diff : a.name.localeCompare(b.name);
     });
+
+    // Bars are relative to the busiest site, so the widths mean something
+    // on a quiet network as well as a loaded one.
+    const busiest = Math.max(...sites.map(site => site.sessions || 0));
 
     tbody.innerHTML = ordered.map(s => {
         const rowCls = s.state === "offline" ? "status-row-down"

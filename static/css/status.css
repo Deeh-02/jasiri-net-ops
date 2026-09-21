@@ -44,11 +44,16 @@
 
 /* ---- Hero: one sentence, the largest thing on the page ---- */
 .status-hero {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+    flex-wrap: wrap;
     background: var(--surface);
     border: 1px solid var(--border);
     border-left: 3px solid var(--accent);
     border-radius: 10px;
-    padding: 20px 24px;
+    padding: 18px 22px;
     margin-bottom: 20px;
 }
 
@@ -57,7 +62,7 @@
 
 .status-hero-line {
     font-family: 'Space Grotesk', sans-serif;
-    font-size: 34px;
+    font-size: 32px;
     font-weight: 700;
     line-height: 1.15;
     color: var(--accent);
@@ -72,8 +77,44 @@
     text-transform: uppercase;
     letter-spacing: 0.06em;
     color: var(--text-dim);
-    margin-top: 10px;
+    margin-top: 8px;
 }
+
+/* State counts live here rather than in a row of stat cards: as cards they
+   were the hero's own sentence restated as numerals, half of them zero. */
+.status-hero-chips {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.status-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    padding: 6px 10px;
+    border-radius: 6px;
+    white-space: nowrap;
+}
+
+.status-chip b {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 17px;
+    font-weight: 700;
+    letter-spacing: 0;
+}
+
+/* Same four colour variants as the pills, so a chip and a pill for the same
+   state never disagree. */
+.status-chip.st-online   { color: var(--accent);   background: rgba(61, 220, 151, 0.12); }
+.status-chip.st-offline  { color: var(--danger);   background: rgba(239, 91, 91, 0.14); }
+.status-chip.st-flapping { color: var(--warn);     background: rgba(245, 166, 35, 0.12); }
+.status-chip.st-unknown  { color: var(--text-dim); background: rgba(139, 150, 165, 0.10); }
 
 /* ---- Exception-first: problem cards sit ABOVE the fleet totals, and the
    whole block collapses to nothing on a calm day (:empty) rather than
@@ -150,11 +191,52 @@
     letter-spacing: 0;
 }
 
+/* The shared .stat-grid is built for the five counters the other views
+   have; this page runs four. */
+#status-totals { grid-template-columns: repeat(4, 1fr); }
+
+/* A stat value that is a name or a phrase rather than a count cannot carry
+   the 28px numeral size without wrapping the card. */
+.stat-value.is-small {
+    font-size: 16px;
+    line-height: 1.4;
+}
+
 /* ---- Table ---- */
+
+/* The count alone is 15 bare numerals in a column; the bar is what lets you
+   see where the load actually sits without reading any of them. */
+.status-load {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
 .status-sessions {
     font-family: 'JetBrains Mono', monospace;
     font-weight: 500;
+    min-width: 22px;
 }
+
+.status-load-track {
+    flex: 1;
+    min-width: 40px;
+    max-width: 90px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--surface-2);
+    overflow: hidden;
+}
+
+.status-load-fill {
+    display: block;
+    height: 100%;
+    border-radius: 2px;
+    background: var(--accent);
+}
+
+.status-row-down .status-load-fill,
+.status-row-flapping .status-load-fill { background: var(--text-dim); }
 
 .status-since,
 .status-revenue {
@@ -195,7 +277,13 @@
         margin-bottom: 16px;
     }
 
-    .status-hero-line { font-size: 26px; }
+    .status-hero-line { font-size: 24px; }
+
+    .status-hero { gap: 14px; }
+
+    .status-chip { padding: 5px 8px; }
+
+    .status-chip b { font-size: 15px; }
 
     .status-problems {
         grid-template-columns: 1fr;
