@@ -1365,6 +1365,27 @@ dev fallback (`routers/auth.py` — the fallback is explicitly flagged in
 comments as "change before deploy"). Tokens carry `role`/`role_id` directly
 in the payload rather than requiring a DB lookup on every request.
 
+### Monitoring ingest auth — an intentional exception
+
+`POST /monitoring/ingest` (`routers/monitoring.py`) does NOT use the
+user-JWT dependency (`get_current_user`) that every other endpoint uses.
+This is deliberate, not a hole: the caller is a RouterOS script, which
+cannot hold or refresh a JWT. It authenticates with a static shared secret
+in an `X-Ingest-Token` header, checked with `hmac.compare_digest` against
+the `MONITORING_INGEST_TOKEN` env var (never in the repo). With no token
+configured the endpoint returns 503 — it fails closed. Implemented as a
+dependency on that one route rather than global middleware, so no other
+request path is touched by it.
+
+Every other monitoring endpoint (4.4 onward) is a normal user-facing
+route and uses JWT + `user_has_permission` like the rest of the app.
+
+Bad *data* on this endpoint is never a 4xx: unknown VLANs, unknown PPPoE
+names and unparseable bodies go to `ingest_quarantine` and return 200,
+because the router has no retry and a rejection is silent permanent loss.
+Quarantine rows are deduplicated while unresolved, since `/ppp active`
+includes home customers that will never be monitored sites.
+
 Time: every connection runs `SET TIME ZONE 'UTC';` right after connecting
 (`get_connection()`), so every naive `timestamp without time zone` column
 is unambiguous — `utc_iso()` appends a literal "Z" when serializing so the
