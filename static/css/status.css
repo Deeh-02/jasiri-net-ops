@@ -1,39 +1,207 @@
-/* Network Status tab. State is always colour + shape + text. */
-.status-conn { font-size: 12px; color: var(--text-dim); }
-.status-conn.lost { color: var(--danger); font-weight: 600; }
-#view-status.dimmed .status-row, #view-status.dimmed .status-problem-card { opacity: .45; }
+/* ---- Network Status view (Phase 4.5) ----
+   Every state is colour + SHAPE + TEXT, never colour alone: this page's
+   whole job is to survive being screenshotted into WhatsApp, where a
+   red-vs-green pill is the first thing to lose meaning. ---- */
 
-.status-hero { margin: 8px 0 20px; }
-.status-hero-text { font-size: clamp(32px, 7vw, 56px); font-weight: 700; line-height: 1.1; color: var(--accent); }
-.status-hero.has-problem .status-hero-text { color: var(--danger); }
-.status-hero-sub { margin-top: 6px; font-size: 13px; color: var(--text-dim); }
-
-#status-problems { display: grid; gap: 10px; margin-bottom: 16px; }
-#status-problems:empty { display: none; }
-.status-problem-card {
-    background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--danger);
-    border-radius: 8px; padding: 12px 14px;
+/* ---- Live-feed indicator, sits opposite the page title ---- */
+.status-feed {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-dim);
 }
-.status-problem-card.st-flapping { border-left-color: var(--warn); }
-.status-problem-name { font-size: 18px; font-weight: 600; margin-bottom: 6px; }
-.status-problem-meta { margin-top: 6px; font-size: 13px; color: var(--text-dim); }
 
-.st-badge { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; }
-.st-online .st-shape, .st-badge.st-online { color: var(--accent); }
-.st-flapping .st-shape, .st-badge.st-flapping { color: var(--warn); }
-.st-offline .st-shape, .st-badge.st-offline { color: var(--danger); }
-.st-unknown .st-shape, .st-badge.st-unknown { color: var(--text-dim); }
-
-.status-list { display: grid; gap: 1px; margin-top: 16px; }
-.status-row {
-    display: grid; grid-template-columns: 1fr auto auto auto; gap: 12px; align-items: center;
-    padding: 10px 12px; background: var(--surface); border-bottom: 1px solid var(--border);
+.status-feed-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--accent);
+    animation: statusFeedPulse 2s ease-in-out infinite;
 }
-.status-row-name { font-weight: 500; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.status-row-sessions, .st-revenue, .st-revenue-locked { font-size: 13px; color: var(--text-dim); }
-.st-revenue-locked { font-style: italic; }
 
-@media (max-width: 600px) {
-    .status-row { grid-template-columns: 1fr auto; }
-    .status-row-sessions, .status-row .st-revenue, .status-row .st-revenue-locked { display: none; }
+.status-feed.lost { color: var(--danger); }
+.status-feed.lost .status-feed-dot { background: var(--danger); animation: none; }
+
+@keyframes statusFeedPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.25; }
+}
+
+/* A dead stream must not leave live-looking numbers on screen — dimming the
+   data is the difference between "nothing is wrong" and "we stopped being
+   told". */
+#view-status.stale-feed .status-hero,
+#view-status.stale-feed .status-problems,
+#view-status.stale-feed .stat-grid,
+#view-status.stale-feed .table-scroll {
+    opacity: 0.45;
+    transition: opacity 0.2s ease;
+}
+
+/* ---- Hero: one sentence, the largest thing on the page ---- */
+.status-hero {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 10px;
+    padding: 20px 24px;
+    margin-bottom: 20px;
+}
+
+.status-hero.has-problem { border-left-color: var(--danger); }
+.status-hero.is-stale { border-left-color: var(--warn); }
+
+.status-hero-line {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 34px;
+    font-weight: 700;
+    line-height: 1.15;
+    color: var(--accent);
+}
+
+.status-hero.has-problem .status-hero-line { color: var(--danger); }
+.status-hero.is-stale .status-hero-line { color: var(--warn); }
+
+.status-hero-sub {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-dim);
+    margin-top: 10px;
+}
+
+/* ---- Exception-first: problem cards sit ABOVE the fleet totals, and the
+   whole block collapses to nothing on a calm day (:empty) rather than
+   leaving an "all clear" panel to be scrolled past every time. ---- */
+.status-problems {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.status-problems:empty { display: none; }
+
+.status-problem {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--danger);
+    border-radius: 10px;
+    padding: 16px 18px;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.status-problem:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
+}
+
+.status-problem.is-flapping { border-left-color: var(--warn); }
+
+.status-problem-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+}
+
+.status-problem-name {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 17px;
+    font-weight: 700;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Sessions-at-drop is the number that decides whether anyone drives out
+   tonight, so it gets the card's second-largest type, not a footnote. */
+.status-problem-figure {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 22px;
+    font-weight: 700;
+}
+
+.status-problem-meta {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-dim);
+    margin-top: 4px;
+}
+
+/* ---- Status pills (base .status-pill lives in common.css) ---- */
+.status-pill.st-online   { color: var(--accent);   background: rgba(61, 220, 151, 0.12); }
+.status-pill.st-offline  { color: var(--danger);   background: rgba(239, 91, 91, 0.14); }
+.status-pill.st-flapping { color: var(--warn);     background: rgba(245, 166, 35, 0.12); }
+.status-pill.st-unknown  { color: var(--text-dim); background: rgba(139, 150, 165, 0.10); }
+
+.status-pill .st-shape {
+    margin-right: 5px;
+    /* The glyph is the part that survives a greyscale screenshot; keep it
+       from inheriting the pill's uppercase letter-spacing gap. */
+    letter-spacing: 0;
+}
+
+/* ---- Table ---- */
+.status-sessions {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 500;
+}
+
+.status-since,
+.status-revenue {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--text-dim);
+}
+
+.status-revenue.has-value { color: var(--text); }
+
+/* Absent, not nulled: without sites:view_revenue the API never sends the
+   key at all, and this is what the page shows in its place. */
+.status-revenue-locked {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+/* Left accent on a flagged row goes on the first CELL, not the <tr> — a
+   border on the row itself is only painted under border-collapse:collapse,
+   and .table-scroll switches to `separate` on phones for the frozen
+   column. See DESIGN.md's border-collapse gotcha. */
+.status-row-down td:first-child {
+    border-left: 3px solid var(--danger);
+    padding-left: 13px;
+}
+
+.status-row-flapping td:first-child {
+    border-left: 3px solid var(--warn);
+    padding-left: 13px;
+}
+
+@media (max-width: 760px) {
+    .status-hero {
+        padding: 16px 18px;
+        margin-bottom: 16px;
+    }
+
+    .status-hero-line { font-size: 26px; }
+
+    .status-problems {
+        grid-template-columns: 1fr;
+        gap: 8px;
+        margin-bottom: 16px;
+    }
+
+    .status-problem { padding: 12px 14px; }
 }
