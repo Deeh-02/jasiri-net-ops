@@ -1,5 +1,5 @@
 import {
-    authHeaders, showMessage, editIconSvg,
+    authHeaders, editIconSvg,
     showView, navigate, registerRoute,
 } from "./common.js";
 
@@ -266,6 +266,7 @@ async function openSiteForm(siteId, inboxItemId) {
 
 async function submitSiteForm(event) {
     event.preventDefault();
+    document.getElementById("site-form-msg").textContent = "";
 
     const locationValue = document.getElementById("site-form-location").value;
     const vlanValue = document.getElementById("site-form-vlan").value;
@@ -286,6 +287,7 @@ async function submitSiteForm(event) {
     };
 
     let res;
+    try {
     if (editSiteId) {
         res = await fetch(`/monitoring/sites/${editSiteId}`, {
             method: "PATCH",
@@ -299,6 +301,10 @@ async function submitSiteForm(event) {
             body: JSON.stringify({ ...body, inbox_item_id: pendingInboxItem }),
         });
     }
+    } catch (err) {
+        showFormError("Could not reach the server");
+        return;
+    }
 
     if (res.ok) {
         await loadManageSites();
@@ -306,7 +312,17 @@ async function submitSiteForm(event) {
         return;
     }
     const err = await res.json().catch(() => ({}));
-    showMessage("site-form-msg", err.detail || "Could not save that site", true);
+    showFormError(err.detail || `Could not save that site (server said ${res.status})`);
+}
+
+/* showMessage clears itself after 3s and sits under the buttons; a refusal
+   here is the whole answer to "why didn't it save", so it stays until the
+   next attempt and is scrolled to. */
+function showFormError(text) {
+    const el = document.getElementById("site-form-msg");
+    el.textContent = text;
+    el.className = "form-msg error";
+    el.scrollIntoView({ block: "nearest", behavior: "smooth" });
 }
 
 export function initManageSites() {
