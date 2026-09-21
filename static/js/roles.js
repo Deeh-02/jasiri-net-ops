@@ -88,7 +88,15 @@ const PERM_SECTIONS = [
     {
         key: "sites", label: "Sites", actions: ["add", "edit", "delete"],
         children: [
-            { key: "site_checks", label: "Check Sites", actions: ["confirm"] }
+            { key: "site_checks", label: "Check Sites", actions: ["confirm"] },
+            // Network monitoring (Status tab). view_status gates the tab and
+            // its endpoints; view_revenue is nested under it and is the only
+            // thing that puts revenue figures in the API payload.
+            {
+                id: "sites_view_status", key: "sites", label: "Site Status",
+                toggleAction: "view_status",
+                actions: [{ label: "View Revenue", action: "view_revenue" }],
+            },
         ]
     },
     { key: "users", label: "Users", actions: ["add", "edit", "delete"] },

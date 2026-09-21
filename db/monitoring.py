@@ -1,8 +1,8 @@
 import hashlib
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from psycopg2.extras import Json
-from db.connection import db_cursor
+from db.connection import db_cursor, utc_iso, now_eat
 
 # site_session_counts is written at most once per site per this window, even
 # though the router posts every 60s — see 0006's header for why.
@@ -145,3 +145,132 @@ def ingest_snapshot(snapshot, raw_payload, router_ts, router_ts_utc, offset_minu
 
         conn.commit()
     return "stored"
+
+
+def _eat_day_start_utc():
+    """Start of today in EAT, as the naive UTC datetime the tables store."""
+    start = now_eat().replace(hour=0, minute=0, second=0, microsecond=0)
+    return start.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def get_last_ingest_at():
+    """When the router last reported. The UI needs this: with the router
+    silent every site's last state just sits there looking current."""
+    with db_cursor() as (conn, cur):
+        cur.execute("SELECT max(received_at) FROM ingest_snapshots")
+        return utc_iso(cur.fetchone()[0])
+
+
+def get_site_statuses(include_revenue):
+    """One row per active monitored site with its current state. Revenue keys
+    are added only when include_revenue — absent, not null, so a caller
+    without the permission cannot even tell the field exists."""
+    with db_cursor() as (conn, cur):
+        cur.execute(
+            """
+            SELECT ms.id, ms.location_id, COALESCE(l.name, 'VLAN ' || ms.vlan_id) AS name,
+                   ms.vlan_id, ms.liveness_source, ms.notes,
+                   st.state, st.received_at,
+                   sc.sessions, sc.received_at
+            FROM monitored_sites ms
+            LEFT JOIN locations l ON l.id = ms.location_id
+            LEFT JOIN LATERAL (
+                SELECT state, received_at FROM site_status_log
+                WHERE monitored_site_id = ms.id
+                ORDER BY received_at DESC, id DESC LIMIT 1
+            ) st ON true
+            LEFT JOIN LATERAL (
+                SELECT sessions, received_at FROM site_session_counts
+                WHERE monitored_site_id = ms.id
+                ORDER BY received_at DESC, id DESC LIMIT 1
+            ) sc ON true
+            WHERE ms.is_active
+            ORDER BY name
+            """
+        )
+        rows = cur.fetchall()
+        revenue_by_site = {}
+        if include_revenue:
+            cur.execute(
+                """
+                SELECT monitored_site_id, COALESCE(sum(price_kes), 0), count(*)
+                FROM revenue_events
+                WHERE first_seen_at >= %s AND monitored_site_id IS NOT NULL
+                GROUP BY monitored_site_id
+                """,
+                (_eat_day_start_utc(),),
+            )
+            revenue_by_site = {r[0]: (float(r[1]), r[2]) for r in cur.fetchall()}
+
+    sites = []
+    for r in rows:
+        site = {
+            "id": r[0], "location_id": r[1], "name": r[2], "vlan_id": r[3],
+            "liveness_source": r[4], "notes": r[5],
+            "state": r[6] or "unknown", "state_since": utc_iso(r[7]),
+            "sessions": r[8], "sessions_at": utc_iso(r[9]),
+        }
+        if include_revenue:
+            today_kes, today_sales = revenue_by_site.get(r[0], (0.0, 0))
+            site["revenue_today_kes"] = today_kes
+            site["sales_today"] = today_sales
+        sites.append(site)
+    return sites
+
+
+def get_site_detail(site_id, include_revenue, history_limit=50, hours=24):
+    """One site's recent transitions and session counts, plus (only with
+    include_revenue) its latest revenue events. None if the id is unknown."""
+    with db_cursor() as (conn, cur):
+        cur.execute(
+            """
+            SELECT ms.id, ms.location_id, COALESCE(l.name, 'VLAN ' || ms.vlan_id),
+                   ms.vlan_id, ms.liveness_source, ms.notes, ms.is_active
+            FROM monitored_sites ms LEFT JOIN locations l ON l.id = ms.location_id
+            WHERE ms.id = %s
+            """,
+            (site_id,),
+        )
+        head = cur.fetchone()
+        if head is None:
+            return None
+        cur.execute(
+            """
+            SELECT state, source, received_at FROM site_status_log
+            WHERE monitored_site_id = %s ORDER BY received_at DESC, id DESC LIMIT %s
+            """,
+            (site_id, history_limit),
+        )
+        history = [{"state": r[0], "source": r[1], "at": utc_iso(r[2])} for r in cur.fetchall()]
+        cur.execute(
+            """
+            SELECT sessions, received_at FROM site_session_counts
+            WHERE monitored_site_id = %s AND received_at > now() - %s
+            ORDER BY received_at
+            """,
+            (site_id, timedelta(hours=hours)),
+        )
+        sessions = [{"sessions": r[0], "at": utc_iso(r[1])} for r in cur.fetchall()]
+        events = None
+        if include_revenue:
+            cur.execute(
+                """
+                SELECT hotspot_username, profile_name, price_kes, event_type, attribution, first_seen_at
+                FROM revenue_events WHERE monitored_site_id = %s
+                ORDER BY first_seen_at DESC LIMIT 50
+                """,
+                (site_id,),
+            )
+            events = [
+                {"username": r[0], "profile": r[1], "price_kes": float(r[2]),
+                 "event_type": r[3], "attribution": r[4], "at": utc_iso(r[5])}
+                for r in cur.fetchall()
+            ]
+    detail = {
+        "id": head[0], "location_id": head[1], "name": head[2], "vlan_id": head[3],
+        "liveness_source": head[4], "notes": head[5], "is_active": head[6],
+        "history": history, "sessions": sessions,
+    }
+    if include_revenue:
+        detail["revenue_events"] = events
+    return detail

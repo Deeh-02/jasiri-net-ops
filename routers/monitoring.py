@@ -3,6 +3,8 @@ import os
 from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from db import monitoring as db
+from routers.auth import get_current_user
+from routers.permissions import user_has_permission
 
 router = APIRouter()
 
@@ -82,3 +84,34 @@ async def ingest(request: Request):
         result = db.ingest_snapshot(snapshot, snapshot, router_ts, router_ts_utc, offset_minutes)
         counts["duplicates" if result == "duplicate" else "stored"] += 1
     return counts
+
+
+def require_status_access(current_user: dict = Depends(get_current_user)):
+    if not user_has_permission(current_user, "sites", "view_status"):
+        raise HTTPException(status_code=403, detail="You don't have permission to view site status")
+    return current_user
+
+
+@router.get("/monitoring/status")
+def status(current_user: dict = Depends(require_status_access)):
+    """Revenue keys are left out entirely, not nulled, without
+    sites:view_revenue — the client renders its locked placeholder from the
+    permission flag alone."""
+    can_revenue = user_has_permission(current_user, "sites", "view_revenue")
+    sites = db.get_site_statuses(can_revenue)
+    counts = {}
+    for s in sites:
+        counts[s["state"]] = counts.get(s["state"], 0) + 1
+    result = {"last_ingest_at": db.get_last_ingest_at(), "counts": counts, "sites": sites}
+    if can_revenue:
+        result["revenue_today_kes"] = sum(s["revenue_today_kes"] for s in sites)
+    return result
+
+
+@router.get("/monitoring/sites/{site_id}")
+def site_detail(site_id: int, current_user: dict = Depends(require_status_access)):
+    can_revenue = user_has_permission(current_user, "sites", "view_revenue")
+    detail = db.get_site_detail(site_id, can_revenue)
+    if detail is None:
+        raise HTTPException(status_code=404, detail="Monitored site not found")
+    return detail
