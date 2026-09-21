@@ -1,0 +1,210 @@
+/* ---- Manage Sites: the screen that keeps adding a site out of the
+   database. The inbox above the table is the point of it — the router has
+   already reported the username or the VLAN, so nobody types either. ---- */
+
+.inbox-block {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--warn);
+    border-radius: 10px;
+    padding: 18px 20px;
+    margin-bottom: 24px;
+}
+
+.inbox-head { margin-bottom: 14px; }
+
+.inbox-title {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 18px;
+    font-weight: 700;
+    margin: 0;
+}
+
+.inbox-note {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-dim);
+    margin: 6px 0 0;
+}
+
+.inbox-items { display: grid; gap: 8px; }
+
+.inbox-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+}
+
+.inbox-item-main {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    min-width: 0;
+}
+
+.inbox-item-name {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.inbox-item-kind,
+.inbox-item-guess {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    padding: 3px 8px;
+    border-radius: 4px;
+    color: var(--text-dim);
+    background: rgba(139, 150, 165, 0.10);
+}
+
+/* A guess, shown as one. It is never applied on its own: linking a site to
+   the wrong place files one site's outages under another's name. */
+.inbox-item-guess {
+    color: var(--info);
+    background: rgba(79, 168, 255, 0.12);
+}
+
+.inbox-item-actions { display: flex; gap: 8px; }
+
+.inbox-item-actions .btn-primary,
+.inbox-item-actions .btn-secondary {
+    padding: 7px 12px;
+    font-size: 13px;
+}
+
+/* ---- Table ---- */
+.dim-cell { color: var(--text-dim); }
+
+.status-pill.liveness-pppoe    { color: var(--accent);   background: rgba(61, 220, 151, 0.12); }
+.status-pill.liveness-activity { color: var(--info);     background: rgba(79, 168, 255, 0.12); }
+.status-pill.liveness-ping     { color: var(--warn);     background: rgba(245, 166, 35, 0.12); }
+
+/* A switched-off site stays listed — it is how you switch one back on — but
+   must not read as a live one. */
+.site-row-off td { opacity: 0.5; }
+.site-row-off td:first-child { border-left: 3px solid var(--border); padding-left: 13px; }
+
+.edit-site-btn {
+    width: 30px;
+    height: 32px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.edit-site-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ---- On/off switch, same mechanics as the role permission toggle ---- */
+.site-toggle { display: inline-block; cursor: pointer; }
+.site-toggle input { position: absolute; opacity: 0; width: 0; height: 0; }
+
+.site-toggle-track {
+    display: block;
+    width: 36px;
+    height: 20px;
+    border-radius: 10px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    position: relative;
+    transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.site-toggle-track::after {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--text-dim);
+    transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.site-toggle input:checked + .site-toggle-track {
+    background: rgba(61, 220, 151, 0.2);
+    border-color: var(--accent);
+}
+
+.site-toggle input:checked + .site-toggle-track::after {
+    transform: translateX(16px);
+    background: var(--accent);
+}
+
+.site-toggle input:focus-visible + .site-toggle-track { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ---- Form ---- */
+.site-form-origin {
+    background: rgba(79, 168, 255, 0.10);
+    border: 1px solid rgba(79, 168, 255, 0.3);
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin-bottom: 16px;
+    font-size: 14px;
+    max-width: 420px;
+}
+
+.site-form-origin b { font-family: 'JetBrains Mono', monospace; }
+
+.liveness-choice { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+/* Two choices, so a dropdown would hide half the decision behind a click.
+   Scoped with two classes to outrank .panel-form button's primary look. */
+.panel-form .liveness-opt {
+    display: block;
+    text-align: left;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.panel-form .liveness-opt.is-on {
+    border-color: var(--accent);
+    background: rgba(61, 220, 151, 0.08);
+}
+
+.liveness-opt-label {
+    display: block;
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
+    font-size: 14px;
+    color: var(--text);
+}
+
+.panel-form .liveness-opt.is-on .liveness-opt-label { color: var(--accent); }
+
+.liveness-opt-hint {
+    display: block;
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 3px;
+    line-height: 1.35;
+}
+
+@media (max-width: 760px) {
+    .inbox-block { padding: 14px 16px; margin-bottom: 20px; }
+    .inbox-item { gap: 10px; }
+    .inbox-item-actions { width: 100%; }
+    .inbox-item-actions button { flex: 1; }
+}

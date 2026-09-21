@@ -3,6 +3,12 @@
    whole job is to survive being screenshotted into WhatsApp, where a
    red-vs-green pill is the first thing to lose meaning. ---- */
 
+.status-header-side {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
 /* ---- Live-feed indicator, sits opposite the page title ---- */
 .status-feed {
     display: inline-flex;

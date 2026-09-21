@@ -1,0 +1,69 @@
+    <section class="view" id="view-manage-sites" hidden>
+        <div class="page-header-row">
+            <h1 class="page-title">Manage <span>Sites</span></h1>
+            <button type="button" id="add-site-open-btn" class="btn-add-site">+ Add Site</button>
+        </div>
+
+        <!-- Collapses to nothing when the router has reported nothing new. -->
+        <div class="inbox-block" id="inbox-block" hidden>
+            <div class="inbox-head">
+                <h2 class="inbox-title">New on the network</h2>
+                <p class="inbox-note">The router is reporting these, but no site here owns them yet.</p>
+            </div>
+            <div class="inbox-items" id="inbox-items"></div>
+        </div>
+
+        <div class="table-scroll">
+            <table id="manage-sites-table">
+                <thead>
+                    <tr>
+                        <th class="col-frozen">Site</th>
+                        <th>Linked to</th>
+                        <th>VLAN</th>
+                        <th>PPPoE user</th>
+                        <th>Liveness</th>
+                        <th>On</th>
+                        <th>Manage</th>
+                    </tr>
+                </thead>
+                <tbody id="manage-sites-rows"></tbody>
+            </table>
+        </div>
+    </section>
+
+    <section class="view" id="view-site-form" hidden>
+        <h2 id="site-form-title">Add Site</h2>
+
+        <div class="site-form-origin" id="site-form-origin" hidden></div>
+
+        <form id="site-form" class="panel-form">
+            <h3 class="form-section-heading">Which site is this?</h3>
+            <input type="text" id="site-form-name" placeholder="Name (e.g. Kamutini)">
+            <select id="site-form-location">
+                <option value="">Not linked to a site in Sites</option>
+            </select>
+
+            <h3 class="form-section-heading">How do we know it is alive?</h3>
+            <div class="liveness-choice" id="site-form-liveness">
+                <button type="button" class="liveness-opt is-on" data-value="pppoe">
+                    <span class="liveness-opt-label">PPPoE</span>
+                    <span class="liveness-opt-hint">Up or down, from its PPPoE login</span>
+                </button>
+                <button type="button" class="liveness-opt" data-value="activity">
+                    <span class="liveness-opt-label">Activity</span>
+                    <span class="liveness-opt-hint">Online only when someone is on it</span>
+                </button>
+            </div>
+            <input type="text" id="site-form-pppoe" placeholder="PPPoE username, exactly as the router reports it">
+
+            <h3 class="form-section-heading">Details</h3>
+            <input type="number" id="site-form-vlan" placeholder="VLAN number (needed to count people)">
+            <input type="text" id="site-form-notes" placeholder="Notes (optional)">
+
+            <div class="modal-actions">
+                <button type="button" id="site-form-cancel" class="btn-secondary">Cancel</button>
+                <button type="submit" class="btn-primary">Save</button>
+            </div>
+        </form>
+        <div class="form-msg" id="site-form-msg"></div>
+    </section>

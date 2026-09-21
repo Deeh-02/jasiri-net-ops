@@ -169,6 +169,11 @@ def _check_site_fields(fields, creating):
     if creating:
         if fields.get("liveness_source") == "pppoe" and not fields.get("pppoe_username"):
             raise HTTPException(status_code=400, detail="A PPPoE site needs its PPPoE username")
+        # Activity is judged purely on hotspot sessions, which are counted
+        # per VLAN — without one, the site would sit at unknown forever and
+        # look configured.
+        if fields.get("liveness_source") == "activity" and fields.get("vlan_id") is None:
+            raise HTTPException(status_code=400, detail="An activity site needs its VLAN number")
         if not (fields.get("name") or fields.get("location_id")):
             raise HTTPException(status_code=400, detail="Give the site a name, or link it to a site from the Sites list")
     # On update the PPPoE-needs-a-username rule is checked in the database
