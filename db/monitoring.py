@@ -168,7 +168,7 @@ def get_site_statuses(include_revenue):
     with db_cursor() as (conn, cur):
         cur.execute(
             """
-            SELECT ms.id, ms.location_id, COALESCE(l.name, 'VLAN ' || ms.vlan_id) AS name,
+            SELECT ms.id, ms.location_id, COALESCE(l.name, ms.name, 'VLAN ' || ms.vlan_id) AS name,
                    ms.vlan_id, ms.liveness_source, ms.notes,
                    st.state, st.received_at,
                    sc.sessions, sc.received_at
@@ -224,7 +224,7 @@ def get_site_detail(site_id, include_revenue, history_limit=50, hours=24):
     with db_cursor() as (conn, cur):
         cur.execute(
             """
-            SELECT ms.id, ms.location_id, COALESCE(l.name, 'VLAN ' || ms.vlan_id),
+            SELECT ms.id, ms.location_id, COALESCE(l.name, ms.name, 'VLAN ' || ms.vlan_id),
                    ms.vlan_id, ms.liveness_source, ms.notes, ms.is_active
             FROM monitored_sites ms LEFT JOIN locations l ON l.id = ms.location_id
             WHERE ms.id = %s

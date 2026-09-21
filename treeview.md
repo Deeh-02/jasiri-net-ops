@@ -27,7 +27,13 @@ battery-tracker/
 │   ├── 0004_inventory_core_tables.sql # Phase 3: inventory_locations/categories/items/
 │   │                                 #   transactions/sku_thresholds — six new tables, zero
 │   │                                 #   ALTERs against existing ones (see ARCHITECTURE.md)
-│   └── 0005_inventory_custody_type.sql # one additive column: inventory_categories.custody_type
+│   ├── 0005_inventory_custody_type.sql # one additive column: inventory_categories.custody_type
+│   ├── 0006_monitoring_core_tables.sql # Phase 4: monitoring tables + seeded hotspot_packages
+│   ├── 0007_seed_monitored_sites.sql   # Phase 4: initial VLAN-to-site mapping (editable data)
+│   └── 0008_monitored_sites_name.sql   # Phase 4: display name for sites with no locations row
+│
+├── router/                          # RouterOS scripts, pasted onto the CCR by a human — never run by Ops
+│   └── ops-heartbeat.rsc             # Phase 4.3: read-only 60s heartbeat POSTing to /monitoring/ingest
 │
 ├── routers/                        # FastAPI route handlers — one file per domain
 │   ├── __init__.py
@@ -37,6 +43,7 @@ battery-tracker/
 │   ├── sites.py                      # locations CRUD, hourly online/offline verification
 │   ├── batteries.py                  # batteries CRUD + movements (create/list/lifecycle actions)
 │   ├── users.py                      # users + roles + role_permissions CRUD
+│   ├── monitoring.py                 # Phase 4: token-auth /monitoring/ingest + status/revenue API
 │   └── inventory.py                  # the whole Inventory domain's routes — categories,
 │                                      #   locations, items/products, issue/return carts,
 │                                      #   transaction log, reconciliation, reports/summaries.
