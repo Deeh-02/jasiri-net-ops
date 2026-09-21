@@ -37,7 +37,7 @@ VALUES
     (25,  18,   '10.50.25.1/24',  'ACK',                 'pppoe',    true,  NULL),
     (30,  8,    '10.50.30.1/24',  'CatholicRd_Hotspot',  'pppoe',    true,  NULL),
     (35,  7,    '10.50.35.1/24',  'Phase3_HOTSPOT',      'pppoe',    true,
-     'locations has TWO rows named "Phase 3" — id 6 (inactive) and id 7 (active). Linked to 7. Confirm.'),
+     'Owner confirmed 2026-09-21 there is only ONE real Phase 3 site — linked to locations id 7 (active). Id 6 is a stale duplicate row in `locations`; cleaning it up belongs to the battery domain, not Phase 4.'),
     (40,  12,   '10.50.40.1/24',  'Redsoil_Hotspot',     'pppoe',    true,
      'Had zero hotspot sessions in the 4.0 snapshot; owner confirmed 2026-09-21 the site is fine. Do NOT treat that snapshot as a fault baseline.'),
     (45,  17,   '10.50.45.1/24',  'Sunton_Hotspot',      'pppoe',    true,  NULL),

@@ -74,11 +74,36 @@
 --     times the heartbeat re-reports it, so a retried or duplicated payload
 --     cannot double-count revenue.
 --
--- Retention is mandatory per the brief and is implemented in Ops-side code,
--- not here: site_status_log holds transitions only (keep forever),
--- ingest_snapshots is one row per fleet snapshot, and site_session_counts is
--- written every 5 minutes and rolled up hourly after 14 days via the
--- `granularity` column.
+-- RETENTION. Confirmed 2026-09-21: both Render and Supabase are on the FREE
+-- tier, so the Supabase cap is 500 MB total and retention is a hard
+-- requirement rather than good hygiene. Measured row counts:
+--
+--   ingest_snapshots      1,440/day =  525,600/yr  =  58-100 MB/yr
+--   site_session_counts   6,048/day (21 sites x 5-min) = 12.7 MB per 14 days
+--   site_status_log       transitions only — negligible
+--   revenue_events        a few hundred/day at most — negligible
+--
+-- ingest_snapshots is therefore the dominant consumer BY FAR, and it is the
+-- one table the brief originally said to keep forever. Left raw it would eat
+-- the entire free tier in roughly three years on its own. So it carries the
+-- same `granularity` column as site_session_counts and is downsampled the
+-- same way: kept raw for 30 days, then rolled up to one row per hour
+-- (43,200 raw rows at any time, plus 8,760 hourly rows per year — trivial).
+-- The rollup still proves "we were watching", which is the only thing the
+-- old rows were being kept for.
+--
+-- The purge/rollup jobs themselves are Ops-side code, not schema:
+--   site_status_log      transitions only, keep forever
+--   ingest_snapshots     raw 30 days -> hourly, keep forever
+--   site_session_counts  raw 14 days -> hourly, keep forever
+--   revenue_events       keep forever (it is the money record)
+--
+-- Note also that Render's free tier bills 750 instance-hours/month across
+-- the whole account. A 60s heartbeat keeps the service awake 24/7, which is
+-- ~730 hours — nearly the entire monthly allowance. That is the correct
+-- trade (a sleeping service cold-starts in 30-60s and the router has no
+-- retry, so every wake would lose readings), but it means there is no room
+-- for a second free Render service alongside this one.
 --
 -- Run this once against the target database:
 --   psql "$DATABASE_URL" -f migrations/0006_monitoring_core_tables.sql
@@ -136,6 +161,11 @@ CREATE TABLE IF NOT EXISTS ingest_snapshots (
     received_at timestamp without time zone NOT NULL DEFAULT now(),
     sites_reporting integer,
     payload_hash text,                      -- idempotency for retried POSTs
+    -- raw / hourly. Free-tier retention — see file header. Rows arrive 'raw'
+    -- and are rolled up to one 'hourly' row after 30 days, at which point the
+    -- raw rows for that window are deleted. Without this, this table alone
+    -- consumes the entire 500 MB Supabase free tier in about three years.
+    granularity text NOT NULL DEFAULT 'raw',
     created_at timestamp without time zone NOT NULL DEFAULT now()
 );
 

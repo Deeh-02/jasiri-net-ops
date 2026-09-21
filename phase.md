@@ -210,10 +210,14 @@ This is precisely the "site up, hotspot broken" failure the review called out as
   reading statements, so its cadence is Ops' choice — **cadence still to be
   picked** (weekly is the doc's suggested default).
 
-**Still open:**
+- **Render plan: FREE.** Sleeps after ~15 min idle, cold-starts in 30–60s. The 60s heartbeat keeps it permanently awake, which is the right trade since the router has no retry and every cold start would lose readings. **Consequence:** Render's free tier bills 750 instance-hours/month *across the account*, and a service awake 24/7 is ~730 of them. There is no room for a second free Render service alongside this one.
+- **Supabase plan: FREE** — 500 MB cap. This makes retention binding, not hygiene. Measured: `ingest_snapshots` at 1,440 rows/day is 58–100 MB/yr and would eat the whole tier in ~3 years on its own, so it is downsampled raw-30-days-then-hourly via a `granularity` column, the same mechanism as `site_session_counts`. See 0006's header for the full table.
 
-- **Render plan.** Free tier sleeps after ~15 min idle and cold-starts in 30–60s. A 60s heartbeat keeps it permanently awake — a genuine side benefit — but any gap causes a cold start, which causes more gaps.
-- **Supabase plan and current DB size.** Drives the retention design in 4.1.
+- **Current DB size: 11 MB** (measured 2026-09-21). The application tables are
+  tiny — under 1 MB combined, the rest is Postgres overhead. So ~489 MB of the
+  500 MB cap is free. With the retention design above, monitoring settles at
+  roughly 30–40 MB/year steady-state, which is years of runway. **4.0b is now
+  fully answered.**
 
 ### 4.0c — The site mapping table: 14 of 21 MAPPED, still the critical path
 
