@@ -2,9 +2,10 @@ import hmac
 import os
 from datetime import datetime, timedelta
 from typing import Optional
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
 from db import monitoring as db
+from db import monitoring_retention
 from routers.auth import get_current_user
 from routers.permissions import user_has_permission
 
@@ -60,7 +61,7 @@ def validate_snapshot(snapshot):
 
 
 @router.post("/monitoring/ingest", dependencies=[Depends(require_ingest_token)])
-async def ingest(request: Request):
+async def ingest(request: Request, background_tasks: BackgroundTasks):
     """Accepts one snapshot, or {"snapshots": [...]} for a batch. Bad DATA is
     never a 4xx: the router has no retry and nobody reads its logs, so a
     rejection is silent permanent loss. It is quarantined and answered 200."""
@@ -85,6 +86,7 @@ async def ingest(request: Request):
             continue
         result = db.ingest_snapshot(snapshot, snapshot, router_ts, router_ts_utc, offset_minutes)
         counts["duplicates" if result == "duplicate" else "stored"] += 1
+    background_tasks.add_task(monitoring_retention.run_if_due)
     return counts
 
 
