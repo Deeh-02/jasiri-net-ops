@@ -207,7 +207,14 @@ def ingest_snapshot(snapshot, raw_payload, router_ts, router_ts_utc, offset_minu
     # Optional (4.7): the heartbeat carries the hotspot user list only every
     # few runs, so an absent key means "nothing to say about revenue this
     # time", never "there are no users".
-    users = _clean_users(snapshot.get("users"))
+    raw_users = snapshot.get("users")
+    users = _clean_users(raw_users)
+    # What the ROUTER sent, not what survived cleaning — this column answers
+    # "did a customer list arrive", and a list that arrived full of garbage is
+    # a different failure from one that never came. NULL (key absent) is the
+    # normal state 4 runs out of 5; only the age of the newest non-NULL
+    # matters. See migration 0009.
+    users_reported = len(raw_users) if isinstance(raw_users, list) else None
     active_by_vlan = {}
     for entry in snapshot.get("active") or []:
         if isinstance(entry, dict) and isinstance(entry.get("v"), int) and isinstance(entry.get("n"), str):
@@ -224,11 +231,13 @@ def ingest_snapshot(snapshot, raw_payload, router_ts, router_ts_utc, offset_minu
         cur.execute(
             """
             INSERT INTO ingest_snapshots
-                (seq, router_ts, router_gmt_offset_minutes, router_ts_utc, sites_reporting, payload_hash)
-            VALUES (%s, %s, %s, %s, %s, %s)
+                (seq, router_ts, router_gmt_offset_minutes, router_ts_utc, sites_reporting,
+                 payload_hash, users_reported)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
             RETURNING id
             """,
-            (snapshot.get("seq"), router_ts, offset_minutes, router_ts_utc, len(sessions_by_vlan), digest),
+            (snapshot.get("seq"), router_ts, offset_minutes, router_ts_utc, len(sessions_by_vlan),
+             digest, users_reported),
         )
         snapshot_id = cur.fetchone()[0]
 
@@ -305,6 +314,30 @@ def get_last_ingest_at():
     with db_cursor() as (conn, cur):
         cur.execute("SELECT max(received_at) FROM ingest_snapshots")
         return utc_iso(cur.fetchone()[0])
+
+
+def get_revenue_feed():
+    """When a customer list last reached Ops, and how big it was.
+
+    This is the answer to the failure that prompted it: every other signal on
+    the Status page stayed green while revenue detection was dead, because
+    heartbeats kept arriving — they just stopped carrying the user list. A
+    revenue total cannot distinguish "nobody bought anything" from "nobody
+    told us"; this can. See migration 0009."""
+    with db_cursor() as (conn, cur):
+        cur.execute(
+            """
+            SELECT received_at, users_reported FROM ingest_snapshots
+            WHERE users_reported IS NOT NULL
+            ORDER BY received_at DESC LIMIT 1
+            """
+        )
+        row = cur.fetchone()
+    # Nothing ever, or nothing since the column was added — either way the UI
+    # says "waiting" rather than claiming an age it cannot support.
+    if row is None:
+        return {"last_users_at": None, "users_reported": None}
+    return {"last_users_at": utc_iso(row[0]), "users_reported": row[1]}
 
 
 def get_site_statuses(include_revenue):

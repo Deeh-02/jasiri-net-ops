@@ -282,3 +282,47 @@
 
     .status-problem { padding: 12px 14px; }
 }
+
+/* ---- Sales-feed alert. The 2026-09-21 failure had every other signal on
+   this page reading green — heartbeats arrived, sites were up, the headcount
+   was live — while revenue detection was dead for two hours. So this warns
+   about the NUMBER, sits against the number, and is deliberately not styled
+   like a site outage: nothing is down. ---- */
+
+.status-alert {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--warn);
+    border-radius: 10px;
+    padding: 14px 18px;
+    margin-bottom: 20px;
+}
+
+.status-alert-title {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--warn);
+    margin-bottom: 4px;
+}
+
+.status-alert-body {
+    font-size: 13px;
+    color: var(--text-dim);
+    line-height: 1.6;
+    max-width: 78ch;
+}
+
+/* Revenue is the one card here that is not observed continuously, so it
+   always carries its own age — a total with no timestamp reads exactly like
+   a fresh one. */
+.stat-caption {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-dim);
+    margin-top: 6px;
+}
+
+.stat-caption.is-stale { color: var(--warn); }

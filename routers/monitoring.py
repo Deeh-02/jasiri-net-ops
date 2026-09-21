@@ -109,6 +109,10 @@ def status(current_user: dict = Depends(require_status_access)):
     result = {"last_ingest_at": db.get_last_ingest_at(), "counts": counts, "sites": sites}
     if can_revenue:
         result["revenue_today_kes"] = sum(s["revenue_today_kes"] for s in sites)
+        # Only alongside revenue: the customer list feeds nothing else, and to
+        # someone who cannot see money an aged feed is a worry with no
+        # corresponding number to explain it.
+        result["revenue_feed"] = db.get_revenue_feed()
     return result
 
 

@@ -4,6 +4,12 @@ const POLL_MS = 30000;
 // The router beats every 60s, so a gap this long means we have stopped being
 // told, not that everything is fine. Three misses, to ride out one slow poll.
 const STALE_MS = 3 * 60 * 1000;
+// The customer list rides only every 5th heartbeat (usersEvery in
+// ops-heartbeat.rsc), so the same three-misses rule is 15 minutes here. A
+// heartbeat can keep arriving perfectly while this one is dead — that is
+// exactly what happened on 2026-09-21, and why it gets its own indicator
+// instead of sharing the one above.
+const SALES_STALE_MS = 15 * 60 * 1000;
 
 let pollTimer = null;
 
@@ -110,11 +116,45 @@ function renderProblems(sites) {
         </div>`).join("");
 }
 
+/* Revenue is the one number on this page that is not observed continuously:
+   it moves only when a customer list arrives. So it carries its own age,
+   always \u2014 a total with no timestamp cannot be told apart from a stale one. */
+function salesFeedAge(data) {
+    const feed = data.revenue_feed;
+    if (!feed) return { known: false, stale: false, text: "" };
+    if (!feed.last_users_at) return { known: false, stale: true, text: "no list yet" };
+    const ms = Date.now() - new Date(feed.last_users_at).getTime();
+    return { known: true, stale: ms > SALES_STALE_MS, text: `checked ${ago(feed.last_users_at)}` };
+}
+
+function renderSalesAlert(data, canRevenue) {
+    const box = document.getElementById("status-sales-alert");
+    const feed = salesFeedAge(data);
+
+    if (!canRevenue || !data.revenue_feed || !feed.stale) {
+        box.hidden = true;
+        box.innerHTML = "";
+        return;
+    }
+
+    // Says what is wrong with the NUMBER, not what is wrong with the router \u2014
+    // the failure this exists to catch leaves the router looking perfect.
+    const line = feed.known
+        ? `The router last sent a customer list ${ago(data.revenue_feed.last_users_at)}.`
+        : "No customer list has reached Ops yet.";
+
+    box.hidden = false;
+    box.innerHTML = `
+        <div class="status-alert-title">Sales may be behind</div>
+        <div class="status-alert-body">${esc(line)} Sites and headcounts below are unaffected \u2014 they arrive every minute. Revenue only moves when that list does.</div>`;
+}
+
 /* Five cards, same shape as the Dashboard's: the four states, then money.
    Zeros are kept rather than hidden -- on this page a zero in Down is the
    reassurance, and a card that comes and goes is one you stop trusting. */
 function renderTotals(data, canRevenue) {
     const c = data.counts;
+    const feed = salesFeedAge(data);
     const cards = [
         { label: "Online", value: c.online || 0, cls: "charged" },
         { label: "Down", value: c.offline || 0, cls: "low" },
@@ -125,6 +165,8 @@ function renderTotals(data, canRevenue) {
             value: canRevenue ? money(data.revenue_today_kes) : "\uD83D\uDD12 Hidden",
             cls: "",
             small: !canRevenue,
+            caption: canRevenue && data.revenue_feed ? feed.text : "",
+            captionStale: feed.stale,
         },
     ];
 
@@ -132,6 +174,7 @@ function renderTotals(data, canRevenue) {
         <div class="stat-card ${card.cls}">
             <div class="stat-label">${card.label}</div>
             <div class="stat-value ${card.small ? "is-small" : ""}">${esc(card.value)}</div>
+            ${card.caption ? `<div class="stat-caption ${card.captionStale ? "is-stale" : ""}">${esc(card.caption)}</div>` : ""}
         </div>`).join("");
 }
 
@@ -180,6 +223,7 @@ function render(data) {
 
     renderHero(data, stale);
     renderProblems(data.sites);
+    renderSalesAlert(data, canRevenue);
     renderTotals(data, canRevenue);
     renderRows(data.sites, canRevenue);
 }
