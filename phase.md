@@ -148,15 +148,37 @@ The CCR thinks it is in **Mauritius (UTC+4)**. Nairobi is UTC+3. The router repo
 
 NTP itself is healthy (`synchronized`, stratum 1, `system-offset: 0.873 ms`, drift 6.058 PPM) — UTC is correct. Only the display timezone is wrong, almost certainly because `time-zone-autodetect` geolocated the upstream/tunnel IP.
 
-Every locally-formatted timestamp the router produces is therefore an hour ahead, and "today" rolls over at 23:00 local. Fix before any timestamp is trusted:
+Every locally-formatted timestamp the router produces is therefore an hour ahead, and "today" rolls over at 23:00 local.
 
-```
-/system clock set time-zone-autodetect=no time-zone-name=Africa/Nairobi
-```
+**DECISION 2026-09-21 (owner): do NOT fix this on the router. Correct it on
+the Ops side instead.** The router keeps `Indian/Mauritius` and Phase 4 takes
+zero router-config risk on the clock. Consequences, all of which must hold:
 
-Autodetect must go off in the same command or it will revert. This is read-safe and affects no traffic.
+- **The router clock stays known-wrong.** Anything else reading this router —
+  a person on Winbox, the billing vendor, a future phase — still sees +1h.
+  This is now a permanent documented quirk, not a bug being fixed.
+- **`received_at` becomes load-bearing, not merely insurance.** All uptime,
+  all daily boundaries, all revenue-day attribution compute from
+  `received_at`. This was already the design; it is now the *only* correct
+  path rather than the safer of two.
+- **The heartbeat must send the router's own offset with the payload.** Have
+  the 4.3 script include `[/system clock get gmt-offset]` alongside
+  `router_ts`, so the payload is self-describing and the correction is data
+  rather than a constant hardcoded in Ops. If someone later fixes the router
+  clock, a hardcoded `-1h` would silently corrupt every reading; a
+  transmitted offset just starts arriving as `+03:00`.
+- **Store `router_ts` raw, exactly as reported.** Normalize to UTC on ingest
+  using the transmitted offset; never mutate the stored raw value.
+- **Do not blanket-correct every router-sourced timestamp.** The `Exp:`
+  comments on hotspot users (Correction 2) are written by the *billing
+  system* over the `freeisphotspotap` tunnel, not by the router's clock —
+  their timezone is that system's, which is **unknown and must be
+  established separately before 4.7 prices a renewal.** Applying the −1h
+  router correction to them would be wrong. Open question.
 
-The review's recommendation to store both `router_ts` and `received_at` and compute from `received_at` stands regardless — this is exactly the class of bug it was insurance against, and it was live.
+Note `db/connection.py` already pins every session to UTC and defines
+`EAT = timezone(timedelta(hours=3))` as a fixed offset (EAT has no DST), so
+the Ops side already has the right primitives for this.
 
 #### Correction 6 — eight VLANs had zero users, and that needs explaining before it gets coded
 
@@ -175,29 +197,118 @@ This is precisely the "site up, hotspot broken" failure the review called out as
 
 ---
 
-### 4.0b — Infrastructure facts: STILL OPEN
+### 4.0b — Infrastructure facts: PARTIALLY ANSWERED
+
+**Answered 2026-09-21:**
+
+- **Migration approach: hand-applied numbered SQL.** No Alembic, no framework
+  — `migrations/` holds `0001_`…`0005_`, run by hand. Phase 4's migration is
+  therefore `0006_monitoring_core_tables.sql`.
+- **M-Pesa data access: MANUAL.** It cannot be pulled programmatically.
+  Per 4.7 this means the automatic Ops-side daily revenue log still runs
+  daily and costs nothing, but the *comparison* against M-Pesa is a human
+  reading statements, so its cadence is Ops' choice — **cadence still to be
+  picked** (weekly is the doc's suggested default).
+
+**Still open:**
 
 - **Render plan.** Free tier sleeps after ~15 min idle and cold-starts in 30–60s. A 60s heartbeat keeps it permanently awake — a genuine side benefit — but any gap causes a cold start, which causes more gaps.
 - **Supabase plan and current DB size.** Drives the retention design in 4.1.
-- **Migration approach.** Alembic, or hand-applied SQL? Claude Code can answer this itself from the repo.
-- **M-Pesa data access, for 4.7's reconciliation.** Automated (an API/export Ops can pull programmatically) or manual (someone reading Safaricom statements)? This decides whether daily reconciliation is free or a recurring manual chore — see 4.7.
 
-### 4.0c — The site mapping table: STILL OPEN, and now the critical path
+### 4.0c — The site mapping table: 14 of 21 MAPPED, still the critical path
 
-Per Correction 3, this cannot be derived from the router. Produce one row per monitored site:
+Owner supplied VLAN→name for 15 VLANs on 2026-09-21. Reconciled here against
+the `locations` table (read live 2026-09-21) and the 21 PPPoE session names
+from 4.0. `location_id` was **derived, not supplied** — every ✅ row below is
+a name match against a real `locations` row and should be spot-checked once.
 
-| VLAN | Gateway | Ops `location_id` | PPPoE username (if any) | Site AP IP (for ping, if no PPPoE) | Expected quiet hours |
-|---|---|---|---|---|---|
-| 35 | 10.50.35.1 | ? | `Sunton_Hotspot`? | | |
-| … | | | | | |
+| VLAN | Gateway | `location_id` | Location name | PPPoE username | Liveness | State |
+|---|---|---|---|---|---|---|
+| 5 | 10.50.5.1 | 19 | Njeri House | `Njeri_House` | pppoe | ✅ |
+| 10 | 10.50.10.1 | 21 | Ndambaki | `Ndambaki` | pppoe | ✅ |
+| 15 | 10.50.15.1 | 20 | Kwa Mlima | `Kwamlima` | pppoe | ✅ |
+| 20 | 10.50.20.1 | — | "Street 10" | none found | ? | ⚠ no `locations` row; 0 sessions |
+| 25 | 10.50.25.1 | 18 | ACK | `ACK` | pppoe | ✅ |
+| 30 | 10.50.30.1 | 8 | Catholic Road | `CatholicRd_Hotspot` | pppoe | ✅ |
+| 35 | 10.50.35.1 | **6 or 7** | Phase 3 | `Phase3_HOTSPOT` | pppoe | ⚠ duplicate rows |
+| 40 | 10.50.40.1 | 12 | Redsoil | `Redsoil_Hotspot` | pppoe | ⚠ 0 sessions |
+| 45 | 10.50.45.1 | 17 | Sunton | `Sunton_Hotspot` | pppoe | ✅ |
+| 55 | 10.50.55.1 | — | "Monitoring" | none found | ? | ⚠ no `locations` row |
+| 60 | 10.50.60.1 | 3 | Maji Mazuri | `Maji_Hotspot` | pppoe | ✅ |
+| 65 | 10.50.65.1 | 22 | Lower Sunton | `LowerSunton_Hotspot` | pppoe | ✅ |
+| 70 | 10.50.70.1 | 5 | Policeline | `Policelin_Hotspot` | pppoe | ✅ |
+| 75 | 10.50.75.1 | ? | — | ? | ? | ✗ unmapped |
+| 77 | 10.50.77.1 | — | "Cyber" | none found | ? | ⚠ no `locations` row; 0 sessions |
+| 80 | 10.50.80.1 | ? | — | ? | ? | ✗ unmapped |
+| 85 | 10.50.85.1 | ? | — | ? | ? | ✗ unmapped; 0 sessions |
+| 90 | 10.50.90.1 | ? | — | ? | ? | ✗ unmapped; 0 sessions |
+| 105 | 10.50.105.1 | ? | — | ? | ? | ✗ unmapped; 0 sessions |
+| 110 | 10.50.110.1 | ? | — | ? | ? | ✗ unmapped; 0 sessions |
+| 115 | 10.50.115.1 | ? | — | ? | ? | ✗ unmapped; 0 sessions |
+| **99** | ? | — | "Street 9" | `Policelinestreet9` | pppoe | ⚠ **not among the 21 hotspot VLANs in 4.0** |
 
-Also needed:
-- Which of the eight empty VLANs are live (Correction 6).
+#### Correction 3 is now almost fully resolved
+
+The eight ambiguous non-`_Hotspot` PPPoE names, checked against `locations`:
+
+| PPPoE name | `locations` row | Verdict |
+|---|---|---|
+| `ACK` | 18 ACK | **site** |
+| `Benbro` | 1 Benbro | **site** (VLAN not yet known) |
+| `Kwamlima` | 20 Kwa Mlima | **site** |
+| `Ndambaki` | 21 Ndambaki | **site** |
+| `Njeri_House` | 19 Njeri House | **site** |
+| `Policelinestreet9` | none | **site** (VLAN 99), needs a `locations` row |
+| `Prisca` | none | **likely home customer — confirm** |
+| `Stage` | none | **likely home customer — confirm** |
+
+#### Sites in `locations` with no VLAN yet
+
+Eight active, non-home-base rows are unassigned — and only **seven** VLANs
+remain (75, 80, 85, 90, 105, 110, 115). So at least one of these has no
+hotspot VLAN at all, or sits on the legacy `hotspot-bridge`:
+
+`1 Benbro`, `9 Kwa Mafuta`, `10 Kamutini`, `11 Garage`, `13 Stima`,
+`14 Maternity`, `15 Garage Escarpments`, `16 Hunters`
+
+Six of the still-unmatched PPPoE names end in `_Hotspot` (`Garage_Hotspot`,
+`GarageRd_Hotspot`, `Hunters_Hotspot`, `Kamutini_Hotspot`,
+`Maternity_Hotspot`, `Stima_Hotspot`), which lines up with six of those
+eight. `Kwa Mafuta` matches no PPPoE name at all.
+
+#### Discrepancies that need an owner answer
+
+1. **VLAN 99 is not in the 21.** 4.0's hotspot-server sweep found no VLAN 99.
+   Either it is a PPPoE-only site with no hotspot server, or 4.0's list was
+   incomplete. One command settles it: `/interface vlan print`.
+2. **VLAN 5's hotspot server is named `PHASE3`** (4.0's "only naming
+   exception") but VLAN 5 is **Njeri House**, and Phase 3 is VLAN 35. This
+   looks like a stale name on the router, not a mapping error — confirm, and
+   note that renaming it is a router change and out of scope for now.
+3. **`Phase 3` exists twice in `locations`** — id 6 (`is_active=false`) and
+   id 7 (`is_active=true`). VLAN 35 must point at one. Presumably 7.
+4. **Four named VLANs have no `locations` row**: Street 10 (20),
+   Monitoring (55), Cyber (77), Street 9 (99). Each needs a row created, or
+   to be declared out of scope. **Is "Monitoring" (VLAN 55) even a customer
+   site**, or is it infrastructure? It had active sessions, so something is
+   using it.
+5. **Redsoil (VLAN 40) is the strongest "site up, hotspot broken" candidate**
+   — it has a live PPPoE uplink *and* zero hotspot sessions. Per Correction 6
+   this needs classifying before the anomaly detector is calibrated.
+6. Of Correction 6's eight empty VLANs, **five are also unnamed**
+   (85, 90, 105, 110, 115) — consistent with "provisioned but not yet live".
+   Confirm that reading.
+
+#### Still needed before 4.1 can be verified end-to-end
+
+- The seven unmapped VLANs (75, 80, 85, 90, 105, 110, 115).
+- `ap_ip` for any site whose liveness must be `ping` rather than `pppoe`.
+- `quiet_hours` per site — nothing is known yet for any row.
 - Whether `hotspot1` / `hotspot-bridge` is in scope or retired.
-- Which of the eight non-`_Hotspot` PPPoE names are sites versus home customers.
-- Whether every VLAN corresponds to a row that already exists in `locations`, or whether some sites must be created first.
 
-**Nothing in 4.1 onward can be verified without this table.** It is 21 rows and only you can write it.
+**4.1's schema can be written now** — the mapping is `monitored_sites` *data*,
+not structure, and the gaps above are rows left unseeded rather than columns
+left undesigned.
 
 ---
 
@@ -357,7 +468,7 @@ Attribute to a site by the user's address subnet where the user is currently act
 Because this is a *sales* measure, it should reconcile against M-Pesa. Split this into two pieces so the system side costs nothing regardless of how the M-Pesa side turns out:
 
 - **Automatic, always:** an Ops-side scheduled job logs that day's `revenue_events` total per site every day, no human involved. This alone costs nothing and should just always run.
-- **Comparison against M-Pesa, frequency TBD by 4.0b:** if M-Pesa data is pullable programmatically, do this comparison daily too — it's then free, and same-day mismatches are cheaper to debug than week-old ones. If it's a manual statement check, don't force it to daily; let Ops pick a cadence (could stay weekly) without changing the system side. Either way, a single day's gap alone isn't a bug — settlement timing can shift a sale across the midnight boundary — only a gap that repeats across the compared period is.
+- **Comparison against M-Pesa: MANUAL** (settled by 4.0b, 2026-09-21 — M-Pesa data cannot be pulled programmatically). So do **not** force this to daily; Ops picks the cadence (weekly is the working default, **still to be confirmed**) and the system side does not change either way. Ops-side job: present the stored daily totals for the chosen period so a human comparing a statement has one screen to read, rather than reconstructing days by hand. Either way, a single day's gap alone isn't a bug — settlement timing can shift a sale across the midnight boundary — only a gap that repeats across the compared period is.
 
 #### 4.8 — Alerting + external watchdog
 
@@ -401,11 +512,12 @@ Deferred by Correction 4 — the operational case for 6s over 60s is weak, and t
 
 **Not** a config re-import — that drops every session and risks a state matching neither old nor new. Keep the export for "the router is bricked" only.
 
-Phase 4 as scoped touches the router in only three places, each reversed by one command:
+Phase 4 as scoped touches the router in only two places, each reversed by one
+command (the timezone fix is no longer among them — see Correction 5's
+2026-09-21 decision):
 
 | Change | Rollback |
 |---|---|
-| Timezone fix (Correction 5) | `/system clock set time-zone-autodetect=yes` |
 | 4.3 heartbeat scheduler | `/system scheduler disable [find name="ops-heartbeat"]` |
 | 4.6 netwatch probes | `/tool netwatch disable [find comment~"ops-monitor"]` |
 | 4.10 (if ever done) | clear the two PPP profile fields |
@@ -427,7 +539,12 @@ Extending DELEGATION.md's rule that an agent shows each command before running i
 ### Exit criteria
 
 1. 4.0c mapping table complete — all 21 VLANs mapped, with the eight empty VLANs and the eight ambiguous PPPoE names classified.
-2. Router timezone reads `Africa/Nairobi` with autodetect off.
+2. Router clock is left untouched (still `Indian/Mauritius`), and Ops
+   normalizes correctly: a reading taken at a known wall-clock instant
+   stores a `router_ts` an hour ahead, a `received_at` matching wall clock,
+   and a normalized UTC value derived from the *transmitted* `gmt-offset`
+   rather than a hardcoded constant — verified by temporarily faking the
+   offset in a test payload and seeing the normalized value follow it.
 3. All mapped sites reporting via heartbeat for 7 consecutive days with no gap longer than the staleness window.
 4. Dropping every monitoring table leaves Phases 0–3 green.
 5. A user without `sites/view_revenue` receives responses containing **no revenue field** — verified by reading the raw response, not the UI.
