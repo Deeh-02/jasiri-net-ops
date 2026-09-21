@@ -224,6 +224,54 @@ def create_site(body: SiteCreate, current_user: dict = Depends(require_manage_ac
     return {"id": site_id}
 
 
+# ---- Packages (the price list) ----
+# Gated on manage_monitoring, not view_revenue: this screen EDITS what every
+# future sale is worth, which is a heavier thing than reading a total.
+
+
+class PackageCreate(BaseModel):
+    profile_name: str
+    price_kes: float = 0
+    is_comped: bool = False
+    notes: Optional[str] = None
+
+
+class PackageUpdate(BaseModel):
+    price_kes: Optional[float] = None
+    is_comped: Optional[bool] = None
+    is_active: Optional[bool] = None
+    notes: Optional[str] = None
+
+
+@router.get("/monitoring/packages")
+def packages(current_user: dict = Depends(require_manage_access)):
+    return db.list_packages()
+
+
+@router.post("/monitoring/packages")
+def create_package(body: PackageCreate, current_user: dict = Depends(require_manage_access)):
+    fields = {k: _clean(v) for k, v in body.model_dump().items()}
+    if not fields.get("profile_name"):
+        raise HTTPException(status_code=400, detail="A package needs its profile name")
+    if fields.get("price_kes") is not None and fields["price_kes"] < 0:
+        raise HTTPException(status_code=400, detail="A price cannot be negative")
+    try:
+        package_id = db.create_package(fields)
+    except db.SiteConflict as err:
+        raise HTTPException(status_code=409, detail=str(err))
+    return {"id": package_id}
+
+
+@router.patch("/monitoring/packages/{package_id}")
+def update_package(package_id: int, body: PackageUpdate, current_user: dict = Depends(require_manage_access)):
+    fields = {k: _clean(v) for k, v in body.model_dump(exclude_unset=True).items()}
+    if fields.get("price_kes") is not None and fields["price_kes"] < 0:
+        raise HTTPException(status_code=400, detail="A price cannot be negative")
+    if not db.update_package(package_id, fields):
+        raise HTTPException(status_code=404, detail="Package not found")
+    return {"ok": True}
+
+
 @router.patch("/monitoring/sites/{site_id}")
 def update_site(site_id: int, body: SiteUpdate, current_user: dict = Depends(require_manage_access)):
     # exclude_unset: only what the caller actually sent, so a PATCH that

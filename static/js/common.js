@@ -73,6 +73,9 @@ const ROUTE_PERMISSION_MAP = {
     "check-sites": ["site_checks", "view"],
     status: ["sites", "view_status"],
     "manage-sites": ["sites", "manage_monitoring"],
+    // Same gate as Manage Sites: this screen sets what every future sale is
+    // worth, which is a heavier permission than reading a revenue total.
+    packages: ["sites", "manage_monitoring"],
     // Independently gated from the Inventory master permission (below) —
     // "Inventory Items" and "Stock" are each their own toggle in roles.js's
     // permissions panel now, controlling access to these two routes
@@ -597,7 +600,7 @@ function renderCmdkResults(query) {
 // ---- Fragment loader: fetches every view's HTML and injects it into its
 // mount point. Loaded eagerly, all at once, at startup — the app is small
 // enough that lazy-per-nav loading isn't worth the added state-tracking. ----
-const VIEW_NAMES = ["dashboard", "sites", "movements", "check-sites", "status", "manage-sites", "users", "roles", "settings", "inventory", "stock", "inventory-log", "issue-materials", "return-materials", "inventory-reports", "inventory-manage"];
+const VIEW_NAMES = ["dashboard", "sites", "movements", "check-sites", "status", "manage-sites", "packages", "users", "roles", "settings", "inventory", "stock", "inventory-log", "issue-materials", "return-materials", "inventory-reports", "inventory-manage"];
 
 export async function loadViewFragments() {
     await Promise.all(VIEW_NAMES.map(async (name) => {

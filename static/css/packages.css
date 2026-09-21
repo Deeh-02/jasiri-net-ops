@@ -1,0 +1,84 @@
+/* ---- Hotspot Packages: the price list. Everything else in monitoring is
+   OBSERVED — this is the one table a person has to keep true, so the screen
+   is built around the two ways it silently goes stale: a package the router
+   sells that is missing here, and a price that no longer agrees with the
+   name the vendor gave it. ---- */
+
+.pkg-lede {
+    font-size: 13px;
+    color: var(--text-dim);
+    max-width: 62ch;
+    margin: -8px 0 22px;
+    line-height: 1.6;
+}
+
+.pkg-lede em { color: var(--text); font-style: normal; font-weight: 600; }
+
+.pkg-price {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    font-weight: 500;
+}
+
+/* Comped is not "KES 0" — a zero reads as a mistake, a word reads as a
+   decision. */
+.pkg-comped {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-dim);
+}
+
+.pkg-sold {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+}
+
+/* Orange, not red: the stored price is not provably wrong, it just no longer
+   matches what the vendor's own name claims. Someone should look. */
+.pkg-mismatch {
+    display: inline-block;
+    margin-left: 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    padding: 3px 7px;
+    border-radius: 4px;
+    color: var(--warn);
+    background: rgba(245, 166, 35, 0.12);
+    white-space: nowrap;
+}
+
+.pkg-edit-name {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 14px;
+    font-weight: 500;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface-2);
+    color: var(--text-dim);
+    margin-bottom: 4px;
+}
+
+.pkg-field-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-dim);
+    margin-bottom: -4px;
+}
+
+.pkg-check {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+    color: var(--text);
+    cursor: pointer;
+}
+
+.pkg-check input { width: auto; margin: 0; cursor: pointer; }

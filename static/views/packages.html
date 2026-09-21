@@ -1,0 +1,67 @@
+    <section class="view" id="view-packages" hidden>
+        <div class="page-header-row">
+            <h1 class="page-title">Hotspot <span>Packages</span></h1>
+            <div class="status-header-side">
+                <button type="button" id="pkg-back-btn" class="header-sub-link">Manage sites</button>
+            </div>
+        </div>
+
+        <p class="pkg-lede">
+            The router says <em>which</em> package someone bought. What it is worth is only known here.
+            A package missing from this list is counted as free.
+        </p>
+
+        <!-- Collapses to nothing when every sold profile is priced. -->
+        <div class="inbox-block" id="pkg-unpriced-block" hidden>
+            <div class="inbox-head">
+                <h2 class="inbox-title">Sold, but not priced</h2>
+                <p class="inbox-note">Ops has no price for these, so every one of these sales was recorded as KES 0.</p>
+            </div>
+            <div class="inbox-items" id="pkg-unpriced-items"></div>
+        </div>
+
+        <div class="table-scroll">
+            <table id="pkg-table">
+                <thead>
+                    <tr>
+                        <th class="col-frozen">Package</th>
+                        <th>Price</th>
+                        <th>Sold since Ops started</th>
+                        <th>Last seen</th>
+                        <th>On sale</th>
+                        <th>Manage</th>
+                    </tr>
+                </thead>
+                <tbody id="pkg-rows"></tbody>
+            </table>
+        </div>
+    </section>
+
+    <div class="modal-overlay" id="pkg-edit-overlay" hidden>
+        <div class="modal-box">
+            <h3 id="pkg-edit-title">Edit Package</h3>
+            <form id="pkg-edit-form" class="panel-form">
+                <div class="pkg-edit-name" id="pkg-edit-name"></div>
+
+                <label class="pkg-field-label" for="pkg-edit-price">Price in KES</label>
+                <input type="number" id="pkg-edit-price" min="0" step="1" placeholder="e.g. 30" required>
+
+                <!-- A hint, not a default: the name is the vendor's, and a
+                     comped package whose name ends in a number is fine. -->
+                <p class="form-hint" id="pkg-edit-hint" hidden></p>
+
+                <label class="pkg-check">
+                    <input type="checkbox" id="pkg-edit-comped">
+                    <span>Given away free (staff, testing, support)</span>
+                </label>
+
+                <input type="text" id="pkg-edit-notes" placeholder="Notes (optional)">
+
+                <div class="modal-actions">
+                    <button type="button" id="pkg-edit-cancel" class="btn-secondary">Cancel</button>
+                    <button type="submit" class="btn-primary">Save</button>
+                </div>
+            </form>
+            <div class="form-msg" id="pkg-edit-msg"></div>
+        </div>
+    </div>

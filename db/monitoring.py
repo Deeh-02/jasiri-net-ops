@@ -1,5 +1,6 @@
 import hashlib
 import json
+import re
 from datetime import datetime, timedelta, timezone
 import psycopg2
 from psycopg2.extras import Json
@@ -621,3 +622,123 @@ def list_linkable_locations():
     with db_cursor() as (conn, cur):
         cur.execute("SELECT id, name FROM locations ORDER BY name")
         return [{"id": r[0], "name": r[1]} for r in cur.fetchall()]
+
+
+# ---- Packages ----
+# The price list is the one piece of revenue that Ops cannot observe. The
+# router reports WHICH package was sold; what it is worth lives only here, and
+# only because a person typed it. Both ways that can silently go wrong — a
+# profile Ops has never heard of, and a price that no longer matches what
+# billing charges — are surfaced by list_packages() rather than left to be
+# noticed in a total that looks a bit low.
+
+
+def _price_from_name(profile_name):
+    """The price the profile NAME claims: 'Quick Surf10' -> 10, '3day pass70'
+    -> 70. None where the name ends in no digits ('default', 'hp support
+    users') — that is a name that says nothing about price, not a conflict.
+    Only ever compared against the stored price, never used as one: the
+    vendor owns these names and could stop encoding prices in them tomorrow."""
+    match = re.search(r"(\d+)$", profile_name or "")
+    return int(match.group(1)) if match else None
+
+
+def list_packages():
+    """Every package Ops can price, plus every profile the router has actually
+    reported that Ops has NO row for. That second list is the point of this
+    screen: an unpriced profile is recorded at 0 and quarantined under a
+    reason the sites inbox deliberately ignores, so without this it is
+    invisible — real sales, counted as free, with no warning anywhere."""
+    with db_cursor() as (conn, cur):
+        cur.execute(
+            """
+            SELECT hp.id, hp.profile_name, hp.price_kes, hp.is_comped, hp.is_active, hp.notes,
+                   COALESCE(u.sold, 0), u.last_seen_at
+            FROM hotspot_packages hp
+            LEFT JOIN (
+                SELECT profile_name,
+                       count(*) FILTER (WHERE event_type <> 'baseline') AS sold,
+                       max(first_seen_at) AS last_seen_at
+                FROM revenue_events GROUP BY profile_name
+            ) u ON u.profile_name = hp.profile_name
+            ORDER BY hp.is_active DESC, hp.price_kes DESC, hp.profile_name
+            """
+        )
+        packages = []
+        for r in cur.fetchall():
+            price = float(r[2] or 0)
+            claimed = _price_from_name(r[1])
+            packages.append({
+                "id": r[0], "profile_name": r[1], "price_kes": price,
+                "is_comped": r[3], "is_active": r[4], "notes": r[5],
+                "sold": r[6], "last_seen_at": utc_iso(r[7]),
+                # Shown as a question, never auto-applied — a comped package
+                # priced 0 whose name ends in a number is a legitimate state.
+                "name_price_kes": claimed,
+                "price_disagrees": claimed is not None and not r[3] and claimed != price,
+            })
+
+        # Straight from what was actually recorded, not from the quarantine:
+        # revenue_events.profile_name is stored exactly as the router said it,
+        # so this catches a rename the moment the first sale lands.
+        cur.execute(
+            """
+            SELECT re.profile_name, count(*), max(re.first_seen_at)
+            FROM revenue_events re
+            WHERE NOT EXISTS (SELECT 1 FROM hotspot_packages hp WHERE hp.profile_name = re.profile_name)
+            GROUP BY re.profile_name
+            ORDER BY max(re.first_seen_at) DESC
+            """
+        )
+        unpriced = [
+            {"profile_name": r[0], "seen": r[1], "last_seen_at": utc_iso(r[2]),
+             "name_price_kes": _price_from_name(r[0])}
+            for r in cur.fetchall()
+        ]
+    return {"packages": packages, "unpriced": unpriced}
+
+
+_PACKAGE_EDITABLE = ("price_kes", "is_comped", "is_active", "notes")
+
+
+def create_package(fields):
+    """Prices a profile Ops has not seen before. Does NOT retro-price the
+    sales already recorded at 0 under that name: revenue_events.price_kes is
+    a snapshot of the price at the time of sale (see migration 0006), and
+    rewriting history from a later edit is exactly what that snapshot exists
+    to prevent. The fix for those rows is a decision, not a side effect."""
+    with db_cursor() as (conn, cur):
+        try:
+            cur.execute(
+                """
+                INSERT INTO hotspot_packages (profile_name, price_kes, is_comped, notes)
+                VALUES (%s, %s, %s, %s) RETURNING id
+                """,
+                (fields["profile_name"], fields.get("price_kes") or 0,
+                 bool(fields.get("is_comped")), fields.get("notes")),
+            )
+        except psycopg2.errors.UniqueViolation:
+            conn.rollback()
+            raise SiteConflict("A package with that profile name already exists")
+        package_id = cur.fetchone()[0]
+        conn.commit()
+    return package_id
+
+
+def update_package(package_id, fields):
+    """Applies only the whitelisted fields present. Returns False if the
+    package does not exist. profile_name is deliberately NOT editable: it is
+    the join key to what the router reports, and renaming it here would
+    orphan the history rather than move it."""
+    changes = {k: v for k, v in fields.items() if k in _PACKAGE_EDITABLE}
+    if not changes:
+        return True
+    assignments = ", ".join(f"{col} = %s" for col in changes)
+    with db_cursor() as (conn, cur):
+        cur.execute(
+            f"UPDATE hotspot_packages SET {assignments} WHERE id = %s",
+            (*changes.values(), package_id),
+        )
+        found = cur.rowcount > 0
+        conn.commit()
+    return found
