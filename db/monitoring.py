@@ -5,9 +5,15 @@ import psycopg2
 from psycopg2.extras import Json
 from db.connection import db_cursor, utc_iso, now_eat
 
-# site_session_counts is written at most once per site per this window, even
-# though the router posts every 60s — see 0006's header for why.
-SESSION_COUNT_INTERVAL = timedelta(minutes=5)
+# site_session_counts is written at most once per site per this window. It was
+# 5 minutes (0006's header explains the storage reasoning), but that left the
+# Status headcount up to 5 minutes behind the router — visibly wrong when
+# compared with Winbox. The hotspot is itself 1-2 minutes stale
+# (keepalive-timeout=2m), so once per heartbeat is as fresh as the number can
+# honestly be. 50s rather than 60s: heartbeats jitter, and a run landing at
+# 59s would otherwise be skipped and alternate the gap to 2 minutes.
+# The extra rows are paid for by SESSION_RAW_KEEP in monitoring_retention.py.
+SESSION_COUNT_INTERVAL = timedelta(seconds=50)
 
 # A retried POST is recognised by its payload hash, but only against recent
 # snapshots — keeps the lookup on the received_at index instead of the table.

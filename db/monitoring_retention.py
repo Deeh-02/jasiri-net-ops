@@ -9,7 +9,10 @@ log = logging.getLogger(__name__)
 # Free-tier retention — see the RETENTION note in migrations/0006. Raw rows
 # older than these are folded into one 'hourly' row per hour and then deleted.
 SNAPSHOT_RAW_KEEP = timedelta(days=30)
-SESSION_RAW_KEEP = timedelta(days=14)
+# Per-minute rows: ~30k/day across 21 sites, so 7 days is ~210k rows (~30 MB).
+# Was 14 days when rows arrived every 5 minutes. Older data survives as hourly
+# averages, which is all the graphs beyond a week need.
+SESSION_RAW_KEEP = timedelta(days=7)
 
 # The job is cheap and idempotent, so this only stops it running on every
 # 60s heartbeat.
