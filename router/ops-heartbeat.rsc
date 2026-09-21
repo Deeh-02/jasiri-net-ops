@@ -111,25 +111,29 @@
 :if ($dryRun) do={
     :put $payload
 } else={
-    # Never let a failed POST block or throw. output=none keep-result=no stops
-    # a file being written every 60s (flash wear); check-certificate=yes keeps
+    # Never let a failed POST block or throw. output=none discards the response
+    # so no file is written every 60s (flash wear); check-certificate=yes keeps
     # the shared secret from being interceptable — it needs a CA store, see
     # step 1 of INSTALL.
-    :local err ""
+    #
+    # keep-result=no is NOT passed: on 7.24.2 the pair output=none keep-result=no
+    # is rejected outright with "please use 'output' option", and the POST never
+    # goes out. output=none alone already suppresses the file.
+    #
+    # Both branches only touch the GLOBAL fail counter and log from inside the
+    # handler. An earlier version set a :local from the do= block and read it
+    # after; the block is its own scope, the write did not reach the outer
+    # variable, and every failure was recorded as a success — silently.
     :onerror e in={
-        /tool fetch url=$ingestUrl http-method=post http-header-field=("Content-Type: application/json,X-Ingest-Token: " . $ingestToken) http-data=$payload output=none keep-result=no check-certificate=yes
-    } do={
-        :set err $e
-    }
-    :if ($err = "") do={
+        /tool fetch url=$ingestUrl http-method=post http-header-field=("Content-Type: application/json,X-Ingest-Token: " . $ingestToken) http-data=$payload output=none check-certificate=yes
         :set opsHeartbeatFails 0
-    } else={
+    } do={
         # Swallowing the error entirely makes a heartbeat that never arrives
         # impossible to diagnose; one line a minute makes the log useless.
         # Log the first failure, then roughly hourly while it persists.
         :set opsHeartbeatFails ($opsHeartbeatFails + 1)
         :if ($opsHeartbeatFails = 1 || $opsHeartbeatFails = 60) do={
-            :log warning ("ops-heartbeat: POST failed: " . $err)
+            :log warning ("ops-heartbeat: POST failed: " . $e)
             :if ($opsHeartbeatFails = 60) do={ :set opsHeartbeatFails 1 }
         }
     }
@@ -145,8 +149,11 @@
 #          /tool fetch url="https://curl.se/ca/cacert.pem" mode=https check-certificate=no
 #          /certificate import file-name=cacert.pem passphrase=""
 #      Then confirm TLS to Ops works AND shows its result (not silenced):
-#          /tool fetch url="https://YOUR-APP.onrender.com/monitoring/ingest" http-method=post http-data="{}" output=none keep-result=no check-certificate=yes
+#          /tool fetch url="https://YOUR-APP.onrender.com/monitoring/ingest" http-method=post http-header-field="Content-Type: application/json,X-Ingest-Token: test" http-data="{}" output=user check-certificate=yes
 #      A 401 here is the SUCCESS case — it means TLS verified and Ops answered.
+#      (On 7.24.2 that 401 surfaces as "ERROR parsing http: 401 should contain
+#       www-authenticate header" — still a success: Ops replied.) Omitting the
+#      Content-Type header makes this POST hang instead: "timeout waiting data".
 #      "certificate verification failed" means step 1 is not done.
 #
 #   2. Paste the script. Do NOT use `/system script add source="..."` from the
@@ -173,3 +180,4 @@
 #
 # Not done here on purpose: /ip hotspot user reads for revenue belong to 4.7,
 # and Ops does not parse them yet.
+
