@@ -14,7 +14,8 @@
 #   {"seq":N,"router_ts":"YYYY-MM-DD HH:MM:SS","gmt_offset":"14400",
 #    "sites":[{"vlan_id":35,"sessions":12},...],"pppoe":["user",...]}
 #
-# Every $usersEvery-th run also carries the two revenue keys:
+# Whenever the router's clock minute is a multiple of $usersEvery, the run also
+# carries the two revenue keys:
 #   "users":[{"n":"254716855331-1:FA","p":"Quick Surf10","e":"2026-09-21 17:00:08"},...]
 #   "active":[{"v":35,"n":"254716855331-1:FA"},...]
 # "users" is the whole hotspot user list (340 accounts, ~20 KB) — it is NOT
@@ -42,9 +43,10 @@
 # commas, so a comma inside the value would split the header.
 :local ingestToken "PASTE-MONITORING_INGEST_TOKEN-HERE"
 :local subnetPrefix "10.50"
-# Send the hotspot user list on every Nth run (5 = every 5 minutes). Revenue
-# resolution, nothing more: a sale seen 4 minutes late is still the same sale
-# on the same day. Set to 1 only if you want to pay 20 KB a minute for it.
+# Send the hotspot user list when the clock minute is a multiple of this (5 =
+# at :00, :05, :10 ...). Revenue resolution, nothing more: a sale seen 4
+# minutes late is still the same sale on the same day. Set to 1 only if you
+# want to pay 20 KB a minute for it. Use a number that divides 60.
 :local usersEvery 5
 # /tool fetch refuses http-data near 64 KB. Above this size the users list is
 # left out of that run rather than risking the whole heartbeat. 340 users is
@@ -90,7 +92,11 @@
 # Sessions per VLAN: count active hotspot users by the third octet of their
 # address. Users on the hotspot1 bridge (192.168.180.0/22) do not match the
 # prefix and are skipped, which is intended — it is not a VLAN site.
-:local sendUsers (($opsHeartbeatSeq % $usersEvery) = 0)
+# Decided by the clock, NOT by $opsHeartbeatSeq: RouterOS did not keep that
+# global between scheduled runs (seq reached Ops as 1 every time), so a
+# run-count test never came true and the list stopped being sent.
+:local minute (([:tonum [:pick $routerTs 14 15]] * 10) + [:tonum [:pick $routerTs 15 16]])
+:local sendUsers (($minute % $usersEvery) = 0)
 :local counts [:toarray ""]
 :local activeJson ""
 :local prefixLen [:len $subnetPrefix]
@@ -258,9 +264,9 @@
 #   body in System > Scripts > ops-heartbeat, keeping the same name so the
 #   scheduler still finds it, and keep your ingestUrl/ingestToken values.
 #
-#   Set dryRun true for one run first. seq is a running counter, so to see a
-#   users payload either run it up to $usersEvery times or set usersEvery to
-#   1 for the test. Check before sending:
+#   Set dryRun true for one run first. The users payload only appears when the
+#   clock minute is a multiple of $usersEvery, so run it then, or set
+#   usersEvery to 1 for the test (and back to 5 after). Check before sending:
 #     - "users" holds ~340 entries, each with a non-empty "e"
 #     - "active" entries carry the VLAN the user is really on
 #     - the whole payload is well under 64 KB (:put [:len $payload])
