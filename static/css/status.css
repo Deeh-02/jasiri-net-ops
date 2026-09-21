@@ -80,41 +80,28 @@
     margin-top: 8px;
 }
 
-/* State counts live here rather than in a row of stat cards: as cards they
-   were the hero's own sentence restated as numerals, half of them zero. */
-.status-hero-chips {
+/* Activity readouts, opposite the sentence. These count PEOPLE; the cards
+   below count SITES — so the two never restate each other. */
+.status-hero-side {
     display: flex;
     align-items: center;
-    gap: 8px;
-    flex-wrap: wrap;
+    gap: 28px;
 }
 
-.status-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
+.status-readout-label {
     font-family: 'JetBrains Mono', monospace;
     font-size: 11px;
     text-transform: uppercase;
-    letter-spacing: 0.03em;
-    padding: 6px 10px;
-    border-radius: 6px;
-    white-space: nowrap;
+    letter-spacing: 0.06em;
+    color: var(--text-dim);
+    margin-bottom: 6px;
 }
 
-.status-chip b {
+.status-readout-value {
     font-family: 'Space Grotesk', sans-serif;
-    font-size: 17px;
+    font-size: 22px;
     font-weight: 700;
-    letter-spacing: 0;
 }
-
-/* Same four colour variants as the pills, so a chip and a pill for the same
-   state never disagree. */
-.status-chip.st-online   { color: var(--accent);   background: rgba(61, 220, 151, 0.12); }
-.status-chip.st-offline  { color: var(--danger);   background: rgba(239, 91, 91, 0.14); }
-.status-chip.st-flapping { color: var(--warn);     background: rgba(245, 166, 35, 0.12); }
-.status-chip.st-unknown  { color: var(--text-dim); background: rgba(139, 150, 165, 0.10); }
 
 /* ---- Exception-first: problem cards sit ABOVE the fleet totals, and the
    whole block collapses to nothing on a calm day (:empty) rather than
@@ -190,10 +177,6 @@
        from inheriting the pill's uppercase letter-spacing gap. */
     letter-spacing: 0;
 }
-
-/* The shared .stat-grid is built for the five counters the other views
-   have; this page runs four. */
-#status-totals { grid-template-columns: repeat(4, 1fr); }
 
 /* A stat value that is a name or a phrase rather than a count cannot carry
    the 28px numeral size without wrapping the card. */
@@ -281,9 +264,9 @@
 
     .status-hero { gap: 14px; }
 
-    .status-chip { padding: 5px 8px; }
+    .status-hero-side { gap: 20px; }
 
-    .status-chip b { font-size: 15px; }
+    .status-readout-value { font-size: 18px; }
 
     .status-problems {
         grid-template-columns: 1fr;

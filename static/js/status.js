@@ -62,11 +62,11 @@ function heroSentence(counts, stale) {
     return "All sites up";
 }
 
-function stateChip(state, count) {
-    const i = info(state);
-    return `<span class="status-chip ${i.cls}">
-        <span class="st-shape" aria-hidden="true">${i.shape}</span>
-        <b>${count}</b>${i.label}</span>`;
+function readout(label, value) {
+    return `<div class="status-readout">
+        <div class="status-readout-label">${esc(label)}</div>
+        <div class="status-readout-value">${esc(value)}</div>
+    </div>`;
 }
 
 function renderHero(data, stale) {
@@ -75,24 +75,26 @@ function renderHero(data, stale) {
 
     hero.className = "status-hero" + (stale ? " is-stale" : hasProblem ? " has-problem" : "");
 
-    // Only states that actually occur get a chip — a row of zeros is four
-    // things to read and none of them are news.
-    const chips = ["offline", "flapping", "unknown", "online"]
-        .filter(state => data.counts[state])
-        .map(state => stateChip(state, data.counts[state]))
-        .join("");
-
     const people = data.sites.reduce((sum, site) => sum + (site.sessions || 0), 0);
-    const detail = stale
+    const busiest = data.sites.reduce(
+        (best, site) => ((site.sessions || 0) > (best.sessions || 0) ? site : best),
+        { sessions: 0, name: "\u2013" });
+
+    const sub = stale
         ? "The last report is too old to trust \u2014 these numbers may have moved"
-        : `${plural(people, "person")} online right now`;
+        : `Router reported ${ago(data.last_ingest_at)}`;
+
+    // The right-hand side carries what the cards below do NOT: the cards
+    // count sites, these count people.
+    const readouts = readout("People online", people)
+        + readout("Busiest site", busiest.sessions ? `${busiest.name} (${busiest.sessions})` : "\u2013");
 
     hero.innerHTML = `
         <div class="status-hero-main">
             <div class="status-hero-line">${esc(heroSentence(data.counts, stale))}</div>
-            <div class="status-hero-sub">${esc(detail)} &middot; router reported ${esc(ago(data.last_ingest_at))}</div>
+            <div class="status-hero-sub">${esc(sub)}</div>
         </div>
-        <div class="status-hero-chips">${chips}</div>`;
+        <div class="status-hero-side">${readouts}</div>`;
 }
 
 function renderProblems(sites) {
@@ -108,24 +110,16 @@ function renderProblems(sites) {
         </div>`).join("");
 }
 
-/* The hero already carries the state counts, so repeating them as cards
-   would be the same four numbers twice. These answer the other question an
-   operator has -- where are the people -- which nothing else on the page
-   says. */
+/* Five cards, same shape as the Dashboard's: the four states, then money.
+   Zeros are kept rather than hidden -- on this page a zero in Down is the
+   reassurance, and a card that comes and goes is one you stop trusting. */
 function renderTotals(data, canRevenue) {
-    const people = data.sites.reduce((sum, site) => sum + (site.sessions || 0), 0);
-    const busiest = data.sites.reduce(
-        (best, site) => ((site.sessions || 0) > (best.sessions || 0) ? site : best),
-        { sessions: 0, name: "\u2013" });
-    const quiet = data.sites.filter(site => !site.sessions).length;
-
+    const c = data.counts;
     const cards = [
-        { label: "People online", value: people, cls: "charged" },
-        { label: "Busiest site", value: busiest.sessions ? `${busiest.name} (${busiest.sessions})` : "\u2013", cls: "", small: true },
-        // Deliberately not coloured as a warning: a site with nobody on it is
-        // not known to be a fault (see the liveness rules -- empty reads as
-        // unknown, never down), so it must not look like one.
-        { label: "Nobody online", value: quiet, cls: "" },
+        { label: "Online", value: c.online || 0, cls: "charged" },
+        { label: "Down", value: c.offline || 0, cls: "low" },
+        { label: "Flapping", value: c.flapping || 0, cls: "deployed" },
+        { label: "Unknown", value: c.unknown || 0, cls: "unknown" },
         {
             label: "Revenue today",
             value: canRevenue ? money(data.revenue_today_kes) : "\uD83D\uDD12 Hidden",
