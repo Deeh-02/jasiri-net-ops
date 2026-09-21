@@ -71,6 +71,7 @@ const ROUTE_PERMISSION_MAP = {
     roles: ["roles", "view"],
     movements: ["movements", "view"],
     "check-sites": ["site_checks", "view"],
+    status: ["sites", "view_status"],
     // Independently gated from the Inventory master permission (below) —
     // "Inventory Items" and "Stock" are each their own toggle in roles.js's
     // permissions panel now, controlling access to these two routes
@@ -191,6 +192,9 @@ function applyPermissionVisibility() {
 
     const movementsLinkBtn = document.getElementById("movements-link-btn");
     if (movementsLinkBtn) movementsLinkBtn.hidden = !can("movements", "view");
+
+    const statusLinkBtn = document.getElementById("status-link-btn");
+    if (statusLinkBtn) statusLinkBtn.hidden = !can("sites", "view_status");
 
     const checkSitesLinkBtn = document.getElementById("check-sites-link-btn");
     if (checkSitesLinkBtn) checkSitesLinkBtn.hidden = !can("site_checks", "view");
@@ -589,7 +593,7 @@ function renderCmdkResults(query) {
 // ---- Fragment loader: fetches every view's HTML and injects it into its
 // mount point. Loaded eagerly, all at once, at startup — the app is small
 // enough that lazy-per-nav loading isn't worth the added state-tracking. ----
-const VIEW_NAMES = ["dashboard", "sites", "movements", "check-sites", "users", "roles", "settings", "inventory", "stock", "inventory-log", "issue-materials", "return-materials", "inventory-reports", "inventory-manage"];
+const VIEW_NAMES = ["dashboard", "sites", "movements", "check-sites", "status", "users", "roles", "settings", "inventory", "stock", "inventory-log", "issue-materials", "return-materials", "inventory-reports", "inventory-manage"];
 
 export async function loadViewFragments() {
     await Promise.all(VIEW_NAMES.map(async (name) => {

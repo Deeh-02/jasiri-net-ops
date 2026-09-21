@@ -1,0 +1,39 @@
+/* Network Status tab. State is always colour + shape + text. */
+.status-conn { font-size: 12px; color: var(--text-dim); }
+.status-conn.lost { color: var(--danger); font-weight: 600; }
+#view-status.dimmed .status-row, #view-status.dimmed .status-problem-card { opacity: .45; }
+
+.status-hero { margin: 8px 0 20px; }
+.status-hero-text { font-size: clamp(32px, 7vw, 56px); font-weight: 700; line-height: 1.1; color: var(--accent); }
+.status-hero.has-problem .status-hero-text { color: var(--danger); }
+.status-hero-sub { margin-top: 6px; font-size: 13px; color: var(--text-dim); }
+
+#status-problems { display: grid; gap: 10px; margin-bottom: 16px; }
+#status-problems:empty { display: none; }
+.status-problem-card {
+    background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--danger);
+    border-radius: 8px; padding: 12px 14px;
+}
+.status-problem-card.st-flapping { border-left-color: var(--warn); }
+.status-problem-name { font-size: 18px; font-weight: 600; margin-bottom: 6px; }
+.status-problem-meta { margin-top: 6px; font-size: 13px; color: var(--text-dim); }
+
+.st-badge { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; }
+.st-online .st-shape, .st-badge.st-online { color: var(--accent); }
+.st-flapping .st-shape, .st-badge.st-flapping { color: var(--warn); }
+.st-offline .st-shape, .st-badge.st-offline { color: var(--danger); }
+.st-unknown .st-shape, .st-badge.st-unknown { color: var(--text-dim); }
+
+.status-list { display: grid; gap: 1px; margin-top: 16px; }
+.status-row {
+    display: grid; grid-template-columns: 1fr auto auto auto; gap: 12px; align-items: center;
+    padding: 10px 12px; background: var(--surface); border-bottom: 1px solid var(--border);
+}
+.status-row-name { font-weight: 500; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.status-row-sessions, .st-revenue, .st-revenue-locked { font-size: 13px; color: var(--text-dim); }
+.st-revenue-locked { font-style: italic; }
+
+@media (max-width: 600px) {
+    .status-row { grid-template-columns: 1fr auto; }
+    .status-row-sessions, .status-row .st-revenue, .status-row .st-revenue-locked { display: none; }
+}
