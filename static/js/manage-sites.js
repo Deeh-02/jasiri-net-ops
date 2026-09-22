@@ -1,5 +1,5 @@
 import {
-    authHeaders, editIconSvg,
+    authHeaders, editIconSvg, viewIconSvg,
     showView, navigate, registerRoute,
 } from "./common.js";
 
@@ -155,13 +155,19 @@ function renderSites() {
                 </label>
             </td>
             <td>
-                <button type="button" class="edit-site-btn" data-id="${s.id}" title="Edit site">${editIconSvg()}</button>
+                <div class="site-row-actions">
+                    <button type="button" class="view-site-btn" data-id="${s.id}" title="View history">${viewIconSvg()}</button>
+                    <button type="button" class="edit-site-btn" data-id="${s.id}" title="Edit site">${editIconSvg()}</button>
+                </div>
             </td>
         </tr>`;
     }).join("");
 
     tbody.querySelectorAll(".edit-site-btn").forEach(btn => {
         btn.addEventListener("click", () => navigate(`manage-sites/${btn.dataset.id}/edit`));
+    });
+    tbody.querySelectorAll(".view-site-btn").forEach(btn => {
+        btn.addEventListener("click", () => navigate(`site-detail/${btn.dataset.id}`));
     });
     tbody.querySelectorAll(".site-active-toggle").forEach(box => {
         box.addEventListener("change", () => toggleActive(box));

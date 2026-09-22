@@ -127,6 +127,7 @@
     border-left: 3px solid var(--danger);
     border-radius: 10px;
     padding: 16px 18px;
+    cursor: pointer;
     transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 
@@ -226,6 +227,8 @@
 
 .status-row-down .status-load-fill,
 .status-row-flapping .status-load-fill { background: var(--text-dim); }
+
+.status-row-clickable { cursor: pointer; }
 
 .status-since,
 .status-revenue {

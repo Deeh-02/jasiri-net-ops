@@ -160,6 +160,12 @@
 .site-row-off td { opacity: 0.5; }
 .site-row-off td:first-child { border-left: 3px solid var(--border); padding-left: 13px; }
 
+.site-row-actions {
+    display: flex;
+    gap: 6px;
+}
+
+.view-site-btn,
 .edit-site-btn {
     width: 30px;
     height: 32px;
@@ -174,6 +180,7 @@
     transition: border-color 0.15s ease, color 0.15s ease;
 }
 
+.view-site-btn:hover,
 .edit-site-btn:hover { border-color: var(--accent); color: var(--accent); }
 
 /* ---- On/off switch, same mechanics as the role permission toggle ---- */

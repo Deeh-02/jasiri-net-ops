@@ -1,0 +1,64 @@
+    <section class="view" id="view-site-detail" hidden>
+        <div class="page-header-row">
+            <div class="site-detail-heading">
+                <button type="button" class="header-sub-link" id="site-detail-back-btn">
+                    <span class="header-sub-link-icon">
+                        <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M10 13L5 8L10 3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </span>
+                    Status
+                </button>
+                <h1 class="page-title" id="site-detail-title">&nbsp;</h1>
+            </div>
+            <div class="site-detail-range" id="site-detail-range">
+                <button type="button" data-days="1">24h</button>
+                <button type="button" data-days="7">7d</button>
+                <button type="button" data-days="30">30d</button>
+            </div>
+        </div>
+
+        <div id="site-detail-body">
+            <div class="site-detail-summary" id="site-detail-summary"></div>
+
+            <div class="stat-grid" id="site-detail-stats"></div>
+
+            <div class="site-detail-grid">
+                <div class="site-detail-panel">
+                    <div class="site-detail-panel-title">Sessions online</div>
+                    <div class="site-detail-chart" id="site-detail-sessions-chart"></div>
+                </div>
+                <div class="site-detail-panel">
+                    <div class="site-detail-panel-title">Outages</div>
+                    <div id="site-detail-outages"></div>
+                </div>
+            </div>
+
+            <div class="site-detail-grid" id="site-detail-revenue-section" hidden>
+                <div class="site-detail-panel">
+                    <div class="site-detail-panel-title">Revenue per day</div>
+                    <div class="site-detail-chart" id="site-detail-revenue-chart"></div>
+                </div>
+                <div class="site-detail-panel">
+                    <div class="site-detail-panel-title">Recent sales</div>
+                    <div class="table-scroll">
+                        <table>
+                            <thead>
+                                <tr><th>User</th><th>Package</th><th>Price</th><th>Type</th><th>When</th></tr>
+                            </thead>
+                            <tbody id="site-detail-sales-rows"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div class="site-detail-panel">
+                <div class="site-detail-panel-title">Recent state changes</div>
+                <div id="site-detail-activity"></div>
+            </div>
+        </div>
+
+        <div class="site-detail-notfound" id="site-detail-notfound" hidden>
+            This site isn't there anymore, or the link is wrong.
+        </div>
+    </section>

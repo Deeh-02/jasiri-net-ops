@@ -489,9 +489,87 @@ def get_unplaced_revenue_today():
     return {"kes": float(row[0]), "sales": row[1]}
 
 
-def get_site_detail(site_id, include_revenue, history_limit=50, hours=24):
-    """One site's recent transitions and session counts, plus (only with
-    include_revenue) its latest revenue events. None if the id is unknown."""
+def _state_segments(cur, site_id, since, now):
+    """Walks site_status_log into contiguous (state, start, end) periods
+    covering [since, now]. Seeded with the transition immediately before
+    `since`, if any, so the segment touching the window's left edge carries
+    the state the site was actually in rather than starting from a false
+    "unknown" — site_status_log is transitions-only, so without a seed the
+    window would open mid-state with no way to say which one."""
+    cur.execute(
+        """
+        SELECT state, received_at FROM site_status_log
+        WHERE monitored_site_id = %s AND received_at <= %s
+        ORDER BY received_at DESC, id DESC LIMIT 1
+        """,
+        (site_id, since),
+    )
+    seed = cur.fetchone()
+    cur.execute(
+        """
+        SELECT state, received_at FROM site_status_log
+        WHERE monitored_site_id = %s AND received_at > %s
+        ORDER BY received_at ASC, id ASC
+        """,
+        (site_id, since),
+    )
+    rows = cur.fetchall()
+
+    segments = []
+    if seed is not None:
+        state, start = seed[0], since
+    elif rows:
+        # No transition before the window at all — the site's first-ever
+        # known state falls inside it. The stretch before that is genuinely
+        # unrecorded, not "unknown" in the derived-state sense, so it is
+        # left out of coverage rather than guessed at.
+        state, start = rows[0][0], rows[0][1]
+        rows = rows[1:]
+    else:
+        return []  # No data in or before the window at all.
+
+    for next_state, at in rows:
+        segments.append({"state": state, "start": start, "end": at})
+        state, start = next_state, at
+    segments.append({"state": state, "start": start, "end": now})
+    return segments
+
+
+def _uptime_summary(segments, liveness_source):
+    """Uptime% only means something where "offline" is a real signal —
+    liveness_source == 'activity' can only ever report online/unknown, so a
+    site on that source would show a meaningless 100%. Outages are always
+    returned (empty for a non-pppoe site is itself the honest answer)."""
+    outages = []
+    online_s = offline_s = 0.0
+    for seg in segments:
+        length = (seg["end"] - seg["start"]).total_seconds()
+        if seg["state"] == "online":
+            online_s += length
+        elif seg["state"] == "offline":
+            offline_s += length
+            outages.append({
+                "start": utc_iso(seg["start"]),
+                "end": None if seg is segments[-1] and seg["state"] == "offline" else utc_iso(seg["end"]),
+                "duration_seconds": int(length),
+                "ongoing": seg is segments[-1] and seg["state"] == "offline",
+            })
+    outages.reverse()  # most recent first
+    known = online_s + offline_s
+    uptime_pct = None
+    if liveness_source == "pppoe" and known > 0:
+        uptime_pct = round(online_s / known * 100, 2)
+    return uptime_pct, int(offline_s), outages
+
+
+def get_site_detail(site_id, include_revenue, days=7):
+    """One site's status history, session counts and (only with
+    include_revenue) revenue, all over a trailing `days` window. None if the
+    id is unknown. See phase.md 4.0: "is this site up, how many devices are
+    on it, what has its uptime been, and what did it earn" — this endpoint
+    is that question asked of one site."""
+    now = datetime.utcnow()
+    since = now - timedelta(days=days)
     with db_cursor() as (conn, cur):
         cur.execute(
             """
@@ -505,45 +583,90 @@ def get_site_detail(site_id, include_revenue, history_limit=50, hours=24):
         head = cur.fetchone()
         if head is None:
             return None
+
+        segments = _state_segments(cur, site_id, since, now)
+        uptime_pct, downtime_seconds, outages = _uptime_summary(segments, head[4])
+        state = segments[-1]["state"] if segments else "unknown"
+        state_since = utc_iso(segments[-1]["start"]) if segments else None
+
         cur.execute(
             """
             SELECT state, source, received_at FROM site_status_log
-            WHERE monitored_site_id = %s ORDER BY received_at DESC, id DESC LIMIT %s
+            WHERE monitored_site_id = %s AND received_at > %s
+            ORDER BY received_at DESC, id DESC LIMIT 200
             """,
-            (site_id, history_limit),
+            (site_id, since),
         )
         history = [{"state": r[0], "source": r[1], "at": utc_iso(r[2])} for r in cur.fetchall()]
+
         cur.execute(
             """
             SELECT sessions, received_at FROM site_session_counts
-            WHERE monitored_site_id = %s AND received_at > now() - %s
+            WHERE monitored_site_id = %s AND received_at > %s
             ORDER BY received_at
             """,
-            (site_id, timedelta(hours=hours)),
+            (site_id, since),
         )
         sessions = [{"sessions": r[0], "at": utc_iso(r[1])} for r in cur.fetchall()]
+
         events = None
+        revenue_daily = None
         if include_revenue:
+            # Whole EAT calendar days, not a rolling `since` — the sessions
+            # window above is deliberately a trailing 24h*days, but "revenue
+            # per day" means complete days, or the oldest bar in the chart
+            # would silently undercount its own partial day while the rest
+            # of the query still matched it. Reuses _eat_day_start_utc's
+            # math (today's EAT midnight in UTC) rather than duplicating it.
+            revenue_since = _eat_day_start_utc() - timedelta(days=days - 1)
             cur.execute(
                 """
                 SELECT hotspot_username, profile_name, price_kes, event_type, attribution, first_seen_at
-                FROM revenue_events WHERE monitored_site_id = %s AND event_type <> 'baseline'
+                FROM revenue_events
+                WHERE monitored_site_id = %s AND event_type <> 'baseline' AND first_seen_at >= %s
                 ORDER BY first_seen_at DESC LIMIT 50
                 """,
-                (site_id,),
+                (site_id, revenue_since),
             )
             events = [
                 {"username": r[0], "profile": r[1], "price_kes": float(r[2]),
                  "event_type": r[3], "attribution": r[4], "at": utc_iso(r[5])}
                 for r in cur.fetchall()
             ]
+            # EAT is a fixed +3h offset (no DST — see db/connection.py), so a
+            # plain interval shift is enough to bucket by the day Ops and the
+            # owner actually mean, not the UTC day the row is stored under.
+            cur.execute(
+                """
+                SELECT (first_seen_at + interval '3 hours')::date AS day,
+                       COALESCE(sum(price_kes), 0), count(*)
+                FROM revenue_events
+                WHERE monitored_site_id = %s AND event_type <> 'baseline' AND first_seen_at >= %s
+                GROUP BY day ORDER BY day
+                """,
+                (site_id, revenue_since),
+            )
+            by_day = {r[0].isoformat(): (float(r[1]), r[2]) for r in cur.fetchall()}
+            # Zero-filled so the chart has one bar per day even on days with
+            # no sales, rather than compressing gaps out of the timeline.
+            revenue_daily = []
+            cursor_day = now_eat().date() - timedelta(days=days - 1)
+            for _ in range(days):
+                key = cursor_day.isoformat()
+                kes, sales = by_day.get(key, (0.0, 0))
+                revenue_daily.append({"day": key, "kes": kes, "sales": sales})
+                cursor_day += timedelta(days=1)
+
     detail = {
         "id": head[0], "location_id": head[1], "name": head[2], "vlan_id": head[3],
         "liveness_source": head[4], "notes": head[5], "is_active": head[6],
+        "days": days, "state": state, "state_since": state_since,
+        "uptime_pct": uptime_pct, "downtime_seconds": downtime_seconds, "outages": outages,
         "history": history, "sessions": sessions,
     }
     if include_revenue:
         detail["revenue_events"] = events
+        detail["revenue_daily"] = revenue_daily
     return detail
 
 

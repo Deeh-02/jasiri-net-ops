@@ -4,6 +4,7 @@ import { initSites } from "./sites.js";
 import { initMovements } from "./movements.js";
 import { initCheckSites } from "./check-sites.js";
 import { initStatus } from "./status.js";
+import { initSiteDetail } from "./site-detail.js";
 import { initManageSites } from "./manage-sites.js";
 import { initPackages } from "./packages.js";
 import { initUsers } from "./users.js";
@@ -27,6 +28,7 @@ async function boot() {
     initMovements();
     initCheckSites();
     initStatus();
+    initSiteDetail();
     initManageSites();
     initPackages();
     initUsers();

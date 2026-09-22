@@ -122,9 +122,13 @@ def status(current_user: dict = Depends(require_status_access)):
 
 
 @router.get("/monitoring/sites/{site_id}")
-def site_detail(site_id: int, current_user: dict = Depends(require_status_access)):
+def site_detail(site_id: int, days: int = 7, current_user: dict = Depends(require_status_access)):
+    # Same gate as the fleet Status page (view_status) — drilling into one
+    # site isn't a heavier claim than seeing it in the list. Revenue stays
+    # gated separately, same as the list.
     can_revenue = user_has_permission(current_user, "sites", "view_revenue")
-    detail = db.get_site_detail(site_id, can_revenue)
+    days = max(1, min(days, 30))
+    detail = db.get_site_detail(site_id, can_revenue, days=days)
     if detail is None:
         raise HTTPException(status_code=404, detail="Monitored site not found")
     return detail

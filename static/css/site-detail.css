@@ -1,0 +1,203 @@
+/* ---- Site detail (Phase 4, drill-down from Status) ----
+   One site's own history: reuses Status's .status-pill and the shared
+   .stat-grid/.stat-card/.page-header-row/.table-scroll rather than
+   inventing new versions of any of them. ---- */
+
+.site-detail-heading {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.site-detail-heading .header-sub-link {
+    width: fit-content;
+}
+
+/* ---- Day-range switch: a plain 3-way toggle, deliberately not the
+   slanted-tab component (.dashboard-tab-slant/.settings-tab) — design.md
+   keeps those two intentionally un-shared, and a third borrower would just
+   be a third thing to keep in sync. ---- */
+.site-detail-range {
+    display: flex;
+    gap: 4px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 3px;
+}
+
+.site-detail-range button {
+    background: none;
+    border: none;
+    border-radius: 5px;
+    padding: 6px 14px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.03em;
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+
+.site-detail-range button:hover { color: var(--text); }
+
+.site-detail-range button.is-on {
+    background: var(--surface-2);
+    color: var(--accent);
+}
+
+/* ---- Summary strip: pill + since + facts, one line ---- */
+.site-detail-summary {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 18px;
+    margin-bottom: 20px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+}
+
+.site-detail-since { color: var(--text-dim); }
+
+.site-detail-meta {
+    color: var(--text-dim);
+    margin-left: auto;
+}
+
+@media (max-width: 760px) {
+    .site-detail-meta { margin-left: 0; }
+}
+
+/* ---- Two-up panel grid (charts + lists) ---- */
+.site-detail-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+@media (max-width: 900px) {
+    .site-detail-grid { grid-template-columns: 1fr; }
+}
+
+.site-detail-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 18px;
+}
+
+.site-detail-panel-title {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 14px;
+    font-weight: 700;
+    margin-bottom: 12px;
+}
+
+.site-detail-empty {
+    font-size: 13px;
+    color: var(--text-dim);
+    line-height: 1.6;
+    padding: 8px 0;
+}
+
+.site-detail-notfound {
+    font-size: 14px;
+    color: var(--text-dim);
+    padding: 40px 0;
+    text-align: center;
+}
+
+/* ---- Charts: plain inline SVG, drawn by site-detail.js ---- */
+.site-detail-chart-svg {
+    width: 100%;
+    height: 160px;
+    display: block;
+}
+
+.chart-axis { stroke: var(--border); stroke-width: 1; }
+
+.chart-area {
+    fill: var(--accent);
+    opacity: 0.12;
+}
+
+.chart-line {
+    fill: none;
+    stroke: var(--accent);
+    stroke-width: 2;
+}
+
+.chart-bar {
+    fill: var(--accent);
+    opacity: 0.85;
+}
+
+.chart-bar:hover { opacity: 1; }
+
+.site-detail-chart-empty {
+    font-size: 13px;
+    color: var(--text-dim);
+    padding: 56px 0;
+    text-align: center;
+}
+
+.site-detail-chart-labels {
+    display: flex;
+    justify-content: space-between;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-top: 6px;
+}
+
+.site-detail-chart-max { color: var(--text); }
+
+/* ---- Outage list ---- */
+.site-detail-outage-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+}
+
+.site-detail-outage-row:last-child { border-bottom: none; }
+
+.site-detail-outage-start { color: var(--text); }
+
+.site-detail-outage-duration { color: var(--text-dim); }
+
+.site-detail-outage-row.is-ongoing .site-detail-outage-duration { color: var(--danger); }
+
+/* ---- Recent state-change feed ---- */
+.site-detail-activity-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 0;
+    border-bottom: 1px solid var(--border);
+}
+
+.site-detail-activity-row:last-child { border-bottom: none; }
+
+.site-detail-activity-when {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--text-dim);
+}
+
+/* Marks a sale whose site came from the buyer's last-known VLAN rather than
+   one seen live this time — see attribution in db/monitoring.py. */
+.site-detail-inferred {
+    color: var(--warn);
+    cursor: help;
+}

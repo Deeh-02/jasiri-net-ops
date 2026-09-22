@@ -105,8 +105,9 @@ function renderHero(data, stale) {
 
 function renderProblems(sites) {
     const problems = sites.filter(s => s.state === "offline" || s.state === "flapping");
-    document.getElementById("status-problems").innerHTML = problems.map(s => `
-        <div class="status-problem ${s.state === "flapping" ? "is-flapping" : ""}">
+    const box = document.getElementById("status-problems");
+    box.innerHTML = problems.map(s => `
+        <div class="status-problem ${s.state === "flapping" ? "is-flapping" : ""}" data-id="${s.id}">
             <div class="status-problem-top">
                 <span class="status-problem-name">${esc(s.name)}</span>
                 ${pill(s.state)}
@@ -114,6 +115,9 @@ function renderProblems(sites) {
             <div class="status-problem-figure">${s.sessions == null ? "–" : s.sessions}</div>
             <div class="status-problem-meta">online at last count &middot; ${esc(ago(s.state_since))}</div>
         </div>`).join("");
+    box.querySelectorAll(".status-problem").forEach(card => {
+        card.addEventListener("click", () => navigate(`site-detail/${card.dataset.id}`));
+    });
 }
 
 /* Revenue is the one number on this page that is not observed continuously:
@@ -215,7 +219,7 @@ function renderRows(sites, canRevenue) {
             ? `<span class="status-revenue ${s.revenue_today_kes ? "has-value" : ""}">${money(s.revenue_today_kes)}</span>`
             : `<span class="status-revenue-locked">&#128274; Hidden</span>`;
         return `
-        <tr class="${rowCls}">
+        <tr class="${rowCls} status-row-clickable" data-id="${s.id}">
             <td class="col-frozen">${esc(s.name)}</td>
             <td>${pill(s.state)}</td>
             <td><span class="status-sessions">${s.sessions == null ? "–" : s.sessions}</span></td>
@@ -223,6 +227,12 @@ function renderRows(sites, canRevenue) {
             <td>${revenue}</td>
         </tr>`;
     }).join("");
+    // One delegated listener rather than one per row — rows are rebuilt
+    // wholesale every poll, which would otherwise leak a listener per tick.
+    tbody.onclick = (e) => {
+        const row = e.target.closest("tr[data-id]");
+        if (row) navigate(`site-detail/${row.dataset.id}`);
+    };
 }
 
 function render(data) {
