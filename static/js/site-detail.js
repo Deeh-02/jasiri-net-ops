@@ -778,24 +778,14 @@ function renderPackages(d) {
     wrap.innerHTML = `<div class="sr-pkg">${rows}</div>${attrBlock}`;
 }
 
+// A role without sites:view_revenue just doesn't see revenue anywhere on
+// this page — no KPI card (renderKpis), no split card below, and no banner
+// announcing that either. A "this is hidden from you" strip was tried and
+// read as something broken rather than something absent; the page is
+// simply narrower for this role, the same way it's simply narrower for an
+// activity-only site with no uptime percentage.
 function renderLocked(canRevenue) {
-    const strip = document.getElementById("sr-locked-strip");
-    const split = document.getElementById("sr-revenue-split");
-    if (canRevenue) {
-        strip.innerHTML = "";
-        split.hidden = false;
-        return;
-    }
-    // One lock and one sentence for the page — not a padlock in forty cells.
-    strip.innerHTML = `
-        <div class="sr-locked-strip">
-            <span aria-hidden="true">🔒</span>
-            <div>
-                <div class="sr-locked-title">Revenue and sales are hidden for your role.</div>
-                <div class="sr-locked-body">Uptime, coverage and people are unchanged — this is not a degraded page, just a narrower one.</div>
-            </div>
-        </div>`;
-    split.hidden = true;
+    document.getElementById("sr-revenue-split").hidden = !canRevenue;
 }
 
 /* ---- Busiest hours ---- */
