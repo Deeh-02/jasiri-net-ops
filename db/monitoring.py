@@ -5,6 +5,10 @@ from datetime import datetime, timedelta, timezone
 import psycopg2
 from psycopg2.extras import Json
 from db.connection import db_cursor, utc_iso, now_eat
+# The raw-row horizon is a retention fact, not a monitoring one — imported
+# rather than restated so a change to retention can't leave this page
+# claiming a peak it no longer has the data for.
+from db.monitoring_retention import SESSION_RAW_KEEP
 
 # site_session_counts is written at most once per site per this window. It was
 # 5 minutes (0006's header explains the storage reasoning), but that left the
@@ -539,27 +543,149 @@ def _uptime_summary(segments, liveness_source):
     """Uptime% only means something where "offline" is a real signal —
     liveness_source == 'activity' can only ever report online/unknown, so a
     site on that source would show a meaningless 100%. Outages are always
-    returned (empty for a non-pppoe site is itself the honest answer)."""
+    returned (empty for a non-pppoe site is itself the honest answer).
+
+    Two rules the UI depends on, both about not overstating what we know:
+    unknown time is NEVER in the uptime fraction (not-watched is not
+    downtime), and flapping counts as up — a bouncing site is on balance
+    reachable, and it is called out by its own count rather than being
+    folded into the outage total."""
     outages = []
-    online_s = offline_s = 0.0
-    for seg in segments:
+    totals = {"online": 0.0, "offline": 0.0, "flapping": 0.0, "unknown": 0.0}
+    flap_count = 0
+    last = len(segments) - 1
+    for i, seg in enumerate(segments):
         length = (seg["end"] - seg["start"]).total_seconds()
-        if seg["state"] == "online":
-            online_s += length
+        totals[seg["state"]] = totals.get(seg["state"], 0.0) + length
+        if seg["state"] == "flapping":
+            flap_count += 1
         elif seg["state"] == "offline":
-            offline_s += length
             outages.append({
                 "start": utc_iso(seg["start"]),
-                "end": None if seg is segments[-1] and seg["state"] == "offline" else utc_iso(seg["end"]),
+                "end": None if i == last else utc_iso(seg["end"]),
                 "duration_seconds": int(length),
-                "ongoing": seg is segments[-1] and seg["state"] == "offline",
+                "ongoing": i == last,
             })
     outages.reverse()  # most recent first
-    known = online_s + offline_s
+    up = totals["online"] + totals["flapping"]
+    known = up + totals["offline"]
     uptime_pct = None
     if liveness_source == "pppoe" and known > 0:
-        uptime_pct = round(online_s / known * 100, 2)
-    return uptime_pct, int(offline_s), outages
+        uptime_pct = round(up / known * 100, 2)
+    return {
+        "uptime_pct": uptime_pct,
+        "downtime_seconds": int(totals["offline"]),
+        "unknown_seconds": int(totals["unknown"]),
+        "flapping_seconds": int(totals["flapping"]),
+        "flap_count": flap_count,
+        "outages": outages,
+        "longest_outage_seconds": max((o["duration_seconds"] for o in outages), default=0),
+        "timeline": [
+            {"state": s["state"], "start": utc_iso(s["start"]), "end": utc_iso(s["end"]),
+             "duration_seconds": int((s["end"] - s["start"]).total_seconds())}
+            for s in segments
+        ],
+    }
+
+
+# A heartbeat is due every 60s, so three missed beats is the same "we have
+# stopped being told" threshold the Status page uses (STALE_MS in status.js).
+HEARTBEAT_GAP = timedelta(minutes=3)
+
+
+def _coverage(cur, since, now, watching_since):
+    """How much of the window Ops was being told anything at all.
+
+    Sourced from ingest_snapshots, which exists for exactly this — see that
+    table's comment in migration 0006: a gap between heartbeats is provably
+    time nobody was watching, as distinct from time when everything was up.
+    Time before the site was added counts as unwatched too, rather than
+    being quietly treated as covered.
+
+    This is deliberately NOT the same thing as a site's derived 'unknown'
+    state. That one means the site reported and there was nothing to
+    conclude; this one means nothing reported at all."""
+    start = max(since, watching_since) if watching_since else since
+    total = (now - start).total_seconds()
+    if total <= 0:
+        return {"watched_seconds": 0, "unwatched_seconds": 0, "pct": None, "since": utc_iso(start)}
+    cur.execute(
+        """
+        WITH beats AS (
+            SELECT received_at, lag(received_at) OVER (ORDER BY received_at) AS prev
+            FROM ingest_snapshots WHERE received_at >= %s
+        )
+        SELECT COALESCE(sum(EXTRACT(EPOCH FROM (received_at - prev)))
+                        FILTER (WHERE received_at - prev > %s), 0),
+               min(received_at), max(received_at)
+        FROM beats
+        """,
+        (start, HEARTBEAT_GAP),
+    )
+    gap_s, first_beat, last_beat = cur.fetchone()
+    if first_beat is None:
+        unwatched = total
+    else:
+        unwatched = float(gap_s or 0)
+        # The edges are gaps too — silence before the first beat and after
+        # the last one — but only past the same threshold, or a heartbeat
+        # that landed 20 seconds ago would read as a hole.
+        lead = (first_beat - start).total_seconds()
+        tail = (now - last_beat).total_seconds()
+        if lead > HEARTBEAT_GAP.total_seconds():
+            unwatched += lead
+        if tail > HEARTBEAT_GAP.total_seconds():
+            unwatched += tail
+    unwatched = min(max(unwatched, 0.0), total)
+    watched = total - unwatched
+    return {
+        "watched_seconds": int(watched),
+        "unwatched_seconds": int(unwatched),
+        "pct": round(watched / total * 100, 1),
+        "since": utc_iso(start),
+    }
+
+
+def _people_hourly(cur, site_id, since):
+    """One bucket per hour, carrying both the average and the true peak.
+
+    bool_or(granularity='raw') is the honesty flag: past SESSION_RAW_KEEP
+    the per-minute rows are gone and only hourly AVERAGES survive (see
+    monitoring_retention.py), so 'peak' for those hours is not a peak at
+    all. The UI must not draw a peak marker where this is false."""
+    cur.execute(
+        """
+        SELECT date_trunc('hour', received_at) AS hour,
+               round(avg(sessions))::int, max(sessions),
+               bool_or(granularity = 'raw')
+        FROM site_session_counts
+        WHERE monitored_site_id = %s AND received_at >= %s
+        GROUP BY hour ORDER BY hour
+        """,
+        (site_id, since),
+    )
+    return [
+        {"hour": utc_iso(r[0]), "avg": r[1], "peak": r[2], "has_peak": r[3]}
+        for r in cur.fetchall()
+    ]
+
+
+def _busiest_hours(cur, site_id, since):
+    """Average people by hour of the EAT day — the one chart here anyone
+    schedules anything around. Fixed +3h shift, same reasoning as the daily
+    revenue buckets."""
+    cur.execute(
+        """
+        SELECT EXTRACT(HOUR FROM (received_at + interval '3 hours'))::int AS eat_hour,
+               round(avg(sessions))::int
+        FROM site_session_counts
+        WHERE monitored_site_id = %s AND received_at >= %s
+        GROUP BY eat_hour
+        """,
+        (site_id, since),
+    )
+    by_hour = dict(cur.fetchall())
+    return [{"hour": h, "avg": by_hour.get(h, 0)} for h in range(24)]
 
 
 def get_site_detail(site_id, include_revenue, days=7):
@@ -574,7 +700,9 @@ def get_site_detail(site_id, include_revenue, days=7):
         cur.execute(
             """
             SELECT ms.id, ms.location_id, COALESCE(l.name, ms.name, 'VLAN ' || ms.vlan_id),
-                   ms.vlan_id, ms.liveness_source, ms.notes, ms.is_active
+                   ms.vlan_id, ms.liveness_source, ms.notes, ms.is_active,
+                   ms.pppoe_username, ms.created_at,
+                   l.contact_name, l.contact_phone, l.address
             FROM monitored_sites ms LEFT JOIN locations l ON l.id = ms.location_id
             WHERE ms.id = %s
             """,
@@ -583,11 +711,15 @@ def get_site_detail(site_id, include_revenue, days=7):
         head = cur.fetchone()
         if head is None:
             return None
+        liveness_source, watching_since = head[4], head[8]
 
         segments = _state_segments(cur, site_id, since, now)
-        uptime_pct, downtime_seconds, outages = _uptime_summary(segments, head[4])
+        uptime = _uptime_summary(segments, liveness_source)
         state = segments[-1]["state"] if segments else "unknown"
         state_since = utc_iso(segments[-1]["start"]) if segments else None
+        coverage = _coverage(cur, since, now, watching_since)
+        people = _people_hourly(cur, site_id, since)
+        busiest_hours = _busiest_hours(cur, site_id, since)
 
         cur.execute(
             """
@@ -599,18 +731,11 @@ def get_site_detail(site_id, include_revenue, days=7):
         )
         history = [{"state": r[0], "source": r[1], "at": utc_iso(r[2])} for r in cur.fetchall()]
 
-        cur.execute(
-            """
-            SELECT sessions, received_at FROM site_session_counts
-            WHERE monitored_site_id = %s AND received_at > %s
-            ORDER BY received_at
-            """,
-            (site_id, since),
-        )
-        sessions = [{"sessions": r[0], "at": utc_iso(r[1])} for r in cur.fetchall()]
-
         events = None
         revenue_daily = None
+        packages = None
+        attribution = None
+        revenue_tracking_since = None
         if include_revenue:
             # Whole EAT calendar days, not a rolling `since` — the sessions
             # window above is deliberately a trailing 24h*days, but "revenue
@@ -647,6 +772,13 @@ def get_site_detail(site_id, include_revenue, days=7):
                 (site_id, revenue_since),
             )
             by_day = {r[0].isoformat(): (float(r[1]), r[2]) for r in cur.fetchall()}
+            # When revenue tracking began at all, fleet-wide. A day before
+            # this is not a KES 0 day — it is a day nobody was counting, and
+            # the chart has to say so rather than draw an empty bar.
+            cur.execute("SELECT min(first_seen_at) FROM revenue_events")
+            tracked_from = cur.fetchone()[0]
+            revenue_tracking_since = utc_iso(tracked_from)
+            tracked_day = (tracked_from + timedelta(hours=3)).date() if tracked_from else None
             # Zero-filled so the chart has one bar per day even on days with
             # no sales, rather than compressing gaps out of the timeline.
             revenue_daily = []
@@ -654,19 +786,62 @@ def get_site_detail(site_id, include_revenue, days=7):
             for _ in range(days):
                 key = cursor_day.isoformat()
                 kes, sales = by_day.get(key, (0.0, 0))
-                revenue_daily.append({"day": key, "kes": kes, "sales": sales})
+                revenue_daily.append({
+                    "day": key, "kes": kes, "sales": sales,
+                    "tracked": tracked_day is not None and cursor_day >= tracked_day,
+                })
                 cursor_day += timedelta(days=1)
 
+            cur.execute(
+                """
+                SELECT profile_name, COALESCE(sum(price_kes), 0), count(*)
+                FROM revenue_events
+                WHERE monitored_site_id = %s AND event_type <> 'baseline' AND first_seen_at >= %s
+                GROUP BY profile_name ORDER BY sum(price_kes) DESC, count(*) DESC
+                """,
+                (site_id, revenue_since),
+            )
+            packages = [{"profile": r[0], "kes": float(r[1]), "sales": r[2]} for r in cur.fetchall()]
+
+            # How much of this site's money it actually watched arrive, versus
+            # money assigned from the buyer's last known site. A high inferred
+            # share is not an error, but it is a reason to trust the figure
+            # less — so it is shown rather than averaged away.
+            cur.execute(
+                """
+                SELECT attribution, count(*), COALESCE(sum(price_kes), 0)
+                FROM revenue_events
+                WHERE monitored_site_id = %s AND event_type <> 'baseline' AND first_seen_at >= %s
+                GROUP BY attribution
+                """,
+                (site_id, revenue_since),
+            )
+            attribution = {r[0]: {"sales": r[1], "kes": float(r[2])} for r in cur.fetchall()}
+
+    avgs = [p["avg"] for p in people]
+    peaks = [p["peak"] for p in people if p["has_peak"]]
     detail = {
         "id": head[0], "location_id": head[1], "name": head[2], "vlan_id": head[3],
-        "liveness_source": head[4], "notes": head[5], "is_active": head[6],
+        "liveness_source": liveness_source, "notes": head[5], "is_active": head[6],
+        "pppoe_username": head[7], "watching_since": utc_iso(watching_since),
+        "contact_name": head[9], "contact_phone": head[10], "address": head[11],
         "days": days, "state": state, "state_since": state_since,
-        "uptime_pct": uptime_pct, "downtime_seconds": downtime_seconds, "outages": outages,
-        "history": history, "sessions": sessions,
+        "coverage": coverage, "people": people, "busiest_hours": busiest_hours,
+        "avg_people": round(sum(avgs) / len(avgs)) if avgs else None,
+        "peak_people": max(peaks) if peaks else None,
+        # Past SESSION_RAW_KEEP only hourly averages survive, so a peak
+        # simply does not exist for the older part of a long window. The UI
+        # prints an em-dash there rather than passing off an average as one.
+        "peak_horizon_days": SESSION_RAW_KEEP.days,
+        "history": history,
+        **uptime,
     }
     if include_revenue:
         detail["revenue_events"] = events
         detail["revenue_daily"] = revenue_daily
+        detail["revenue_packages"] = packages
+        detail["revenue_attribution"] = attribution
+        detail["revenue_tracking_since"] = revenue_tracking_since
     return detail
 
 

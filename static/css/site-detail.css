@@ -1,203 +1,632 @@
-/* ---- Site detail (Phase 4, drill-down from Status) ----
-   One site's own history: reuses Status's .status-pill and the shared
-   .stat-grid/.stat-card/.page-header-row/.table-scroll rather than
-   inventing new versions of any of them. ---- */
+/* ---- Site report (Phase 4, drill-down from Status) ----
 
-.site-detail-heading {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
+   Built to the N.11 UI brief, with one deliberate adaptation: the brief's
+   palette is a light/cream theme (#F6F5F1 ground, white cards) and this app
+   is pure dark. Every token ROLE below maps onto the existing dark palette
+   in common.css rather than importing the light values, which would drop a
+   cream page into a black app.
+
+   One rule inverts in the process. The brief says amber must never be used
+   as text (amber-on-white is its weakest pair). On black the opposite holds:
+   the bright amber is the readable one and the brief's dark "foot" amber
+   would vanish. Same intent — keep amber legible — opposite value.
+
+   Everything else is as specified: no chart library, every chart is divs in
+   a flex row with a computed height, and no state is ever carried by colour
+   alone. ---- */
+
+#view-site-detail {
+    --sr-faint: #5d666f;        /* 10px+ mono ticks only, never body copy */
+    --sr-disabled: #4a4f55;     /* em-dash cells, locked values */
+    --sr-sunk: #101215;         /* totals, summary inset, acknowledged strip */
+    --sr-hairline: #1b1d1f;     /* row divider, lighter than --border */
+    --sr-rule: #343a40;         /* control border, axis base */
+
+    --sr-online: var(--accent);
+    --sr-online-foot: #1f7a52;
+    --sr-online-bg: rgba(61, 220, 151, 0.10);
+    --sr-online-brd: rgba(61, 220, 151, 0.26);
+
+    --sr-down: var(--danger);
+    --sr-down-foot: #8f2f2f;
+    --sr-down-bg: rgba(239, 91, 91, 0.12);
+    --sr-down-brd: rgba(239, 91, 91, 0.28);
+
+    --sr-flap: var(--warn);
+    --sr-flap-foot: #8a5a08;
+    --sr-flap-bg: rgba(245, 166, 35, 0.10);
+    --sr-flap-brd: rgba(245, 166, 35, 0.26);
+
+    --sr-unknown: var(--text-dim);
+    --sr-unknown-foot: #3a4048;
+
+    --sr-people: var(--info);
+    --sr-people-2: #2f6da8;
+    --sr-people-3: #22405c;
+    --sr-people-4: #172530;
+    --sr-people-old: #3a5f80;   /* hourly-average region, past the raw horizon */
+
+    /* Patterns ARE the accessibility channel — never flatten to a solid. */
+    --sr-p-flap: repeating-linear-gradient(90deg, #f5a623 0 4px, #6b4a10 4px 8px);
+    --sr-p-unknown: repeating-linear-gradient(135deg, #2a2f35 0 5px, #3c434a 5px 10px);
+    --sr-p-untracked: repeating-linear-gradient(135deg, #17191c 0 5px, #24282c 5px 10px);
+    --sr-p-inferred: repeating-linear-gradient(135deg, #2f7d5c 0 4px, #16402f 4px 8px);
 }
 
-.site-detail-heading .header-sub-link {
-    width: fit-content;
+/* ---- Header ---- */
+
+.sr-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 20px;
+    flex-wrap: wrap;
+    margin-bottom: 18px;
 }
 
-/* ---- Day-range switch: a plain 3-way toggle, deliberately not the
-   slanted-tab component (.dashboard-tab-slant/.settings-tab) — design.md
-   keeps those two intentionally un-shared, and a third borrower would just
-   be a third thing to keep in sync. ---- */
-.site-detail-range {
+.sr-title {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 36px;
+    font-weight: 700;
+    line-height: 1.1;
+    margin: 6px 0 10px;
+}
+
+@media (max-width: 760px) {
+    .sr-title { font-size: 26px; }
+}
+
+.sr-title-row {
     display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+/* The "measured by" clause is not decoration — it is what explains why an
+   activity-only site has no uptime figure anywhere on this page. */
+.sr-provenance {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11.5px;
+    color: var(--sr-faint);
+    margin-top: 10px;
+    line-height: 1.6;
+}
+
+/* ---- Range switch ---- */
+
+.sr-range-wrap { text-align: right; }
+
+.sr-range {
+    display: inline-flex;
     gap: 4px;
     background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 8px;
+    border: 1px solid var(--sr-rule);
+    border-radius: 9px;
     padding: 3px;
 }
 
-.site-detail-range button {
+.sr-range button {
+    min-height: 44px;
+    min-width: 58px;
     background: none;
     border: none;
-    border-radius: 5px;
-    padding: 6px 14px;
+    border-radius: 7px;
     font-family: 'JetBrains Mono', monospace;
-    font-size: 12px;
-    letter-spacing: 0.03em;
+    font-size: 12.5px;
     color: var(--text-dim);
     cursor: pointer;
     transition: background 0.15s ease, color 0.15s ease;
 }
 
-.site-detail-range button:hover { color: var(--text); }
+.sr-range button:hover { color: var(--text); }
 
-.site-detail-range button.is-on {
-    background: var(--surface-2);
-    color: var(--accent);
+.sr-range button[aria-pressed="true"] {
+    background: var(--text);
+    color: #000;
+    font-weight: 600;
 }
 
-/* ---- Summary strip: pill + since + facts, one line ---- */
-.site-detail-summary {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 12px;
+.sr-range-note {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11.5px;
+    color: var(--sr-faint);
+    margin-top: 8px;
+}
+
+/* ---- KPI row ---- */
+
+.sr-kpis {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 14px;
+    margin-bottom: 24px;
+}
+
+@media (max-width: 1100px) {
+    .sr-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+@media (max-width: 620px) {
+    .sr-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+}
+
+.sr-kpi {
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 10px;
-    padding: 14px 18px;
-    margin-bottom: 20px;
+    padding: 14px 16px;
+    min-width: 0;
+}
+
+.sr-kpi.is-warn {
+    background: var(--sr-flap-bg);
+    border-color: var(--sr-flap-brd);
+}
+
+.sr-kpi-label {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 12px;
-}
-
-.site-detail-since { color: var(--text-dim); }
-
-.site-detail-meta {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
     color: var(--text-dim);
-    margin-left: auto;
+    margin-bottom: 8px;
 }
 
-@media (max-width: 760px) {
-    .site-detail-meta { margin-left: 0; }
+.sr-kpi-figure {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 30px;
+    font-weight: 700;
+    line-height: 1.05;
+    word-break: break-word;
 }
 
-/* ---- Two-up panel grid (charts + lists) ---- */
-.site-detail-grid {
+.sr-kpi-figure.is-small { font-size: 19px; }
+.sr-kpi-figure.is-down { color: var(--sr-down); }
+.sr-kpi-figure.is-warn { color: var(--sr-flap); }
+.sr-kpi-figure.is-ok { color: var(--sr-online); }
+.sr-kpi-figure.is-disabled { color: var(--sr-disabled); }
+
+.sr-kpi-sub {
+    font-size: 11.5px;
+    color: var(--text-dim);
+    margin-top: 6px;
+    line-height: 1.5;
+}
+
+.sr-kpi-sub.is-warn { color: var(--sr-flap); }
+
+/* Coverage's meter — the figure alone doesn't show how much is missing. */
+.sr-meter {
+    height: 4px;
+    border-radius: 2px;
+    background: var(--surface-2);
+    overflow: hidden;
+    margin-top: 8px;
+}
+
+.sr-meter span {
+    display: block;
+    height: 100%;
+    background: var(--sr-people);
+    border-radius: 2px;
+}
+
+/* ---- Cards / sections ---- */
+
+.sr-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px 20px;
+    margin-bottom: 16px;
+}
+
+.sr-card-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 14px;
+    flex-wrap: wrap;
+    margin-bottom: 14px;
+}
+
+.sr-card-title {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 16px;
+    font-weight: 700;
+}
+
+.sr-card-hint {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px;
+    color: var(--sr-faint);
+}
+
+.sr-split {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1.35fr 1fr;
     gap: 16px;
     margin-bottom: 16px;
 }
 
+/* An author `display` beats the UA stylesheet's [hidden], so hiding this
+   block for a role without revenue needs saying explicitly — the same
+   border-collapse-class gotcha DESIGN.md records, different property. */
+.sr-split[hidden] { display: none; }
+
 @media (max-width: 900px) {
-    .site-detail-grid { grid-template-columns: 1fr; }
+    .sr-split { grid-template-columns: 1fr; }
 }
 
-.site-detail-panel {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 16px 18px;
+.sr-split > .sr-card { margin-bottom: 0; }
+
+/* The prose sentence under every chart. This is the accessible summary —
+   without it a chart is unreadable to a screen reader and to anyone who
+   doesn't already know what they're looking at. Not optional. */
+.sr-says {
+    font-size: 13px;
+    color: var(--text-dim);
+    line-height: 1.65;
+    margin-top: 14px;
+    max-width: 82ch;
 }
 
-.site-detail-panel-title {
-    font-family: 'Space Grotesk', sans-serif;
-    font-size: 14px;
-    font-weight: 700;
-    margin-bottom: 12px;
-}
+.sr-says strong { color: var(--text); font-weight: 600; }
 
-.site-detail-empty {
+.sr-empty {
     font-size: 13px;
     color: var(--text-dim);
     line-height: 1.6;
-    padding: 8px 0;
-}
-
-.site-detail-notfound {
-    font-size: 14px;
-    color: var(--text-dim);
-    padding: 40px 0;
+    min-height: 96px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     text-align: center;
+    padding: 0 12px;
 }
 
-/* ---- Charts: plain inline SVG, drawn by site-detail.js ---- */
-.site-detail-chart-svg {
-    width: 100%;
-    height: 160px;
-    display: block;
+/* ---- State timeline ---- */
+
+.sr-timeline {
+    display: flex;
+    height: 46px;
+    border-radius: 6px;
+    overflow: hidden;
+    border: 1px solid var(--sr-rule);
 }
 
-.chart-axis { stroke: var(--border); stroke-width: 1; }
-
-.chart-area {
-    fill: var(--accent);
-    opacity: 0.12;
+/* flex-grow carries the run's length in MINUTES — never a percentage, or
+   rounding drift across 200 segments stops lining up with the axis. */
+.sr-seg {
+    flex-basis: 0;
+    min-width: 5px;   /* a 12-minute flap stays hoverable; tooltip has the truth */
 }
 
-.chart-line {
-    fill: none;
-    stroke: var(--accent);
-    stroke-width: 2;
-}
+.sr-seg.st-online   { background: var(--sr-online);   border-bottom: 4px solid var(--sr-online-foot); }
+.sr-seg.st-offline  { background: var(--sr-down);     border-bottom: 4px solid var(--sr-down-foot); }
+.sr-seg.st-flapping { background: var(--sr-p-flap);   border-bottom: 4px solid var(--sr-flap-foot); }
+.sr-seg.st-unknown  { background: var(--sr-p-unknown); border-bottom: 4px solid var(--sr-unknown-foot); }
 
-.chart-bar {
-    fill: var(--accent);
-    opacity: 0.85;
-}
-
-.chart-bar:hover { opacity: 1; }
-
-.site-detail-chart-empty {
-    font-size: 13px;
-    color: var(--text-dim);
-    padding: 56px 0;
-    text-align: center;
-}
-
-.site-detail-chart-labels {
+.sr-axis {
     display: flex;
     justify-content: space-between;
     font-family: 'JetBrains Mono', monospace;
-    font-size: 10px;
-    color: var(--text-dim);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
+    font-size: 10.5px;
+    color: var(--sr-faint);
     margin-top: 6px;
 }
 
-.site-detail-chart-max { color: var(--text); }
-
-/* ---- Outage list ---- */
-.site-detail-outage-row {
+/* Permanent, not a hover — the legend is how the patterns are decoded. */
+.sr-legend {
     display: flex;
-    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 18px;
+    margin-top: 14px;
+}
+
+.sr-legend-item {
+    display: flex;
     align-items: center;
-    padding: 8px 0;
-    border-bottom: 1px solid var(--border);
-    font-family: 'JetBrains Mono', monospace;
+    gap: 8px;
     font-size: 12px;
 }
 
-.site-detail-outage-row:last-child { border-bottom: none; }
-
-.site-detail-outage-start { color: var(--text); }
-
-.site-detail-outage-duration { color: var(--text-dim); }
-
-.site-detail-outage-row.is-ongoing .site-detail-outage-duration { color: var(--danger); }
-
-/* ---- Recent state-change feed ---- */
-.site-detail-activity-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 7px 0;
-    border-bottom: 1px solid var(--border);
+.sr-swatch {
+    width: 28px;
+    height: 15px;
+    border-radius: 3px;
+    flex-shrink: 0;
 }
 
-.site-detail-activity-row:last-child { border-bottom: none; }
+.sr-swatch.st-online   { background: var(--sr-online);    border-bottom: 3px solid var(--sr-online-foot); }
+.sr-swatch.st-offline  { background: var(--sr-down);      border-bottom: 3px solid var(--sr-down-foot); }
+.sr-swatch.st-flapping { background: var(--sr-p-flap);    border-bottom: 3px solid var(--sr-flap-foot); }
+.sr-swatch.st-unknown  { background: var(--sr-p-unknown); border-bottom: 3px solid var(--sr-unknown-foot); }
 
-.site-detail-activity-when {
+.sr-legend-word { font-weight: 600; }
+.sr-legend-note { color: var(--sr-faint); font-family: 'JetBrains Mono', monospace; font-size: 10.5px; }
+
+.sr-inset {
+    background: var(--sr-sunk);
+    border: 1px solid var(--sr-hairline);
+    border-radius: 8px;
+    padding: 14px 16px;
+    margin-top: 14px;
+    font-size: 13px;
+    line-height: 1.7;
+    color: var(--text-dim);
+    max-width: 82ch;
+}
+
+.sr-inset strong { color: var(--text); font-weight: 600; }
+
+/* ---- Bar charts (people, revenue) ---- */
+
+.sr-bars {
+    display: flex;
+    align-items: flex-end;
+    gap: 1px;
+    height: 150px;
+    position: relative;
+}
+
+.sr-bars.is-sparse { gap: 4px; }
+
+.sr-bar-slot {
+    flex: 1 1 0;
+    min-width: 0;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    align-items: stretch;
+    position: relative;
+}
+
+.sr-bar {
+    background: var(--sr-people);
+    border-radius: 2px 2px 0 0;
+    min-height: 2px;
+}
+
+/* Past the raw-row horizon only hourly averages survive, so these bars are
+   a different kind of number and say so. */
+.sr-bar.is-averaged { background: var(--sr-people-old); }
+
+/* An hour the site was down, or one nobody was watching, is not a zero —
+   it is a different fact, and gets its own 3px marker rather than an
+   absent bar that reads as "nobody came". */
+.sr-bar.is-down { background: var(--sr-down-bg); border-top: 1px solid var(--sr-down); min-height: 3px; }
+.sr-bar.is-unknown { background: var(--sr-p-unknown); min-height: 3px; }
+
+.sr-bar-value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--text-dim);
+    text-align: center;
+    margin-bottom: 3px;
+    white-space: nowrap;
+    overflow: visible;
+}
+
+/* Kept in flow above its own bar rather than absolutely positioned — at
+   bottom:100% of a full-height slot the label floats to the top of the
+   chart instead of sitting on the bar, and clips. */
+.sr-bar-value.is-peak {
+    font-size: 11px;
+    color: var(--text);
+    font-weight: 600;
+}
+
+/* The boundary where raw rows stop and hourly averages begin. */
+.sr-divider {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 0;
+    border-left: 1px dashed var(--sr-rule);
+    pointer-events: none;
+}
+
+/* Days before tracking began. Never a KES 0 bar. */
+.sr-untracked {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    background: var(--sr-p-untracked);
+    border-right: 1px dashed var(--sr-rule);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+}
+
+.sr-untracked-chip {
+    background: var(--surface);
+    border: 1px solid var(--sr-rule);
+    border-radius: 999px;
+    padding: 4px 10px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--text-dim);
+    white-space: nowrap;
+}
+
+/* ---- Busiest hours ---- */
+
+.sr-hours {
+    display: grid;
+    grid-template-columns: repeat(24, minmax(0, 1fr));
+    gap: 3px;
+}
+
+@media (max-width: 760px) {
+    .sr-hours { grid-template-columns: repeat(12, minmax(0, 1fr)); }
+}
+
+.sr-hour-cell {
+    height: 44px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text);
+}
+
+.sr-hour-cell.lv0 { background: var(--sr-people-4); color: var(--text-dim); }
+.sr-hour-cell.lv1 { background: var(--sr-people-3); }
+.sr-hour-cell.lv2 { background: var(--sr-people-2); }
+.sr-hour-cell.lv3 { background: var(--sr-people); color: #04121d; font-weight: 600; }
+
+.sr-hour-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9.5px;
+    color: var(--sr-faint);
+    text-align: center;
+    margin-top: 4px;
+}
+
+/* ---- Package mix + attribution ---- */
+
+.sr-pkg {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.sr-pkg-row { font-size: 12.5px; }
+
+.sr-pkg-top {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 5px;
+}
+
+.sr-pkg-name { color: var(--text); }
+
+.sr-pkg-figure {
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--text-dim);
+    white-space: nowrap;
+}
+
+.sr-pkg-track {
+    height: 6px;
+    border-radius: 3px;
+    background: var(--surface-2);
+    overflow: hidden;
+}
+
+.sr-pkg-fill {
+    display: block;
+    height: 100%;
+    border-radius: 3px;
+    background: var(--sr-people);
+}
+
+.sr-attr {
+    margin-top: 18px;
+    padding-top: 16px;
+    border-top: 1px solid var(--sr-hairline);
+}
+
+.sr-attr-bar {
+    display: flex;
+    height: 12px;
+    border-radius: 6px;
+    overflow: hidden;
+    border: 1px solid var(--sr-rule);
+}
+
+.sr-attr-direct { background: var(--sr-online); }
+.sr-attr-inferred { background: var(--sr-p-inferred); }
+
+.sr-attr-keys {
+    display: flex;
+    gap: 16px;
+    margin-top: 8px;
+    font-size: 12px;
+    color: var(--text-dim);
+    flex-wrap: wrap;
+}
+
+.sr-attr-key { display: flex; align-items: center; gap: 6px; }
+
+.sr-attr-dot { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+.sr-attr-dot.direct { background: var(--sr-online); }
+.sr-attr-dot.inferred { background: var(--sr-p-inferred); }
+
+/* ---- What happened ---- */
+
+.sr-event {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 44px;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--sr-hairline);
+}
+
+.sr-event:last-child { border-bottom: none; }
+
+.sr-event-glyph { width: 16px; text-align: center; flex-shrink: 0; }
+.sr-event-glyph.st-online { color: var(--sr-online); }
+.sr-event-glyph.st-offline { color: var(--sr-down); }
+.sr-event-glyph.st-flapping { color: var(--sr-flap); }
+.sr-event-glyph.st-unknown { color: var(--sr-unknown); }
+
+.sr-event-time {
     font-family: 'JetBrains Mono', monospace;
     font-size: 12px;
     color: var(--text-dim);
+    white-space: nowrap;
+    flex-shrink: 0;
 }
 
-/* Marks a sale whose site came from the buyer's last-known VLAN rather than
-   one seen live this time — see attribution in db/monitoring.py. */
-.site-detail-inferred {
-    color: var(--warn);
-    cursor: help;
+.sr-event-text { font-size: 13px; flex: 1; min-width: 0; }
+
+.sr-event-source {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px;
+    color: var(--sr-faint);
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+/* ---- Locked revenue (no sites:view_revenue) ---- */
+
+.sr-locked-strip {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    background: var(--sr-sunk);
+    border: 1px dashed var(--sr-rule);
+    border-radius: 10px;
+    padding: 14px 18px;
+    margin-bottom: 16px;
+}
+
+.sr-locked-title { font-size: 13.5px; font-weight: 600; margin-bottom: 3px; }
+.sr-locked-body { font-size: 12.5px; color: var(--text-dim); line-height: 1.6; }
+
+.sr-contact {
+    display: flex;
+    gap: 18px;
+    flex-wrap: wrap;
+    font-size: 13px;
+    color: var(--text-dim);
+}
+
+.sr-contact a { color: var(--sr-people); text-decoration: none; }
+.sr-contact a:hover { text-decoration: underline; }
+
+.sr-notfound {
+    font-size: 14px;
+    color: var(--text-dim);
+    padding: 48px 0;
+    text-align: center;
 }

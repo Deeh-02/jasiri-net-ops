@@ -15,11 +15,13 @@ let pollTimer = null;
 
 /* Colour alone does not survive a greyscale screenshot or a colour-blind
    reader, so every state carries a shape and a word too. */
+/* Glyphs match the site report exactly — ▲ means Down on both pages. One
+   scheme app-wide, or a screenshot from one page contradicts the other. */
 const STATE_INFO = {
-    online:   { shape: "●", label: "Online",   cls: "st-online" },
-    flapping: { shape: "▲", label: "Flapping", cls: "st-flapping" },
-    offline:  { shape: "■", label: "Down",     cls: "st-offline" },
-    unknown:  { shape: "○", label: "Unknown",  cls: "st-unknown" },
+    online:   { shape: "●", label: "Online",      cls: "st-online" },
+    offline:  { shape: "▲", label: "Down",        cls: "st-offline" },
+    flapping: { shape: "◆", label: "Flapping",    cls: "st-flapping" },
+    unknown:  { shape: "○", label: "Not watched", cls: "st-unknown" },
 };
 
 function info(state) {
