@@ -24,6 +24,17 @@ SESSION_COUNT_INTERVAL = timedelta(seconds=50)
 # snapshots — keeps the lookup on the received_at index instead of the table.
 DUPLICATE_WINDOW = timedelta(days=1)
 
+# How long a sale stays eligible for _backfill_unplaced_from_active after it
+# is first recorded unplaced. Only accounts with no server VLAN (bound to
+# 'all') ever need this — everyone else is placed on sight by their own
+# account, for good, in _record_revenue. This is a second, later look at the
+# same open question: did the buyer show up on the active list on some LATER
+# run, since "active" is now sent every heartbeat rather than only the one
+# 5-minute run the sale was first seen on. 30 minutes is several times the
+# 5-minute users cycle — long enough to catch someone who logs in a few
+# minutes after paying, short enough that a stale guess never lingers.
+BACKFILL_WINDOW = timedelta(minutes=30)
+
 # 8am-11pm EAT: the stretch worth planning bandwidth/capacity around. Outside
 # it a hotspot site is reliably near-empty overnight, which is real but drags
 # a plain 24h average down enough that the People chart's "typical" bar reads
@@ -303,6 +314,57 @@ def _record_revenue(cur, users, active_by_vlan, vlan_to_site, snapshot_id, raw_p
         )
 
 
+def _backfill_unplaced_from_active(cur, active_by_vlan, vlan_to_site):
+    """A second look at sales _record_revenue could not place, now that
+    "active" arrives every heartbeat instead of only the one 5-minute run a
+    sale was first seen on.
+
+    Only 'all'-server accounts ever land here — every account with its own
+    hs-v<N> server is placed for good, on sight, and never needs this. An
+    'all' account has no durable signal at all, so the only way to place it
+    is to catch it on the active list on SOME run — this one, or a later one.
+    Runs every heartbeat, not just users runs: the buyer might connect
+    minutes after paying, well after the run that recorded the sale."""
+    if not active_by_vlan:
+        return
+    name_to_vlan = {}
+    for vlan_id, names in active_by_vlan.items():
+        for name in names:
+            name_to_vlan.setdefault(name, vlan_id)
+    if not name_to_vlan:
+        return
+
+    cur.execute(
+        """
+        SELECT id, hotspot_username FROM revenue_events
+        WHERE monitored_site_id IS NULL AND event_type <> 'baseline'
+          AND first_seen_at > now() - %s
+          AND hotspot_username = ANY(%s)
+        """,
+        (BACKFILL_WINDOW, list(name_to_vlan.keys())),
+    )
+    for event_id, username in cur.fetchall():
+        vlan = name_to_vlan[username]
+        site_id = vlan_to_site.get(vlan)
+        if site_id is not None:
+            cur.execute(
+                """
+                UPDATE revenue_events
+                SET monitored_site_id = %s, attribution = 'direct', origin_vlan_id = %s
+                WHERE id = %s
+                """,
+                (site_id, vlan, event_id),
+            )
+        else:
+            # Seen, but on a VLAN that isn't a registered site — same
+            # "we knew, it just isn't a site yet" case migration 0010 exists
+            # for. Recorded even though it doesn't place the sale.
+            cur.execute(
+                "UPDATE revenue_events SET origin_vlan_id = %s WHERE id = %s AND origin_vlan_id IS NULL",
+                (vlan, event_id),
+            )
+
+
 def ingest_snapshot(snapshot, raw_payload, router_ts, router_ts_utc, offset_minutes):
     """Stores one already-validated fleet snapshot in a single transaction.
     Returns "duplicate" for a retry, else "stored"."""
@@ -413,6 +475,10 @@ def ingest_snapshot(snapshot, raw_payload, router_ts, router_ts_utc, offset_minu
 
         vlan_to_site = {s["vlan_id"]: s["id"] for s in sites if s["vlan_id"] is not None}
         _record_revenue(cur, users, active_by_vlan, vlan_to_site, snapshot_id, raw_payload)
+        # Every run, not just users runs — "active" now arrives every
+        # heartbeat, and an 'all'-server sale left unplaced 5 minutes ago
+        # deserves a fresh look every minute, not just the next users run.
+        _backfill_unplaced_from_active(cur, active_by_vlan, vlan_to_site)
 
         conn.commit()
     return "stored"

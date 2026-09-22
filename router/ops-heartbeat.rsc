@@ -12,25 +12,29 @@
 #
 # Payload contract (fixed by routers/monitoring.py validate_snapshot):
 #   {"seq":N,"router_ts":"YYYY-MM-DD HH:MM:SS","gmt_offset":"14400",
-#    "sites":[{"vlan_id":35,"sessions":12},...],"pppoe":["user",...]}
+#    "sites":[{"vlan_id":35,"sessions":12},...],"pppoe":["user",...],
+#    "active":[{"v":35,"n":"254716855331-1:FA"},...]}
 #
-# Whenever the router's clock minute is a multiple of $usersEvery, the run also
-# carries the two revenue keys:
+# "active" is sent every run (every 60s), not just alongside "users" — see
+# below for why. Whenever the router's clock minute is also a multiple of
+# $usersEvery, the run additionally carries:
 #   "users":[{"n":"254716855331-1:FA","p":"Quick Surf10","e":"2026-09-21 17:00:08","v":35},...]
-#   "active":[{"v":35,"n":"254716855331-1:FA"},...]
 # A user's "v" is the VLAN of the hotspot server its ACCOUNT is bound to, and
 # it is the reliable way to place a sale: it is true whether or not that
-# person is online when the list is read. "active" only says where someone is
-# right now, so a pass bought and finished between two users runs was
-# unplaceable before this key existed. Absent "v" = bound to 'all' or to a
-# non-VLAN server; Ops falls back to "active" then to the buyer's last known
-# site, exactly as it did before.
+# person is online when the list is read. Absent "v" = bound to 'all' or to a
+# non-VLAN server — Ops falls back to "active", then to the buyer's last
+# known site, exactly as it did before "v" existed.
+# "active" used to be sent only alongside "users" (once per $usersEvery), so
+# an 'all'-server account not online in that ONE 5-minute snapshot was
+# unplaceable — permanently, since a sale is booked once and never rechecked
+# by _record_revenue. It is now sent every run so Ops gets a fresh look every
+# minute instead of one shot every 5 (see _backfill_unplaced_from_active).
 # "users" is the whole hotspot user list (340 accounts, ~20 KB) — it is NOT
 # sent every minute because /tool fetch caps http-data at roughly 64 KB and
-# sales do not move minute to minute. "active" is only sent alongside it: it
-# is what attributes a sale to a site, and it is useless without it. An
-# ABSENT key means "nothing to say about revenue this run" — Ops must never
-# read it as "there are no users", or every account would look cancelled.
+# sales do not move minute to minute; "active" (a couple hundred bytes at
+# most) has no such reason to wait. An ABSENT "users" key means "nothing to
+# say about revenue this run" — Ops must never read it as "there are no
+# users", or every account would look cancelled.
 #
 # gmt_offset is sent as a JSON STRING on purpose: /system clock get gmt-offset
 # returns a number on some builds and "+04:00" on others, and an unquoted
@@ -123,12 +127,15 @@
             :if ([:typeof $n] != "num") do={ :set n 0 }
             :set ($counts->$key) ($n + 1)
             # Same walk, so the headcount and the sale attribution can never
-            # disagree about which VLAN someone is on.
-            :if ($sendUsers) do={
-                :local who [:tostr [/ip hotspot active get $a user]]
-                :if ($activeJson != "") do={ :set activeJson ($activeJson . ",") }
-                :set activeJson ($activeJson . "{\"v\":" . $vid . ",\"n\":\"" . [$esc $who] . "\"}")
-            }
+            # disagree about which VLAN someone is on. Built every run, not
+            # just users runs — 'all'-server accounts have no server VLAN to
+            # fall back on, so the only way Ops ever places one is catching
+            # it on SOME run's active list. Sent every minute now instead of
+            # only every $usersEvery so there are ~5x more chances to catch
+            # someone who connects a few minutes after paying.
+            :local who [:tostr [/ip hotspot active get $a user]]
+            :if ($activeJson != "") do={ :set activeJson ($activeJson . ",") }
+            :set activeJson ($activeJson . "{\"v\":" . $vid . ",\"n\":\"" . [$esc $who] . "\"}")
         }
     }
 }
@@ -226,22 +233,21 @@
     :set pppoeJson ($pppoeJson . "\"" . [$esc [:tostr [/ppp active get $p name]]] . "\"")
 }
 
-:local payload ("{\"seq\":" . [:tostr $opsHeartbeatSeq] . ",\"router_ts\":\"" . $routerTs . "\",\"gmt_offset\":\"" . $gmtOffset . "\",\"sites\":[" . $sitesJson . "],\"pppoe\":[" . $pppoeJson . "]")
-# Appended only on a users run — see the payload contract at the top. The
-# keys are absent the rest of the time, which is NOT the same as empty.
+# "active" is in the base payload now, every run — see the payload contract
+# at the top. Only "users" stays conditional on $sendUsers.
+:local base ("{\"seq\":" . [:tostr $opsHeartbeatSeq] . ",\"router_ts\":\"" . $routerTs . "\",\"gmt_offset\":\"" . $gmtOffset . "\",\"sites\":[" . $sitesJson . "],\"pppoe\":[" . $pppoeJson . "],\"active\":[" . $activeJson . "]")
+:local payload ($base . "}")
 :if ($sendUsers) do={
-    :local withUsers ($payload . ",\"users\":[" . $usersJson . "],\"active\":[" . $activeJson . "]}")
+    :local withUsers ($base . ",\"users\":[" . $usersJson . "]}")
     # The user list grows with the customer base. Past the cap the POST would
     # be refused and this minute's up/down report would be lost with it, so
     # liveness wins: send without revenue this run and say so in the log.
+    # "active" already made it into $payload above either way.
     :if ([:len $withUsers] < $maxPayload) do={
         :set payload $withUsers
     } else={
-        :set payload ($payload . "}")
         :log warning ("ops-heartbeat: user list too large (" . [:len $withUsers] . " bytes), sent without revenue")
     }
-} else={
-    :set payload ($payload . "}")
 }
 
 :if ($dryRun) do={
@@ -321,16 +327,18 @@
 #   body in System > Scripts > ops-heartbeat, keeping the same name so the
 #   scheduler still finds it, and keep your ingestUrl/ingestToken values.
 #
-#   Set dryRun true for one run first. The users payload only appears when the
-#   clock minute is a multiple of $usersEvery, so run it then, or set
-#   usersEvery to 1 for the test (and back to 5 after). Check before sending:
+#   Set dryRun true for one run first. "active" appears every run now; the
+#   users payload only appears when the clock minute is a multiple of
+#   $usersEvery, so run it then, or set usersEvery to 1 for the test (and back
+#   to 5 after). Check before sending:
 #     - "users" holds ~340 entries, each with a non-empty "e"
 #     - most "users" entries carry a "v" matching the site that account is
 #       sold at. A run where NO user has one means the hs-v<N> naming
 #       convention doesn't hold here: check /ip hotspot print for the server
-#       names. Revenue still works without it, it just goes back to being
-#       unplaceable for short passes.
-#     - "active" entries carry the VLAN the user is really on
+#       names. Revenue still works without it, it just goes back to relying
+#       on "active" the way it always did for accounts bound to 'all'.
+#     - "active" entries carry the VLAN the user is really on, and appear on
+#       every run, not just users runs
 #     - the whole payload is well under 64 KB (:put [:len $payload])
 #
 #   THE FIRST REAL USERS PAYLOAD WRITES A BASELINE, NOT SALES. Every existing
