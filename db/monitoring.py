@@ -24,16 +24,29 @@ SESSION_COUNT_INTERVAL = timedelta(seconds=50)
 # snapshots — keeps the lookup on the received_at index instead of the table.
 DUPLICATE_WINDOW = timedelta(days=1)
 
-# How long a sale stays eligible for _backfill_unplaced_from_active after it
-# is first recorded unplaced. Only accounts with no server VLAN (bound to
-# 'all') ever need this — everyone else is placed on sight by their own
-# account, for good, in _record_revenue. This is a second, later look at the
-# same open question: did the buyer show up on the active list on some LATER
-# run, since "active" is now sent every heartbeat rather than only the one
-# 5-minute run the sale was first seen on. 30 minutes is several times the
-# 5-minute users cycle — long enough to catch someone who logs in a few
-# minutes after paying, short enough that a stale guess never lingers.
+# How long a sale stays eligible for _backfill_unplaced, by how much the
+# later evidence is worth. Both only ever matter for accounts with no server
+# VLAN (bound to 'all') — everyone else is placed on sight, for good, by
+# _record_revenue.
+#
+# An ACTIVE-list sighting says "this person was online on this VLAN at this
+# second". Strong, but it is a photograph: reach far back with it and it
+# stops describing the sale it is being applied to. 30 minutes is several
+# times the 5-minute users cycle — long enough to catch someone who logs in
+# a few minutes after paying, short enough that a stale guess never lingers.
 BACKFILL_WINDOW = timedelta(minutes=30)
+# The account's own "v" says "this is the VLAN this account belongs to",
+# from its hotspot server or, for 'all' accounts, its current DHCP lease.
+# That is a standing fact rather than a moment, so it reaches back a full
+# day — matched to the 24h lease life on this router, past which the lease
+# is gone and there is nothing left to read anyway.
+#
+# The one way this is wrong: an 'all' account that BOUGHT at one site and
+# has since moved to another is placed where it is now, not where it paid.
+# Accepted deliberately — a sale at roughly the right site beats a sale at
+# no site at all, which is what these rows are today. Fixed-location hotspot
+# customers rarely move mid-day, and 'all' accounts are a small minority.
+ACCOUNT_BACKFILL_WINDOW = timedelta(hours=24)
 
 # 8am-11pm EAT: the stretch worth planning bandwidth/capacity around. Outside
 # it a hotspot site is reliably near-empty overnight, which is real but drags
@@ -314,23 +327,19 @@ def _record_revenue(cur, users, active_by_vlan, vlan_to_site, snapshot_id, raw_p
         )
 
 
-def _backfill_unplaced_from_active(cur, active_by_vlan, vlan_to_site):
-    """A second look at sales _record_revenue could not place, now that
-    "active" arrives every heartbeat instead of only the one 5-minute run a
-    sale was first seen on.
+def _backfill_unplaced(cur, name_to_vlan, vlan_to_site, window):
+    """A second look at sales _record_revenue could not place when it booked
+    them. A sale is booked once, on the (username, expiry) pair, and never
+    re-examined after — so without this, an unplaced row stays unplaced
+    forever no matter what the router learns about that buyer later.
 
-    Only 'all'-server accounts ever land here — every account with its own
-    hs-v<N> server is placed for good, on sight, and never needs this. An
-    'all' account has no durable signal at all, so the only way to place it
-    is to catch it on the active list on SOME run — this one, or a later one.
-    Runs every heartbeat, not just users runs: the buyer might connect
-    minutes after paying, well after the run that recorded the sale."""
-    if not active_by_vlan:
-        return
-    name_to_vlan = {}
-    for vlan_id, names in active_by_vlan.items():
-        for name in names:
-            name_to_vlan.setdefault(name, vlan_id)
+    Only 'all'-server accounts ever land here: every account with its own
+    hs-v<N> server is placed on sight, for good, and never needs this.
+
+    Called once per source of later evidence, each with the window its
+    confidence earns — see BACKFILL_WINDOW (an active-list sighting, a
+    moment) and ACCOUNT_BACKFILL_WINDOW (the account's own "v", a standing
+    fact). Runs every heartbeat, not just users runs."""
     if not name_to_vlan:
         return
 
@@ -341,7 +350,7 @@ def _backfill_unplaced_from_active(cur, active_by_vlan, vlan_to_site):
           AND first_seen_at > now() - %s
           AND hotspot_username = ANY(%s)
         """,
-        (BACKFILL_WINDOW, list(name_to_vlan.keys())),
+        (window, list(name_to_vlan.keys())),
     )
     for event_id, username in cur.fetchall():
         vlan = name_to_vlan[username]
@@ -478,7 +487,20 @@ def ingest_snapshot(snapshot, raw_payload, router_ts, router_ts_utc, offset_minu
         # Every run, not just users runs — "active" now arrives every
         # heartbeat, and an 'all'-server sale left unplaced 5 minutes ago
         # deserves a fresh look every minute, not just the next users run.
-        _backfill_unplaced_from_active(cur, active_by_vlan, vlan_to_site)
+        seen_active = {}
+        for vlan_id, names in active_by_vlan.items():
+            for name in names:
+                seen_active.setdefault(name, vlan_id)
+        _backfill_unplaced(cur, seen_active, vlan_to_site, BACKFILL_WINDOW)
+        # And the stronger one: an account that now reports a "v" places its
+        # own older unplaced sales, back a full day. This is what recovers a
+        # sale booked before the router could resolve the buyer's VLAN at all.
+        _backfill_unplaced(
+            cur,
+            {u["name"]: u["vlan"] for u in users if u["vlan"] is not None},
+            vlan_to_site,
+            ACCOUNT_BACKFILL_WINDOW,
+        )
 
         conn.commit()
     return "stored"

@@ -19,16 +19,19 @@
 # below for why. Whenever the router's clock minute is also a multiple of
 # $usersEvery, the run additionally carries:
 #   "users":[{"n":"254716855331-1:FA","p":"Quick Surf10","e":"2026-09-21 17:00:08","v":35},...]
-# A user's "v" is the VLAN of the hotspot server its ACCOUNT is bound to, and
-# it is the reliable way to place a sale: it is true whether or not that
-# person is online when the list is read. Absent "v" = bound to 'all' or to a
-# non-VLAN server — Ops falls back to "active", then to the buyer's last
-# known site, exactly as it did before "v" existed.
+# A user's "v" is the VLAN it belongs to, read two ways: first its own
+# hotspot server (srvVlan, hs-v<N> — true whether or not anyone is connected
+# when the list is read), and for accounts with no server of their own
+# (bound to 'all'), its DHCP lease's VLAN by MAC (leaseVlan) instead — a
+# lease here lasts up to 24h and exists before the account could even reach
+# the payment page, so it is almost always already there the instant the
+# sale is first recorded. Absent "v" = neither resolved — Ops falls back to
+# "active", then to the buyer's last known site.
 # "active" used to be sent only alongside "users" (once per $usersEvery), so
 # an 'all'-server account not online in that ONE 5-minute snapshot was
 # unplaceable — permanently, since a sale is booked once and never rechecked
 # by _record_revenue. It is now sent every run so Ops gets a fresh look every
-# minute instead of one shot every 5 (see _backfill_unplaced_from_active).
+# minute instead of one shot every 5 (see _backfill_unplaced).
 # "users" is the whole hotspot user list (340 accounts, ~20 KB) — it is NOT
 # sent every minute because /tool fetch caps http-data at roughly 64 KB and
 # sales do not move minute to minute; "active" (a couple hundred bytes at
@@ -181,6 +184,44 @@
     }
 }
 
+# DHCP lease MAC -> VLAN, for accounts bound to 'all' that have no server of
+# their own to read a VLAN out of (srvVlan above gives them nothing).
+#
+# Matched by the account's own comment MAC (see $mac below), not by whether
+# anyone is logged into a hotspot session right now — confirmed on the live
+# router (2026-09-22) that a lease here lasts up to 24h and stays 'bound'
+# long after the hotspot session itself has ended, and a device needs an IP
+# before it can even reach the payment page, so the lease it got to buy the
+# pass in the first place is almost always still here when this runs. Far
+# more durable than catching them on "active", which only ever shows someone
+# for as long as they are actually online.
+#
+# Same address-to-VLAN read as the active-list loop above (10.50.<vlan>.x),
+# and DHCP servers here happen to follow "dhcp-v<vlan-id>" too, but the
+# lease's own ADDRESS is read directly rather than trusting that name, for
+# the same reason srvVlan reads hs-v<N> off the server and not off whatever
+# a server happens to be named.
+:local leaseVlan [:toarray ""]
+:if ($sendUsers) do={
+    :foreach l in=[/ip dhcp-server lease find] do={
+        :local addr [:tostr [/ip dhcp-server lease get $l address]]
+        :if ([:pick $addr 0 $prefixLen] = $subnetPrefix) do={
+            :local rest [:pick $addr ($prefixLen + 1) [:len $addr]]
+            :local dot [:find $rest "."]
+            :if ([:typeof $dot] = "num") do={
+                :local vnum [:tonum [:pick $rest 0 $dot]]
+                :local mac [:tostr [/ip dhcp-server lease get $l mac-address]]
+                :if ([:len $mac] > 0 && [:typeof $vnum] = "num") do={
+                    # Key looked up through a variable, not inline — same
+                    # reason as srvVlan and the clock parsing above.
+                    :local key ("m" . $mac)
+                    :set ($leaseVlan->$key) $vnum
+                }
+            }
+        }
+    }
+}
+
 # The hotspot user list — one entry per sellable account, not per session.
 # Ops decides what is new; the router just reports.
 :local usersJson ""
@@ -202,14 +243,27 @@
         :local ex ""
         :local at [:find $cm "Exp: "]
         :if ([:typeof $at] = "num") do={ :set ex [:pick $cm ($at + 5) ($at + 24)] }
-        # The VLAN this account's own hotspot server sits on. Omitted (not
-        # sent as 0) when the user is bound to 'all', to a non-VLAN server, or
-        # to a server that no longer exists — an absent key means "the router
-        # has nothing to say about where this account lives", which Ops reads
-        # as a reason to fall back, not as a VLAN.
+        # "MAC: DA:60:B1:28:B5:52" — a MAC is always 17 characters. Only
+        # needed as a fallback below when the account has no server VLAN;
+        # not sent to Ops itself.
+        :local mac ""
+        :local macAt [:find $cm "MAC: "]
+        :if ([:typeof $macAt] = "num") do={ :set mac [:pick $cm ($macAt + 5) ($macAt + 22)] }
+        # The VLAN this account belongs to. First its own hotspot server
+        # (srvVlan); if that gives nothing — bound to 'all', to a non-VLAN
+        # server, or to a server that no longer exists — fall back to its
+        # DHCP lease's VLAN (leaseVlan), which for 'all' accounts is the
+        # only durable signal there is. Omitted entirely (not sent as 0)
+        # when NEITHER resolves — an absent key means "the router has
+        # nothing to say about where this account lives", which Ops reads
+        # as a reason to fall back further, not as a VLAN.
         :local vj ""
         :local srvKey ("s" . [:tostr ($rec->"server")])
         :local uv ($srvVlan->$srvKey)
+        :if ([:typeof $uv] != "num" && [:len $mac] > 0) do={
+            :local leaseKey ("m" . $mac)
+            :set uv ($leaseVlan->$leaseKey)
+        }
         :if ([:typeof $uv] = "num") do={ :set vj (",\"v\":" . [:tostr $uv]) }
         :if ([:len $nm] > 0) do={
             :if ($usersJson != "") do={ :set usersJson ($usersJson . ",") }
@@ -333,10 +387,12 @@
 #   to 5 after). Check before sending:
 #     - "users" holds ~340 entries, each with a non-empty "e"
 #     - most "users" entries carry a "v" matching the site that account is
-#       sold at. A run where NO user has one means the hs-v<N> naming
-#       convention doesn't hold here: check /ip hotspot print for the server
-#       names. Revenue still works without it, it just goes back to relying
-#       on "active" the way it always did for accounts bound to 'all'.
+#       sold at, including 'all'-server accounts (via their DHCP lease now,
+#       not just their own server). A run where NO user has one means the
+#       hs-v<N>/dhcp-v<N> naming convention doesn't hold here: check
+#       /ip hotspot print and /ip dhcp-server print for the actual names.
+#       Revenue still works without it, it just goes back to relying on
+#       "active" for everyone, the way it always did before "v" existed.
 #     - "active" entries carry the VLAN the user is really on, and appear on
 #       every run, not just users runs
 #     - the whole payload is well under 64 KB (:put [:len $payload])
