@@ -257,6 +257,10 @@ function renderKpis(d, canRevenue, windowStart) {
         },
     ];
 
+    // Not "Hidden" with its own card — the locked strip above the KPI row
+    // already says once that revenue is off for this role; repeating it here
+    // in a sixth card just for it to say "Hidden" reads as something broken
+    // rather than something absent. Left out entirely, same as Trends does.
     if (canRevenue) {
         const total = (d.revenue_daily || []).reduce((s, x) => s + x.kes, 0);
         const sales = (d.revenue_daily || []).reduce((s, x) => s + x.sales, 0);
@@ -266,11 +270,11 @@ function renderKpis(d, canRevenue, windowStart) {
             small: true,
             sub: `${sales} sale${sales === 1 ? "" : "s"} ${d.day ? "on" : "in"} ${windowPhrase(d)}`,
         });
-    } else {
-        cards.push({ label: "Revenue", figure: "Hidden", small: true, tone: "disabled", sub: "🔒 not your role" });
     }
 
-    document.getElementById("sr-kpis").innerHTML = cards.map(c => `
+    const box = document.getElementById("sr-kpis");
+    box.classList.toggle("is-five", !canRevenue);
+    box.innerHTML = cards.map(c => `
         <div class="sr-kpi ${c.warnCard ? "is-warn" : ""}">
             <div class="sr-kpi-label">${esc(c.label)}</div>
             <div class="sr-kpi-figure ${c.small ? "is-small" : ""} ${c.tone ? `is-${c.tone}` : ""}">${esc(c.figure)}</div>
