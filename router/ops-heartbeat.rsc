@@ -16,8 +16,15 @@
 #
 # Whenever the router's clock minute is a multiple of $usersEvery, the run also
 # carries the two revenue keys:
-#   "users":[{"n":"254716855331-1:FA","p":"Quick Surf10","e":"2026-09-21 17:00:08"},...]
+#   "users":[{"n":"254716855331-1:FA","p":"Quick Surf10","e":"2026-09-21 17:00:08","v":35},...]
 #   "active":[{"v":35,"n":"254716855331-1:FA"},...]
+# A user's "v" is the VLAN of the hotspot server its ACCOUNT is bound to, and
+# it is the reliable way to place a sale: it is true whether or not that
+# person is online when the list is read. "active" only says where someone is
+# right now, so a pass bought and finished between two users runs was
+# unplaceable before this key existed. Absent "v" = bound to 'all' or to a
+# non-VLAN server; Ops falls back to "active" then to the buyer's last known
+# site, exactly as it did before.
 # "users" is the whole hotspot user list (340 accounts, ~20 KB) — it is NOT
 # sent every minute because /tool fetch caps http-data at roughly 64 KB and
 # sales do not move minute to minute. "active" is only sent alongside it: it
@@ -126,6 +133,47 @@
     }
 }
 
+# Hotspot server name -> VLAN id, for the user list below.
+#
+# This is what makes a sale placeable. "active" can only say where someone is
+# while they are online, and a short pass is often bought and finished between
+# two users runs — on 2026-09-22 that was 53 sales (KES 840) that Ops could
+# see but could not attribute. A user's SERVER does not expire: one hotspot
+# server per VLAN means the account record itself says where it belongs,
+# whether or not anyone is connected at the moment it is read.
+#
+# The VLAN is read out of the SERVER NAME (hs-v55 -> 55), not resolved via
+# /interface — confirmed on the live router (2026-09-22) that hotspot servers
+# here are not bound to an interface literally named "vlan<id>" (the lookup
+# came back empty for all of them), while every site server IS named
+# "hs-v<vlan-id>" with no exceptions. hotspot1 (the non-VLAN bridge) and
+# PHASE3 (not a site server) don't match the prefix and correctly get no
+# entry. If servers are ever renamed off this convention, this needs to go
+# back to an interface-based lookup instead.
+#
+# Built once per users run rather than per user: ~20 servers, 340 users.
+# "s" prefix for the same reason "v" is used above — a server named "1" would
+# otherwise be read as a list index.
+:local srvVlan [:toarray ""]
+:if ($sendUsers) do={
+    :foreach h in=[/ip hotspot find] do={
+        :local nm [:tostr [/ip hotspot get $h name]]
+        :if ([:pick $nm 0 4] = "hs-v") do={
+            :local vnum [:tonum [:pick $nm 4 [:len $nm]]]
+            # A server named e.g. "hs-view" would also start with "hs-v" but
+            # not parse as a number; :tonum returns "nothing" for it rather
+            # than a bogus VLAN, so it is skipped the same as hotspot1/PHASE3.
+            :if ([:typeof $vnum] = "num") do={
+                # Key looked up through a variable, not inline — same reason
+                # as the clock parsing above: ($arr->("s" . $nm)) is not
+                # reliably parsed and silently never matches on read.
+                :local key ("s" . $nm)
+                :set ($srvVlan->$key) $vnum
+            }
+        }
+    }
+}
+
 # The hotspot user list — one entry per sellable account, not per session.
 # Ops decides what is new; the router just reports.
 :local usersJson ""
@@ -147,9 +195,18 @@
         :local ex ""
         :local at [:find $cm "Exp: "]
         :if ([:typeof $at] = "num") do={ :set ex [:pick $cm ($at + 5) ($at + 24)] }
+        # The VLAN this account's own hotspot server sits on. Omitted (not
+        # sent as 0) when the user is bound to 'all', to a non-VLAN server, or
+        # to a server that no longer exists — an absent key means "the router
+        # has nothing to say about where this account lives", which Ops reads
+        # as a reason to fall back, not as a VLAN.
+        :local vj ""
+        :local srvKey ("s" . [:tostr ($rec->"server")])
+        :local uv ($srvVlan->$srvKey)
+        :if ([:typeof $uv] = "num") do={ :set vj (",\"v\":" . [:tostr $uv]) }
         :if ([:len $nm] > 0) do={
             :if ($usersJson != "") do={ :set usersJson ($usersJson . ",") }
-            :set usersJson ($usersJson . "{\"n\":\"" . [$esc $nm] . "\",\"p\":\"" . [$esc $pf] . "\",\"e\":\"" . [$esc $ex] . "\"}")
+            :set usersJson ($usersJson . "{\"n\":\"" . [$esc $nm] . "\",\"p\":\"" . [$esc $pf] . "\",\"e\":\"" . [$esc $ex] . "\"" . $vj . "}")
         }
     }
 }
@@ -268,6 +325,11 @@
 #   clock minute is a multiple of $usersEvery, so run it then, or set
 #   usersEvery to 1 for the test (and back to 5 after). Check before sending:
 #     - "users" holds ~340 entries, each with a non-empty "e"
+#     - most "users" entries carry a "v" matching the site that account is
+#       sold at. A run where NO user has one means the hs-v<N> naming
+#       convention doesn't hold here: check /ip hotspot print for the server
+#       names. Revenue still works without it, it just goes back to being
+#       unplaceable for short passes.
 #     - "active" entries carry the VLAN the user is really on
 #     - the whole payload is well under 64 KB (:put [:len $payload])
 #
