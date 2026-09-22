@@ -24,6 +24,17 @@ SESSION_COUNT_INTERVAL = timedelta(seconds=50)
 # snapshots — keeps the lookup on the received_at index instead of the table.
 DUPLICATE_WINDOW = timedelta(days=1)
 
+# 8am-11pm EAT: the stretch worth planning bandwidth/capacity around. Outside
+# it a hotspot site is reliably near-empty overnight, which is real but drags
+# a plain 24h average down enough that the People chart's "typical" bar reads
+# as wrong rather than as what it is — see ACTIVE_HOURS_SQL's call sites.
+ACTIVE_HOUR_START = 8
+ACTIVE_HOUR_END = 23  # exclusive
+ACTIVE_HOURS_SQL = (
+    f"EXTRACT(HOUR FROM (received_at + interval '3 hours')) >= {ACTIVE_HOUR_START} "
+    f"AND EXTRACT(HOUR FROM (received_at + interval '3 hours')) < {ACTIVE_HOUR_END}"
+)
+
 
 def payload_hash(snapshot):
     """Stable hash of one snapshot. sort_keys so key order in the RouterOS
@@ -849,12 +860,20 @@ def _coverage(cur, since, now, watching_since):
 
 
 def _people_hourly(cur, site_id, since, until):
-    """One bucket per hour, carrying both the average and the true peak.
+    """One bucket per hour, carrying the average, the true peak, and how
+    many distinct hotspot accounts were seen that hour.
 
     bool_or(granularity='raw') is the honesty flag: past SESSION_RAW_KEEP
     the per-minute rows are gone and only hourly AVERAGES survive (see
     monitoring_retention.py), so 'peak' for those hours is not a peak at
-    all. The UI must not draw a peak marker where this is false."""
+    all. The UI must not draw a peak marker where this is false.
+
+    unique_users is sourced from revenue_events, not site_session_counts —
+    individual connections were never persisted (only the per-heartbeat
+    COUNT was), so a distinct hotspot_username seen with a new/renewed
+    expiry that hour is the closest thing to "a different person" this data
+    can honestly say. Baseline rows (the first-ever import) are excluded,
+    same as every other revenue figure on this page."""
     cur.execute(
         """
         SELECT date_trunc('hour', received_at) AS hour,
@@ -866,9 +885,22 @@ def _people_hourly(cur, site_id, since, until):
         """,
         (site_id, since, until),
     )
+    rows = cur.fetchall()
+    cur.execute(
+        """
+        SELECT date_trunc('hour', first_seen_at) AS hour, count(DISTINCT hotspot_username)
+        FROM revenue_events
+        WHERE monitored_site_id = %s AND event_type <> 'baseline'
+          AND first_seen_at >= %s AND first_seen_at < %s
+        GROUP BY hour
+        """,
+        (site_id, since, until),
+    )
+    unique_by_hour = dict(cur.fetchall())
     return [
-        {"hour": utc_iso(r[0]), "avg": r[1], "peak": r[2], "has_peak": r[3]}
-        for r in cur.fetchall()
+        {"hour": utc_iso(r[0]), "avg": r[1], "peak": r[2], "has_peak": r[3],
+         "unique_users": unique_by_hour.get(r[0], 0)}
+        for r in rows
     ]
 
 
@@ -928,8 +960,13 @@ def _people_daily(cur, site_id, first_day, day_count, watching_since):
     requires every session-count row that day to still be 'raw'; the moment
     any hour behind the average has rolled up to an hourly average (see
     monitoring_retention.py), the day's true peak is gone, not just
-    diminished, and must not be drawn as a whole one."""
+    diminished, and must not be drawn as a whole one.
+
+    active_avg and unique_users are the People chart's other two metrics —
+    see ACTIVE_HOURS_SQL and _people_hourly's unique_users comment for what
+    each one means and why it's sourced the way it is."""
     since = _eat_date_to_utc(first_day)
+    until = _eat_date_to_utc(first_day + timedelta(days=day_count))
     cur.execute(
         """
         SELECT (received_at + interval '3 hours')::date AS day,
@@ -938,20 +975,51 @@ def _people_daily(cur, site_id, first_day, day_count, watching_since):
         WHERE monitored_site_id = %s AND received_at >= %s AND received_at < %s
         GROUP BY day ORDER BY day
         """,
-        (site_id, since, _eat_date_to_utc(first_day + timedelta(days=day_count))),
+        (site_id, since, until),
     )
     by_day = {r[0].isoformat(): r[1:] for r in cur.fetchall()}
+
+    cur.execute(
+        f"""
+        SELECT (received_at + interval '3 hours')::date AS day, round(avg(sessions))::int
+        FROM site_session_counts
+        WHERE monitored_site_id = %s AND received_at >= %s AND received_at < %s
+          AND {ACTIVE_HOURS_SQL}
+        GROUP BY day
+        """,
+        (site_id, since, until),
+    )
+    # .isoformat() keys, not raw date objects — by_day above and the lookups
+    # below both key on the string form, and a bare `dict(cur.fetchall())`
+    # here left every lookup silently missing.
+    active_by_day = {r[0].isoformat(): r[1] for r in cur.fetchall()}
+
+    cur.execute(
+        """
+        SELECT (first_seen_at + interval '3 hours')::date AS day, count(DISTINCT hotspot_username)
+        FROM revenue_events
+        WHERE monitored_site_id = %s AND event_type <> 'baseline'
+          AND first_seen_at >= %s AND first_seen_at < %s
+        GROUP BY day
+        """,
+        (site_id, since, until),
+    )
+    unique_by_day = {r[0].isoformat(): r[1] for r in cur.fetchall()}
+
     # A day before the site existed is not a quiet day — nobody was counting.
     watched_from = (watching_since + timedelta(hours=3)).date() if watching_since else None
     out = []
     cursor_day = first_day
     for _ in range(day_count):
-        avg_v, peak_v, all_raw = by_day.get(cursor_day.isoformat(), (None, None, False))
+        key = cursor_day.isoformat()
+        avg_v, peak_v, all_raw = by_day.get(key, (None, None, False))
         out.append({
-            "day": cursor_day.isoformat(),
+            "day": key,
             "avg": avg_v,
             "peak": peak_v if all_raw else None,
             "has_peak": bool(all_raw and peak_v is not None),
+            "active_avg": active_by_day.get(key),
+            "unique_users": unique_by_day.get(key, 0),
             "watched": watched_from is not None and cursor_day >= watched_from,
         })
         cursor_day += timedelta(days=1)
@@ -996,6 +1064,34 @@ def get_site_detail(site_id, include_revenue, month=None, week=None, day=None):
         people_daily = _people_daily(cur, site_id, first_day, day_count, watching_since)
         busiest_hours = _busiest_hours(cur, site_id, since, until)
         data_from = _data_from(cur, site_id)
+
+        # Whole-period figures for the People chart's other two metrics — see
+        # ACTIVE_HOURS_SQL and _people_hourly's unique_users comment. Kept as
+        # one number over the whole window rather than summed/averaged from
+        # the daily buckets: an active-hours average of averages would be a
+        # different (wronger) number, and a distinct hotspot account can
+        # appear on several days, so daily unique_users counts must not be
+        # added together into a period total.
+        cur.execute(
+            f"""
+            SELECT round(avg(sessions))::int
+            FROM site_session_counts
+            WHERE monitored_site_id = %s AND received_at >= %s AND received_at < %s
+              AND {ACTIVE_HOURS_SQL}
+            """,
+            (site_id, since, until),
+        )
+        active_avg_people = cur.fetchone()[0]
+        cur.execute(
+            """
+            SELECT count(DISTINCT hotspot_username)
+            FROM revenue_events
+            WHERE monitored_site_id = %s AND event_type <> 'baseline'
+              AND first_seen_at >= %s AND first_seen_at < %s
+            """,
+            (site_id, since, until),
+        )
+        unique_people = cur.fetchone()[0]
 
         cur.execute(
             """
@@ -1108,6 +1204,8 @@ def get_site_detail(site_id, include_revenue, month=None, week=None, day=None):
         "coverage": coverage, "people": people, "people_daily": people_daily, "busiest_hours": busiest_hours,
         "avg_people": round(sum(avgs) / len(avgs)) if avgs else None,
         "peak_people": max(peaks) if peaks else None,
+        "active_avg_people": active_avg_people,
+        "unique_people": unique_people,
         # Past SESSION_RAW_KEEP only hourly averages survive, so a peak
         # simply does not exist for the older part of a long window. The UI
         # prints an em-dash there rather than passing off an average as one.

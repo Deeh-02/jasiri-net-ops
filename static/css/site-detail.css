@@ -270,6 +270,31 @@
     font-weight: 700;
 }
 
+.sr-card-title-group {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+/* A chart-local choice ("what does a bar mean"), not a report window — much
+   smaller than .sr-period-select so it reads as part of the title, not as
+   another Day/Week/Month control. */
+.sr-metric-select {
+    min-height: 28px;
+    padding: 0 8px;
+    background: var(--surface);
+    color: var(--text-dim);
+    border: 1px solid var(--sr-rule);
+    border-radius: 7px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.sr-metric-select:hover { color: var(--text); }
+.sr-metric-select:focus { outline: none; border-color: var(--text-dim); }
+
 .sr-card-hint {
     font-family: 'JetBrains Mono', monospace;
     font-size: 10.5px;

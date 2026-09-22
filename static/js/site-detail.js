@@ -375,12 +375,52 @@ function yAxis(max, fmt = String) {
     return `<div class="sr-yaxis"><span>${esc(fmt(max))}</span>${mid}<span>0</span></div>`;
 }
 
+/* ---- People metric ----
+   What a bar means — chosen locally in the widget (#sr-people-metric), never
+   part of the report window/route. The old always-24h average is retired:
+   it's dragged down by the dead overnight hours (~11pm–8am), which reads as
+   a data problem rather than what it actually is. */
+const PEOPLE_METRICS = {
+    active: { word: "on average" },   // avg(sessions), 8am–11pm EAT only
+    peak:   { word: "at once" },      // the true peak — only inside the raw-row horizon
+    unique: { word: "distinct users" }, // distinct hotspot accounts (see backend comment)
+};
+
+const isActiveHour = eatHour => eatHour >= 8 && eatHour < 23;
+const eatHourOf = date => new Date(date.getTime() + 3 * 3600000).getUTCHours();
+
+function topSentenceFor(metric, value) {
+    if (value == null) return "";
+    if (metric === "peak") return `Peak was <strong>${value}</strong> at once.`;
+    if (metric === "unique") return `<strong>${value}</strong> distinct users.`;
+    return `Typically <strong>${value}</strong> people online (8am–11pm).`;
+}
+
+/* One hourly bucket's value for the chosen metric, and whether it even has
+   one — 'peak' has nothing past the raw-row horizon, 'active' has nothing
+   outside 8am–11pm (excluded, not zero). Both are real absences, distinct
+   from "nothing recorded" (b.avg == null), which the caller handles first. */
+function pickHourly(b, metric) {
+    if (metric === "peak") return b.hasPeak ? { has: true, v: b.peak } : { has: false, why: "peak" };
+    if (metric === "unique") return { has: true, v: b.unique || 0 };
+    return isActiveHour(eatHourOf(b.at)) ? { has: true, v: b.avg } : { has: false, why: "inactive" };
+}
+
+/* Same shape for a daily bucket — active_avg and unique_users already come
+   from the backend pre-restricted/pre-counted, so there's no hour math here. */
+function pickDaily(x, metric) {
+    if (metric === "peak") return x.has_peak ? { has: true, v: x.peak } : { has: false, why: "peak" };
+    if (metric === "unique") return { has: true, v: x.unique_users || 0 };
+    return x.active_avg != null ? { has: true, v: x.active_avg } : { has: false, why: "inactive" };
+}
+
 /* A Day report gets a bar per hour; a week or a month a bar per day. Different
    enough — data field, x-axis unit, "not yet" story — to be two renderers. */
 function renderPeople(d) {
     const wrap = document.getElementById("sr-people-wrap");
-    if (d.day) { renderPeopleHourly(d, wrap); return; }
-    renderPeopleDaily(d, wrap);
+    const metric = document.getElementById("sr-people-metric").value;
+    if (d.day) { renderPeopleHourly(d, wrap, metric); return; }
+    renderPeopleDaily(d, wrap, metric);
 }
 
 /* The backend returns only hours that have data. The day's full hour grid
@@ -399,6 +439,7 @@ function peopleBuckets(d) {
             avg: hit ? hit.avg : null,
             peak: hit && hit.has_peak ? hit.peak : null,
             hasPeak: !!(hit && hit.has_peak),
+            unique: hit ? hit.unique_users : 0,
         });
     }
     return hours;
@@ -427,7 +468,7 @@ function stateAt(timeline, ms) {
     return null;
 }
 
-function renderPeopleHourly(d, wrap) {
+function renderPeopleHourly(d, wrap, metric) {
     const buckets = peopleBuckets(d);
     const timeline = d.timeline || [];
     if (!buckets.some(b => b.avg != null)) {
@@ -436,41 +477,49 @@ function renderPeopleHourly(d, wrap) {
         return;
     }
 
-    const max = peopleScale(buckets.map(b => b.avg || 0));
-    const busiest = buckets.reduce((b, x) => ((x.avg ?? -1) > (b?.avg ?? -1) ? x : b), null);
+    const picks = buckets.map(b => (b.avg == null ? { has: false } : pickHourly(b, metric)));
+    const max = peopleScale(picks.map(p => (p.has ? p.v : 0)));
+    let busiestIdx = -1;
+    picks.forEach((p, i) => { if (p.has && (busiestIdx < 0 || p.v > picks[busiestIdx].v)) busiestIdx = i; });
     const peakBucket = buckets.reduce((b, x) => ((x.peak || 0) > (b?.peak || 0) ? x : b), null);
-    const bars = buckets.map(b => {
-        let cls = "";
-        let height;
-        let title;
+    const mWord = PEOPLE_METRICS[metric].word;
+
+    const bars = buckets.map((b, i) => {
+        const hourStr = timeOf(b.at.toISOString());
         if (b.avg == null) {
             // Nothing recorded. If the site was down, say down; otherwise this
             // is a hole in what we were told, and it is not a zero.
             const state = stateAt(timeline, b.at.getTime());
-            cls = state === "offline" ? "is-down" : "is-unknown";
-            height = 3;
-            title = `${timeOf(b.at.toISOString())} — ${state === "offline" ? "site was down" : "nothing recorded"}`;
-        } else {
-            height = Math.max(2, Math.round((b.avg / max) * 100));
-            if (!b.hasPeak) cls = "is-averaged";
-            const peakBit = b.hasPeak ? `, peak ${b.peak}` : " (hourly average only)";
-            title = `${timeOf(b.at.toISOString())} — ${b.avg} on average${peakBit}`;
+            const cls = state === "offline" ? "is-down" : "is-unknown";
+            const title = `${hourStr} — ${state === "offline" ? "site was down" : "nothing recorded"}`;
+            return `<div class="sr-bar-slot" title="${esc(title)}"><div class="sr-bar ${cls}" style="height:3px"></div></div>`;
         }
-        const num = b.avg != null ? barNum(b.avg, b === busiest) : "";
-        return `<div class="sr-bar-slot" title="${esc(title)}"><div class="sr-bar ${cls}" style="height:${height}%">${num}</div></div>`;
+        const p = picks[i];
+        if (!p.has) {
+            const why = p.why === "inactive" ? "outside 8am–11pm, excluded" : `no peak here — averages only kept ${d.peak_horizon_days}d`;
+            return `<div class="sr-bar-slot" title="${esc(`${hourStr} — ${why}`)}"><div class="sr-bar is-averaged" style="height:3px"></div></div>`;
+        }
+        const height = Math.max(2, Math.round((p.v / max) * 100));
+        const title = `${hourStr} — ${p.v} ${mWord}`;
+        return `<div class="sr-bar-slot" title="${esc(title)}"><div class="sr-bar" style="height:${height}%">${barNum(p.v, i === busiestIdx)}</div></div>`;
     }).join("");
 
-    // The bars are averages; the most people on at one moment is a different
-    // number, so it gets its own words rather than a label on some bar.
-    const peakSentence = (busiest ? ` Busiest hour was ${esc(timeOf(busiest.at.toISOString()))}, <strong>${busiest.avg}</strong> on average.` : "")
-        + (peakBucket && peakBucket.hasPeak
-            ? ` The most on at once was <strong>${peakBucket.peak}</strong>, at ${esc(timeOf(peakBucket.at.toISOString()))}.`
-            : "");
-    // Past the raw horizon a whole day is hourly averages — one sentence for
-    // it, rather than a dashed divider with nothing on one side of it.
-    const averagedSentence = buckets.some(b => b.avg != null && !b.hasPeak)
-        ? ` Paler bars are hourly averages — the per-minute rows behind them are deleted after ${d.peak_horizon_days} days, so no peak exists for them.`
+    const busiest = busiestIdx >= 0 ? buckets[busiestIdx] : null;
+    const busiestVal = busiestIdx >= 0 ? picks[busiestIdx].v : null;
+    const peakSentence = busiest
+        ? ` Busiest hour was ${esc(timeOf(busiest.at.toISOString()))}, <strong>${busiestVal}</strong> ${mWord}.`
         : "";
+    // The bars follow the chosen metric; "most on at once" is a different
+    // number from any metric but Peak, so it gets its own sentence there.
+    const alsoPeak = metric !== "peak" && peakBucket && peakBucket.hasPeak
+        ? ` The most on at once was <strong>${peakBucket.peak}</strong>, at ${esc(timeOf(peakBucket.at.toISOString()))}.`
+        : "";
+    const aside = metric === "active"
+        ? ` Hours outside 8am–11pm are excluded — that's when this site is reliably near-empty.`
+        : metric === "peak" && buckets.some(b => b.avg != null && !b.hasPeak)
+            ? ` Dim bars have no peak — the per-minute rows behind them are deleted after ${d.peak_horizon_days} days.`
+            : "";
+    const top = metric === "peak" ? d.peak_people : metric === "unique" ? d.unique_people : d.active_avg_people;
 
     wrap.innerHTML = `
         <div class="sr-chart-row">
@@ -483,7 +532,7 @@ function renderPeopleHourly(d, wrap) {
                 </div>
             </div>
         </div>
-        <p class="sr-says">Typically <strong>${d.avg_people}</strong> people online.${peakSentence}${averagedSentence}</p>`;
+        <p class="sr-says">${topSentenceFor(metric, top)}${peakSentence}${alsoPeak}${aside}</p>`;
 
     document.getElementById("sr-people-hint").textContent = `${buckets.length} hours`;
 }
@@ -498,55 +547,88 @@ function hatchBand(count, total, label) {
     </div>`;
 }
 
+/* A site added partway through the period: its daily charts start the day
+   it was added, rather than spending most of their width on one big "not
+   watched yet" block (ACK, added 21 Sep: 20 of September's 22 days). The
+   range note already says "watching since …". A period entirely before the
+   site existed keeps its full hatch — there, the hatch is the answer.
+   `isBlank(x)` says whether a leading day may be dropped. */
+function fromAdded(d, days, isBlank) {
+    if (!d.watching_since) return { days, trimmed: false };
+    const added = isoDay(new Date(new Date(d.watching_since).getTime() + 3 * 3600000));
+    let i = 0;
+    while (i < days.length && days[i].day < added && isBlank(days[i])) i++;
+    return i > 0 && i < days.length ? { days: days.slice(i), trimmed: true } : { days, trimmed: false };
+}
+
 /* One bar per EAT calendar day — a bar per hour over a week or a month is a
    couple of pixels wide and unreadable (intra-day shape is what the
    separate "Busiest hours" card already answers). Mirrors renderRevenue's
    shape: a hatched band for days before the site existed, each bar's average
    written above it, a dashed divider where true daily peaks give way to
    hourly-average-only days. */
-function renderPeopleDaily(d, wrap) {
-    const days = d.people_daily || [];
+function renderPeopleDaily(d, wrap, metric) {
+    const { days, trimmed } = fromAdded(d, d.people_daily || [], x => !x.watched);
     if (days.length === 0) {
         wrap.innerHTML = `<div class="sr-empty">No headcounts recorded in this window.</div>`;
         document.getElementById("sr-people-hint").textContent = "";
         return;
     }
 
-    const max = peopleScale(days.map(x => x.avg || 0));
-    const busiest = days.reduce((b, x) => ((x.avg ?? -1) > (b?.avg ?? -1) ? x : b), null);
+    const picks = days.map(x => (x.watched && x.avg != null ? pickDaily(x, metric) : { has: false }));
+    const max = peopleScale(picks.map(p => (p.has ? p.v : 0)));
+    let busiestIdx = -1;
+    picks.forEach((p, i) => { if (p.has && (busiestIdx < 0 || p.v > picks[busiestIdx].v)) busiestIdx = i; });
     const peakDay = days.reduce((b, x) => ((x.peak || 0) > (b?.peak || 0) ? x : b), null);
     const notWatchedCount = days.filter(x => !x.watched).length;
-    const showsAveraged = days.some(x => x.watched && x.avg != null && !x.has_peak);
+    const anyExcluded = days.some((x, i) => x.watched && x.avg != null && !picks[i].has);
+    const mWord = PEOPLE_METRICS[metric].word;
 
-    const bars = days.map(x => {
+    const bars = days.map((x, i) => {
+        const label = dayOf(`${x.day}T12:00:00`);
         if (!x.watched) {
-            return `<div class="sr-bar-slot" title="${esc(dayOf(`${x.day}T12:00:00`))} — before this site was added"></div>`;
+            return `<div class="sr-bar-slot" title="${esc(label)} — before this site was added"></div>`;
         }
         if (x.avg == null) {
-            return `<div class="sr-bar-slot" title="${esc(dayOf(`${x.day}T12:00:00`))} — nothing recorded">
+            return `<div class="sr-bar-slot" title="${esc(label)} — nothing recorded">
                 <div class="sr-bar is-unknown" style="height:3px"></div></div>`;
         }
-        const height = Math.max(2, Math.round((x.avg / max) * 100));
-        const cls = x.has_peak ? "" : "is-averaged";
-        const peakBit = x.has_peak ? `, peak ${x.peak}` : " (hourly averages only)";
-        return `<div class="sr-bar-slot" title="${esc(dayOf(`${x.day}T12:00:00`))} — ${x.avg} on average${peakBit}">
-            <div class="sr-bar ${cls}" style="height:${height}%">${barNum(x.avg, x === busiest)}</div></div>`;
+        const p = picks[i];
+        if (!p.has) {
+            const why = p.why === "inactive" ? "no active-hours data that day" : `no peak — averages only kept ${d.peak_horizon_days} days`;
+            return `<div class="sr-bar-slot" title="${esc(label)} — ${why}">
+                <div class="sr-bar is-averaged" style="height:3px"></div></div>`;
+        }
+        const height = Math.max(2, Math.round((p.v / max) * 100));
+        return `<div class="sr-bar-slot" title="${esc(label)} — ${p.v} ${mWord}">
+            <div class="sr-bar" style="height:${height}%">${barNum(p.v, i === busiestIdx)}</div></div>`;
     }).join("");
 
     let divider = "";
-    if (showsAveraged) {
-        const idx = days.findIndex(x => x.watched && x.has_peak);
+    if (metric === "peak" && anyExcluded) {
+        const idx = days.findIndex((x, i) => x.watched && x.avg != null && picks[i].has);
         if (idx > 0) divider = `<div class="sr-divider" style="left:${(idx / days.length) * 100}%"></div>`;
     }
 
-    // Bars are daily averages; "most at once" is a peak, and is said as one.
-    const peakSentence = (busiest && busiest.avg != null ? ` Busiest day was ${esc(dayOf(`${busiest.day}T12:00:00`))}, <strong>${busiest.avg}</strong> on average.` : "")
-        + (peakDay && peakDay.has_peak
-            ? ` The most on at once was <strong>${peakDay.peak}</strong>, on ${esc(dayOf(`${peakDay.day}T12:00:00`))}.`
-            : "");
-    const averagedSentence = showsAveraged
-        ? ` Days left of the dashed line are hourly averages only — the per-minute rows are deleted after ${d.peak_horizon_days} days, so no peak exists for that stretch.`
+    const busiest = busiestIdx >= 0 ? days[busiestIdx] : null;
+    const busiestVal = busiestIdx >= 0 ? picks[busiestIdx].v : null;
+    // Bars follow the chosen metric; "most at once" is a different number
+    // from any metric but Peak, so it gets its own sentence there.
+    const peakSentence = busiest
+        ? ` Busiest day was ${esc(dayOf(`${busiest.day}T12:00:00`))}, <strong>${busiestVal}</strong> ${mWord}.`
         : "";
+    const alsoPeak = metric !== "peak" && peakDay && peakDay.has_peak
+        ? ` The most on at once was <strong>${peakDay.peak}</strong>, on ${esc(dayOf(`${peakDay.day}T12:00:00`))}.`
+        : "";
+    const aside = metric === "active"
+        ? ` Overnight hours (11pm–8am) are excluded from each day's figure — that's when this site is reliably near-empty.`
+        : metric === "peak" && anyExcluded
+            ? ` Days left of the dashed line have no peak — the per-minute rows behind them are deleted after ${d.peak_horizon_days} days.`
+            : "";
+    const addedSentence = trimmed
+        ? ` Starts ${esc(dayOf(`${days[0].day}T12:00:00`))}, when this site was added — nothing to show before that.`
+        : "";
+    const top = metric === "peak" ? d.peak_people : metric === "unique" ? d.unique_people : d.active_avg_people;
 
     wrap.innerHTML = `
         <div class="sr-chart-row">
@@ -563,7 +645,7 @@ function renderPeopleDaily(d, wrap) {
                 </div>
             </div>
         </div>
-        <p class="sr-says">Typically <strong>${d.avg_people}</strong> people online.${peakSentence}${averagedSentence}</p>`;
+        <p class="sr-says">${topSentenceFor(metric, top)}${peakSentence}${alsoPeak}${aside}${addedSentence}</p>`;
 
     document.getElementById("sr-people-hint").textContent = `${days.length} days`;
 }
@@ -593,7 +675,9 @@ function renderRevenue(d) {
     const wrap = document.getElementById("sr-revenue-wrap");
     document.getElementById("sr-revenue-title").textContent = d.revenue_hourly ? "Revenue per hour" : "Revenue per day";
     if (d.revenue_hourly) { renderRevenueHourly(d, wrap); return; }
-    const days = d.revenue_daily || [];
+    // Same start as the People chart above, so the two line up; only days
+    // with no sales are dropped, so no money ever falls off the chart.
+    const { days, trimmed } = fromAdded(d, d.revenue_daily || [], x => x.kes === 0 && x.sales === 0);
     if (days.length === 0) {
         wrap.innerHTML = `<div class="sr-empty">No revenue data.</div>`;
         return;
@@ -609,6 +693,7 @@ function renderRevenue(d) {
     const trackedBit = untrackedCount > 0
         ? ` The hatched stretch is before revenue tracking started — those days are unknown, not zero.`
         : "";
+    const addedBit = trimmed ? ` Starts the day this site was added.` : "";
 
     wrap.innerHTML = `
         <div style="position:relative">
@@ -619,7 +704,7 @@ function renderRevenue(d) {
             <span>${esc(dayOf(days[0].day))}</span>
             <span>${esc(dayOf(days[days.length - 1].day))}</span>
         </div>
-        <p class="sr-says"><strong>${esc(money(total))}</strong> across ${sales} sale${sales === 1 ? "" : "s"}.${bestBit}${trackedBit}</p>`;
+        <p class="sr-says"><strong>${esc(money(total))}</strong> across ${sales} sale${sales === 1 ? "" : "s"}.${bestBit}${trackedBit}${addedBit}</p>`;
 }
 
 function renderRevenueHourly(d, wrap) {
@@ -793,6 +878,7 @@ let currentId = null;
 let currentKind = "week";
 let currentValue = null;
 let dataFrom = null; // first day this site has anything recorded, from the last response
+let lastData = null; // the last loaded report, so switching the People metric can re-render without a refetch
 
 /* Day | Week | Month, then either a date picker (day) or a dropdown of the
    weeks/months that have data. Re-run after every load, since the data
@@ -838,6 +924,7 @@ async function load(id, kind, value) {
         if (!res.ok) throw new Error(`server said ${res.status}`);
         const data = await res.json();
         dataFrom = data.data_from;
+        lastData = data;
         setPeriodControls();
         // Absent, not null: the key only exists with sites:view_revenue.
         render(data, "revenue_daily" in data);
@@ -857,6 +944,11 @@ export function initSiteDetail() {
     document.getElementById("sr-period-select").addEventListener("change", (e) => go(currentKind, e.target.value));
     document.getElementById("sr-day-input").addEventListener("change", (e) => {
         if (e.target.value) go("day", e.target.value); // cleared picker: stay put
+    });
+    // Local to this one chart — re-renders just the People card from the
+    // already-loaded report, never a refetch or a route change.
+    document.getElementById("sr-people-metric").addEventListener("change", () => {
+        if (lastData) renderPeople(lastData);
     });
 
     registerRoute("site-detail", (params) => {

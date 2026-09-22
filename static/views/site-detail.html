@@ -49,7 +49,17 @@
 
             <div class="sr-card">
                 <div class="sr-card-head">
-                    <div class="sr-card-title">People online</div>
+                    <div class="sr-card-title-group">
+                        <div class="sr-card-title">People online</div>
+                        <!-- Local to this chart only — what a bar means, not a
+                             report window, so it lives beside the title and
+                             never touches the route or any other chart. -->
+                        <select class="sr-metric-select" id="sr-people-metric" aria-label="What each bar shows">
+                            <option value="active">Active-hours avg</option>
+                            <option value="peak">Peak</option>
+                            <option value="unique">Unique users</option>
+                        </select>
+                    </div>
                     <div class="sr-card-hint" id="sr-people-hint"></div>
                 </div>
                 <div id="sr-people-wrap"></div>
