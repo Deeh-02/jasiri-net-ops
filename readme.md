@@ -118,6 +118,8 @@ picking this up too:
 
 Phases 0–3 are confirmed done and merged to `main` — structural split,
 mobile fixes, finish-incomplete-functionality, and Phase 3 ("Ops Inventory
-System," the Inventory domain described above). No phase is currently
-active; Phase 4 ("Notifications") is next up. See [phase.md](phase.md) and
-[changelog.md](changelog.md) for the full breakdown.
+System," the Inventory domain described above). Phase 4 ("Network
+Monitoring," site status + hotspot revenue tracking) is active, on the
+`phase-4-network-monitoring` branch, not yet merged. See
+[phase.md](phase.md) and [changelog.md](changelog.md) for the full
+breakdown.

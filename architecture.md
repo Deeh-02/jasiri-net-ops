@@ -1386,6 +1386,55 @@ because the router has no retry and a rejection is silent permanent loss.
 Quarantine rows are deduplicated while unresolved, since `/ppp active`
 includes home customers that will never be monitored sites.
 
+### Revenue attribution — durable signal first, moment-in-time second, guess last
+
+A hotspot sale (`db/monitoring.py`'s `_record_revenue`) is booked once,
+keyed on `(hotspot_username, expiry_seen)` — the router's `users` list is
+re-sent in full every 5 minutes and the unique index is what makes that
+free. Which site it belongs to is resolved by trying progressively weaker
+signals, and whichever resolves is recorded as `origin_vlan_id`
+(migration 0010) even when it doesn't map to a `monitored_sites` row yet —
+"we knew the VLAN, it just isn't a registered site" is a distinct,
+fixable state from "we had no idea", and collapsing the two would make a
+`monitored_sites` gap look like a code bug.
+
+1. **The account's own hotspot server VLAN.** Durable — true at 3am with
+   nobody connected — because servers here are one per VLAN, named
+   `hs-v<N>`, parsed off the router's own `/ip hotspot` server list.
+2. **For an account bound to the shared `all` server** (no server VLAN of
+   its own — a mix of comped support accounts and some real paying
+   customers): **its DHCP lease's VLAN**, matched by the MAC already
+   sitting in the account's own `Exp: ... | MAC: ...` comment. A lease
+   here lasts up to 24h and outlives the hotspot session itself, and a
+   device needs an IP before it can reach the payment page at all, so this
+   is almost as durable as tier 1 in practice, just one hop further from
+   the account record.
+3. **Seen actively sessioned on a VLAN in the same heartbeat.** A
+   photograph, not a fact — correct when it fires, but a short pass
+   bought and finished between two polls is simply not in it. This was
+   the *only* signal before 2026-09-22 and left 53 sales (KES 840) that
+   single day permanently unplaced, which is what prompted tiers 1 and 2.
+4. **The buyer's last known site.** A guess, marked `attribution =
+   'inferred'` so it is never confused with a real match.
+
+**A sale is only booked once, but "unplaced" is not permanent.** Every
+heartbeat — not just the ones carrying a fresh `users` list —
+`_backfill_unplaced` re-checks anything still unplaced against whatever's
+been learned since, run twice with two different windows sized to what
+each source of evidence is worth: an active-list sighting (tier 3, a
+moment) reaches back 30 minutes; the account's own resolved VLAN (tiers
+1/2, a standing fact) reaches back 24h, matched to the DHCP lease
+lifetime. The tradeoff this accepts deliberately: an `all`-bound account
+that sold at one site and has since moved is backfilled to where it is
+*now*, not where it paid — judged better than leaving it unplaced, since
+`all` accounts are a minority and fixed-location hotspot customers rarely
+move mid-day.
+
+What neither tier nor backfill can recover: an account that expires and
+is deleted from the router before ever being placed has no MAC and no
+lease left to read — this is written off, not chased, since there is
+nothing left on the router describing where it came from.
+
 Time: every connection runs `SET TIME ZONE 'UTC';` right after connecting
 (`get_connection()`), so every naive `timestamp without time zone` column
 is unambiguous — `utc_iso()` appends a literal "Z" when serializing so the

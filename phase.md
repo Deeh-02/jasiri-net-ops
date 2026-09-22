@@ -285,10 +285,12 @@ eight. `Kwa Mafuta` matches no PPPoE name at all.
 1. **VLAN 99 is not in the 21.** 4.0's hotspot-server sweep found no VLAN 99.
    Either it is a PPPoE-only site with no hotspot server, or 4.0's list was
    incomplete. One command settles it: `/interface vlan print`.
-2. **VLAN 5's hotspot server is named `PHASE3`** (4.0's "only naming
-   exception") but VLAN 5 is **Njeri House**, and Phase 3 is VLAN 35. This
-   looks like a stale name on the router, not a mapping error — confirm, and
-   note that renaming it is a router change and out of scope for now.
+2. ~~**VLAN 5's hotspot server is named `PHASE3`**~~ **RESOLVED 2026-09-22.**
+   Confirmed a stale name, not a mapping error, and renamed to `hs-v5` on
+   the router — VLAN 5 is a real, active, registered site
+   (`monitored_sites.id=1`). This stopped being out-of-scope the moment
+   4.7's real design started depending on the `hs-v<N>` convention holding
+   with no exceptions — see 4.7 below.
 3. **`Phase 3` exists twice in `locations`** — id 6 (`is_active=false`) and
    id 7 (`is_active=true`). VLAN 35 must point at one. Presumably 7.
 4. **Four named VLANs have no `locations` row**: Street 10 (20),
@@ -465,9 +467,20 @@ Per Correction 2. Seed `hotspot_packages` from the price table. In the heartbeat
 - a username not seen before → **a sale**, priced from its profile;
 - an existing username whose `Exp:` moved forward → **a renewal**, priced the same way.
 
-Attribute to a site by the user's address subnet where the user is currently active; where it is not, attribute to the site that last saw it, and mark the attribution as inferred.
+`hp support users` and `default` price at 0 — confirmed genuinely comped, not a misconfiguration.
 
-`hp support users` and `default` price at 0. Confirm `default` is genuinely comped and not a misconfiguration.
+**Attribution shipped as three tiers, not the one originally planned, after real production data (2026-09-22) showed the plan below left 53 sales (KES 840) that day permanently unplaced:**
+
+1. **The account's own hotspot server VLAN** — durable, true at 3am with nobody connected. Hotspot servers here are one per VLAN, named `hs-v<N>` with no exceptions (see the now-resolved discrepancy 2 above); the VLAN is parsed off that name directly, not resolved via `/interface` (confirmed empirically that these servers aren't bound to an interface literally named `vlan<id>`).
+2. **For accounts with no server of their own** (bound to `all` — a mix of the comped support profiles and some real paid customers, e.g. `Monthly pass400`, `10day pass150`): **the account's DHCP lease VLAN**, matched by the MAC already in its `Exp: ... | MAC: ...` comment. Leases here last up to 24h and outlive the hotspot session itself, and a device needs an IP before it can reach the payment page at all — so the lease used to buy the pass is almost always still there when this runs. DHCP servers happen to follow `dhcp-v<N>` too, but the lease's own address is read directly, same reasoning as tier 1.
+3. **The user's address subnet where currently active** (the originally-planned signal) — kept as a fallback for the rare case neither of the above resolves.
+4. **The buyer's last known site**, marked `inferred` — unchanged from the original plan, last resort only.
+
+Attribution is never a dead end: what tier 1/2 resolved even when it *isn't* a registered site yet is still recorded (`revenue_events.origin_vlan_id`, migration 0010) — "we knew, it just isn't a site in Manage Sites" is a distinguishable, fixable state, not silently discarded.
+
+**A sale is booked once, on `(username, expiry)`, and never re-examined by the booking logic itself — so a genuine backfill runs on every heartbeat, not just users runs, checking anything still unplaced against whatever's been learned since:** an active-list sighting reaches back 30 minutes (a moment, not a durable fact), the account's own tier-1/2 VLAN reaches back 24h (a standing fact, matched to the DHCP lease life). Known and accepted: an `all`-bound account that bought at one site and has since moved is placed where it is *now*, not where it paid — judged better than not placed at all.
+
+**Two gaps remain, deliberately not chased further as of 2026-09-22:** VLANs 99/105/115 have router-side hotspot/DHCP activity but no `monitored_sites` row yet (Ops-owned, pending); and an account that expires and is deleted from the router before any of the above ever resolves it has nothing left to recover from — no MAC, no lease, gone for good. Both are historical-residue problems, not ongoing leaks — same-day placement rate on new sales was verified at 100% (17/17) in production before the last of the tiers above even shipped.
 
 Because this is a *sales* measure, it should reconcile against M-Pesa. Split this into two pieces so the system side costs nothing regardless of how the M-Pesa side turns out:
 

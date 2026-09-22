@@ -30,7 +30,12 @@ battery-tracker/
 │   ├── 0005_inventory_custody_type.sql # one additive column: inventory_categories.custody_type
 │   ├── 0006_monitoring_core_tables.sql # Phase 4: monitoring tables + seeded hotspot_packages
 │   ├── 0007_seed_monitored_sites.sql   # Phase 4: initial VLAN-to-site mapping (editable data)
-│   └── 0008_monitored_sites_name.sql   # Phase 4: display name for sites with no locations row
+│   ├── 0008_monitored_sites_name.sql   # Phase 4: display name for sites with no locations row
+│   ├── 0009_monitoring_feed_health.sql # Phase 4.7: users_reported + last-seen columns, so a
+│   │                                   #   silently-stopped user list (2026-09-21) is visible
+│   ├── 0010_revenue_events_origin_vlan.sql # Phase 4.7: origin_vlan_id — the VLAN a sale came
+│   │                                   #   from even when it isn't a registered site yet
+│   └── 0011_site_acknowledgements.sql  # Phase 4.5: mute a known-bad site without changing its state
 │
 ├── router/                          # RouterOS scripts, pasted onto the CCR by a human — never run by Ops
 │   └── ops-heartbeat.rsc             # Phase 4.3: read-only 60s heartbeat POSTing to /monitoring/ingest
@@ -61,6 +66,12 @@ battery-tracker/
 │   │                                   #   not a separate domain (see ARCHITECTURE.md)
 │   ├── permissions.py                  # roles + role_permissions data access
 │   ├── users.py                       # users CRUD
+│   ├── monitoring.py                   # Phase 4: ingest_snapshot (site status + revenue
+│   │                                   #   attribution, see ARCHITECTURE.md), status/timeline/
+│   │                                   #   revenue queries for the Status + site-detail pages
+│   ├── monitoring_retention.py         # Phase 4: rolls up raw session/status rows past
+│   │                                   #   SESSION_RAW_KEEP; run_if_due called from the ingest
+│   │                                   #   request itself, no separate scheduler
 │   ├── inventory_locations.py          # inventory_locations CRUD + get_or_create_location_by_name
 │   │                                   #   (Issue/Return's free-typed Site field, Add/Edit Unit's
 │   │                                   #   Location field) + get_default_store_location (Return's
