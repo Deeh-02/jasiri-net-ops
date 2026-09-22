@@ -167,6 +167,15 @@ function renderTotals(data, canRevenue) {
             small: !canRevenue,
             caption: canRevenue && data.revenue_feed ? feed.text : "",
             captionStale: feed.stale,
+            /* The total includes sales Ops could not place at a site; this
+               says how much of it that is. Hidden at zero — on a good day
+               every sale lands somewhere, and a line reading "KES 0 unplaced"
+               every day is noise you learn to scroll past. The sites below
+               will not add up to the total while this is showing, and that
+               is the thing it exists to explain. */
+            subcaption: canRevenue && data.revenue_unplaced_kes
+                ? `${money(data.revenue_unplaced_kes)} not tied to a site yet`
+                : "",
         },
     ];
 
@@ -175,6 +184,7 @@ function renderTotals(data, canRevenue) {
             <div class="stat-label">${card.label}</div>
             <div class="stat-value ${card.small ? "is-small" : ""}">${esc(card.value)}</div>
             ${card.caption ? `<div class="stat-caption ${card.captionStale ? "is-stale" : ""}">${esc(card.caption)}</div>` : ""}
+            ${card.subcaption ? `<div class="stat-caption is-unplaced">${esc(card.subcaption)}</div>` : ""}
         </div>`).join("");
 }
 

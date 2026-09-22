@@ -108,7 +108,12 @@ def status(current_user: dict = Depends(require_status_access)):
         counts[s["state"]] = counts.get(s["state"], 0) + 1
     result = {"last_ingest_at": db.get_last_ingest_at(), "counts": counts, "sites": sites}
     if can_revenue:
-        result["revenue_today_kes"] = sum(s["revenue_today_kes"] for s in sites)
+        # Everything Ops saw today, placed or not — the rows below stay strictly
+        # per-site, so the difference is carried on the card rather than dropped.
+        unplaced = db.get_unplaced_revenue_today()
+        result["revenue_today_kes"] = sum(s["revenue_today_kes"] for s in sites) + unplaced["kes"]
+        result["revenue_unplaced_kes"] = unplaced["kes"]
+        result["revenue_unplaced_sales"] = unplaced["sales"]
         # Only alongside revenue: the customer list feeds nothing else, and to
         # someone who cannot see money an aged feed is a worry with no
         # corresponding number to explain it.

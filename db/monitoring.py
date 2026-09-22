@@ -456,6 +456,35 @@ def get_site_statuses(include_revenue):
     return sites
 
 
+def get_unplaced_revenue_today():
+    """Today's money Ops detected but could not place at any site.
+
+    A sale is recorded the moment it is seen, whether or not the site it came
+    from can be worked out — monitored_site_id is nullable for exactly that
+    reason. The per-site figures above deliberately exclude these rows, and
+    must: a site's number has to be its own or it is not a site's number.
+
+    But the HEADLINE total is the answer to "what did we take today", and it
+    was built by summing the per-site figures, so every unplaced sale silently
+    vanished from it. On 2026-09-22 that read ~250 KES light against the
+    billing system, and the only way to see why was to query the table by
+    hand. The total now includes these, and the card says how much of it is
+    unplaced — a number that is quietly wrong is worse than one that explains
+    itself."""
+    with db_cursor() as (conn, cur):
+        cur.execute(
+            """
+            SELECT COALESCE(sum(price_kes), 0), count(*)
+            FROM revenue_events
+            WHERE first_seen_at >= %s AND monitored_site_id IS NULL
+              AND event_type <> 'baseline'
+            """,
+            (_eat_day_start_utc(),),
+        )
+        row = cur.fetchone()
+    return {"kes": float(row[0]), "sales": row[1]}
+
+
 def get_site_detail(site_id, include_revenue, history_limit=50, hours=24):
     """One site's recent transitions and session counts, plus (only with
     include_revenue) its latest revenue events. None if the id is unknown."""

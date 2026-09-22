@@ -326,3 +326,12 @@
 }
 
 .stat-caption.is-stale { color: var(--warn); }
+
+/* Money in the total that is not in any row below. Not a warning — the sale
+   is real and counted, only its site is unknown — so it stays dim rather
+   than borrowing the stale caption's colour. */
+.stat-caption.is-unplaced {
+    margin-top: 2px;
+    text-transform: none;
+    letter-spacing: 0;
+}
