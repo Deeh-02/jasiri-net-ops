@@ -41,7 +41,7 @@
    data is the difference between "nothing is wrong" and "we stopped being
    told". */
 #view-status.stale-feed .status-hero,
-#view-status.stale-feed .status-problems,
+#view-status.stale-feed .status-section,
 #view-status.stale-feed .stat-grid,
 #view-status.stale-feed .table-scroll {
     opacity: 0.45;
@@ -64,7 +64,33 @@
 }
 
 .status-hero.has-problem { border-left-color: var(--danger); }
-.status-hero.is-stale { border-left-color: var(--warn); }
+.status-hero.has-flapping { border-left-color: var(--warn); }
+.status-hero.is-stale { border-left-color: var(--text-dim); }
+
+.status-hero-kicker {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+}
+
+.status-hero-glyph {
+    font-size: 0.7em;
+    margin-right: 12px;
+    vertical-align: 0.12em;
+}
+
+/* Says what the calm page is calm about, or what the stale page last knew.
+   Sentence case and full width: it is read, not scanned. */
+.status-hero-note {
+    font-size: 13px;
+    color: var(--text-dim);
+    line-height: 1.6;
+    margin-top: 8px;
+    max-width: 80ch;
+}
 
 .status-hero-line {
     font-family: 'Space Grotesk', sans-serif;
@@ -75,7 +101,10 @@
 }
 
 .status-hero.has-problem .status-hero-line { color: var(--danger); }
-.status-hero.is-stale .status-hero-line { color: var(--warn); }
+.status-hero.has-flapping .status-hero-line { color: var(--warn); }
+/* Grey, not amber: an unknown state is not a warning about the sites, it is
+   the absence of anything to say about them. */
+.status-hero.is-stale .status-hero-line { color: var(--text-dim); }
 
 .status-hero-sub {
     font-family: 'JetBrains Mono', monospace;
@@ -109,68 +138,280 @@
     font-weight: 700;
 }
 
-/* ---- Exception-first: problem cards sit ABOVE the fleet totals, and the
-   whole block collapses to nothing on a calm day (:empty) rather than
-   leaving an "all clear" panel to be scrolled past every time. ---- */
-.status-problems {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-    gap: 12px;
+/* ---- Status / Trends tabs. Two views of the same sites, so a tab strip
+   rather than two nav entries. Shared by status.html and trends.html. ---- */
+.sites-tabs {
+    display: flex;
+    gap: 4px;
+    border-bottom: 1px solid var(--border);
     margin-bottom: 20px;
 }
 
-.status-problems:empty { display: none; }
-
-.status-problem {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-left: 3px solid var(--danger);
-    border-radius: 10px;
-    padding: 16px 18px;
+.sites-tab {
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    padding: 10px 14px;
+    min-height: 44px;
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-dim);
     cursor: pointer;
-    transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 
-.status-problem:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
+.sites-tab:hover { color: var(--text); }
+
+.sites-tab.is-active {
+    color: var(--text);
+    font-weight: 600;
+    border-bottom-color: var(--accent);
+    cursor: default;
+}
+
+/* ---- Section heading: a title and a quiet note on one baseline ---- */
+.status-section-head {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+}
+
+.status-section-title {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 17px;
+    font-weight: 700;
+    margin: 0;
+}
+
+.status-section-note {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-dim);
+}
+
+/* ---- Exception-first: problem cards sit ABOVE the fleet totals, and the
+   whole section is hidden on a calm day rather than leaving an "all clear"
+   panel to be scrolled past every time. ---- */
+.status-section { margin-bottom: 20px; }
+
+.status-problems {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 12px;
+}
+
+.status-problem {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--danger);
+    border-radius: 10px;
+    padding: 16px 18px;
 }
 
 .status-problem.is-flapping { border-left-color: var(--warn); }
 
 .status-problem-top {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    margin-bottom: 10px;
+    align-items: flex-start;
+    gap: 10px;
+}
+
+.status-problem-glyph {
+    font-size: 15px;
+    line-height: 1.4;
+    color: var(--danger);
+}
+
+.status-problem.is-flapping .status-problem-glyph,
+.status-problem.is-flapping .status-problem-state { color: var(--warn); }
+
+.status-problem-id {
+    flex: 1;
+    min-width: 0;
 }
 
 .status-problem-name {
     font-family: 'Space Grotesk', sans-serif;
-    font-size: 17px;
+    font-size: 19px;
     font-weight: 700;
+    line-height: 1.2;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-/* Sessions-at-drop is the number that decides whether anyone drives out
-   tonight, so it gets the card's second-largest type, not a footnote. */
-.status-problem-figure {
-    font-family: 'Space Grotesk', sans-serif;
-    font-size: 22px;
-    font-weight: 700;
-}
-
-.status-problem-meta {
+.status-problem-ident {
     font-family: 'JetBrains Mono', monospace;
     font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
     color: var(--text-dim);
-    margin-top: 4px;
+    margin-top: 3px;
 }
+
+/* The duration is in the label because it decides urgency — it never costs
+   a click. */
+.status-problem-state {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    color: var(--danger);
+    white-space: nowrap;
+}
+
+/* People-at-drop: the sentence that decides whether anyone drives out
+   tonight, so it is body text, not a footnote. */
+.status-problem-detail {
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--text);
+    flex: 1;
+}
+
+.status-problem-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.status-problem-open {
+    min-height: 44px;
+    padding: 8px 14px;
+    background: var(--surface-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.status-problem-open:hover { border-color: var(--text-dim); }
+
+.status-btn-primary {
+    min-height: 44px;
+    padding: 8px 14px;
+    background: var(--text);
+    color: #000;
+    border: none;
+    border-radius: 8px;
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.status-btn-primary:disabled,
+.status-problem-open:disabled { opacity: 0.5; cursor: default; }
+
+.status-ack-form {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.status-ack-input {
+    min-height: 44px;
+    box-sizing: border-box;
+    width: 100%;
+    padding: 8px 12px;
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+}
+
+.status-ack-input:focus { outline: none; border-color: var(--text-dim); }
+
+.status-ack-msg {
+    font-size: 12.5px;
+    color: var(--danger);
+}
+
+/* ---- Known issues: dashed and muted, so "handled" reads at a glance, but
+   still in plain view with who acknowledged it and why. ---- */
+.status-section-title.is-quiet {
+    font-size: 15px;
+    color: var(--text-dim);
+}
+
+.status-known {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.status-known-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+    padding: 10px 16px;
+    border: 1px dashed var(--border);
+    border-radius: 9px;
+    background: var(--surface);
+}
+
+.status-known-glyph {
+    font-size: 12px;
+    color: var(--text-dim);
+}
+
+.status-known-name {
+    background: none;
+    border: none;
+    padding: 0;
+    font-family: 'Inter', sans-serif;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text);
+    cursor: pointer;
+}
+
+.status-known-name:hover { text-decoration: underline; }
+
+.status-known-meta {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11.5px;
+    color: var(--text-dim);
+}
+
+.status-known-note {
+    flex: 1;
+    min-width: 160px;
+    font-size: 13px;
+    color: var(--text-dim);
+}
+
+.status-known-row .status-problem-open { min-height: 38px; font-size: 13px; font-weight: 500; }
+
+/* In the table an acknowledged site keeps its real pill but steps back. */
+.status-row-acked td { opacity: 0.6; }
+
+.status-ack-tag {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 1px 5px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9.5px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+    vertical-align: 1px;
+}
+
+/* Four cards when revenue is not the viewer's to see: the grid closes up
+   rather than leaving a hole where the money card was. */
+.stat-grid.is-four { grid-template-columns: repeat(4, 1fr); }
 
 /* ---- Status pills (base .status-pill lives in common.css) ---- */
 .status-pill.st-online   { color: var(--accent);   background: rgba(61, 220, 151, 0.12); }
@@ -185,48 +426,13 @@
     letter-spacing: 0;
 }
 
-/* A stat value that is a name or a phrase rather than a count cannot carry
-   the 28px numeral size without wrapping the card. */
-.stat-value.is-small {
-    font-size: 16px;
-    line-height: 1.4;
-}
-
 /* ---- Table ---- */
-
-/* The count alone is 15 bare numerals in a column; the bar is what lets you
-   see where the load actually sits without reading any of them. */
-.status-load {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-}
 
 .status-sessions {
     font-family: 'JetBrains Mono', monospace;
     font-weight: 500;
     min-width: 22px;
 }
-
-.status-load-track {
-    flex: 1;
-    min-width: 40px;
-    max-width: 90px;
-    height: 4px;
-    border-radius: 2px;
-    background: var(--surface-2);
-    overflow: hidden;
-}
-
-.status-load-fill {
-    display: block;
-    height: 100%;
-    border-radius: 2px;
-    background: var(--accent);
-}
-
-.status-row-down .status-load-fill,
-.status-row-flapping .status-load-fill { background: var(--text-dim); }
 
 .status-row-clickable { cursor: pointer; }
 
@@ -238,16 +444,6 @@
 }
 
 .status-revenue.has-value { color: var(--text); }
-
-/* Absent, not nulled: without sites:view_revenue the API never sends the
-   key at all, and this is what the page shows in its place. */
-.status-revenue-locked {
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 11px;
-    color: var(--text-dim);
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
-}
 
 /* Left accent on a flagged row goes on the first CELL, not the <tr> — a
    border on the row itself is only painted under border-collapse:collapse,
@@ -280,10 +476,15 @@
     .status-problems {
         grid-template-columns: 1fr;
         gap: 8px;
-        margin-bottom: 16px;
     }
 
-    .status-problem { padding: 12px 14px; }
+    .status-problem { padding: 14px; }
+
+    /* One line per site on a phone: name, state, people. Uptime and last
+       seen are a tap away on the site report. */
+    #status-table .status-col-wide { display: none; }
+
+    .stat-grid.is-four { grid-template-columns: repeat(2, 1fr); }
 }
 
 /* ---- Sales-feed alert. The 2026-09-21 failure had every other signal on
@@ -337,4 +538,33 @@
     margin-top: 2px;
     text-transform: none;
     letter-spacing: 0;
+}
+
+/* ---- Table cells added with the 30-day column ---- */
+.status-site-name { font-weight: 500; }
+
+.status-site-vlan {
+    display: block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px;
+    color: var(--text-dim);
+    margin-top: 2px;
+}
+
+.status-uptime {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+}
+
+.status-uptime.is-low { color: var(--warn); }
+
+.status-uptime.is-na {
+    color: var(--text-dim);
+    font-size: 11px;
+}
+
+.status-footnote {
+    font-size: 12px;
+    color: var(--text-dim);
+    margin: 12px 0 0;
 }

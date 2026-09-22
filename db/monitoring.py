@@ -351,6 +351,17 @@ def ingest_snapshot(snapshot, raw_payload, router_ts, router_ts_utc, offset_minu
                     """,
                     (site["id"], state, site["liveness_source"], router_ts, snapshot_id),
                 )
+                # Back online ends any acknowledgement, in the same
+                # transaction as the recovery itself: an acknowledgement is
+                # for ONE outage, and the next drop must alert fresh.
+                if state == "online":
+                    cur.execute(
+                        """
+                        UPDATE site_acknowledgements SET cleared_at = now()
+                        WHERE monitored_site_id = %s AND cleared_at IS NULL
+                        """,
+                        (site["id"],),
+                    )
             if sessions is not None and site["id"] not in recently_counted:
                 cur.execute(
                     """
@@ -406,6 +417,35 @@ def get_revenue_feed():
     return {"last_users_at": utc_iso(row[0]), "users_reported": row[1]}
 
 
+# The Status table's uptime column. Fixed rather than a parameter: the page
+# is "right now", and the site report is where a window gets chosen.
+UPTIME_WINDOW = timedelta(days=30)
+
+
+def get_fleet_activity():
+    """When anything last changed, and when the last outage ended — what a
+    calm Status page says instead of showing an empty problems block. An
+    outage ends at an 'online' row whose previous row was offline or
+    flapping, for the same site."""
+    with db_cursor() as (conn, cur):
+        cur.execute(
+            """
+            WITH log AS (
+                SELECT sl.state, sl.received_at,
+                       lag(sl.state) OVER (PARTITION BY sl.monitored_site_id
+                                           ORDER BY sl.received_at, sl.id) AS prev
+                FROM site_status_log sl
+                JOIN monitored_sites ms ON ms.id = sl.monitored_site_id AND ms.is_active
+            )
+            SELECT max(received_at),
+                   max(received_at) FILTER (WHERE state = 'online' AND prev IN ('offline', 'flapping'))
+            FROM log
+            """
+        )
+        last_change, last_closed = cur.fetchone()
+    return {"last_change_at": utc_iso(last_change), "last_incident_closed_at": utc_iso(last_closed)}
+
+
 def get_site_statuses(include_revenue):
     """One row per active monitored site with its current state. Revenue keys
     are added only when include_revenue — absent, not null, so a caller
@@ -416,7 +456,7 @@ def get_site_statuses(include_revenue):
             SELECT ms.id, ms.location_id, COALESCE(l.name, ms.name, 'VLAN ' || ms.vlan_id) AS name,
                    ms.vlan_id, ms.liveness_source, ms.notes,
                    st.state, st.received_at,
-                   sc.sessions, sc.received_at
+                   sc.sessions, sc.received_at, ms.pppoe_username
             FROM monitored_sites ms
             LEFT JOIN locations l ON l.id = ms.location_id
             LEFT JOIN LATERAL (
@@ -434,6 +474,43 @@ def get_site_statuses(include_revenue):
             """
         )
         rows = cur.fetchall()
+
+        # How many people were on a down site at the last count BEFORE it
+        # dropped. Its current count is 0 by definition, which says nothing;
+        # this is the number that decides whether anyone drives out tonight.
+        cur.execute(
+            """
+            SELECT DISTINCT ON (st.monitored_site_id) st.monitored_site_id, sc.sessions
+            FROM (
+                SELECT DISTINCT ON (monitored_site_id) monitored_site_id, state, received_at
+                FROM site_status_log
+                ORDER BY monitored_site_id, received_at DESC, id DESC
+            ) st
+            JOIN site_session_counts sc
+              ON sc.monitored_site_id = st.monitored_site_id AND sc.received_at < st.received_at
+            WHERE st.state = 'offline'
+            ORDER BY st.monitored_site_id, sc.received_at DESC, sc.id DESC
+            """
+        )
+        sessions_at_drop = dict(cur.fetchall())
+
+        cur.execute(
+            """
+            SELECT a.monitored_site_id, a.note, u.name, a.acknowledged_at
+            FROM site_acknowledgements a LEFT JOIN users u ON u.id = a.acknowledged_by
+            WHERE a.cleared_at IS NULL
+            """
+        )
+        acks = {r[0]: {"note": r[1], "by": r[2], "at": utc_iso(r[3])} for r in cur.fetchall()}
+
+        now = datetime.utcnow()
+        month_ago = now - UPTIME_WINDOW
+        uptime_by_site = {}
+        for r in rows:
+            if r[4] == "pppoe":
+                summary = _uptime_summary(_state_segments(cur, r[0], month_ago, now), r[4])
+                uptime_by_site[r[0]] = summary["uptime_pct"]
+
         revenue_by_site = {}
         if include_revenue:
             cur.execute(
@@ -455,6 +532,13 @@ def get_site_statuses(include_revenue):
             "liveness_source": r[4], "notes": r[5],
             "state": r[6] or "unknown", "state_since": utc_iso(r[7]),
             "sessions": r[8], "sessions_at": utc_iso(r[9]),
+            "pppoe_username": r[10],
+            "sessions_at_drop": sessions_at_drop.get(r[0]),
+            # None for an activity site: it cannot report Down, so any
+            # percentage would be a meaningless 100%.
+            "uptime_30d_pct": uptime_by_site.get(r[0]),
+            # Present only while acknowledged; the state itself is untouched.
+            "ack": acks.get(r[0]),
         }
         if include_revenue:
             today_kes, today_sales = revenue_by_site.get(r[0], (0.0, 0))
@@ -462,6 +546,54 @@ def get_site_statuses(include_revenue):
             site["sales_today"] = today_sales
         sites.append(site)
     return sites
+
+
+class AckConflict(Exception):
+    """The acknowledgement can't be made or cleared; the message is safe to show."""
+
+
+def acknowledge_site(site_id, user_id, note):
+    """Marks a Down or Flapping site as known. Refused for a site that is
+    online — there is nothing to acknowledge, and a standing acknowledgement
+    would silently mute its next outage."""
+    with db_cursor() as (conn, cur):
+        cur.execute(
+            """
+            SELECT state FROM site_status_log WHERE monitored_site_id = %s
+            ORDER BY received_at DESC, id DESC LIMIT 1
+            """,
+            (site_id,),
+        )
+        row = cur.fetchone()
+        if row is None or row[0] not in ("offline", "flapping"):
+            raise AckConflict("Only a site that is down or flapping can be acknowledged")
+        try:
+            cur.execute(
+                """
+                INSERT INTO site_acknowledgements (monitored_site_id, note, acknowledged_by)
+                VALUES (%s, %s, %s)
+                """,
+                (site_id, note, user_id),
+            )
+        except psycopg2.errors.UniqueViolation:
+            conn.rollback()
+            raise AckConflict("This site is already acknowledged")
+        conn.commit()
+
+
+def clear_acknowledgement(site_id, user_id):
+    """Un-acknowledge. False when there was nothing in force to clear."""
+    with db_cursor() as (conn, cur):
+        cur.execute(
+            """
+            UPDATE site_acknowledgements SET cleared_at = now(), cleared_by = %s
+            WHERE monitored_site_id = %s AND cleared_at IS NULL
+            """,
+            (user_id, site_id),
+        )
+        cleared = cur.rowcount > 0
+        conn.commit()
+    return cleared
 
 
 def get_unplaced_revenue_today():
@@ -688,6 +820,35 @@ def _busiest_hours(cur, site_id, since):
     return [{"hour": h, "avg": by_hour.get(h, 0)} for h in range(24)]
 
 
+def _revenue_hourly(cur, site_id, since, now, tracked_from):
+    """One bucket per hour, trailing — the 24h range's answer to
+    revenue_daily's one-bar-per-calendar-day. A whole-day bucket is useless
+    over a 24h window (it is exactly one bar), so this mirrors
+    _people_hourly's binning instead: same trailing window, same UTC-hour
+    grid, zero-filled so a quiet hour still gets its own bar."""
+    cur.execute(
+        """
+        SELECT date_trunc('hour', first_seen_at) AS hour,
+               COALESCE(sum(price_kes), 0), count(*)
+        FROM revenue_events
+        WHERE monitored_site_id = %s AND event_type <> 'baseline' AND first_seen_at >= %s
+        GROUP BY hour ORDER BY hour
+        """,
+        (site_id, since),
+    )
+    by_hour = {r[0]: (float(r[1]), r[2]) for r in cur.fetchall()}
+    hours = []
+    cursor = since.replace(minute=0, second=0, microsecond=0)
+    while cursor <= now:
+        kes, sales = by_hour.get(cursor, (0.0, 0))
+        hours.append({
+            "hour": utc_iso(cursor), "kes": kes, "sales": sales,
+            "tracked": tracked_from is not None and cursor >= tracked_from,
+        })
+        cursor += timedelta(hours=1)
+    return hours
+
+
 def get_site_detail(site_id, include_revenue, days=7):
     """One site's status history, session counts and (only with
     include_revenue) revenue, all over a trailing `days` window. None if the
@@ -792,6 +953,11 @@ def get_site_detail(site_id, include_revenue, days=7):
                 })
                 cursor_day += timedelta(days=1)
 
+            # A calendar-day bucket is exactly one bar over a 24h window —
+            # not a chart. The 24h range gets its own hourly breakdown
+            # instead, same trailing window as the People chart above it.
+            revenue_hourly = _revenue_hourly(cur, site_id, since, now, tracked_from) if days == 1 else None
+
             cur.execute(
                 """
                 SELECT profile_name, COALESCE(sum(price_kes), 0), count(*)
@@ -839,10 +1005,179 @@ def get_site_detail(site_id, include_revenue, days=7):
     if include_revenue:
         detail["revenue_events"] = events
         detail["revenue_daily"] = revenue_daily
+        detail["revenue_hourly"] = revenue_hourly
         detail["revenue_packages"] = packages
         detail["revenue_attribution"] = attribution
         detail["revenue_tracking_since"] = revenue_tracking_since
     return detail
+
+
+def get_fleet(include_revenue, days=7):
+    """Every active site over one trailing window, for the Trends tab — the
+    site report's numbers, asked of the whole fleet at once so sites can be
+    ranked against each other. Same rules as get_site_detail throughout:
+    unwatched time is never downtime, an activity site gets no uptime
+    percentage, a peak exists only inside the raw-row horizon, and revenue
+    keys are absent (not null) without include_revenue — on every row AND on
+    the unattributed line, which belongs to no row and so is the one most
+    likely to leak."""
+    now = datetime.utcnow()
+    since = now - timedelta(days=days)
+    with db_cursor() as (conn, cur):
+        cur.execute(
+            """
+            SELECT ms.id, COALESCE(l.name, ms.name, 'VLAN ' || ms.vlan_id), ms.vlan_id,
+                   ms.liveness_source, ms.created_at
+            FROM monitored_sites ms LEFT JOIN locations l ON l.id = ms.location_id
+            WHERE ms.is_active
+            ORDER BY 2
+            """
+        )
+        heads = cur.fetchall()
+
+        # One coverage figure serves every site watched for the whole window;
+        # only a site added part-way through needs its own.
+        window_coverage = _coverage(cur, since, now, None)
+
+        cur.execute(
+            """
+            SELECT monitored_site_id, date_trunc('hour', received_at) AS hour,
+                   avg(sessions), max(sessions), bool_or(granularity = 'raw')
+            FROM site_session_counts
+            WHERE received_at >= %s
+            GROUP BY monitored_site_id, hour
+            """,
+            (since,),
+        )
+        hourly = cur.fetchall()
+
+        sites = []
+        for site_id, name, vlan_id, liveness_source, created_at in heads:
+            segments = _state_segments(cur, site_id, since, now)
+            uptime = _uptime_summary(segments, liveness_source)
+            young = created_at is not None and created_at > since
+            coverage = _coverage(cur, since, now, created_at) if young else window_coverage
+            online_seconds = sum(
+                s["duration_seconds"] for s in uptime["timeline"] if s["state"] == "online")
+            site_hours = [h for h in hourly if h[0] == site_id]
+            avgs = [float(h[2]) for h in site_hours]
+            peaks = [h[3] for h in site_hours if h[4]]
+            sites.append({
+                "id": site_id, "name": name, "vlan_id": vlan_id,
+                "liveness_source": liveness_source,
+                "state": segments[-1]["state"] if segments else "unknown",
+                "watching_since": utc_iso(created_at),
+                "uptime_pct": uptime["uptime_pct"],
+                "outages": len(uptime["outages"]),
+                "longest_outage_seconds": uptime["longest_outage_seconds"],
+                "flap_count": uptime["flap_count"],
+                # For an activity site "online" means "had people on it" —
+                # the one thing it can honestly report instead of uptime.
+                "online_seconds": online_seconds,
+                "coverage_pct": coverage["pct"],
+                "window_seconds": coverage["watched_seconds"] + coverage["unwatched_seconds"],
+                "avg_people": round(sum(avgs) / len(avgs)) if avgs else None,
+                "peak_people": max(peaks) if peaks else None,
+            })
+
+        # People across the fleet, hour by hour: the sum of each site's hourly
+        # average. A peak is only claimed where every contributing row is raw.
+        fleet_hours = {}
+        for _, hour, avg, peak, is_raw in hourly:
+            bucket = fleet_hours.setdefault(hour, {"avg": 0.0, "peak": 0, "has_peak": True})
+            bucket["avg"] += float(avg)
+            bucket["peak"] += peak
+            bucket["has_peak"] = bucket["has_peak"] and is_raw
+        people = [
+            {"hour": utc_iso(h), "avg": round(b["avg"]),
+             "peak": b["peak"] if b["has_peak"] else None, "has_peak": b["has_peak"]}
+            for h, b in sorted(fleet_hours.items())
+        ]
+
+        revenue = None
+        if include_revenue:
+            revenue_since = _eat_day_start_utc() - timedelta(days=days - 1)
+            cur.execute(
+                """
+                SELECT monitored_site_id, COALESCE(sum(price_kes), 0), count(*),
+                       count(*) FILTER (WHERE attribution = 'direct')
+                FROM revenue_events
+                WHERE event_type <> 'baseline' AND first_seen_at >= %s
+                GROUP BY monitored_site_id
+                """,
+                (revenue_since,),
+            )
+            by_site = {r[0]: (float(r[1]), r[2], r[3]) for r in cur.fetchall()}
+            cur.execute(
+                """
+                SELECT (first_seen_at + interval '3 hours')::date AS day,
+                       COALESCE(sum(price_kes), 0), count(*)
+                FROM revenue_events
+                WHERE event_type <> 'baseline' AND first_seen_at >= %s
+                GROUP BY day
+                """,
+                (revenue_since,),
+            )
+            by_day = {r[0].isoformat(): (float(r[1]), r[2]) for r in cur.fetchall()}
+            cur.execute("SELECT min(first_seen_at) FROM revenue_events")
+            tracked_from = cur.fetchone()[0]
+            tracked_day = (tracked_from + timedelta(hours=3)).date() if tracked_from else None
+            daily = []
+            day = now_eat().date() - timedelta(days=days - 1)
+            for _ in range(days):
+                kes, sales = by_day.get(day.isoformat(), (0.0, 0))
+                daily.append({"day": day.isoformat(), "kes": kes, "sales": sales,
+                              "tracked": tracked_day is not None and day >= tracked_day})
+                day += timedelta(days=1)
+            revenue = {"by_site": by_site, "daily": daily, "tracking_since": utc_iso(tracked_from)}
+
+    for site in sites:
+        if revenue is not None:
+            kes, sales, direct = revenue["by_site"].get(site["id"], (0.0, 0, 0))
+            site["revenue_kes"] = kes
+            site["sales_count"] = sales
+            site["direct_sales"] = direct
+
+    measured = [s for s in sites if s["liveness_source"] == "pppoe"]
+    up_s = known_s = 0.0
+    for s in measured:
+        # Rebuilt from the percentage and the watched time, weighting each
+        # site by how long it was actually watched rather than 1:1.
+        if s["uptime_pct"] is not None:
+            watched = s["window_seconds"] * (s["coverage_pct"] or 0) / 100
+            up_s += watched * s["uptime_pct"] / 100
+            known_s += watched
+    total_window = sum(s["window_seconds"] for s in sites)
+    watched_total = sum(s["window_seconds"] * (s["coverage_pct"] or 0) / 100 for s in sites)
+    peak_hour = max((p for p in people if p["has_peak"]), key=lambda p: p["peak"], default=None)
+
+    result = {
+        "days": days,
+        "since": utc_iso(since),
+        "peak_horizon_days": SESSION_RAW_KEEP.days,
+        "sites": sites,
+        "people": people,
+        "totals": {
+            "uptime_pct": round(up_s / known_s * 100, 1) if known_s else None,
+            "coverage_pct": round(watched_total / total_window * 100, 1) if total_window else None,
+            "thin_coverage_sites": sum(1 for s in sites if (s["coverage_pct"] or 0) < 90),
+            "sites_with_outage": sum(1 for s in measured if s["outages"]),
+            "measured_sites": len(measured),
+            "activity_sites": len(sites) - len(measured),
+            "avg_people": sum(s["avg_people"] or 0 for s in sites),
+            "peak_people": peak_hour["peak"] if peak_hour else None,
+            "peak_at": peak_hour["hour"] if peak_hour else None,
+        },
+    }
+    if revenue is not None:
+        unattributed = revenue["by_site"].get(None, (0.0, 0, 0))
+        result["unattributed_revenue_kes"] = unattributed[0]
+        result["unattributed_sales_count"] = unattributed[1]
+        result["revenue_daily"] = revenue["daily"]
+        result["revenue_tracking_since"] = revenue["tracking_since"]
+        result["totals"]["revenue_kes"] = sum(v[0] for v in revenue["by_site"].values())
+        result["totals"]["sales_count"] = sum(v[1] for v in revenue["by_site"].values())
+    return result
 
 
 # ---- Site management (no code or SQL needed to add a site) ----

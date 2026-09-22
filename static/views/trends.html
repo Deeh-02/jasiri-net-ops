@@ -1,0 +1,55 @@
+    <section class="view" id="view-trends" hidden>
+        <div class="page-header-row">
+            <h1 class="page-title">Network <span>Trends</span></h1>
+        </div>
+
+        <div class="sites-tabs" role="tablist">
+            <button type="button" class="sites-tab" role="tab" aria-selected="false" data-tab-route="status">Status</button>
+            <button type="button" class="sites-tab is-active" role="tab" aria-selected="true">Trends</button>
+        </div>
+
+        <div class="fleet-head">
+            <p class="fleet-intro">Every site over one window, worst uptime first. Click a row for that site&rsquo;s report.</p>
+            <div class="fleet-range-wrap">
+                <div class="fleet-range" id="fleet-range" role="group" aria-label="Time range">
+                    <button type="button" data-days="1" aria-pressed="false">24h</button>
+                    <button type="button" data-days="7" aria-pressed="true">7d</button>
+                    <button type="button" data-days="30" aria-pressed="false">30d</button>
+                </div>
+                <div class="fleet-range-note" id="fleet-range-note"></div>
+            </div>
+        </div>
+
+        <div class="fleet-kpis" id="fleet-kpis"></div>
+
+        <div class="fleet-charts" id="fleet-charts">
+            <div class="fleet-card">
+                <div class="fleet-card-head">
+                    <div class="fleet-card-title">People across the fleet</div>
+                    <div class="fleet-card-hint">hourly &middot; all sites</div>
+                </div>
+                <div id="fleet-people-wrap"></div>
+            </div>
+            <div class="fleet-card" id="fleet-revenue-card" hidden>
+                <div class="fleet-card-head">
+                    <div class="fleet-card-title">Revenue per day</div>
+                    <div class="fleet-card-hint">Nairobi days &middot; all sites</div>
+                </div>
+                <div id="fleet-revenue-wrap"></div>
+            </div>
+        </div>
+
+        <div class="fleet-table-head">
+            <h2 class="fleet-table-title">All sites</h2>
+            <span class="fleet-table-note">click a column head to sort</span>
+        </div>
+        <div class="table-scroll">
+            <table id="fleet-table">
+                <thead id="fleet-thead"></thead>
+                <tbody id="fleet-rows">
+                    <tr><td class="loading-text">Loading&hellip;</td></tr>
+                </tbody>
+            </table>
+        </div>
+        <p class="fleet-footnote" id="fleet-footnote"></p>
+    </section>

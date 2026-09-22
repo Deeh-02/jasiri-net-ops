@@ -318,6 +318,13 @@ function peopleBuckets(d, windowStart) {
     return binned;
 }
 
+/* A 3-tick scale (max / half / 0) beside a bar chart — the only way to read
+   a bar's actual value without hovering every one of them. `fmt` formats
+   the tick label (plain numbers for people, compact KES for revenue). */
+function yAxis(max, fmt = String) {
+    return `<div class="sr-yaxis"><span>${esc(fmt(max))}</span><span>${esc(fmt(max / 2))}</span><span>0</span></div>`;
+}
+
 /* Which state covered a moment, from the timeline runs. */
 function stateAt(timeline, ms) {
     for (const s of timeline) {
@@ -381,13 +388,18 @@ function renderPeople(d, windowStart) {
         : "";
 
     wrap.innerHTML = `
-        <div style="position:relative">
-            <div class="sr-bars">${bars}</div>
-            ${divider}
-        </div>
-        <div class="sr-axis">
-            <span>${esc(dayTimeOf(buckets[0].at.toISOString()))}</span>
-            <span>${esc(dayTimeOf(buckets[buckets.length - 1].at.toISOString()))}</span>
+        <div class="sr-chart-row">
+            ${yAxis(max, n => String(Math.round(n)))}
+            <div class="sr-chart-body">
+                <div style="position:relative">
+                    <div class="sr-bars">${bars}</div>
+                    ${divider}
+                </div>
+                <div class="sr-axis">
+                    <span>${esc(dayTimeOf(buckets[0].at.toISOString()))}</span>
+                    <span>${esc(dayTimeOf(buckets[buckets.length - 1].at.toISOString()))}</span>
+                </div>
+            </div>
         </div>
         <p class="sr-says">Typically <strong>${d.avg_people}</strong> people online${peakSentence}${averagedSentence}</p>`;
 
@@ -397,32 +409,46 @@ function renderPeople(d, windowStart) {
 
 /* ---- Revenue ---- */
 
+/* Shared bar-and-hatch renderer for both revenue views (daily, and hourly
+   at the 24h range) — same "never a bar for a stretch nobody was counting"
+   rule and the same value-on-bar labelling, just a different x-axis unit. */
+function revenueBars(buckets, titleFn) {
+    const max = Math.max(1, ...buckets.map(x => x.kes));
+    const untrackedCount = buckets.filter(x => !x.tracked).length;
+    const bars = buckets.map(x => {
+        if (!x.tracked) {
+            // Never a KES 0 bar for a stretch nobody was counting.
+            return `<div class="sr-bar-slot" title="${esc(titleFn(x))}"></div>`;
+        }
+        const h = x.kes > 0 ? Math.max(3, Math.round((x.kes / max) * 100)) : 2;
+        const label = x.kes > 0 ? `<div class="sr-bar-value">${esc(compact(x.kes))}</div>` : "";
+        return `<div class="sr-bar-slot" title="${esc(titleFn(x))}">${label}<div class="sr-bar" style="height:${h}%"></div></div>`;
+    }).join("");
+    const band = untrackedCount > 0
+        ? `<div class="sr-untracked" style="left:0;width:${(untrackedCount / buckets.length) * 100}%">
+               <span class="sr-untracked-chip">not tracked yet</span>
+           </div>`
+        : "";
+    return { bars, band, untrackedCount };
+}
+
+/* A calendar-day bucket is exactly one bar over a 24h window — not a chart.
+   Days route here; the 24h range gets its own hourly breakdown below. */
 function renderRevenue(d) {
     const wrap = document.getElementById("sr-revenue-wrap");
+    if (d.days === 1) { renderRevenueHourly(d, wrap); return; }
+    renderRevenueDaily(d, wrap);
+}
+
+function renderRevenueDaily(d, wrap) {
     const days = d.revenue_daily || [];
     if (days.length === 0) {
         wrap.innerHTML = `<div class="sr-empty">No revenue data.</div>`;
         return;
     }
-    const max = Math.max(1, ...days.map(x => x.kes));
-    const untrackedCount = days.filter(x => !x.tracked).length;
-
-    const bars = days.map(x => {
-        if (!x.tracked) {
-            // Never a KES 0 bar for a day nobody was counting.
-            return `<div class="sr-bar-slot" title="${esc(x.day)} — before revenue tracking started"></div>`;
-        }
-        const h = x.kes > 0 ? Math.max(3, Math.round((x.kes / max) * 100)) : 2;
-        const label = x.kes > 0 ? `<div class="sr-bar-value">${esc(compact(x.kes))}</div>` : "";
-        return `<div class="sr-bar-slot" title="${esc(`${x.day} — ${money(x.kes)}, ${x.sales} sale${x.sales === 1 ? "" : "s"}`)}">
-            ${label}<div class="sr-bar" style="height:${h}%"></div></div>`;
-    }).join("");
-
-    const band = untrackedCount > 0
-        ? `<div class="sr-untracked" style="left:0;width:${(untrackedCount / days.length) * 100}%">
-               <span class="sr-untracked-chip">not tracked yet</span>
-           </div>`
-        : "";
+    const { bars, band, untrackedCount } = revenueBars(days, x => x.tracked
+        ? `${x.day} — ${money(x.kes)}, ${x.sales} sale${x.sales === 1 ? "" : "s"}`
+        : `${x.day} — before revenue tracking started`);
 
     const total = days.reduce((s, x) => s + x.kes, 0);
     const sales = days.reduce((s, x) => s + x.sales, 0);
@@ -440,6 +466,38 @@ function renderRevenue(d) {
         <div class="sr-axis">
             <span>${esc(dayOf(days[0].day))}</span>
             <span>${esc(dayOf(days[days.length - 1].day))}</span>
+        </div>
+        <p class="sr-says"><strong>${esc(money(total))}</strong> across ${sales} sale${sales === 1 ? "" : "s"}.${bestBit}${trackedBit}</p>`;
+}
+
+/* 24h range: same trailing window as the People chart above it, one bar per
+   hour instead of one bar for the whole day. */
+function renderRevenueHourly(d, wrap) {
+    const hours = d.revenue_hourly || [];
+    if (hours.length === 0) {
+        wrap.innerHTML = `<div class="sr-empty">No revenue data.</div>`;
+        return;
+    }
+    const { bars, band, untrackedCount } = revenueBars(hours, x => x.tracked
+        ? `${dayTimeOf(x.hour)} — ${money(x.kes)}, ${x.sales} sale${x.sales === 1 ? "" : "s"}`
+        : `${dayTimeOf(x.hour)} — before revenue tracking started`);
+
+    const total = hours.reduce((s, x) => s + x.kes, 0);
+    const sales = hours.reduce((s, x) => s + x.sales, 0);
+    const best = hours.reduce((b, x) => (x.kes > (b?.kes || 0) ? x : b), null);
+    const bestBit = best && best.kes > 0 ? ` Busiest hour was ${esc(timeOf(best.hour))} at <strong>${esc(money(best.kes))}</strong>.` : "";
+    const trackedBit = untrackedCount > 0
+        ? ` The hatched stretch is before revenue tracking started — those hours are unknown, not zero.`
+        : "";
+
+    wrap.innerHTML = `
+        <div style="position:relative">
+            <div class="sr-bars">${bars}</div>
+            ${band}
+        </div>
+        <div class="sr-axis">
+            <span>${esc(dayTimeOf(hours[0].hour))}</span>
+            <span>${esc(dayTimeOf(hours[hours.length - 1].hour))}</span>
         </div>
         <p class="sr-says"><strong>${esc(money(total))}</strong> across ${sales} sale${sales === 1 ? "" : "s"}.${bestBit}${trackedBit}</p>`;
 }
@@ -547,13 +605,20 @@ function renderEvents(d) {
         wrap.innerHTML = `<div class="sr-empty">No state changes in this window — it held one state the whole time.</div>`;
         return;
     }
-    wrap.innerHTML = history.map(h => {
-        const i = info(h.state);
+    // `history` is newest-first. `source` used to sit on the right, but it is
+    // just this site's liveness_source — identical on every row, and already
+    // stated once in the header's "measured by" line. How long the new state
+    // actually lasted changes per row, so that goes in its place instead.
+    wrap.innerHTML = history.map((h, idx) => {
+        const st = info(h.state);
+        const endMs = idx === 0 ? Date.now() : new Date(history[idx - 1].at).getTime();
+        const lastedSec = (endMs - new Date(h.at).getTime()) / 1000;
+        const lasted = idx === 0 ? `ongoing · ${dur(lastedSec)}` : `lasted ${dur(lastedSec)}`;
         return `<div class="sr-event">
-            <span class="sr-event-glyph ${i.cls}" aria-hidden="true">${i.glyph}</span>
+            <span class="sr-event-glyph ${st.cls}" aria-hidden="true">${st.glyph}</span>
             <span class="sr-event-time">${esc(dayTimeOf(h.at))}</span>
             <span class="sr-event-text">${esc(EVENT_SENTENCE[h.state] || h.state)}</span>
-            <span class="sr-event-source">${esc(h.source || "")}</span>
+            <span class="sr-event-duration">${esc(lasted)}</span>
         </div>`;
     }).join("");
 }

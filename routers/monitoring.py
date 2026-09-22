@@ -106,7 +106,8 @@ def status(current_user: dict = Depends(require_status_access)):
     counts = {}
     for s in sites:
         counts[s["state"]] = counts.get(s["state"], 0) + 1
-    result = {"last_ingest_at": db.get_last_ingest_at(), "counts": counts, "sites": sites}
+    result = {"last_ingest_at": db.get_last_ingest_at(), "counts": counts, "sites": sites,
+              **db.get_fleet_activity()}
     if can_revenue:
         # Everything Ops saw today, placed or not — the rows below stay strictly
         # per-site, so the difference is carried on the card rather than dropped.
@@ -134,6 +135,15 @@ def site_detail(site_id: int, days: int = 7, current_user: dict = Depends(requir
     return detail
 
 
+@router.get("/monitoring/fleet")
+def fleet(days: int = 7, current_user: dict = Depends(require_status_access)):
+    """Every site over one window, for the Trends tab. Same gates as Status:
+    view_status to see it at all, view_revenue for any money — the revenue
+    and sales keys, and the unattributed line, are absent without it."""
+    can_revenue = user_has_permission(current_user, "sites", "view_revenue")
+    return db.get_fleet(can_revenue, days=max(1, min(days, 30)))
+
+
 # ---- Site management ----
 # Admins pass user_has_permission unconditionally; other roles need
 # sites:manage_monitoring, a permission row to be granted from Roles.
@@ -147,6 +157,30 @@ def require_manage_access(current_user: dict = Depends(get_current_user)):
     if not user_has_permission(current_user, "sites", "manage_monitoring"):
         raise HTTPException(status_code=403, detail="You don't have permission to manage monitored sites")
     return current_user
+
+
+class AckRequest(BaseModel):
+    note: Optional[str] = None
+
+
+# Acknowledging takes a site out of the Status headline, so it sits behind
+# manage_monitoring rather than view_status: seeing an outage is not the same
+# claim as deciding it no longer needs anyone's attention.
+@router.post("/monitoring/sites/{site_id}/acknowledge")
+def acknowledge(site_id: int, body: AckRequest, current_user: dict = Depends(require_manage_access)):
+    note = (body.note or "").strip()[:200] or None
+    try:
+        db.acknowledge_site(site_id, current_user["id"], note)
+    except db.AckConflict as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    return {"ok": True}
+
+
+@router.delete("/monitoring/sites/{site_id}/acknowledge")
+def unacknowledge(site_id: int, current_user: dict = Depends(require_manage_access)):
+    if not db.clear_acknowledgement(site_id, current_user["id"]):
+        raise HTTPException(status_code=404, detail="That site is not acknowledged")
+    return {"ok": True}
 
 
 def _clean(value):

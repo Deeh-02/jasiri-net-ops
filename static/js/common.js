@@ -75,6 +75,8 @@ const ROUTE_PERMISSION_MAP = {
     // Drilling into one site isn't a heavier claim than seeing it listed on
     // Status, so it shares that route's gate rather than getting its own.
     "site-detail": ["sites", "view_status"],
+    // The same sites as Status, over a window instead of right now.
+    trends: ["sites", "view_status"],
     "manage-sites": ["sites", "manage_monitoring"],
     // Same gate as Manage Sites: this screen sets what every future sale is
     // worth, which is a heavier permission than reading a revenue total.
@@ -603,7 +605,7 @@ function renderCmdkResults(query) {
 // ---- Fragment loader: fetches every view's HTML and injects it into its
 // mount point. Loaded eagerly, all at once, at startup — the app is small
 // enough that lazy-per-nav loading isn't worth the added state-tracking. ----
-const VIEW_NAMES = ["dashboard", "sites", "movements", "check-sites", "status", "site-detail", "manage-sites", "packages", "users", "roles", "settings", "inventory", "stock", "inventory-log", "issue-materials", "return-materials", "inventory-reports", "inventory-manage"];
+const VIEW_NAMES = ["dashboard", "sites", "movements", "check-sites", "status", "site-detail", "trends", "manage-sites", "packages", "users", "roles", "settings", "inventory", "stock", "inventory-log", "issue-materials", "return-materials", "inventory-reports", "inventory-manage"];
 
 export async function loadViewFragments() {
     await Promise.all(VIEW_NAMES.map(async (name) => {

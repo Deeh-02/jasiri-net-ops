@@ -363,6 +363,34 @@
 
 /* ---- Bar charts (people, revenue) ---- */
 
+/* A y-axis beside a bar chart — without it every value is hover-only, and
+   the People chart shipped with no way to read a bar's height at a glance. */
+.sr-chart-row {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+}
+
+.sr-yaxis {
+    flex-shrink: 0;
+    width: 30px;
+    height: 150px;
+    box-sizing: border-box;
+    padding: 1px 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    text-align: right;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--sr-faint);
+}
+
+.sr-chart-body {
+    flex: 1;
+    min-width: 0;
+}
+
 .sr-bars {
     display: flex;
     align-items: flex-end;
@@ -589,12 +617,20 @@
 
 .sr-event-text { font-size: 13px; flex: 1; min-width: 0; }
 
-.sr-event-source {
+.sr-event-duration {
     font-family: 'JetBrains Mono', monospace;
     font-size: 10.5px;
     color: var(--sr-faint);
     white-space: nowrap;
     flex-shrink: 0;
+}
+
+/* "lasted 2h 35m" is longer than the "pppoe" tag this replaced, and at
+   phone width it was crowding the sentence next to it. Drop to its own
+   line, indented under the sentence rather than under the glyph/time. */
+@media (max-width: 480px) {
+    .sr-event { flex-wrap: wrap; align-items: flex-start; row-gap: 2px; }
+    .sr-event-duration { flex-basis: 100%; padding-left: 28px; }
 }
 
 /* ---- Locked revenue (no sites:view_revenue) ---- */
