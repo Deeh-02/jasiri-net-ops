@@ -28,8 +28,9 @@
 }
 
 /* ---- Range switch ---- */
-/* margin-left:auto keeps it right-aligned even once it wraps under the intro. */
-.fleet-range-wrap { text-align: right; margin-left: auto; }
+/* Always its own row under the intro, right-aligned — beside it the
+   controls only fit for some labels and jumped as you switched. */
+.fleet-range-wrap { flex-basis: 100%; text-align: right; }
 
 .fleet-range-row {
     display: inline-flex;

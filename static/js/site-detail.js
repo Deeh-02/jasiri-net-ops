@@ -404,6 +404,21 @@ function peopleBuckets(d) {
     return hours;
 }
 
+/* The People charts' scale: the tallest *average* (what the bars are), not
+   the peak — scaling to a peak no bar reaches left every bar short under a
+   number that belonged to none of them. ~15% headroom so the number above
+   the tallest bar stays inside the chart; rounded up to even so the middle
+   tick is a whole number rather than 6.5 printed as "7". */
+function peopleScale(values) {
+    const top = Math.max(0, ...values);
+    // Nothing to scale (an empty period): 1, which yAxis prints as a bare 1/0.
+    return top === 0 ? 1 : Math.max(2, Math.ceil(top * 1.15 / 2) * 2);
+}
+
+/* Each bar's own value, pinned just above it like the revenue bars' — so the
+   bar reads without hovering. The busiest one is emphasised. */
+const barNum = (value, strong) => `<span class="sr-bar-num ${strong ? "is-peak" : ""}">${value}</span>`;
+
 /* Which state covered a moment, from the timeline runs. */
 function stateAt(timeline, ms) {
     for (const s of timeline) {
@@ -421,7 +436,8 @@ function renderPeopleHourly(d, wrap) {
         return;
     }
 
-    const max = Math.max(1, ...buckets.map(b => Math.max(b.avg || 0, b.peak || 0)));
+    const max = peopleScale(buckets.map(b => b.avg || 0));
+    const busiest = buckets.reduce((b, x) => ((x.avg ?? -1) > (b?.avg ?? -1) ? x : b), null);
     const peakBucket = buckets.reduce((b, x) => ((x.peak || 0) > (b?.peak || 0) ? x : b), null);
     const bars = buckets.map(b => {
         let cls = "";
@@ -440,14 +456,16 @@ function renderPeopleHourly(d, wrap) {
             const peakBit = b.hasPeak ? `, peak ${b.peak}` : " (hourly average only)";
             title = `${timeOf(b.at.toISOString())} — ${b.avg} on average${peakBit}`;
         }
-        const label = (peakBucket && b === peakBucket && b.hasPeak)
-            ? `<div class="sr-bar-value is-peak">${b.peak}</div>` : "";
-        return `<div class="sr-bar-slot" title="${esc(title)}">${label}<div class="sr-bar ${cls}" style="height:${height}%"></div></div>`;
+        const num = b.avg != null ? barNum(b.avg, b === busiest) : "";
+        return `<div class="sr-bar-slot" title="${esc(title)}"><div class="sr-bar ${cls}" style="height:${height}%">${num}</div></div>`;
     }).join("");
 
-    const peakSentence = peakBucket && peakBucket.hasPeak
-        ? ` Busiest was <strong>${peakBucket.peak}</strong> at ${esc(timeOf(peakBucket.at.toISOString()))}.`
-        : "";
+    // The bars are averages; the most people on at one moment is a different
+    // number, so it gets its own words rather than a label on some bar.
+    const peakSentence = (busiest ? ` Busiest hour was ${esc(timeOf(busiest.at.toISOString()))}, <strong>${busiest.avg}</strong> on average.` : "")
+        + (peakBucket && peakBucket.hasPeak
+            ? ` The most on at once was <strong>${peakBucket.peak}</strong>, at ${esc(timeOf(peakBucket.at.toISOString()))}.`
+            : "");
     // Past the raw horizon a whole day is hourly averages — one sentence for
     // it, rather than a dashed divider with nothing on one side of it.
     const averagedSentence = buckets.some(b => b.avg != null && !b.hasPeak)
@@ -458,7 +476,7 @@ function renderPeopleHourly(d, wrap) {
         <div class="sr-chart-row">
             ${yAxis(max, n => String(Math.round(n)))}
             <div class="sr-chart-body">
-                <div class="sr-bars is-sparse">${bars}</div>
+                <div class="sr-bars is-sparse is-dense">${bars}</div>
                 <div class="sr-axis">
                     <span>${esc(timeOf(buckets[0].at.toISOString()))}</span>
                     <span>${esc(timeOf(buckets[buckets.length - 1].at.toISOString()))}</span>
@@ -483,8 +501,8 @@ function hatchBand(count, total, label) {
 /* One bar per EAT calendar day — a bar per hour over a week or a month is a
    couple of pixels wide and unreadable (intra-day shape is what the
    separate "Busiest hours" card already answers). Mirrors renderRevenue's
-   shape: a hatched band for days before the site existed, a value label on
-   the busiest bar, a dashed divider where true daily peaks give way to
+   shape: a hatched band for days before the site existed, each bar's average
+   written above it, a dashed divider where true daily peaks give way to
    hourly-average-only days. */
 function renderPeopleDaily(d, wrap) {
     const days = d.people_daily || [];
@@ -494,7 +512,8 @@ function renderPeopleDaily(d, wrap) {
         return;
     }
 
-    const max = Math.max(1, ...days.map(x => Math.max(x.avg || 0, x.peak || 0)));
+    const max = peopleScale(days.map(x => x.avg || 0));
+    const busiest = days.reduce((b, x) => ((x.avg ?? -1) > (b?.avg ?? -1) ? x : b), null);
     const peakDay = days.reduce((b, x) => ((x.peak || 0) > (b?.peak || 0) ? x : b), null);
     const notWatchedCount = days.filter(x => !x.watched).length;
     const showsAveraged = days.some(x => x.watched && x.avg != null && !x.has_peak);
@@ -510,10 +529,8 @@ function renderPeopleDaily(d, wrap) {
         const height = Math.max(2, Math.round((x.avg / max) * 100));
         const cls = x.has_peak ? "" : "is-averaged";
         const peakBit = x.has_peak ? `, peak ${x.peak}` : " (hourly averages only)";
-        const label = (peakDay && x === peakDay && x.has_peak)
-            ? `<div class="sr-bar-value is-peak">${x.peak}</div>` : "";
         return `<div class="sr-bar-slot" title="${esc(dayOf(`${x.day}T12:00:00`))} — ${x.avg} on average${peakBit}">
-            ${label}<div class="sr-bar ${cls}" style="height:${height}%"></div></div>`;
+            <div class="sr-bar ${cls}" style="height:${height}%">${barNum(x.avg, x === busiest)}</div></div>`;
     }).join("");
 
     let divider = "";
@@ -522,9 +539,11 @@ function renderPeopleDaily(d, wrap) {
         if (idx > 0) divider = `<div class="sr-divider" style="left:${(idx / days.length) * 100}%"></div>`;
     }
 
-    const peakSentence = peakDay && peakDay.has_peak
-        ? ` Busiest day was <strong>${peakDay.peak}</strong>, ${esc(dayOf(`${peakDay.day}T12:00:00`))}.`
-        : "";
+    // Bars are daily averages; "most at once" is a peak, and is said as one.
+    const peakSentence = (busiest && busiest.avg != null ? ` Busiest day was ${esc(dayOf(`${busiest.day}T12:00:00`))}, <strong>${busiest.avg}</strong> on average.` : "")
+        + (peakDay && peakDay.has_peak
+            ? ` The most on at once was <strong>${peakDay.peak}</strong>, on ${esc(dayOf(`${peakDay.day}T12:00:00`))}.`
+            : "");
     const averagedSentence = showsAveraged
         ? ` Days left of the dashed line are hourly averages only — the per-minute rows are deleted after ${d.peak_horizon_days} days, so no peak exists for that stretch.`
         : "";
@@ -534,7 +553,7 @@ function renderPeopleDaily(d, wrap) {
             ${yAxis(max, n => String(Math.round(n)))}
             <div class="sr-chart-body">
                 <div style="position:relative">
-                    <div class="sr-bars is-sparse">${bars}</div>
+                    <div class="sr-bars is-sparse ${days.length > 14 ? "is-dense" : ""}">${bars}</div>
                     ${divider}
                     ${hatchBand(notWatchedCount, days.length, "not watched yet")}
                 </div>

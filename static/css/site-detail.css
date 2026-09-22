@@ -95,8 +95,10 @@
 
 /* ---- Range switch ---- */
 
-/* margin-left:auto keeps it right-aligned even once it wraps under the title. */
-.sr-range-wrap { text-align: right; margin-left: auto; }
+/* Always its own row under the title, right-aligned. Beside the title it
+   only fit for some labels ("This week · …" but not "This month · …"), so
+   the controls jumped up and down as you switched between them. */
+.sr-range-wrap { flex-basis: 100%; text-align: right; }
 
 .sr-range-row {
     display: inline-flex;
@@ -472,6 +474,31 @@
 /* Kept in flow above its own bar rather than absolutely positioned — at
    bottom:100% of a full-height slot the label floats to the top of the
    chart instead of sitting on the bar, and clips. */
+/* A People bar's own value, pinned above the bar rather than stacked in
+   the slot — stacked, the label would steal height from the bar and put it
+   out of step with the y-axis beside it. */
+.sr-bar { position: relative; }
+
+.sr-bar-num {
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    margin-bottom: 3px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--text-dim);
+    white-space: nowrap;
+}
+
+.sr-bar-num.is-peak { font-size: 11px; color: var(--text); font-weight: 600; }
+
+/* 24 hours or a month of days is too many numbers for a phone's width —
+   there, only the busiest bar keeps its number; the tooltip has the rest. */
+@media (max-width: 760px) {
+    .sr-bars.is-dense .sr-bar-num:not(.is-peak) { display: none; }
+}
+
 .sr-bar-value.is-peak {
     font-size: 11px;
     color: var(--text);
