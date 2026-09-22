@@ -10,6 +10,12 @@ const STALE_MS = 3 * 60 * 1000;
 // exactly what happened on 2026-09-21, and why it gets its own indicator
 // instead of sharing the one above.
 const SALES_STALE_MS = 15 * 60 * 1000;
+// Below this, a site's 30-day uptime goes amber in the table — a look-back
+// flag, not a live alert (the row's own status pill still says whether it's
+// actually up right now). Deliberately loose while the fleet is still
+// getting reliable: 85%, not the 98% target we're working towards. Raise
+// this as real uptime improves — it should tighten, not stay a permanent 85.
+const UPTIME_WARN_PCT = 85;
 
 let pollTimer = null;
 // The site whose Acknowledge form is open. While it is, polling leaves the
@@ -417,7 +423,7 @@ function uptimeCell(s) {
     // rather than a flattering 100%.
     if (s.liveness_source !== "pppoe") return `<span class="status-uptime is-na" title="Activity site — down cannot be measured">activity only</span>`;
     if (s.uptime_30d_pct == null) return `<span class="status-uptime is-na">&ndash;</span>`;
-    const low = s.uptime_30d_pct < 98;
+    const low = s.uptime_30d_pct < UPTIME_WARN_PCT;
     return `<span class="status-uptime ${low ? "is-low" : ""}">${s.uptime_30d_pct.toFixed(1)}%</span>`;
 }
 
