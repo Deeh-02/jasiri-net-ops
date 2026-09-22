@@ -401,6 +401,12 @@
 
 .sr-bars.is-sparse { gap: 4px; }
 
+/* Many bars (7d/30d People) get a real fixed width instead of shrinking to
+   fit — the whole row then overflows its viewport, which is the point:
+   .sr-bars-viewport below scrolls it, and .sr-scrub gives it a handle. */
+.sr-bars.is-scrollable { display: inline-flex; }
+.sr-bars.is-scrollable .sr-bar-slot { flex: 0 0 8px; }
+
 .sr-bar-slot {
     flex: 1 1 0;
     min-width: 0;
@@ -410,6 +416,58 @@
     justify-content: flex-end;
     align-items: stretch;
     position: relative;
+}
+
+.sr-bars-viewport {
+    overflow-x: auto;
+    overflow-y: hidden;
+    /* The range input below is the intended control; a second, native
+       scrollbar directly under it would just be visual noise. Trackpad and
+       touch scrolling still work with it hidden. */
+    scrollbar-width: none;
+}
+
+.sr-bars-viewport::-webkit-scrollbar { display: none; }
+
+.sr-scrub {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 20px;
+    margin: 8px 0 0;
+    background: transparent;
+    cursor: pointer;
+}
+
+.sr-scrub::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: 2px;
+    background: var(--sr-rule);
+}
+
+.sr-scrub::-moz-range-track {
+    height: 4px;
+    border-radius: 2px;
+    background: var(--sr-rule);
+}
+
+.sr-scrub::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    margin-top: -5px;
+    border-radius: 50%;
+    background: var(--sr-people);
+    border: none;
+}
+
+.sr-scrub::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--sr-people);
+    border: none;
 }
 
 .sr-bar {

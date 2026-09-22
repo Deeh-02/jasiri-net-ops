@@ -7,6 +7,11 @@ import { authHeaders, showView, navigate, registerRoute } from "./common.js";
 
 const TZ = "Africa/Nairobi";
 
+// More bars than this and letting them shrink to fit the card makes every
+// one of them unreadable — the People chart at 7d (169 hourly bars) or 30d
+// (~180 4h-bins). Below it (24h, 25 bars) the chart stays as it was.
+const SCROLL_THRESHOLD = 48;
+
 const STATE_INFO = {
     online:   { glyph: "●", word: "Online",      cls: "st-online" },
     offline:  { glyph: "▲", word: "Down",        cls: "st-offline" },
@@ -387,14 +392,24 @@ function renderPeople(d, windowStart) {
         ? ` Bars left of the dashed line are hourly averages — the per-minute rows behind them are deleted after ${d.peak_horizon_days} days, so no peak exists for that stretch.`
         : "";
 
+    // Past this many bars, letting them shrink to fit the card makes every
+    // one of them too thin to read or hover — the 7d/30d complaint. Past the
+    // threshold each bar gets a real fixed width instead, the row scrolls,
+    // and a slider gives an explicit handle to scrub across it (the 24h
+    // view, well under the threshold, is untouched and still fills the card).
+    const scrollable = buckets.length > SCROLL_THRESHOLD;
+
     wrap.innerHTML = `
         <div class="sr-chart-row">
             ${yAxis(max, n => String(Math.round(n)))}
             <div class="sr-chart-body">
-                <div style="position:relative">
-                    <div class="sr-bars">${bars}</div>
-                    ${divider}
+                <div class="sr-bars-viewport" id="sr-people-viewport">
+                    <div style="position:relative; ${scrollable ? "width:max-content" : ""}">
+                        <div class="sr-bars ${scrollable ? "is-scrollable" : ""}">${bars}</div>
+                        ${divider}
+                    </div>
                 </div>
+                ${scrollable ? `<input type="range" class="sr-scrub" id="sr-people-scrub" aria-label="Scroll through the chart">` : ""}
                 <div class="sr-axis">
                     <span>${esc(dayTimeOf(buckets[0].at.toISOString()))}</span>
                     <span>${esc(dayTimeOf(buckets[buckets.length - 1].at.toISOString()))}</span>
@@ -404,7 +419,25 @@ function renderPeople(d, windowStart) {
         <p class="sr-says">Typically <strong>${d.avg_people}</strong> people online${peakSentence}${averagedSentence}</p>`;
 
     document.getElementById("sr-people-hint").textContent =
-        d.days <= 7 ? `${buckets.length} hours` : `${buckets.length} × 4h`;
+        (d.days <= 7 ? `${buckets.length} hours` : `${buckets.length} × 4h`) + (scrollable ? " · drag to scrub" : "");
+
+    if (scrollable) wireScrub("sr-people-viewport", "sr-people-scrub");
+}
+
+/* Ties a fixed-width, overflowing bar row to a range-input handle: dragging
+   the slider scrolls the row, and scrolling the row (trackpad, touch) moves
+   the slider — one control either way. Starts scrolled to the right (the
+   most recent bars), matching how the static chart already reads. */
+function wireScrub(viewportId, sliderId) {
+    const viewport = document.getElementById(viewportId);
+    const slider = document.getElementById(sliderId);
+    const max = viewport.scrollWidth - viewport.clientWidth;
+    if (max <= 0) { slider.hidden = true; return; }
+    slider.max = String(max);
+    slider.value = String(max);
+    viewport.scrollLeft = max;
+    slider.addEventListener("input", () => { viewport.scrollLeft = Number(slider.value); });
+    viewport.addEventListener("scroll", () => { slider.value = String(viewport.scrollLeft); });
 }
 
 /* ---- Revenue ---- */
