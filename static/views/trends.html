@@ -11,10 +11,17 @@
         <div class="fleet-head">
             <p class="fleet-intro">Every site over one window, worst uptime first. Click a row for that site&rsquo;s report.</p>
             <div class="fleet-range-wrap">
-                <div class="fleet-range" id="fleet-range" role="group" aria-label="Time range">
-                    <button type="button" data-days="1" aria-pressed="false">24h</button>
-                    <button type="button" data-days="7" aria-pressed="true">7d</button>
-                    <button type="button" data-days="30" aria-pressed="false">30d</button>
+                <div class="fleet-range-row">
+                    <div class="fleet-range" id="fleet-range" role="group" aria-label="Time range">
+                        <button type="button" data-days="1" aria-pressed="false">24h</button>
+                        <button type="button" data-days="7" aria-pressed="true">7d</button>
+                        <button type="button" data-days="30" aria-pressed="false">30d</button>
+                    </div>
+                    <!-- A rolling window drifts every time it's opened; a calendar
+                         month doesn't — separate control, not a fourth button. -->
+                    <select class="fleet-month-select" id="fleet-month-select" aria-label="Or a specific month">
+                        <option value="">Or a month…</option>
+                    </select>
                 </div>
                 <div class="fleet-range-note" id="fleet-range-note"></div>
             </div>
@@ -26,7 +33,7 @@
             <div class="fleet-card">
                 <div class="fleet-card-head">
                     <div class="fleet-card-title">People across the fleet</div>
-                    <div class="fleet-card-hint">hourly &middot; all sites</div>
+                    <div class="fleet-card-hint" id="fleet-people-hint">hourly &middot; all sites</div>
                 </div>
                 <div id="fleet-people-wrap"></div>
             </div>

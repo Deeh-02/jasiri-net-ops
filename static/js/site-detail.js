@@ -7,11 +7,6 @@ import { authHeaders, showView, navigate, registerRoute } from "./common.js";
 
 const TZ = "Africa/Nairobi";
 
-// More bars than this and letting them shrink to fit the card makes every
-// one of them unreadable — the People chart at 7d (169 hourly bars) or 30d
-// (~180 4h-bins). Below it (24h, 25 bars) the chart stays as it was.
-const SCROLL_THRESHOLD = 48;
-
 const STATE_INFO = {
     online:   { glyph: "●", word: "Online",      cls: "st-online" },
     offline:  { glyph: "▲", word: "Down",        cls: "st-offline" },
@@ -51,6 +46,21 @@ const dayTimeOf = iso => at(iso, {
     hour: "2-digit", minute: "2-digit", hour12: false,
 });
 const shortDay = iso => at(iso, { day: "numeric", month: "short" });
+
+const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
+
+function monthLabel(month) {
+    const [y, m] = month.split("-").map(Number);
+    return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString("en-GB", { month: "long", year: "numeric", timeZone: "UTC" });
+}
+
+// The noun phrase for whichever window is active — "the last 24 hours",
+// "the last 7 days", or "September 2026" — each call site supplies its own
+// preposition ("of ~", "over ~") since English doesn't use one uniformly.
+function windowPhrase(d) {
+    if (d.month) return monthLabel(d.month);
+    return d.days === 1 ? "the last 24 hours" : `the last ${d.days} days`;
+}
 
 /* Hours stay hours well past 24 — "26h 17m" is easier to reason about than
    "1d 2h" when you're reading an outage length. Days only past two of them. */
@@ -103,8 +113,9 @@ function renderHeader(d) {
 
 function renderRangeNote(d, windowStart) {
     const watching = d.watching_since ? ` · watching since ${shortDay(d.watching_since)}` : "";
-    document.getElementById("sr-range-note").textContent =
-        `${shortDay(windowStart.toISOString())} – ${shortDay(new Date().toISOString())}${watching}`;
+    const range = d.month ? monthLabel(d.month)
+        : `${shortDay(windowStart.toISOString())} – ${shortDay(new Date().toISOString())}`;
+    document.getElementById("sr-range-note").textContent = `${range}${watching}`;
 }
 
 /* ---- KPI row ---- */
@@ -121,7 +132,7 @@ function uptimeCard(d) {
             label: "Time with people on it",
             figure: dur(withPeople),
             small: true,
-            sub: `of the last ${d.days === 1 ? "24 hours" : `${d.days} days`}`,
+            sub: `of ${windowPhrase(d)}`,
             note: "No uptime percentage is shown here, anywhere — this site has no PPPoE uplink, so “down” cannot be measured.",
         };
     }
@@ -164,7 +175,7 @@ function renderKpis(d, canRevenue, windowStart) {
         {
             label: "Average people",
             figure: d.avg_people == null ? "–" : d.avg_people,
-            sub: `of the last ${d.days === 1 ? "24 hours" : `${d.days} days`}`,
+            sub: `of ${windowPhrase(d)}`,
         },
         {
             label: "Peak people",
@@ -183,7 +194,7 @@ function renderKpis(d, canRevenue, windowStart) {
             label: "Revenue",
             figure: money(total),
             small: true,
-            sub: `${sales} sale${sales === 1 ? "" : "s"} in ${d.days === 1 ? "24h" : `${d.days}d`}`,
+            sub: `${sales} sale${sales === 1 ? "" : "s"} in ${d.month ? monthLabel(d.month) : (d.days === 1 ? "24h" : `${d.days}d`)}`,
         });
     } else {
         cards.push({ label: "Revenue", figure: "Hidden", small: true, tone: "disabled", sub: "🔒 not your role" });
@@ -283,9 +294,11 @@ function renderTimeline(d) {
 
 /* ---- People ---- */
 
-/* The backend returns only hours that have data. A continuous grid is built
-   here instead, so an hour nobody was watching renders as its own marker
-   rather than silently closing the gap — the defect this page had before. */
+/* The backend returns only hours that have data. A continuous 24-bucket
+   grid is built here instead, so an hour nobody was watching renders as its
+   own marker rather than silently closing the gap. Hourly only — 7d/30d use
+   people_daily (one bucket per EAT day) instead of a wider hourly grid, see
+   renderPeopleDaily below. */
 function peopleBuckets(d, windowStart) {
     const byHour = new Map();
     (d.people || []).forEach(p => byHour.set(new Date(p.hour).getTime(), p));
@@ -305,29 +318,18 @@ function peopleBuckets(d, windowStart) {
         });
         cursor.setUTCHours(cursor.getUTCHours() + 1);
     }
-
-    // 30 days of hourly bars is unreadable below 3px each, so it bins to 4h.
-    if (d.days <= 7) return hours;
-    const binned = [];
-    for (let i = 0; i < hours.length; i += 4) {
-        const group = hours.slice(i, i + 4);
-        const withData = group.filter(g => g.avg != null);
-        const peaks = group.filter(g => g.hasPeak).map(g => g.peak);
-        binned.push({
-            at: group[0].at,
-            avg: withData.length ? Math.round(withData.reduce((s, g) => s + g.avg, 0) / withData.length) : null,
-            peak: peaks.length ? Math.max(...peaks) : null,
-            hasPeak: peaks.length > 0,
-        });
-    }
-    return binned;
+    return hours;
 }
 
 /* A 3-tick scale (max / half / 0) beside a bar chart — the only way to read
    a bar's actual value without hovering every one of them. `fmt` formats
    the tick label (plain numbers for people, compact KES for revenue). */
 function yAxis(max, fmt = String) {
-    return `<div class="sr-yaxis"><span>${esc(fmt(max))}</span><span>${esc(fmt(max / 2))}</span><span>0</span></div>`;
+    // max defaults to 1 for an all-empty chart (Math.max(1, ...)) — at that
+    // scale the half-tick rounds to the same label as the top one ("1/1/0"),
+    // which reads as a mistake rather than "there is nothing here".
+    const mid = max > 1 ? `<span>${esc(fmt(max / 2))}</span>` : "";
+    return `<div class="sr-yaxis"><span>${esc(fmt(max))}</span>${mid}<span>0</span></div>`;
 }
 
 /* Which state covered a moment, from the timeline runs. */
@@ -338,8 +340,26 @@ function stateAt(timeline, ms) {
     return null;
 }
 
+/* Hourly (24h) vs daily (7d/30d) are different enough — different data
+   field, different x-axis unit, different "not yet" story — that they get
+   separate renderers rather than one function branching throughout. */
 function renderPeople(d, windowStart) {
     const wrap = document.getElementById("sr-people-wrap");
+    if (d.month || d.days > 1) { renderPeopleDaily(d, wrap); return; }
+    renderPeopleHourly(d, wrap, windowStart);
+}
+
+/* A hatched overlay spanning the leading stretch of a bar row that isn't
+   real data yet — "not tracked" (revenue, before recording started) or "not
+   watched" (people, before the site existed). Shared shape, different word. */
+function hatchBand(count, total, label) {
+    if (count === 0) return "";
+    return `<div class="sr-untracked" style="left:0;width:${(count / total) * 100}%">
+        <span class="sr-untracked-chip">${esc(label)}</span>
+    </div>`;
+}
+
+function renderPeopleHourly(d, wrap, windowStart) {
     const buckets = peopleBuckets(d, windowStart);
     const timeline = d.timeline || [];
     const values = buckets.filter(b => b.avg != null).map(b => b.avg);
@@ -392,24 +412,14 @@ function renderPeople(d, windowStart) {
         ? ` Bars left of the dashed line are hourly averages — the per-minute rows behind them are deleted after ${d.peak_horizon_days} days, so no peak exists for that stretch.`
         : "";
 
-    // Past this many bars, letting them shrink to fit the card makes every
-    // one of them too thin to read or hover — the 7d/30d complaint. Past the
-    // threshold each bar gets a real fixed width instead, the row scrolls,
-    // and a slider gives an explicit handle to scrub across it (the 24h
-    // view, well under the threshold, is untouched and still fills the card).
-    const scrollable = buckets.length > SCROLL_THRESHOLD;
-
     wrap.innerHTML = `
         <div class="sr-chart-row">
             ${yAxis(max, n => String(Math.round(n)))}
             <div class="sr-chart-body">
-                <div class="sr-bars-viewport" id="sr-people-viewport">
-                    <div style="position:relative; ${scrollable ? "width:max-content" : ""}">
-                        <div class="sr-bars ${scrollable ? "is-scrollable" : ""}">${bars}</div>
-                        ${divider}
-                    </div>
+                <div style="position:relative">
+                    <div class="sr-bars">${bars}</div>
+                    ${divider}
                 </div>
-                ${scrollable ? `<input type="range" class="sr-scrub" id="sr-people-scrub" aria-label="Scroll through the chart">` : ""}
                 <div class="sr-axis">
                     <span>${esc(dayTimeOf(buckets[0].at.toISOString()))}</span>
                     <span>${esc(dayTimeOf(buckets[buckets.length - 1].at.toISOString()))}</span>
@@ -418,26 +428,76 @@ function renderPeople(d, windowStart) {
         </div>
         <p class="sr-says">Typically <strong>${d.avg_people}</strong> people online${peakSentence}${averagedSentence}</p>`;
 
-    document.getElementById("sr-people-hint").textContent =
-        (d.days <= 7 ? `${buckets.length} hours` : `${buckets.length} × 4h`) + (scrollable ? " · drag to scrub" : "");
-
-    if (scrollable) wireScrub("sr-people-viewport", "sr-people-scrub");
+    document.getElementById("sr-people-hint").textContent = `${buckets.length} hours`;
 }
 
-/* Ties a fixed-width, overflowing bar row to a range-input handle: dragging
-   the slider scrolls the row, and scrolling the row (trackpad, touch) moves
-   the slider — one control either way. Starts scrolled to the right (the
-   most recent bars), matching how the static chart already reads. */
-function wireScrub(viewportId, sliderId) {
-    const viewport = document.getElementById(viewportId);
-    const slider = document.getElementById(sliderId);
-    const max = viewport.scrollWidth - viewport.clientWidth;
-    if (max <= 0) { slider.hidden = true; return; }
-    slider.max = String(max);
-    slider.value = String(max);
-    viewport.scrollLeft = max;
-    slider.addEventListener("input", () => { viewport.scrollLeft = Number(slider.value); });
-    viewport.addEventListener("scroll", () => { slider.value = String(viewport.scrollLeft); });
+/* 7d/30d: one bar per EAT calendar day instead of one per hour — a bar per
+   hour over that many days was a couple of pixels wide and unreadable
+   (intra-day shape is what the separate "Busiest hours" card already
+   answers). Mirrors renderRevenueDaily's shape: a hatched band for days
+   before the site existed, a value label on the busiest bar, a dashed
+   divider where true daily peaks give way to hourly-average-only days. */
+function renderPeopleDaily(d, wrap) {
+    const days = d.people_daily || [];
+    if (days.length === 0) {
+        wrap.innerHTML = `<div class="sr-empty">No headcounts recorded in this window.</div>`;
+        document.getElementById("sr-people-hint").textContent = "";
+        return;
+    }
+
+    const max = Math.max(1, ...days.map(x => Math.max(x.avg || 0, x.peak || 0)));
+    const peakDay = days.reduce((b, x) => ((x.peak || 0) > (b?.peak || 0) ? x : b), null);
+    const notWatchedCount = days.filter(x => !x.watched).length;
+    const showsAveraged = days.some(x => x.watched && x.avg != null && !x.has_peak);
+
+    const bars = days.map(x => {
+        if (!x.watched) {
+            return `<div class="sr-bar-slot" title="${esc(dayOf(`${x.day}T12:00:00`))} — before this site was added"></div>`;
+        }
+        if (x.avg == null) {
+            return `<div class="sr-bar-slot" title="${esc(dayOf(`${x.day}T12:00:00`))} — nothing recorded">
+                <div class="sr-bar is-unknown" style="height:3px"></div></div>`;
+        }
+        const height = Math.max(2, Math.round((x.avg / max) * 100));
+        const cls = x.has_peak ? "" : "is-averaged";
+        const peakBit = x.has_peak ? `, peak ${x.peak}` : " (hourly averages only)";
+        const label = (peakDay && x === peakDay && x.has_peak)
+            ? `<div class="sr-bar-value is-peak">${x.peak}</div>` : "";
+        return `<div class="sr-bar-slot" title="${esc(dayOf(`${x.day}T12:00:00`))} — ${x.avg} on average${peakBit}">
+            ${label}<div class="sr-bar ${cls}" style="height:${height}%"></div></div>`;
+    }).join("");
+
+    let divider = "";
+    if (showsAveraged) {
+        const idx = days.findIndex(x => x.watched && x.has_peak);
+        if (idx > 0) divider = `<div class="sr-divider" style="left:${(idx / days.length) * 100}%"></div>`;
+    }
+
+    const peakSentence = peakDay && peakDay.has_peak
+        ? ` Busiest day was <strong>${peakDay.peak}</strong>, ${esc(dayOf(`${peakDay.day}T12:00:00`))}.`
+        : "";
+    const averagedSentence = showsAveraged
+        ? ` Days left of the dashed line are hourly averages only — the per-minute rows are deleted after ${d.peak_horizon_days} days, so no peak exists for that stretch.`
+        : "";
+
+    wrap.innerHTML = `
+        <div class="sr-chart-row">
+            ${yAxis(max, n => String(Math.round(n)))}
+            <div class="sr-chart-body">
+                <div style="position:relative">
+                    <div class="sr-bars is-sparse">${bars}</div>
+                    ${divider}
+                    ${hatchBand(notWatchedCount, days.length, "not watched yet")}
+                </div>
+                <div class="sr-axis">
+                    <span>${esc(dayOf(`${days[0].day}T12:00:00`))}</span>
+                    <span>${esc(dayOf(`${days[days.length - 1].day}T12:00:00`))}</span>
+                </div>
+            </div>
+        </div>
+        <p class="sr-says">Typically <strong>${d.avg_people}</strong> people online${peakSentence}${averagedSentence}</p>`;
+
+    document.getElementById("sr-people-hint").textContent = `${days.length} days`;
 }
 
 /* ---- Revenue ---- */
@@ -457,19 +517,18 @@ function revenueBars(buckets, titleFn) {
         const label = x.kes > 0 ? `<div class="sr-bar-value">${esc(compact(x.kes))}</div>` : "";
         return `<div class="sr-bar-slot" title="${esc(titleFn(x))}">${label}<div class="sr-bar" style="height:${h}%"></div></div>`;
     }).join("");
-    const band = untrackedCount > 0
-        ? `<div class="sr-untracked" style="left:0;width:${(untrackedCount / buckets.length) * 100}%">
-               <span class="sr-untracked-chip">not tracked yet</span>
-           </div>`
-        : "";
-    return { bars, band, untrackedCount };
+    return { bars, band: hatchBand(untrackedCount, buckets.length, "not tracked yet"), untrackedCount };
 }
 
 /* A calendar-day bucket is exactly one bar over a 24h window — not a chart.
    Days route here; the 24h range gets its own hourly breakdown below. */
 function renderRevenue(d) {
     const wrap = document.getElementById("sr-revenue-wrap");
-    if (d.days === 1) { renderRevenueHourly(d, wrap); return; }
+    // Absent, not just falsy: revenue_hourly only exists for the trailing
+    // 24h range (see get_site_detail) — checking for the key itself, not
+    // re-deriving days/month here, keeps this in sync with the backend by
+    // construction rather than by two copies of the same condition.
+    if (d.revenue_hourly) { renderRevenueHourly(d, wrap); return; }
     renderRevenueDaily(d, wrap);
 }
 
@@ -619,7 +678,7 @@ function renderHours(d) {
         <div class="sr-hours">${cells}</div>
         <p class="sr-says">Busiest around <strong>${String(busiest.hour).padStart(2, "0")}:00</strong>
             with ${busiest.avg} people on average; quietest at ${String(quietest.hour).padStart(2, "0")}:00.
-            Averaged over the last ${d.days === 1 ? "24 hours" : `${d.days} days`}, Nairobi time.</p>`;
+            Averaged over ${windowPhrase(d)}, Nairobi time.</p>`;
 }
 
 /* ---- What happened ---- */
@@ -659,7 +718,9 @@ function renderEvents(d) {
 /* ---- Load / route ---- */
 
 function render(d, canRevenue) {
-    const windowStart = new Date(Date.now() - d.days * 86400000);
+    // Not derived from d.days: a month's start isn't "N days before now",
+    // and the backend already knows exactly what it queried from.
+    const windowStart = new Date(d.since);
     document.getElementById("site-detail-body").hidden = false;
     document.getElementById("site-detail-notfound").hidden = true;
     renderHeader(d);
@@ -678,11 +739,29 @@ function render(d, canRevenue) {
 
 let currentId = null;
 let currentDays = 7;
+let currentMonth = null;
 
-function setRangeButtons(days) {
+function setRangeButtons(days, month) {
     document.querySelectorAll("#sr-range button").forEach(b => {
-        b.setAttribute("aria-pressed", String(Number(b.dataset.days) === days));
+        b.setAttribute("aria-pressed", String(!month && Number(b.dataset.days) === days));
     });
+    document.getElementById("sr-month-select").value = month || "";
+}
+
+/* Last 12 calendar months, most recent first — a fixed rolling list, not
+   drawn from what data actually exists. A month with nothing in it renders
+   the same empty states every other gap on this page already handles. */
+function populateMonthSelect() {
+    const select = document.getElementById("sr-month-select");
+    const now = new Date();
+    for (let i = 0; i < 12; i++) {
+        const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
+        const value = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+        const opt = document.createElement("option");
+        opt.value = value;
+        opt.textContent = monthLabel(value);
+        select.appendChild(opt);
+    }
 }
 
 function fail(message) {
@@ -692,9 +771,10 @@ function fail(message) {
     box.hidden = false;
 }
 
-async function load(id, days) {
+async function load(id, days, month) {
     try {
-        const res = await fetch(`/monitoring/sites/${id}?days=${days}`, { headers: authHeaders() });
+        const url = month ? `/monitoring/sites/${id}?month=${month}` : `/monitoring/sites/${id}?days=${days}`;
+        const res = await fetch(url, { headers: authHeaders() });
         if (res.status === 404) return fail("This site isn't there anymore, or the link is wrong.");
         if (!res.ok) throw new Error(`server said ${res.status}`);
         const data = await res.json();
@@ -707,12 +787,18 @@ async function load(id, days) {
 }
 
 export function initSiteDetail() {
+    populateMonthSelect();
+
     document.getElementById("site-detail-back-btn").addEventListener("click", () => navigate("status"));
     document.querySelectorAll("#sr-range button").forEach(b => {
         b.addEventListener("click", () => {
             // The range lives in the route, so back and a pasted link both work.
             navigate(`site-detail/${currentId}/${b.dataset.days}`);
         });
+    });
+    document.getElementById("sr-month-select").addEventListener("change", (e) => {
+        if (!e.target.value) return; // the placeholder option, not a real choice
+        navigate(`site-detail/${currentId}/${e.target.value}`);
     });
 
     registerRoute("site-detail", (params) => {
@@ -723,8 +809,15 @@ export function initSiteDetail() {
             return;
         }
         currentId = id;
-        currentDays = [1, 7, 30].includes(Number(params[1])) ? Number(params[1]) : 7;
-        setRangeButtons(currentDays);
-        load(currentId, currentDays);
+        const raw = params[1];
+        if (raw && MONTH_RE.test(raw)) {
+            currentDays = 7;
+            currentMonth = raw;
+        } else {
+            currentDays = [1, 7, 30].includes(Number(raw)) ? Number(raw) : 7;
+            currentMonth = null;
+        }
+        setRangeButtons(currentDays, currentMonth);
+        load(currentId, currentDays, currentMonth);
     });
 }

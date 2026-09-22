@@ -17,6 +17,7 @@ const GLYPH = {
 };
 
 let days = 7;
+let month = null;
 let sort = { key: "uptime_pct", dir: 1 };
 let lastData = null;
 let loadSeq = 0;
@@ -40,6 +41,27 @@ function dur(seconds) {
 
 function shortDay(iso) {
     return new Date(iso).toLocaleDateString([], { day: "numeric", month: "short" });
+}
+
+function monthLabel(m) {
+    const [y, mo] = m.split("-").map(Number);
+    return new Date(Date.UTC(y, mo - 1, 1)).toLocaleDateString("en-GB", { month: "long", year: "numeric", timeZone: "UTC" });
+}
+
+/* Last 12 calendar months, most recent first — same fixed rolling list as
+   the site report's month picker, not drawn from what data actually exists. */
+function populateMonthSelect() {
+    const select = document.getElementById("fleet-month-select");
+    if (select.options.length > 1) return; // already populated, tab revisited
+    const now = new Date();
+    for (let i = 0; i < 12; i++) {
+        const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
+        const value = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+        const opt = document.createElement("option");
+        opt.value = value;
+        opt.textContent = monthLabel(value);
+        select.appendChild(opt);
+    }
 }
 
 function dayTime(iso) {
@@ -81,8 +103,19 @@ function renderKpis(d, canRevenue) {
     box.innerHTML = cards.join("");
 }
 
+/* Hourly only reads for the 24h range; past that the row is a wall of
+   unreadable slivers, same reasoning as the site report's People chart —
+   people_daily's presence (not days/month directly) is what the backend
+   already used to decide which one it sent, so it decides here too. */
 function renderPeople(d) {
     const wrap = document.getElementById("fleet-people-wrap");
+    document.getElementById("fleet-people-hint").textContent =
+        d.people_daily ? "daily · all sites" : "hourly · all sites";
+    if (d.people_daily) { renderPeopleDaily(d, wrap); return; }
+    renderPeopleHourly(d, wrap);
+}
+
+function renderPeopleHourly(d, wrap) {
     if (!d.people.length) {
         wrap.innerHTML = `<div class="fleet-empty">No headcounts recorded in this window.</div>`;
         return;
@@ -97,6 +130,27 @@ function renderPeople(d) {
         </div>
         <div class="fleet-axis"><span>${esc(shortDay(d.since))}</span><span>now</span></div>
         <p class="fleet-says">Busiest hour was <strong>${busiest.avg}</strong> people on average, ${esc(dayTime(busiest.hour))}.</p>`;
+}
+
+function renderPeopleDaily(d, wrap) {
+    const days = d.people_daily;
+    if (!days.some(x => x.avg != null)) {
+        wrap.innerHTML = `<div class="fleet-empty">No headcounts recorded in this window.</div>`;
+        return;
+    }
+    const max = Math.max(1, ...days.map(x => Math.max(x.avg || 0, x.peak || 0)));
+    const busiest = days.reduce((b, x) => ((x.avg || 0) > (b ? b.avg : -1) ? x : b), null);
+    wrap.innerHTML = `
+        <div class="fleet-bars ${days.length <= 31 ? "is-sparse" : ""}">
+            ${days.map(x => x.avg == null
+                ? `<div class="fleet-bar-slot" title="${esc(shortDay(`${x.day}T12:00:00`))} — nothing recorded"><div class="fleet-bar is-averaged" style="height:3px"></div></div>`
+                : `<div class="fleet-bar-slot" title="${esc(shortDay(`${x.day}T12:00:00`))} — ${x.avg} on average${x.has_peak ? `, peak ${x.peak}` : ""}">
+                    <div class="fleet-bar ${x.has_peak ? "" : "is-averaged"}" style="height:${Math.max(2, Math.round(x.avg / max * 100))}%"></div>
+                   </div>`
+            ).join("")}
+        </div>
+        <div class="fleet-axis"><span>${esc(shortDay(`${days[0].day}T12:00:00`))}</span><span>${esc(shortDay(`${days[days.length - 1].day}T12:00:00`))}</span></div>
+        <p class="fleet-says">Busiest day was <strong>${busiest.avg}</strong> people on average, ${esc(shortDay(`${busiest.day}T12:00:00`))}.</p>`;
 }
 
 function renderRevenue(d, canRevenue) {
@@ -257,8 +311,9 @@ function render(d) {
     const canRevenue = "revenue_kes" in d.totals;
     lastData = d;
     const now = new Date();
-    document.getElementById("fleet-range-note").textContent =
-        `${shortDay(d.since)} – ${shortDay(now.toISOString())} · Africa/Nairobi`;
+    document.getElementById("fleet-range-note").textContent = d.month
+        ? `${monthLabel(d.month)} · Africa/Nairobi`
+        : `${shortDay(d.since)} – ${shortDay(now.toISOString())} · Africa/Nairobi`;
     renderKpis(d, canRevenue);
     renderPeople(d);
     renderRevenue(d, canRevenue);
@@ -270,7 +325,8 @@ async function load() {
     const seq = ++loadSeq;
     document.getElementById("view-trends").classList.add("is-loading");
     try {
-        const res = await fetch(`/monitoring/fleet?days=${days}`, { headers: authHeaders() });
+        const url = month ? `/monitoring/fleet?month=${month}` : `/monitoring/fleet?days=${days}`;
+        const res = await fetch(url, { headers: authHeaders() });
         if (seq !== loadSeq) return; // a later range click won the race
         if (!res.ok) {
             document.getElementById("fleet-rows").innerHTML =
@@ -296,8 +352,18 @@ export function initTrends() {
         const btn = e.target.closest("button[data-days]");
         if (!btn) return;
         days = Number(btn.dataset.days);
+        month = null;
         document.querySelectorAll("#fleet-range button").forEach(b =>
             b.setAttribute("aria-pressed", String(b === btn)));
+        document.getElementById("fleet-month-select").value = "";
+        load();
+    });
+
+    populateMonthSelect();
+    document.getElementById("fleet-month-select").addEventListener("change", (e) => {
+        if (!e.target.value) return; // the placeholder option, not a real choice
+        month = e.target.value;
+        document.querySelectorAll("#fleet-range button").forEach(b => b.setAttribute("aria-pressed", "false"));
         load();
     });
 

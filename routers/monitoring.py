@@ -1,15 +1,35 @@
 import hmac
 import os
+import re
 from datetime import datetime, timedelta
 from typing import Optional
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
 from db import monitoring as db
 from db import monitoring_retention
+from db.connection import now_eat
 from routers.auth import get_current_user
 from routers.permissions import user_has_permission
 
 router = APIRouter()
+
+MONTH_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
+
+
+def validate_month(month: Optional[str]) -> Optional[str]:
+    """"YYYY-MM" or None. Rejects a future month rather than passing it
+    through — _resolve_window's "cap at today" logic assumes a month that
+    has at least started, and a future one would just produce a degenerate
+    single-day window instead of a useful error."""
+    if month is None:
+        return None
+    if not MONTH_RE.match(month):
+        raise HTTPException(status_code=400, detail="month must be YYYY-MM")
+    year, mon = (int(x) for x in month.split("-"))
+    today = now_eat()
+    if (year, mon) > (today.year, today.month):
+        raise HTTPException(status_code=400, detail="month can't be in the future")
+    return month
 
 
 def require_ingest_token(x_ingest_token: str = Header(default="")):
@@ -123,25 +143,29 @@ def status(current_user: dict = Depends(require_status_access)):
 
 
 @router.get("/monitoring/sites/{site_id}")
-def site_detail(site_id: int, days: int = 7, current_user: dict = Depends(require_status_access)):
+def site_detail(
+    site_id: int, days: int = 7, month: Optional[str] = None,
+    current_user: dict = Depends(require_status_access),
+):
     # Same gate as the fleet Status page (view_status) — drilling into one
     # site isn't a heavier claim than seeing it in the list. Revenue stays
     # gated separately, same as the list.
     can_revenue = user_has_permission(current_user, "sites", "view_revenue")
     days = max(1, min(days, 30))
-    detail = db.get_site_detail(site_id, can_revenue, days=days)
+    month = validate_month(month)
+    detail = db.get_site_detail(site_id, can_revenue, days=days, month=month)
     if detail is None:
         raise HTTPException(status_code=404, detail="Monitored site not found")
     return detail
 
 
 @router.get("/monitoring/fleet")
-def fleet(days: int = 7, current_user: dict = Depends(require_status_access)):
+def fleet(days: int = 7, month: Optional[str] = None, current_user: dict = Depends(require_status_access)):
     """Every site over one window, for the Trends tab. Same gates as Status:
     view_status to see it at all, view_revenue for any money — the revenue
     and sales keys, and the unattributed line, are absent without it."""
     can_revenue = user_has_permission(current_user, "sites", "view_revenue")
-    return db.get_fleet(can_revenue, days=max(1, min(days, 30)))
+    return db.get_fleet(can_revenue, days=max(1, min(days, 30)), month=validate_month(month))
 
 
 # ---- Site management ----

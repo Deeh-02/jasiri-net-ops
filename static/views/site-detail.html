@@ -19,10 +19,18 @@
                     <div class="sr-contact" id="sr-contact"></div>
                 </div>
                 <div class="sr-range-wrap">
-                    <div class="sr-range" id="sr-range" role="group" aria-label="Time range">
-                        <button type="button" data-days="1" aria-pressed="false">24h</button>
-                        <button type="button" data-days="7" aria-pressed="true">7d</button>
-                        <button type="button" data-days="30" aria-pressed="false">30d</button>
+                    <div class="sr-range-row">
+                        <div class="sr-range" id="sr-range" role="group" aria-label="Time range">
+                            <button type="button" data-days="1" aria-pressed="false">24h</button>
+                            <button type="button" data-days="7" aria-pressed="true">7d</button>
+                            <button type="button" data-days="30" aria-pressed="false">30d</button>
+                        </div>
+                        <!-- A rolling 30d window drifts every day it's looked at; a
+                             month reported against doesn't. Separate control, not a
+                             fourth button — the two answer different questions. -->
+                        <select class="sr-month-select" id="sr-month-select" aria-label="Or a specific month">
+                            <option value="">Or a month…</option>
+                        </select>
                     </div>
                     <div class="sr-range-note" id="sr-range-note"></div>
                 </div>

@@ -1,10 +1,10 @@
 import hashlib
 import json
 import re
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 import psycopg2
 from psycopg2.extras import Json
-from db.connection import db_cursor, utc_iso, now_eat
+from db.connection import EAT, db_cursor, utc_iso, now_eat
 # The raw-row horizon is a retention fact, not a monitoring one — imported
 # rather than restated so a change to retention can't leave this page
 # claiming a peak it no longer has the data for.
@@ -379,10 +379,47 @@ def ingest_snapshot(snapshot, raw_payload, router_ts, router_ts_utc, offset_minu
     return "stored"
 
 
+def _eat_date_to_utc(d):
+    """A calendar date's EAT midnight, as the naive UTC datetime the tables
+    store — the general form of _eat_day_start_utc (today only), used to
+    anchor a specific reporting day/month rather than "now"."""
+    return datetime(d.year, d.month, d.day, tzinfo=EAT).astimezone(timezone.utc).replace(tzinfo=None)
+
+
 def _eat_day_start_utc():
     """Start of today in EAT, as the naive UTC datetime the tables store."""
-    start = now_eat().replace(hour=0, minute=0, second=0, microsecond=0)
-    return start.astimezone(timezone.utc).replace(tzinfo=None)
+    return _eat_date_to_utc(now_eat().date())
+
+
+def _resolve_window(days, month):
+    """Resolves either way a report window can be requested into one shape.
+
+    days=N: trailing N days ending now (existing behaviour, unchanged).
+
+    month="YYYY-MM": that EAT calendar month, capped at today if it is
+    still in progress — a month that hasn't finished yet must not
+    zero-fill its remaining days as if they were empty, which would read
+    as "nothing happened" rather than "hasn't happened yet".
+
+    Returns (since, now, first_day, day_count). since/now are UTC instants
+    for point-in-time queries (segments, coverage, history) — for a
+    trailing window `since` is a precise instant, not day-aligned, same as
+    before. first_day/day_count are the EAT calendar range for daily
+    bucketing (revenue_daily, people_daily), kept separate because those
+    two are genuinely different shapes, not the same value twice."""
+    now = datetime.utcnow()
+    if month:
+        year, mon = (int(x) for x in month.split("-"))
+        first_day = date(year, mon, 1)
+        next_month = date(year + 1, 1, 1) if mon == 12 else date(year, mon + 1, 1)
+        since = _eat_date_to_utc(first_day)
+        until = min(now, _eat_date_to_utc(next_month))
+        elapsed_end = min(next_month, (now_eat() + timedelta(days=1)).date())
+        day_count = max((elapsed_end - first_day).days, 1)
+        return since, until, first_day, day_count
+    since = now - timedelta(days=days)
+    first_day = now_eat().date() - timedelta(days=days - 1)
+    return since, now, first_day, days
 
 
 def get_last_ingest_at():
@@ -849,14 +886,51 @@ def _revenue_hourly(cur, site_id, since, now, tracked_from):
     return hours
 
 
-def get_site_detail(site_id, include_revenue, days=7):
+def _people_daily(cur, site_id, first_day, day_count, watching_since):
+    """One bucket per EAT calendar day, from first_day for day_count days —
+    the 7d/30d/month People chart's unit. Same day boundary as
+    revenue_daily, so the two line up when read side by side. has_peak
+    requires every session-count row that day to still be 'raw'; the moment
+    any hour behind the average has rolled up to an hourly average (see
+    monitoring_retention.py), the day's true peak is gone, not just
+    diminished, and must not be drawn as a whole one."""
+    since = _eat_date_to_utc(first_day)
+    cur.execute(
+        """
+        SELECT (received_at + interval '3 hours')::date AS day,
+               round(avg(sessions))::int, max(sessions), bool_and(granularity = 'raw')
+        FROM site_session_counts
+        WHERE monitored_site_id = %s AND received_at >= %s
+        GROUP BY day ORDER BY day
+        """,
+        (site_id, since),
+    )
+    by_day = {r[0].isoformat(): r[1:] for r in cur.fetchall()}
+    # A day before the site existed is not a quiet day — nobody was counting.
+    watched_from = (watching_since + timedelta(hours=3)).date() if watching_since else None
+    out = []
+    cursor_day = first_day
+    for _ in range(day_count):
+        avg_v, peak_v, all_raw = by_day.get(cursor_day.isoformat(), (None, None, False))
+        out.append({
+            "day": cursor_day.isoformat(),
+            "avg": avg_v,
+            "peak": peak_v if all_raw else None,
+            "has_peak": bool(all_raw and peak_v is not None),
+            "watched": watched_from is not None and cursor_day >= watched_from,
+        })
+        cursor_day += timedelta(days=1)
+    return out
+
+
+def get_site_detail(site_id, include_revenue, days=7, month=None):
     """One site's status history, session counts and (only with
-    include_revenue) revenue, all over a trailing `days` window. None if the
-    id is unknown. See phase.md 4.0: "is this site up, how many devices are
-    on it, what has its uptime been, and what did it earn" — this endpoint
-    is that question asked of one site."""
-    now = datetime.utcnow()
-    since = now - timedelta(days=days)
+    include_revenue) revenue, over either a trailing `days` window or one
+    EAT calendar `month` ("YYYY-MM") — see _resolve_window. None if the id
+    is unknown. See phase.md 4.0: "is this site up, how many devices are on
+    it, what has its uptime been, and what did it earn" — this endpoint is
+    that question asked of one site."""
+    since, now, first_day, day_count = _resolve_window(days, month)
     with db_cursor() as (conn, cur):
         cur.execute(
             """
@@ -880,6 +954,11 @@ def get_site_detail(site_id, include_revenue, days=7):
         state_since = utc_iso(segments[-1]["start"]) if segments else None
         coverage = _coverage(cur, since, now, watching_since)
         people = _people_hourly(cur, site_id, since)
+        # The chart's own unit: hourly for the 24h range (nothing coarser
+        # would show a day's shape), per EAT calendar day for 7d/30d/month —
+        # the same switch revenue_daily already makes, and for the same
+        # reason: a bar per hour over that many days is too thin to read.
+        people_daily = _people_daily(cur, site_id, first_day, day_count, watching_since) if (month or days > 1) else None
         busiest_hours = _busiest_hours(cur, site_id, since)
 
         cur.execute(
@@ -898,13 +977,12 @@ def get_site_detail(site_id, include_revenue, days=7):
         attribution = None
         revenue_tracking_since = None
         if include_revenue:
-            # Whole EAT calendar days, not a rolling `since` — the sessions
-            # window above is deliberately a trailing 24h*days, but "revenue
+            # Whole EAT calendar days, not the trailing `since` above — the
+            # sessions window is deliberately a rolling instant, but "revenue
             # per day" means complete days, or the oldest bar in the chart
-            # would silently undercount its own partial day while the rest
-            # of the query still matched it. Reuses _eat_day_start_utc's
-            # math (today's EAT midnight in UTC) rather than duplicating it.
-            revenue_since = _eat_day_start_utc() - timedelta(days=days - 1)
+            # would silently undercount its own partial day. first_day is
+            # already that EAT-aligned start, from _resolve_window.
+            revenue_since = _eat_date_to_utc(first_day)
             cur.execute(
                 """
                 SELECT hotspot_username, profile_name, price_kes, event_type, attribution, first_seen_at
@@ -943,8 +1021,8 @@ def get_site_detail(site_id, include_revenue, days=7):
             # Zero-filled so the chart has one bar per day even on days with
             # no sales, rather than compressing gaps out of the timeline.
             revenue_daily = []
-            cursor_day = now_eat().date() - timedelta(days=days - 1)
-            for _ in range(days):
+            cursor_day = first_day
+            for _ in range(day_count):
                 key = cursor_day.isoformat()
                 kes, sales = by_day.get(key, (0.0, 0))
                 revenue_daily.append({
@@ -956,7 +1034,8 @@ def get_site_detail(site_id, include_revenue, days=7):
             # A calendar-day bucket is exactly one bar over a 24h window —
             # not a chart. The 24h range gets its own hourly breakdown
             # instead, same trailing window as the People chart above it.
-            revenue_hourly = _revenue_hourly(cur, site_id, since, now, tracked_from) if days == 1 else None
+            # Month mode never lands here: a month is never one day.
+            revenue_hourly = _revenue_hourly(cur, site_id, since, now, tracked_from) if (days == 1 and not month) else None
 
             cur.execute(
                 """
@@ -991,8 +1070,8 @@ def get_site_detail(site_id, include_revenue, days=7):
         "liveness_source": liveness_source, "notes": head[5], "is_active": head[6],
         "pppoe_username": head[7], "watching_since": utc_iso(watching_since),
         "contact_name": head[9], "contact_phone": head[10], "address": head[11],
-        "days": days, "state": state, "state_since": state_since,
-        "coverage": coverage, "people": people, "busiest_hours": busiest_hours,
+        "days": day_count, "month": month, "since": utc_iso(since), "state": state, "state_since": state_since,
+        "coverage": coverage, "people": people, "people_daily": people_daily, "busiest_hours": busiest_hours,
         "avg_people": round(sum(avgs) / len(avgs)) if avgs else None,
         "peak_people": max(peaks) if peaks else None,
         # Past SESSION_RAW_KEEP only hourly averages survive, so a peak
@@ -1012,17 +1091,54 @@ def get_site_detail(site_id, include_revenue, days=7):
     return detail
 
 
-def get_fleet(include_revenue, days=7):
-    """Every active site over one trailing window, for the Trends tab — the
-    site report's numbers, asked of the whole fleet at once so sites can be
-    ranked against each other. Same rules as get_site_detail throughout:
+def _fleet_people_daily(cur, first_day, day_count):
+    """Fleet 'People across the fleet' chart's unit for 7d/30d/month — one
+    bucket per EAT day, each site's daily average summed into the fleet
+    figure. Same 'sum of site averages' convention the hourly version below
+    already uses; has_peak requires every contributing site-day to still be
+    raw, same honesty rule as _people_daily."""
+    since = _eat_date_to_utc(first_day)
+    cur.execute(
+        """
+        SELECT (received_at + interval '3 hours')::date AS day, monitored_site_id,
+               avg(sessions), max(sessions), bool_and(granularity = 'raw')
+        FROM site_session_counts
+        WHERE received_at >= %s
+        GROUP BY day, monitored_site_id
+        """,
+        (since,),
+    )
+    by_day = {}
+    for day, _site_id, avg, peak, all_raw in cur.fetchall():
+        b = by_day.setdefault(day.isoformat(), {"avg": 0.0, "peak": 0, "has_peak": True})
+        b["avg"] += float(avg)
+        b["peak"] += peak
+        b["has_peak"] = b["has_peak"] and all_raw
+    out = []
+    cursor_day = first_day
+    for _ in range(day_count):
+        hit = by_day.get(cursor_day.isoformat())
+        out.append({
+            "day": cursor_day.isoformat(),
+            "avg": round(hit["avg"]) if hit else None,
+            "peak": hit["peak"] if hit and hit["has_peak"] else None,
+            "has_peak": bool(hit and hit["has_peak"]),
+        })
+        cursor_day += timedelta(days=1)
+    return out
+
+
+def get_fleet(include_revenue, days=7, month=None):
+    """Every active site over either a trailing `days` window or one EAT
+    calendar `month` ("YYYY-MM") — see _resolve_window — for the Trends tab:
+    the site report's numbers, asked of the whole fleet at once so sites can
+    be ranked against each other. Same rules as get_site_detail throughout:
     unwatched time is never downtime, an activity site gets no uptime
     percentage, a peak exists only inside the raw-row horizon, and revenue
     keys are absent (not null) without include_revenue — on every row AND on
     the unattributed line, which belongs to no row and so is the one most
     likely to leak."""
-    now = datetime.utcnow()
-    since = now - timedelta(days=days)
+    since, now, first_day, day_count = _resolve_window(days, month)
     with db_cursor() as (conn, cur):
         cur.execute(
             """
@@ -1093,10 +1209,14 @@ def get_fleet(include_revenue, days=7):
              "peak": b["peak"] if b["has_peak"] else None, "has_peak": b["has_peak"]}
             for h, b in sorted(fleet_hours.items())
         ]
+        # Same switch as the site report's People chart: hourly only reads
+        # for the 24h range, past that it's daily or the chart is a wall of
+        # unreadable slivers.
+        people_daily = _fleet_people_daily(cur, first_day, day_count) if (month or days > 1) else None
 
         revenue = None
         if include_revenue:
-            revenue_since = _eat_day_start_utc() - timedelta(days=days - 1)
+            revenue_since = _eat_date_to_utc(first_day)
             cur.execute(
                 """
                 SELECT monitored_site_id, COALESCE(sum(price_kes), 0), count(*),
@@ -1123,8 +1243,8 @@ def get_fleet(include_revenue, days=7):
             tracked_from = cur.fetchone()[0]
             tracked_day = (tracked_from + timedelta(hours=3)).date() if tracked_from else None
             daily = []
-            day = now_eat().date() - timedelta(days=days - 1)
-            for _ in range(days):
+            day = first_day
+            for _ in range(day_count):
                 kes, sales = by_day.get(day.isoformat(), (0.0, 0))
                 daily.append({"day": day.isoformat(), "kes": kes, "sales": sales,
                               "tracked": tracked_day is not None and day >= tracked_day})
@@ -1152,11 +1272,13 @@ def get_fleet(include_revenue, days=7):
     peak_hour = max((p for p in people if p["has_peak"]), key=lambda p: p["peak"], default=None)
 
     result = {
-        "days": days,
+        "days": day_count,
+        "month": month,
         "since": utc_iso(since),
         "peak_horizon_days": SESSION_RAW_KEEP.days,
         "sites": sites,
         "people": people,
+        "people_daily": people_daily,
         "totals": {
             "uptime_pct": round(up_s / known_s * 100, 1) if known_s else None,
             "coverage_pct": round(watched_total / total_window * 100, 1) if total_window else None,

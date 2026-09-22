@@ -30,6 +30,14 @@
 /* ---- Range switch ---- */
 .fleet-range-wrap { text-align: right; }
 
+.fleet-range-row {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
 .fleet-range {
     display: inline-flex;
     gap: 4px;
@@ -38,6 +46,20 @@
     border-radius: 9px;
     padding: 3px;
 }
+
+.fleet-month-select {
+    min-height: 44px;
+    padding: 0 10px;
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12.5px;
+    cursor: pointer;
+}
+
+.fleet-month-select:focus { outline: none; border-color: var(--text-dim); }
 
 .fleet-range button {
     min-height: 44px;
