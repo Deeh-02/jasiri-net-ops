@@ -1,0 +1,34 @@
+-- Phase 4.7 addendum #2 — one additive column, same shape as 0009: nullable,
+-- no default, no row rewritten, nothing behaves differently until code
+-- starts populating it.
+--
+-- WHY THIS EXISTS. A sale can land with monitored_site_id NULL — the buyer
+-- wasn't seen actively sessioned on any known VLAN at the moment Ops noticed
+-- them, and it's their first sighting so there's no earlier site to fall
+-- back on either (see _record_revenue in db/monitoring.py). On 2026-09-22
+-- that was ~300 KES of real, correctly-priced revenue that simply had no
+-- site attached.
+--
+-- The VLAN it actually came from is not lost by accident — it was never
+-- written down. active_by_vlan is built from that one heartbeat's payload
+-- and discarded once the request finishes; ingest_snapshots keeps no raw
+-- payload (only ingest_quarantine does, and only for rows that were
+-- rejected outright, which these were not). So today, tracing an unplaced
+-- sale back to its VLAN is not a hard query — it is impossible, because the
+-- fact was never stored.
+--
+-- origin_vlan_id closes that: it is the VLAN the buyer was on when the sale
+-- was recorded, written whether or not that VLAN resolves to a known site.
+-- NULL still means "we don't know" (the router's active-user report simply
+-- didn't include this person that run), which is a different, rarer thing
+-- from "we knew and it just isn't a site yet."
+--
+-- Run this once against the target database:
+--   psql "$DATABASE_URL" -f migrations/0010_revenue_events_origin_vlan.sql
+--
+-- Additive and IF NOT EXISTS, so re-running is safe. Do NOT deploy the
+-- application code that writes to this column until this has been run —
+-- see migration 0009's outage for exactly what happens otherwise.
+
+ALTER TABLE revenue_events
+    ADD COLUMN IF NOT EXISTS origin_vlan_id integer;

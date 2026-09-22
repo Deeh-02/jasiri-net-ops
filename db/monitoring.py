@@ -229,7 +229,11 @@ def _record_revenue(cur, users, active_by_vlan, vlan_to_site, snapshot_id, raw_p
             _quarantine(cur, "unknown_hotspot_profile", raw_payload, pppoe_username=user["profile"])
         price = 0 if (is_baseline or package is None or not package["is_active"]) else package["price"]
 
-        site_id = vlan_to_site.get(name_to_vlan.get(user["name"]))
+        # Recorded whether or not it resolves to a site — that is the whole
+        # point. An unplaced sale used to be untraceable: the VLAN lived only
+        # in this dict, for the length of this request. See migration 0010.
+        origin_vlan = name_to_vlan.get(user["name"])
+        site_id = vlan_to_site.get(origin_vlan)
         attribution = "direct"
         if site_id is None:
             site_id = last_site.get(user["name"])
@@ -247,12 +251,12 @@ def _record_revenue(cur, users, active_by_vlan, vlan_to_site, snapshot_id, raw_p
             """
             INSERT INTO revenue_events
                 (monitored_site_id, hotspot_username, profile_name, price_kes,
-                 event_type, attribution, expiry_seen, snapshot_id)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                 event_type, attribution, expiry_seen, snapshot_id, origin_vlan_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (hotspot_username, expiry_seen) DO NOTHING
             """,
             (site_id, user["name"], user["profile"], price,
-             event_type, attribution, user["expiry"], snapshot_id),
+             event_type, attribution, user["expiry"], snapshot_id, origin_vlan),
         )
 
 
