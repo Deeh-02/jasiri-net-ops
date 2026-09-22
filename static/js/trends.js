@@ -16,8 +16,9 @@ const GLYPH = {
     unknown:  { shape: "○", cls: "is-unknown" },
 };
 
-let days = 7;
-let month = null;
+let kind = "week";   // "day" | "week" | "month"
+let value = null;    // "YYYY-MM-DD" (a day, or a week's Monday) or "YYYY-MM"
+let dataFrom = null; // first day the fleet has anything recorded, from the last response
 let sort = { key: "uptime_pct", dir: 1 };
 let lastData = null;
 let loadSeq = 0;
@@ -43,25 +44,92 @@ function shortDay(iso) {
     return new Date(iso).toLocaleDateString([], { day: "numeric", month: "short" });
 }
 
-function monthLabel(m) {
-    const [y, mo] = m.split("-").map(Number);
-    return new Date(Date.UTC(y, mo - 1, 1)).toLocaleDateString("en-GB", { month: "long", year: "numeric", timeZone: "UTC" });
+/* ---- Periods ----
+   Always one named day, week (Monday–Sunday) or month, Nairobi time — same
+   helpers as the site report's, duplicated per this codebase's habit. */
+
+const DAY_MS = 86400000;
+
+// Today in Nairobi as a UTC-midnight Date, so the lists agree with the
+// backend's EAT calendar whatever timezone the viewer's device is in.
+function eatToday() {
+    const n = new Date(Date.now() + 3 * 3600000);
+    return new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate()));
 }
 
-/* Last 12 calendar months, most recent first — same fixed rolling list as
-   the site report's month picker, not drawn from what data actually exists. */
-function populateMonthSelect() {
-    const select = document.getElementById("fleet-month-select");
-    if (select.options.length > 1) return; // already populated, tab revisited
-    const now = new Date();
-    for (let i = 0; i < 12; i++) {
-        const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
-        const value = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
-        const opt = document.createElement("option");
-        opt.value = value;
-        opt.textContent = monthLabel(value);
-        select.appendChild(opt);
+const isoDay = date => date.toISOString().slice(0, 10);
+const utcFmt = (date, opts) => date.toLocaleDateString("en-GB", { timeZone: "UTC", ...opts });
+const mondayOf = date => new Date(date.getTime() - ((date.getUTCDay() + 6) % 7) * DAY_MS);
+
+function monthLabel(m) {
+    const [y, mo] = m.split("-").map(Number);
+    return utcFmt(new Date(Date.UTC(y, mo - 1, 1)), { month: "long", year: "numeric" });
+}
+
+// "15–21 Sep", or "29 Sep – 5 Oct" when the week straddles a month.
+function weekLabel(monday) {
+    const start = new Date(`${monday}T00:00:00Z`);
+    const end = new Date(start.getTime() + 6 * DAY_MS);
+    if (start.getUTCMonth() === end.getUTCMonth()) {
+        return `${start.getUTCDate()}–${utcFmt(end, { day: "numeric", month: "short" })}`;
     }
+    return `${utcFmt(start, { day: "numeric", month: "short" })} – ${utcFmt(end, { day: "numeric", month: "short" })}`;
+}
+
+const dayLabel = day => utcFmt(new Date(`${day}T00:00:00Z`), { weekday: "short", day: "numeric", month: "short" });
+
+function currentPeriod(k) {
+    const today = eatToday();
+    if (k === "day") return isoDay(today);
+    if (k === "month") return isoDay(today).slice(0, 7);
+    return isoDay(mondayOf(today));
+}
+
+// Every week or month from now back to the first with any data in it.
+function periodOptions(k) {
+    const today = eatToday();
+    const from = dataFrom ? new Date(`${dataFrom}T00:00:00Z`) : today;
+    const out = [];
+    if (k === "month") {
+        const stop = isoDay(from).slice(0, 7);
+        for (let i = 0; ; i++) {
+            const v = isoDay(new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - i, 1))).slice(0, 7);
+            out.push({ value: v, label: i === 0 ? `This month · ${monthLabel(v)}` : monthLabel(v) });
+            if (v <= stop) return out;
+        }
+    }
+    const stop = isoDay(mondayOf(from));
+    for (let i = 0; ; i++) {
+        const v = isoDay(new Date(mondayOf(today).getTime() - i * 7 * DAY_MS));
+        const prefix = i === 0 ? "This week · " : i === 1 ? "Last week · " : "";
+        out.push({ value: v, label: `${prefix}${weekLabel(v)}` });
+        if (v <= stop) return out;
+    }
+}
+
+function periodPhrase(k, v) {
+    if (k === "day") return dayLabel(v);
+    return k === "month" ? monthLabel(v) : weekLabel(v);
+}
+
+// Day gets a date picker bounded by the data; week/month a dropdown.
+function setPeriodControls() {
+    document.querySelectorAll("#fleet-range button").forEach(b =>
+        b.setAttribute("aria-pressed", String(b.dataset.mode === kind)));
+    const select = document.getElementById("fleet-period-select");
+    const dayInput = document.getElementById("fleet-day-input");
+    select.hidden = kind === "day";
+    dayInput.hidden = kind !== "day";
+    if (kind === "day") {
+        dayInput.min = dataFrom || currentPeriod("day");
+        dayInput.max = currentPeriod("day");
+        dayInput.value = value;
+        return;
+    }
+    const options = periodOptions(kind);
+    if (!options.some(o => o.value === value)) options.push({ value, label: periodPhrase(kind, value) });
+    select.innerHTML = options.map(o => `<option value="${esc(o.value)}">${esc(o.label)}</option>`).join("");
+    select.value = value;
 }
 
 function dayTime(iso) {
@@ -103,36 +171,13 @@ function renderKpis(d, canRevenue) {
     box.innerHTML = cards.join("");
 }
 
-/* Hourly only reads for the 24h range; past that the row is a wall of
-   unreadable slivers, same reasoning as the site report's People chart —
-   people_daily's presence (not days/month directly) is what the backend
-   already used to decide which one it sent, so it decides here too. */
+// A day gets a bar per hour; a week or a month a bar per day, since a bar
+// per hour over that many days is unreadable slivers.
 function renderPeople(d) {
     const wrap = document.getElementById("fleet-people-wrap");
     document.getElementById("fleet-people-hint").textContent =
-        d.people_daily ? "daily · all sites" : "hourly · all sites";
-    if (d.people_daily) { renderPeopleDaily(d, wrap); return; }
-    renderPeopleHourly(d, wrap);
-}
-
-function renderPeopleHourly(d, wrap) {
-    if (!d.people.length) {
-        wrap.innerHTML = `<div class="fleet-empty">No headcounts recorded in this window.</div>`;
-        return;
-    }
-    const max = Math.max(1, ...d.people.map(p => p.avg));
-    const busiest = d.people.reduce((b, p) => (p.avg > (b ? b.avg : -1) ? p : b), null);
-    wrap.innerHTML = `
-        <div class="fleet-bars ${d.people.length <= 48 ? "is-sparse" : ""}">
-            ${d.people.map(p => `<div class="fleet-bar-slot" title="${esc(dayTime(p.hour))} — ${p.avg} on average${p.has_peak ? `, peak ${p.peak}` : ""}">
-                <div class="fleet-bar ${p.has_peak ? "" : "is-averaged"}" style="height:${Math.max(2, Math.round(p.avg / max * 100))}%"></div>
-            </div>`).join("")}
-        </div>
-        <div class="fleet-axis"><span>${esc(shortDay(d.since))}</span><span>now</span></div>
-        <p class="fleet-says">Busiest hour was <strong>${busiest.avg}</strong> people on average, ${esc(dayTime(busiest.hour))}.</p>`;
-}
-
-function renderPeopleDaily(d, wrap) {
+        d.day ? "hourly · all sites" : "daily · all sites";
+    if (d.day) { renderPeopleHourly(d, wrap); return; }
     const days = d.people_daily;
     if (!days.some(x => x.avg != null)) {
         wrap.innerHTML = `<div class="fleet-empty">No headcounts recorded in this window.</div>`;
@@ -153,31 +198,66 @@ function renderPeopleDaily(d, wrap) {
         <p class="fleet-says">Busiest day was <strong>${busiest.avg}</strong> people on average, ${esc(shortDay(`${busiest.day}T12:00:00`))}.</p>`;
 }
 
+function renderPeopleHourly(d, wrap) {
+    if (!d.people.length) {
+        wrap.innerHTML = `<div class="fleet-empty">No headcounts recorded on this day.</div>`;
+        return;
+    }
+    const max = Math.max(1, ...d.people.map(p => p.avg));
+    const busiest = d.people.reduce((b, p) => (p.avg > (b ? b.avg : -1) ? p : b), null);
+    wrap.innerHTML = `
+        <div class="fleet-bars is-sparse">
+            ${d.people.map(p => `<div class="fleet-bar-slot" title="${esc(hourOf(p.hour))} — ${p.avg} on average${p.has_peak ? `, peak ${p.peak}` : ""}">
+                <div class="fleet-bar ${p.has_peak ? "" : "is-averaged"}" style="height:${Math.max(2, Math.round(p.avg / max * 100))}%"></div>
+            </div>`).join("")}
+        </div>
+        <div class="fleet-axis"><span>${esc(hourOf(d.people[0].hour))}</span><span>${esc(hourOf(d.people[d.people.length - 1].hour))}</span></div>
+        <p class="fleet-says">Busiest hour was <strong>${busiest.avg}</strong> people on average, at ${esc(hourOf(busiest.hour))}.</p>`;
+}
+
+// "14:00", Nairobi time — Trends' other helpers use the device clock, but
+// an hour of a Nairobi day has to read as that hour wherever it's opened.
+const hourOf = iso => new Date(iso).toLocaleTimeString("en-GB", { timeZone: "Africa/Nairobi", hour: "2-digit", minute: "2-digit", hour12: false });
+
 function renderRevenue(d, canRevenue) {
     const card = document.getElementById("fleet-revenue-card");
     card.hidden = !canRevenue;
     document.getElementById("fleet-charts").classList.toggle("is-single", !canRevenue);
     if (!canRevenue) return;
 
-    const daily = d.revenue_daily;
+    // A day report charts its hours; otherwise one bar per day. Same bar
+    // rules either way — only the bucket's name and axis labels differ.
+    const hourly = !!d.revenue_hourly;
+    document.getElementById("fleet-revenue-title").textContent = hourly ? "Revenue per hour" : "Revenue per day";
+    document.getElementById("fleet-revenue-hint").textContent = `Nairobi ${hourly ? "hours" : "days"} · all sites`;
+    const daily = hourly
+        ? d.revenue_hourly.map(r => ({ ...r, label: hourOf(r.hour) }))
+        : d.revenue_daily.map(r => ({ ...r, label: shortDay(`${r.day}T12:00:00`) }));
     const max = Math.max(1, ...daily.map(r => r.kes));
     const tracked = daily.filter(r => r.tracked);
     const best = tracked.reduce((b, r) => (r.kes > (b ? b.kes : -1) ? r : b), null);
     const untracked = daily.some(r => !r.tracked);
-    const weekday = (day) => new Date(`${day}T12:00:00`).toLocaleDateString([], daily.length > 7 ? { day: "numeric" } : { weekday: "short" });
+    // A week names every day; a month labels the 1st and every 5th, a day
+    // every 6th hour — or the labels run together into one unreadable string.
+    const axisLabel = (r, i) => {
+        if (hourly) return i % 6 === 0 ? r.label.slice(0, 2) : "";
+        if (daily.length <= 7) return new Date(`${r.day}T12:00:00`).toLocaleDateString([], { weekday: "short" });
+        const n = Number(r.day.slice(8));
+        return n === 1 || n % 5 === 0 ? String(n) : "";
+    };
 
     document.getElementById("fleet-revenue-wrap").innerHTML = `
         <div class="fleet-bars fleet-rev-bars ${daily.length <= 7 ? "is-sparse" : ""}">
             ${daily.map(r => r.tracked
-                ? `<div class="fleet-bar-slot" title="${esc(shortDay(`${r.day}T12:00:00`))} — ${money(r.kes)} from ${r.sales} sales">
+                ? `<div class="fleet-bar-slot" title="${esc(r.label)} — ${money(r.kes)} from ${r.sales} sales">
                     ${daily.length <= 7 ? `<div class="fleet-bar-value">${(r.kes / 1000).toFixed(1)}k</div>` : ""}
                     <div class="fleet-bar is-money" style="height:${Math.max(2, Math.round(r.kes / max * 100))}%"></div>
                    </div>`
-                : `<div class="fleet-bar-slot" title="${esc(shortDay(`${r.day}T12:00:00`))} — not tracked yet"><div class="fleet-bar is-untracked"></div></div>`
+                : `<div class="fleet-bar-slot" title="${esc(r.label)} — not tracked yet"><div class="fleet-bar is-untracked"></div></div>`
             ).join("")}
         </div>
-        <div class="fleet-axis fleet-axis-days">${daily.map(r => `<span>${esc(weekday(r.day))}</span>`).join("")}</div>
-        <p class="fleet-says">${best ? `Best day ${esc(shortDay(`${best.day}T12:00:00`))}, <strong>${money(best.kes)}</strong>.` : "Nothing sold in this window."}${untracked ? " Hatched days are before revenue tracking started — unknown, not zero." : ""}</p>`;
+        <div class="fleet-axis fleet-axis-days">${daily.map((r, i) => `<span>${esc(axisLabel(r, i))}</span>`).join("")}</div>
+        <p class="fleet-says">${best && best.kes > 0 ? `Best ${hourly ? "hour" : "day"} ${esc(best.label)}, <strong>${money(best.kes)}</strong>.` : "Nothing sold in this window."}${untracked ? ` Hatched ${hourly ? "hours" : "days"} are before revenue tracking started — unknown, not zero.` : ""}</p>`;
 }
 
 /* Columns, in order. `revenue: true` columns exist only with the
@@ -310,10 +390,10 @@ function render(d) {
     // Absent, not null: the totals only carry revenue with sites:view_revenue.
     const canRevenue = "revenue_kes" in d.totals;
     lastData = d;
-    const now = new Date();
-    document.getElementById("fleet-range-note").textContent = d.month
-        ? `${monthLabel(d.month)} · Africa/Nairobi`
-        : `${shortDay(d.since)} – ${shortDay(now.toISOString())} · Africa/Nairobi`;
+    const k = d.day ? "day" : d.month ? "month" : "week";
+    const v = d.day || d.month || d.week;
+    const running = v === currentPeriod(k) ? " · in progress, figures so far" : "";
+    document.getElementById("fleet-range-note").textContent = `${periodPhrase(k, v)}${running} · Africa/Nairobi`;
     renderKpis(d, canRevenue);
     renderPeople(d);
     renderRevenue(d, canRevenue);
@@ -325,7 +405,7 @@ async function load() {
     const seq = ++loadSeq;
     document.getElementById("view-trends").classList.add("is-loading");
     try {
-        const url = month ? `/monitoring/fleet?month=${month}` : `/monitoring/fleet?days=${days}`;
+        const url = `/monitoring/fleet?${kind}=${value}`;
         const res = await fetch(url, { headers: authHeaders() });
         if (seq !== loadSeq) return; // a later range click won the race
         if (!res.ok) {
@@ -333,7 +413,10 @@ async function load() {
                 `<tr><td class="loading-text">Couldn't load trends (${res.status}).</td></tr>`;
             return;
         }
-        render(await res.json());
+        const data = await res.json();
+        dataFrom = data.data_from;
+        setPeriodControls();
+        render(data);
     } catch (err) {
         console.error("trends tab:", err);
         if (seq === loadSeq) {
@@ -349,21 +432,20 @@ export function initTrends() {
         .addEventListener("click", (e) => navigate(e.currentTarget.dataset.tabRoute));
 
     document.getElementById("fleet-range").addEventListener("click", (e) => {
-        const btn = e.target.closest("button[data-days]");
+        const btn = e.target.closest("button[data-mode]");
         if (!btn) return;
-        days = Number(btn.dataset.days);
-        month = null;
-        document.querySelectorAll("#fleet-range button").forEach(b =>
-            b.setAttribute("aria-pressed", String(b === btn)));
-        document.getElementById("fleet-month-select").value = "";
+        kind = btn.dataset.mode;
+        value = currentPeriod(kind);
+        setPeriodControls();
         load();
     });
-
-    populateMonthSelect();
-    document.getElementById("fleet-month-select").addEventListener("change", (e) => {
-        if (!e.target.value) return; // the placeholder option, not a real choice
-        month = e.target.value;
-        document.querySelectorAll("#fleet-range button").forEach(b => b.setAttribute("aria-pressed", "false"));
+    document.getElementById("fleet-period-select").addEventListener("change", (e) => {
+        value = e.target.value;
+        load();
+    });
+    document.getElementById("fleet-day-input").addEventListener("change", (e) => {
+        if (!e.target.value) return; // cleared picker: stay put
+        value = e.target.value;
         load();
     });
 
@@ -380,11 +462,14 @@ export function initTrends() {
 
     document.getElementById("fleet-rows").addEventListener("click", (e) => {
         const row = e.target.closest("tr[data-id]");
-        if (row) navigate(`site-detail/${row.dataset.id}`);
+        // Same period on the site's own report, not a different one.
+        if (row) navigate(`site-detail/${row.dataset.id}/${kind}/${value}`);
     });
 
     registerRoute("trends", () => {
         showView("view-trends");
+        if (!value) value = currentPeriod(kind);
+        setPeriodControls();
         load();
     });
 }

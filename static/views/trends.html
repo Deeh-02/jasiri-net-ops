@@ -12,16 +12,15 @@
             <p class="fleet-intro">Every site over one window, worst uptime first. Click a row for that site&rsquo;s report.</p>
             <div class="fleet-range-wrap">
                 <div class="fleet-range-row">
-                    <div class="fleet-range" id="fleet-range" role="group" aria-label="Time range">
-                        <button type="button" data-days="1" aria-pressed="false">24h</button>
-                        <button type="button" data-days="7" aria-pressed="true">7d</button>
-                        <button type="button" data-days="30" aria-pressed="false">30d</button>
+                    <!-- A named day, week or month, same as the site report — never
+                         a rolling window that drifts every time it's opened. -->
+                    <div class="fleet-range" id="fleet-range" role="group" aria-label="Report by">
+                        <button type="button" data-mode="day" aria-pressed="false">Day</button>
+                        <button type="button" data-mode="week" aria-pressed="true">Week</button>
+                        <button type="button" data-mode="month" aria-pressed="false">Month</button>
                     </div>
-                    <!-- A rolling window drifts every time it's opened; a calendar
-                         month doesn't — separate control, not a fourth button. -->
-                    <select class="fleet-month-select" id="fleet-month-select" aria-label="Or a specific month">
-                        <option value="">Or a month…</option>
-                    </select>
+                    <select class="fleet-period-select" id="fleet-period-select" aria-label="Which week or month"></select>
+                    <input type="date" class="fleet-period-select" id="fleet-day-input" aria-label="Which day" hidden>
                 </div>
                 <div class="fleet-range-note" id="fleet-range-note"></div>
             </div>
@@ -33,14 +32,14 @@
             <div class="fleet-card">
                 <div class="fleet-card-head">
                     <div class="fleet-card-title">People across the fleet</div>
-                    <div class="fleet-card-hint" id="fleet-people-hint">hourly &middot; all sites</div>
+                    <div class="fleet-card-hint" id="fleet-people-hint">daily &middot; all sites</div>
                 </div>
                 <div id="fleet-people-wrap"></div>
             </div>
             <div class="fleet-card" id="fleet-revenue-card" hidden>
                 <div class="fleet-card-head">
-                    <div class="fleet-card-title">Revenue per day</div>
-                    <div class="fleet-card-hint">Nairobi days &middot; all sites</div>
+                    <div class="fleet-card-title" id="fleet-revenue-title">Revenue per day</div>
+                    <div class="fleet-card-hint" id="fleet-revenue-hint">Nairobi days &middot; all sites</div>
                 </div>
                 <div id="fleet-revenue-wrap"></div>
             </div>

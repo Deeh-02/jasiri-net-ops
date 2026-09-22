@@ -47,20 +47,91 @@ const dayTimeOf = iso => at(iso, {
 });
 const shortDay = iso => at(iso, { day: "numeric", month: "short" });
 
+/* ---- Periods ----
+   The report is always one named calendar period, Nairobi time — a day
+   ("YYYY-MM-DD"), a Monday–Sunday week ("YYYY-MM-DD", its Monday) or a month
+   ("YYYY-MM") — never a rolling "last N days" that gives a different answer
+   every time it's opened. Duplicated in trends.js, per this codebase's
+   no-shared-util habit. */
+
 const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+const PERIOD_RE = { day: DAY_RE, week: DAY_RE, month: MONTH_RE };
+const DAY_MS = 86400000;
+
+// Today in Nairobi as a UTC-midnight Date, so these lists agree with the
+// backend's EAT calendar whatever timezone the viewer's device is in.
+function eatToday() {
+    const n = new Date(Date.now() + 3 * 3600000);
+    return new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate()));
+}
+
+const isoDay = date => date.toISOString().slice(0, 10);
+const utcFmt = (date, opts) => date.toLocaleDateString("en-GB", { timeZone: "UTC", ...opts });
+const mondayOf = date => new Date(date.getTime() - ((date.getUTCDay() + 6) % 7) * DAY_MS);
 
 function monthLabel(month) {
     const [y, m] = month.split("-").map(Number);
-    return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString("en-GB", { month: "long", year: "numeric", timeZone: "UTC" });
+    return utcFmt(new Date(Date.UTC(y, m - 1, 1)), { month: "long", year: "numeric" });
 }
 
-// The noun phrase for whichever window is active — "the last 24 hours",
-// "the last 7 days", or "September 2026" — each call site supplies its own
-// preposition ("of ~", "over ~") since English doesn't use one uniformly.
-function windowPhrase(d) {
-    if (d.month) return monthLabel(d.month);
-    return d.days === 1 ? "the last 24 hours" : `the last ${d.days} days`;
+// "15–21 Sep", or "29 Sep – 5 Oct" when the week straddles a month.
+function weekLabel(monday) {
+    const start = new Date(`${monday}T00:00:00Z`);
+    const end = new Date(start.getTime() + 6 * DAY_MS);
+    if (start.getUTCMonth() === end.getUTCMonth()) {
+        return `${start.getUTCDate()}–${utcFmt(end, { day: "numeric", month: "short" })}`;
+    }
+    return `${utcFmt(start, { day: "numeric", month: "short" })} – ${utcFmt(end, { day: "numeric", month: "short" })}`;
 }
+
+const dayLabel = day => utcFmt(new Date(`${day}T00:00:00Z`), { weekday: "short", day: "numeric", month: "short" });
+
+function currentPeriod(kind) {
+    const today = eatToday();
+    if (kind === "day") return isoDay(today);
+    if (kind === "month") return isoDay(today).slice(0, 7);
+    return isoDay(mondayOf(today));
+}
+
+/* Every week or month from now back to the first one with anything
+   recorded in it (dataFrom, from the backend) — a period from before the
+   data starts would only ever be an empty page. With no data at all, just
+   the current one. Days use a date picker instead, bounded the same way. */
+function periodOptions(kind, dataFrom) {
+    const today = eatToday();
+    const from = dataFrom ? new Date(`${dataFrom}T00:00:00Z`) : today;
+    const out = [];
+    if (kind === "month") {
+        const stop = isoDay(from).slice(0, 7);
+        for (let i = 0; ; i++) {
+            const value = isoDay(new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - i, 1))).slice(0, 7);
+            out.push({ value, label: i === 0 ? `This month · ${monthLabel(value)}` : monthLabel(value) });
+            if (value <= stop) return out;
+        }
+    }
+    const stop = isoDay(mondayOf(from));
+    for (let i = 0; ; i++) {
+        const value = isoDay(new Date(mondayOf(today).getTime() - i * 7 * DAY_MS));
+        const prefix = i === 0 ? "This week · " : i === 1 ? "Last week · " : "";
+        out.push({ value, label: `${prefix}${weekLabel(value)}` });
+        if (value <= stop) return out;
+    }
+}
+
+const kindOf = d => (d.day ? "day" : d.month ? "month" : "week");
+const valueOf = d => d.day || d.month || d.week;
+
+// The noun phrase for the report's period — "Tue 22 Sep", "21–27 Sep" or
+// "September 2026". Call sites supply their own preposition ("of ~", "over ~").
+function windowPhrase(d) {
+    if (d.day) return dayLabel(d.day);
+    return d.month ? monthLabel(d.month) : weekLabel(d.week);
+}
+
+// Still running: the backend has capped it at now, so its totals are "so
+// far", not final — worth saying before anyone reconciles against them.
+const inProgress = d => valueOf(d) === currentPeriod(kindOf(d));
 
 /* Hours stay hours well past 24 — "26h 17m" is easier to reason about than
    "1d 2h" when you're reading an outage length. Days only past two of them. */
@@ -111,11 +182,10 @@ function renderHeader(d) {
     document.getElementById("sr-contact").innerHTML = contact.join("");
 }
 
-function renderRangeNote(d, windowStart) {
+function renderRangeNote(d) {
     const watching = d.watching_since ? ` · watching since ${shortDay(d.watching_since)}` : "";
-    const range = d.month ? monthLabel(d.month)
-        : `${shortDay(windowStart.toISOString())} – ${shortDay(new Date().toISOString())}`;
-    document.getElementById("sr-range-note").textContent = `${range}${watching}`;
+    const running = inProgress(d) ? " · in progress, figures so far" : "";
+    document.getElementById("sr-range-note").textContent = `${windowPhrase(d)}${running}${watching}`;
 }
 
 /* ---- KPI row ---- */
@@ -194,7 +264,7 @@ function renderKpis(d, canRevenue, windowStart) {
             label: "Revenue",
             figure: money(total),
             small: true,
-            sub: `${sales} sale${sales === 1 ? "" : "s"} in ${d.month ? monthLabel(d.month) : (d.days === 1 ? "24h" : `${d.days}d`)}`,
+            sub: `${sales} sale${sales === 1 ? "" : "s"} ${d.day ? "on" : "in"} ${windowPhrase(d)}`,
         });
     } else {
         cards.push({ label: "Revenue", figure: "Hidden", small: true, tone: "disabled", sub: "🔒 not your role" });
@@ -294,33 +364,6 @@ function renderTimeline(d) {
 
 /* ---- People ---- */
 
-/* The backend returns only hours that have data. A continuous 24-bucket
-   grid is built here instead, so an hour nobody was watching renders as its
-   own marker rather than silently closing the gap. Hourly only — 7d/30d use
-   people_daily (one bucket per EAT day) instead of a wider hourly grid, see
-   renderPeopleDaily below. */
-function peopleBuckets(d, windowStart) {
-    const byHour = new Map();
-    (d.people || []).forEach(p => byHour.set(new Date(p.hour).getTime(), p));
-
-    const hours = [];
-    const cursor = new Date(windowStart);
-    cursor.setUTCMinutes(0, 0, 0);
-    const end = Date.now();
-    while (cursor.getTime() <= end) {
-        const key = cursor.getTime();
-        const hit = byHour.get(key);
-        hours.push({
-            at: new Date(key),
-            avg: hit ? hit.avg : null,
-            peak: hit && hit.has_peak ? hit.peak : null,
-            hasPeak: !!(hit && hit.has_peak),
-        });
-        cursor.setUTCHours(cursor.getUTCHours() + 1);
-    }
-    return hours;
-}
-
 /* A 3-tick scale (max / half / 0) beside a bar chart — the only way to read
    a bar's actual value without hovering every one of them. `fmt` formats
    the tick label (plain numbers for people, compact KES for revenue). */
@@ -332,6 +375,35 @@ function yAxis(max, fmt = String) {
     return `<div class="sr-yaxis"><span>${esc(fmt(max))}</span>${mid}<span>0</span></div>`;
 }
 
+/* A Day report gets a bar per hour; a week or a month a bar per day. Different
+   enough — data field, x-axis unit, "not yet" story — to be two renderers. */
+function renderPeople(d) {
+    const wrap = document.getElementById("sr-people-wrap");
+    if (d.day) { renderPeopleHourly(d, wrap); return; }
+    renderPeopleDaily(d, wrap);
+}
+
+/* The backend returns only hours that have data. The day's full hour grid
+   is built here instead, so an hour nobody was watching renders as its own
+   marker rather than silently closing the gap. Stops at `until` — today's
+   report doesn't draw the hours that haven't happened yet. */
+function peopleBuckets(d) {
+    const byHour = new Map();
+    (d.people || []).forEach(p => byHour.set(new Date(p.hour).getTime(), p));
+    const hours = [];
+    const end = new Date(d.until).getTime();
+    for (let t = new Date(d.since).getTime(); t < end; t += 3600000) {
+        const hit = byHour.get(t);
+        hours.push({
+            at: new Date(t),
+            avg: hit ? hit.avg : null,
+            peak: hit && hit.has_peak ? hit.peak : null,
+            hasPeak: !!(hit && hit.has_peak),
+        });
+    }
+    return hours;
+}
+
 /* Which state covered a moment, from the timeline runs. */
 function stateAt(timeline, ms) {
     for (const s of timeline) {
@@ -340,13 +412,62 @@ function stateAt(timeline, ms) {
     return null;
 }
 
-/* Hourly (24h) vs daily (7d/30d) are different enough — different data
-   field, different x-axis unit, different "not yet" story — that they get
-   separate renderers rather than one function branching throughout. */
-function renderPeople(d, windowStart) {
-    const wrap = document.getElementById("sr-people-wrap");
-    if (d.month || d.days > 1) { renderPeopleDaily(d, wrap); return; }
-    renderPeopleHourly(d, wrap, windowStart);
+function renderPeopleHourly(d, wrap) {
+    const buckets = peopleBuckets(d);
+    const timeline = d.timeline || [];
+    if (!buckets.some(b => b.avg != null)) {
+        wrap.innerHTML = `<div class="sr-empty">No headcounts recorded on this day.</div>`;
+        document.getElementById("sr-people-hint").textContent = "";
+        return;
+    }
+
+    const max = Math.max(1, ...buckets.map(b => Math.max(b.avg || 0, b.peak || 0)));
+    const peakBucket = buckets.reduce((b, x) => ((x.peak || 0) > (b?.peak || 0) ? x : b), null);
+    const bars = buckets.map(b => {
+        let cls = "";
+        let height;
+        let title;
+        if (b.avg == null) {
+            // Nothing recorded. If the site was down, say down; otherwise this
+            // is a hole in what we were told, and it is not a zero.
+            const state = stateAt(timeline, b.at.getTime());
+            cls = state === "offline" ? "is-down" : "is-unknown";
+            height = 3;
+            title = `${timeOf(b.at.toISOString())} — ${state === "offline" ? "site was down" : "nothing recorded"}`;
+        } else {
+            height = Math.max(2, Math.round((b.avg / max) * 100));
+            if (!b.hasPeak) cls = "is-averaged";
+            const peakBit = b.hasPeak ? `, peak ${b.peak}` : " (hourly average only)";
+            title = `${timeOf(b.at.toISOString())} — ${b.avg} on average${peakBit}`;
+        }
+        const label = (peakBucket && b === peakBucket && b.hasPeak)
+            ? `<div class="sr-bar-value is-peak">${b.peak}</div>` : "";
+        return `<div class="sr-bar-slot" title="${esc(title)}">${label}<div class="sr-bar ${cls}" style="height:${height}%"></div></div>`;
+    }).join("");
+
+    const peakSentence = peakBucket && peakBucket.hasPeak
+        ? ` Busiest was <strong>${peakBucket.peak}</strong> at ${esc(timeOf(peakBucket.at.toISOString()))}.`
+        : "";
+    // Past the raw horizon a whole day is hourly averages — one sentence for
+    // it, rather than a dashed divider with nothing on one side of it.
+    const averagedSentence = buckets.some(b => b.avg != null && !b.hasPeak)
+        ? ` Paler bars are hourly averages — the per-minute rows behind them are deleted after ${d.peak_horizon_days} days, so no peak exists for them.`
+        : "";
+
+    wrap.innerHTML = `
+        <div class="sr-chart-row">
+            ${yAxis(max, n => String(Math.round(n)))}
+            <div class="sr-chart-body">
+                <div class="sr-bars is-sparse">${bars}</div>
+                <div class="sr-axis">
+                    <span>${esc(timeOf(buckets[0].at.toISOString()))}</span>
+                    <span>${esc(timeOf(buckets[buckets.length - 1].at.toISOString()))}</span>
+                </div>
+            </div>
+        </div>
+        <p class="sr-says">Typically <strong>${d.avg_people}</strong> people online.${peakSentence}${averagedSentence}</p>`;
+
+    document.getElementById("sr-people-hint").textContent = `${buckets.length} hours`;
 }
 
 /* A hatched overlay spanning the leading stretch of a bar row that isn't
@@ -359,84 +480,12 @@ function hatchBand(count, total, label) {
     </div>`;
 }
 
-function renderPeopleHourly(d, wrap, windowStart) {
-    const buckets = peopleBuckets(d, windowStart);
-    const timeline = d.timeline || [];
-    const values = buckets.filter(b => b.avg != null).map(b => b.avg);
-
-    if (values.length === 0) {
-        wrap.innerHTML = `<div class="sr-empty">No headcounts recorded in this window.</div>`;
-        document.getElementById("sr-people-hint").textContent = "";
-        return;
-    }
-
-    const max = Math.max(1, ...buckets.map(b => Math.max(b.avg || 0, b.peak || 0)));
-    const peakBucket = buckets.reduce((b, x) => ((x.peak || 0) > (b?.peak || 0) ? x : b), null);
-    const rawEdge = Date.now() - d.peak_horizon_days * 86400000;
-    const showsAveraged = buckets.some(b => b.at.getTime() < rawEdge);
-
-    const bars = buckets.map(b => {
-        const ms = b.at.getTime();
-        const state = stateAt(timeline, ms);
-        let cls = "";
-        let height = 0;
-        let title;
-        if (b.avg == null) {
-            // Nothing recorded. If the site was down, say down; otherwise this
-            // is a hole in what we were told, and it is not a zero.
-            cls = state === "offline" ? "is-down" : "is-unknown";
-            height = 3;
-            title = `${dayTimeOf(b.at.toISOString())} — ${state === "offline" ? "site was down" : "nothing recorded"}`;
-        } else {
-            height = Math.max(2, Math.round((b.avg / max) * 100));
-            if (ms < rawEdge) cls = "is-averaged";
-            const peakBit = b.hasPeak ? `, peak ${b.peak}` : " (hourly average only)";
-            title = `${dayTimeOf(b.at.toISOString())} — ${b.avg} on average${peakBit}`;
-        }
-        const label = (peakBucket && b === peakBucket && b.hasPeak)
-            ? `<div class="sr-bar-value is-peak">${b.peak}</div>` : "";
-        return `<div class="sr-bar-slot" title="${esc(title)}">${label}<div class="sr-bar ${cls}" style="height:${height}%"></div></div>`;
-    }).join("");
-
-    // The boundary where raw rows stop and only hourly averages remain.
-    let divider = "";
-    if (showsAveraged) {
-        const idx = buckets.findIndex(b => b.at.getTime() >= rawEdge);
-        if (idx > 0) divider = `<div class="sr-divider" style="left:${(idx / buckets.length) * 100}%"></div>`;
-    }
-
-    const peakSentence = peakBucket && peakBucket.hasPeak
-        ? ` Busiest was <strong>${peakBucket.peak}</strong> at ${esc(dayOf(peakBucket.at.toISOString()))} ${esc(timeOf(peakBucket.at.toISOString()))}.`
-        : "";
-    const averagedSentence = showsAveraged
-        ? ` Bars left of the dashed line are hourly averages — the per-minute rows behind them are deleted after ${d.peak_horizon_days} days, so no peak exists for that stretch.`
-        : "";
-
-    wrap.innerHTML = `
-        <div class="sr-chart-row">
-            ${yAxis(max, n => String(Math.round(n)))}
-            <div class="sr-chart-body">
-                <div style="position:relative">
-                    <div class="sr-bars">${bars}</div>
-                    ${divider}
-                </div>
-                <div class="sr-axis">
-                    <span>${esc(dayTimeOf(buckets[0].at.toISOString()))}</span>
-                    <span>${esc(dayTimeOf(buckets[buckets.length - 1].at.toISOString()))}</span>
-                </div>
-            </div>
-        </div>
-        <p class="sr-says">Typically <strong>${d.avg_people}</strong> people online${peakSentence}${averagedSentence}</p>`;
-
-    document.getElementById("sr-people-hint").textContent = `${buckets.length} hours`;
-}
-
-/* 7d/30d: one bar per EAT calendar day instead of one per hour — a bar per
-   hour over that many days was a couple of pixels wide and unreadable
-   (intra-day shape is what the separate "Busiest hours" card already
-   answers). Mirrors renderRevenueDaily's shape: a hatched band for days
-   before the site existed, a value label on the busiest bar, a dashed
-   divider where true daily peaks give way to hourly-average-only days. */
+/* One bar per EAT calendar day — a bar per hour over a week or a month is a
+   couple of pixels wide and unreadable (intra-day shape is what the
+   separate "Busiest hours" card already answers). Mirrors renderRevenue's
+   shape: a hatched band for days before the site existed, a value label on
+   the busiest bar, a dashed divider where true daily peaks give way to
+   hourly-average-only days. */
 function renderPeopleDaily(d, wrap) {
     const days = d.people_daily || [];
     if (days.length === 0) {
@@ -495,16 +544,15 @@ function renderPeopleDaily(d, wrap) {
                 </div>
             </div>
         </div>
-        <p class="sr-says">Typically <strong>${d.avg_people}</strong> people online${peakSentence}${averagedSentence}</p>`;
+        <p class="sr-says">Typically <strong>${d.avg_people}</strong> people online.${peakSentence}${averagedSentence}</p>`;
 
     document.getElementById("sr-people-hint").textContent = `${days.length} days`;
 }
 
 /* ---- Revenue ---- */
 
-/* Shared bar-and-hatch renderer for both revenue views (daily, and hourly
-   at the 24h range) — same "never a bar for a stretch nobody was counting"
-   rule and the same value-on-bar labelling, just a different x-axis unit. */
+/* Bars plus the hatched "not tracked yet" band — never a KES 0 bar for a
+   stretch nobody was counting. */
 function revenueBars(buckets, titleFn) {
     const max = Math.max(1, ...buckets.map(x => x.kes));
     const untrackedCount = buckets.filter(x => !x.tracked).length;
@@ -520,19 +568,12 @@ function revenueBars(buckets, titleFn) {
     return { bars, band: hatchBand(untrackedCount, buckets.length, "not tracked yet"), untrackedCount };
 }
 
-/* A calendar-day bucket is exactly one bar over a 24h window — not a chart.
-   Days route here; the 24h range gets its own hourly breakdown below. */
+/* revenue_hourly only exists on a Day report — checking for the key, not
+   re-deriving the period here, keeps this in step with the backend. */
 function renderRevenue(d) {
     const wrap = document.getElementById("sr-revenue-wrap");
-    // Absent, not just falsy: revenue_hourly only exists for the trailing
-    // 24h range (see get_site_detail) — checking for the key itself, not
-    // re-deriving days/month here, keeps this in sync with the backend by
-    // construction rather than by two copies of the same condition.
+    document.getElementById("sr-revenue-title").textContent = d.revenue_hourly ? "Revenue per hour" : "Revenue per day";
     if (d.revenue_hourly) { renderRevenueHourly(d, wrap); return; }
-    renderRevenueDaily(d, wrap);
-}
-
-function renderRevenueDaily(d, wrap) {
     const days = d.revenue_daily || [];
     if (days.length === 0) {
         wrap.innerHTML = `<div class="sr-empty">No revenue data.</div>`;
@@ -562,17 +603,11 @@ function renderRevenueDaily(d, wrap) {
         <p class="sr-says"><strong>${esc(money(total))}</strong> across ${sales} sale${sales === 1 ? "" : "s"}.${bestBit}${trackedBit}</p>`;
 }
 
-/* 24h range: same trailing window as the People chart above it, one bar per
-   hour instead of one bar for the whole day. */
 function renderRevenueHourly(d, wrap) {
-    const hours = d.revenue_hourly || [];
-    if (hours.length === 0) {
-        wrap.innerHTML = `<div class="sr-empty">No revenue data.</div>`;
-        return;
-    }
+    const hours = d.revenue_hourly;
     const { bars, band, untrackedCount } = revenueBars(hours, x => x.tracked
-        ? `${dayTimeOf(x.hour)} — ${money(x.kes)}, ${x.sales} sale${x.sales === 1 ? "" : "s"}`
-        : `${dayTimeOf(x.hour)} — before revenue tracking started`);
+        ? `${timeOf(x.hour)} — ${money(x.kes)}, ${x.sales} sale${x.sales === 1 ? "" : "s"}`
+        : `${timeOf(x.hour)} — before revenue tracking started`);
 
     const total = hours.reduce((s, x) => s + x.kes, 0);
     const sales = hours.reduce((s, x) => s + x.sales, 0);
@@ -588,8 +623,8 @@ function renderRevenueHourly(d, wrap) {
             ${band}
         </div>
         <div class="sr-axis">
-            <span>${esc(dayTimeOf(hours[0].hour))}</span>
-            <span>${esc(dayTimeOf(hours[hours.length - 1].hour))}</span>
+            <span>${esc(timeOf(hours[0].hour))}</span>
+            <span>${esc(timeOf(hours[hours.length - 1].hour))}</span>
         </div>
         <p class="sr-says"><strong>${esc(money(total))}</strong> across ${sales} sale${sales === 1 ? "" : "s"}.${bestBit}${trackedBit}</p>`;
 }
@@ -718,17 +753,15 @@ function renderEvents(d) {
 /* ---- Load / route ---- */
 
 function render(d, canRevenue) {
-    // Not derived from d.days: a month's start isn't "N days before now",
-    // and the backend already knows exactly what it queried from.
     const windowStart = new Date(d.since);
     document.getElementById("site-detail-body").hidden = false;
     document.getElementById("site-detail-notfound").hidden = true;
     renderHeader(d);
-    renderRangeNote(d, windowStart);
+    renderRangeNote(d);
     renderLocked(canRevenue);
     renderKpis(d, canRevenue, windowStart);
     renderTimeline(d);
-    renderPeople(d, windowStart);
+    renderPeople(d);
     if (canRevenue) {
         renderRevenue(d);
         renderPackages(d);
@@ -738,30 +771,35 @@ function render(d, canRevenue) {
 }
 
 let currentId = null;
-let currentDays = 7;
-let currentMonth = null;
+let currentKind = "week";
+let currentValue = null;
+let dataFrom = null; // first day this site has anything recorded, from the last response
 
-function setRangeButtons(days, month) {
+/* Day | Week | Month, then either a date picker (day) or a dropdown of the
+   weeks/months that have data. Re-run after every load, since the data
+   range only arrives with the response. A period from a pasted link that
+   falls outside the list still gets its own option, so the control never
+   claims to show something other than what's on screen. */
+function setPeriodControls() {
     document.querySelectorAll("#sr-range button").forEach(b => {
-        b.setAttribute("aria-pressed", String(!month && Number(b.dataset.days) === days));
+        b.setAttribute("aria-pressed", String(b.dataset.mode === currentKind));
     });
-    document.getElementById("sr-month-select").value = month || "";
-}
-
-/* Last 12 calendar months, most recent first — a fixed rolling list, not
-   drawn from what data actually exists. A month with nothing in it renders
-   the same empty states every other gap on this page already handles. */
-function populateMonthSelect() {
-    const select = document.getElementById("sr-month-select");
-    const now = new Date();
-    for (let i = 0; i < 12; i++) {
-        const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
-        const value = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
-        const opt = document.createElement("option");
-        opt.value = value;
-        opt.textContent = monthLabel(value);
-        select.appendChild(opt);
+    const select = document.getElementById("sr-period-select");
+    const dayInput = document.getElementById("sr-day-input");
+    select.hidden = currentKind === "day";
+    dayInput.hidden = currentKind !== "day";
+    if (currentKind === "day") {
+        dayInput.min = dataFrom || currentPeriod("day");
+        dayInput.max = currentPeriod("day");
+        dayInput.value = currentValue;
+        return;
     }
+    const options = periodOptions(currentKind, dataFrom);
+    if (!options.some(o => o.value === currentValue)) {
+        options.push({ value: currentValue, label: currentKind === "month" ? monthLabel(currentValue) : weekLabel(currentValue) });
+    }
+    select.innerHTML = options.map(o => `<option value="${esc(o.value)}">${esc(o.label)}</option>`).join("");
+    select.value = currentValue;
 }
 
 function fail(message) {
@@ -771,13 +809,17 @@ function fail(message) {
     box.hidden = false;
 }
 
-async function load(id, days, month) {
+async function load(id, kind, value) {
     try {
-        const url = month ? `/monitoring/sites/${id}?month=${month}` : `/monitoring/sites/${id}?days=${days}`;
+        const url = `/monitoring/sites/${id}?${kind}=${value}`;
         const res = await fetch(url, { headers: authHeaders() });
         if (res.status === 404) return fail("This site isn't there anymore, or the link is wrong.");
+        // A hand-edited or future period in the link: say which, not "could not load".
+        if (res.status === 400) return fail(`No report for that period — ${(await res.json()).detail}.`);
         if (!res.ok) throw new Error(`server said ${res.status}`);
         const data = await res.json();
+        dataFrom = data.data_from;
+        setPeriodControls();
         // Absent, not null: the key only exists with sites:view_revenue.
         render(data, "revenue_daily" in data);
     } catch (err) {
@@ -787,18 +829,15 @@ async function load(id, days, month) {
 }
 
 export function initSiteDetail() {
-    populateMonthSelect();
-
     document.getElementById("site-detail-back-btn").addEventListener("click", () => navigate("status"));
+    // The period lives in the route, so back and a pasted link both work.
+    const go = (kind, value) => navigate(`site-detail/${currentId}/${kind}/${value}`);
     document.querySelectorAll("#sr-range button").forEach(b => {
-        b.addEventListener("click", () => {
-            // The range lives in the route, so back and a pasted link both work.
-            navigate(`site-detail/${currentId}/${b.dataset.days}`);
-        });
+        b.addEventListener("click", () => go(b.dataset.mode, currentPeriod(b.dataset.mode)));
     });
-    document.getElementById("sr-month-select").addEventListener("change", (e) => {
-        if (!e.target.value) return; // the placeholder option, not a real choice
-        navigate(`site-detail/${currentId}/${e.target.value}`);
+    document.getElementById("sr-period-select").addEventListener("change", (e) => go(currentKind, e.target.value));
+    document.getElementById("sr-day-input").addEventListener("change", (e) => {
+        if (e.target.value) go("day", e.target.value); // cleared picker: stay put
     });
 
     registerRoute("site-detail", (params) => {
@@ -808,16 +847,20 @@ export function initSiteDetail() {
             navigate("status", { replace: true });
             return;
         }
+        if (id !== currentId) dataFrom = null; // another site's range doesn't apply
         currentId = id;
-        const raw = params[1];
-        if (raw && MONTH_RE.test(raw)) {
-            currentDays = 7;
-            currentMonth = raw;
+        const [kind, value] = [params[1], params[2]];
+        // Anything else — no period, or an older link shape — opens on this
+        // week. A future period is left to the backend to refuse; it answers
+        // 400 and the page says so.
+        if (PERIOD_RE[kind] && PERIOD_RE[kind].test(value || "")) {
+            currentKind = kind;
+            currentValue = value;
         } else {
-            currentDays = [1, 7, 30].includes(Number(raw)) ? Number(raw) : 7;
-            currentMonth = null;
+            currentKind = "week";
+            currentValue = currentPeriod("week");
         }
-        setRangeButtons(currentDays, currentMonth);
-        load(currentId, currentDays, currentMonth);
+        setPeriodControls();
+        load(currentId, currentKind, currentValue);
     });
 }

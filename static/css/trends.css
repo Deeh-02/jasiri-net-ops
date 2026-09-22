@@ -28,7 +28,8 @@
 }
 
 /* ---- Range switch ---- */
-.fleet-range-wrap { text-align: right; }
+/* margin-left:auto keeps it right-aligned even once it wraps under the intro. */
+.fleet-range-wrap { text-align: right; margin-left: auto; }
 
 .fleet-range-row {
     display: inline-flex;
@@ -47,7 +48,7 @@
     padding: 3px;
 }
 
-.fleet-month-select {
+.fleet-period-select {
     min-height: 44px;
     padding: 0 10px;
     background: var(--surface);
@@ -59,7 +60,12 @@
     cursor: pointer;
 }
 
-.fleet-month-select:focus { outline: none; border-color: var(--text-dim); }
+.fleet-period-select:focus { outline: none; border-color: var(--text-dim); }
+
+/* The Day picker shares the dropdown's look; color-scheme gives it the dark
+   calendar popup instead of a white one. */
+.fleet-period-select[type="date"] { color-scheme: dark; }
+.fleet-period-select[hidden] { display: none; }
 
 .fleet-range button {
     min-height: 44px;

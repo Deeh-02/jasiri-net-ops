@@ -95,7 +95,8 @@
 
 /* ---- Range switch ---- */
 
-.sr-range-wrap { text-align: right; }
+/* margin-left:auto keeps it right-aligned even once it wraps under the title. */
+.sr-range-wrap { text-align: right; margin-left: auto; }
 
 .sr-range-row {
     display: inline-flex;
@@ -117,7 +118,7 @@
 /* A rolling window drifts every time it's opened; a calendar month doesn't
    — the two answer different questions, so this is a separate control
    rather than a fourth button squeezed into .sr-range. */
-.sr-month-select {
+.sr-period-select {
     min-height: 44px;
     padding: 0 10px;
     background: var(--surface);
@@ -129,7 +130,12 @@
     cursor: pointer;
 }
 
-.sr-month-select:focus { outline: none; border-color: var(--text-dim); }
+.sr-period-select:focus { outline: none; border-color: var(--text-dim); }
+
+/* The Day picker shares the dropdown's look; color-scheme gives it the dark
+   calendar popup instead of a white one. */
+.sr-period-select[type="date"] { color-scheme: dark; }
+.sr-period-select[hidden] { display: none; }
 
 .sr-range button {
     min-height: 44px;

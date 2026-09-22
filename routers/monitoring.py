@@ -1,7 +1,7 @@
 import hmac
 import os
 import re
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Optional
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
@@ -30,6 +30,44 @@ def validate_month(month: Optional[str]) -> Optional[str]:
     if (year, mon) > (today.year, today.month):
         raise HTTPException(status_code=400, detail="month can't be in the future")
     return month
+
+
+def validate_week(week: Optional[str]) -> Optional[str]:
+    """"YYYY-MM-DD" naming a Monday, or None. Weeks run Monday–Sunday, EAT;
+    any other day would be a second, overlapping week for the same days.
+    A future week is rejected for the same reason a future month is."""
+    if week is None:
+        return None
+    try:
+        start = date.fromisoformat(week)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="week must be YYYY-MM-DD")
+    if start.weekday() != 0:
+        raise HTTPException(status_code=400, detail="week must start on a Monday")
+    if start > now_eat().date():
+        raise HTTPException(status_code=400, detail="week can't be in the future")
+    return week
+
+
+def validate_day(day: Optional[str]) -> Optional[str]:
+    """"YYYY-MM-DD" (an EAT calendar day), or None. Not a future one."""
+    if day is None:
+        return None
+    try:
+        d = date.fromisoformat(day)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="day must be YYYY-MM-DD")
+    if d > now_eat().date():
+        raise HTTPException(status_code=400, detail="day can't be in the future")
+    return day
+
+
+def resolve_period(month: Optional[str], week: Optional[str], day: Optional[str]):
+    """One window per request: a day, a week or a month, never two. None of
+    them means the current week (see db._resolve_window)."""
+    if sum(x is not None for x in (month, week, day)) > 1:
+        raise HTTPException(status_code=400, detail="pick one of day, week or month")
+    return validate_month(month), validate_week(week), validate_day(day)
 
 
 def require_ingest_token(x_ingest_token: str = Header(default="")):
@@ -144,28 +182,31 @@ def status(current_user: dict = Depends(require_status_access)):
 
 @router.get("/monitoring/sites/{site_id}")
 def site_detail(
-    site_id: int, days: int = 7, month: Optional[str] = None,
+    site_id: int, month: Optional[str] = None, week: Optional[str] = None, day: Optional[str] = None,
     current_user: dict = Depends(require_status_access),
 ):
     # Same gate as the fleet Status page (view_status) — drilling into one
     # site isn't a heavier claim than seeing it in the list. Revenue stays
     # gated separately, same as the list.
     can_revenue = user_has_permission(current_user, "sites", "view_revenue")
-    days = max(1, min(days, 30))
-    month = validate_month(month)
-    detail = db.get_site_detail(site_id, can_revenue, days=days, month=month)
+    month, week, day = resolve_period(month, week, day)
+    detail = db.get_site_detail(site_id, can_revenue, month=month, week=week, day=day)
     if detail is None:
         raise HTTPException(status_code=404, detail="Monitored site not found")
     return detail
 
 
 @router.get("/monitoring/fleet")
-def fleet(days: int = 7, month: Optional[str] = None, current_user: dict = Depends(require_status_access)):
+def fleet(
+    month: Optional[str] = None, week: Optional[str] = None, day: Optional[str] = None,
+    current_user: dict = Depends(require_status_access),
+):
     """Every site over one window, for the Trends tab. Same gates as Status:
     view_status to see it at all, view_revenue for any money — the revenue
     and sales keys, and the unattributed line, are absent without it."""
     can_revenue = user_has_permission(current_user, "sites", "view_revenue")
-    return db.get_fleet(can_revenue, days=max(1, min(days, 30)), month=validate_month(month))
+    month, week, day = resolve_period(month, week, day)
+    return db.get_fleet(can_revenue, month=month, week=week, day=day)
 
 
 # ---- Site management ----

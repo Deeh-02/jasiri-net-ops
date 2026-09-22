@@ -20,17 +20,16 @@
                 </div>
                 <div class="sr-range-wrap">
                     <div class="sr-range-row">
-                        <div class="sr-range" id="sr-range" role="group" aria-label="Time range">
-                            <button type="button" data-days="1" aria-pressed="false">24h</button>
-                            <button type="button" data-days="7" aria-pressed="true">7d</button>
-                            <button type="button" data-days="30" aria-pressed="false">30d</button>
+                        <!-- Always a named day, week or month, never a rolling "last
+                             N days" — a period you can report against and come back
+                             to later for the same answer. -->
+                        <div class="sr-range" id="sr-range" role="group" aria-label="Report by">
+                            <button type="button" data-mode="day" aria-pressed="false">Day</button>
+                            <button type="button" data-mode="week" aria-pressed="true">Week</button>
+                            <button type="button" data-mode="month" aria-pressed="false">Month</button>
                         </div>
-                        <!-- A rolling 30d window drifts every day it's looked at; a
-                             month reported against doesn't. Separate control, not a
-                             fourth button — the two answer different questions. -->
-                        <select class="sr-month-select" id="sr-month-select" aria-label="Or a specific month">
-                            <option value="">Or a month…</option>
-                        </select>
+                        <select class="sr-period-select" id="sr-period-select" aria-label="Which week or month"></select>
+                        <input type="date" class="sr-period-select" id="sr-day-input" aria-label="Which day" hidden>
                     </div>
                     <div class="sr-range-note" id="sr-range-note"></div>
                 </div>
@@ -59,7 +58,7 @@
             <div class="sr-split" id="sr-revenue-split">
                 <div class="sr-card">
                     <div class="sr-card-head">
-                        <div class="sr-card-title">Revenue per day</div>
+                        <div class="sr-card-title" id="sr-revenue-title">Revenue per day</div>
                     </div>
                     <div id="sr-revenue-wrap"></div>
                 </div>
