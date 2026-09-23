@@ -228,11 +228,13 @@ def _mass_message(names):
 
 # ---- Recipients ----
 
-def _load_recipients(cur):
+def load_recipients(cur):
     """Everyone with sites:receive_alerts (admins always qualify, same rule
     as every other permission check in this codebase), each with their own
     channel opt-in — default in-app on, SMS/WhatsApp off for a user with no
-    subscription row yet."""
+    subscription row yet. Public (not underscore-prefixed): also called
+    from db/monitoring_reconciliation.py (Phase 4.9) so a confirm-online
+    mismatch notifies the same people, not a second hand-picked list."""
     cur.execute(
         """
         SELECT u.id, u.name, u.phone,
@@ -513,7 +515,7 @@ def _evaluate():
         cur.execute("SELECT monitored_site_id FROM site_acknowledgements WHERE cleared_at IS NULL")
         acked = {r[0] for r in cur.fetchall()}
 
-        recipients = _load_recipients(cur)
+        recipients = load_recipients(cur)
 
         pending_down = []  # sites crossing the debounce threshold this pass
 

@@ -519,9 +519,40 @@ Because this is a *sales* measure, it should reconcile against M-Pesa. Split thi
 - **Sessions-dropped-to-zero anomaly** — calibrate only after Correction 6 is resolved.
 - External uptime monitor on an Ops health endpoint, alerting distinctly from a site-down alert.
 
-#### 4.9 — Reconcile monitor against human `confirm-online`
+#### 4.9 — Reconcile monitor against human `confirm-online`: DONE 2026-09-23
 
 Implement the prefill above, store both answers, surface contradictions.
+
+Built without needing an isolation-invariant amendment (unlike Task 3) —
+the prefill is composed entirely client-side: movements.js already has
+the movement's own `arrived_at`, and reads each site's current state from
+the existing `GET /monitoring/status` (unchanged), matching on
+`to_location_id`. The new write side, `POST
+/monitoring/sites/{id}/confirmation-check` (`db/monitoring_reconciliation.py`,
+migration 0014's `site_confirmations` table), stores both answers and — a
+mismatch is exactly the "finding" called for above — raises an in-app
+notification to the same `sites:receive_alerts` recipients as down/
+recovered alerts. Called by the frontend alongside the existing `POST
+/movements/{id}/confirm-online`, never instead of it; that endpoint is
+completely unchanged and stays the movement's own source of truth.
+`site_confirmations` references `monitored_sites` and `users` only — same
+already-precedented direction as `alert_deliveries.user_id` (0012) — and
+never `battery_movements` or `locations`, so no amendment was needed here.
+
+**Item 5, the `unconfirmed-count` badge re-check — assessed, not changed,
+per this item's own instruction.** `locations.is_online` (driven by
+`/locations/{id}/confirm`, the hourly Check Sites nag — a *different*
+flow from `confirm-online` above) still earns its badge: monitoring
+never writes to `locations` (the isolation invariant forbids it), so
+`is_online` stays the one field the rest of the app (movement site-down
+flow, the battery table's "needs attention" accent) actually reads, for
+every location whether or not it has a `monitored_sites` row at all. A
+prefill on confirm-online still requires an explicit tap either way (this
+is a suggestion, not an auto-answer), so the definition of "unconfirmed"
+is unchanged and the count doesn't need to change either. Extending the
+same prefill treatment to Check Sites itself (`/locations/{id}/confirm`)
+would be a natural next step — deliberately not done here, since item 3
+above only names `confirm-online` by name.
 
 #### 4.10 — OPTIONAL: event-driven fast path · *touches the router*
 

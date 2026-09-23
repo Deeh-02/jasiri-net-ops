@@ -7,6 +7,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, 
 from pydantic import BaseModel
 from db import monitoring as db
 from db import monitoring_alerts
+from db import monitoring_reconciliation
 from db import monitoring_retention
 from db.connection import now_eat
 from routers.auth import get_current_user
@@ -165,7 +166,7 @@ class AlertSubscriptionUpdate(BaseModel):
 # Holding sites:receive_alerts decides whether this user is IN the recipient
 # list at all; this just decides which channels they're on if so. Someone
 # without the permission can flip these switches harmlessly — they'll never
-# be queried as a recipient (see _load_recipients in db/monitoring_alerts.py).
+# be queried as a recipient (see load_recipients in db/monitoring_alerts.py).
 @router.get("/monitoring/alert-subscription")
 def get_alert_subscription(current_user: dict = Depends(get_current_user)):
     return monitoring_alerts.get_subscription(current_user["id"])
@@ -177,6 +178,26 @@ def put_alert_subscription(body: AlertSubscriptionUpdate, current_user: dict = D
         current_user["id"], body.in_app_enabled, body.sms_enabled, body.whatsapp_enabled
     )
     return {"ok": True}
+
+
+class ConfirmationCheck(BaseModel):
+    is_online: bool
+
+
+# Phase 4.9. Gated on movements:manage, not a sites:* permission — this is
+# triggered by the exact same tap as POST /movements/{id}/confirm-online
+# (routers/batteries.py, unchanged), so it needs the same permission that
+# action already requires, not a new one. The frontend calls this
+# alongside that endpoint, never instead of it — confirm-online stays the
+# movement's own source of truth; this is purely the reconciliation record.
+@router.post("/monitoring/sites/{site_id}/confirmation-check")
+def confirmation_check(site_id: int, body: ConfirmationCheck, current_user: dict = Depends(get_current_user)):
+    if not user_has_permission(current_user, "movements", "manage"):
+        raise HTTPException(status_code=403, detail="You don't have permission to move batteries")
+    result = monitoring_reconciliation.record_confirmation(site_id, body.is_online, current_user["id"])
+    if result is None:
+        raise HTTPException(status_code=404, detail="Monitored site not found")
+    return result
 
 
 def require_status_access(current_user: dict = Depends(get_current_user)):

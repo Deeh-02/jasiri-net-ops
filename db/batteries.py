@@ -333,9 +333,9 @@ def get_active_movements():
             """
             SELECT
                 battery_movements.id, batteries.battery_number,
-                from_loc.name, to_loc.name,
+                from_loc.name, to_loc.name, to_loc.id,
                 battery_movements.status, battery_movements.created_at,
-                battery_movements.reason
+                battery_movements.reason, battery_movements.arrived_at
             FROM battery_movements
             JOIN batteries ON battery_movements.battery_id = batteries.id
             LEFT JOIN locations AS from_loc ON battery_movements.from_location_id = from_loc.id
@@ -348,9 +348,17 @@ def get_active_movements():
     return [
         {
             "id": r[0], "battery_number": r[1], "from_location": r[2],
-            "to_location": r[3], "status": r[4],
-            "created_at": utc_iso(r[5]),
-            "reason": r[6],
+            "to_location": r[3],
+            # Phase 4.9: lets the frontend match this row against
+            # GET /monitoring/status (keyed by location_id) to prefill the
+            # site-check answer — this table still has no idea monitoring
+            # exists, it's just returning its own location's id like any
+            # other field here.
+            "to_location_id": r[4],
+            "status": r[5],
+            "created_at": utc_iso(r[6]),
+            "reason": r[7],
+            "arrived_at": utc_iso(r[8]),
         }
         for r in rows
     ]

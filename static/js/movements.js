@@ -12,6 +12,36 @@ import { refreshData as refreshDashboardData } from "./dashboard.js";
 let movementsCache = null;
 let showMovementHistory = false;
 
+// Phase 4.9 — the confirm-online prefill. Keyed by location_id (what
+// GET /monitoring/status returns per site) so a movement row's own
+// to_location_id can look itself up with no join, no new backend read.
+// null (not {}) before the first fetch completes or when the viewer lacks
+// sites:view_status — renderMovementActions treats null as "no prefill
+// data available" and falls back to the plain two-button UI unchanged,
+// exactly like today for anyone without that permission.
+let siteLivenessByLocation = null;
+
+async function refreshSiteLiveness() {
+    if (!can("sites", "view_status")) {
+        siteLivenessByLocation = null;
+        return;
+    }
+    try {
+        const res = await fetch("/monitoring/status", { headers: authHeaders() });
+        if (!res.ok) { siteLivenessByLocation = null; return; }
+        const data = await res.json();
+        const map = {};
+        for (const s of data.sites || []) {
+            if (s.location_id != null) map[s.location_id] = s;
+        }
+        siteLivenessByLocation = map;
+    } catch {
+        // A prefill hint is a convenience, not a requirement — any failure
+        // here just means the plain two-button UI, never a broken page.
+        siteLivenessByLocation = null;
+    }
+}
+
 // Bumped by loadMovements() on every route re-dispatch and history-filter
 // toggle. A refreshMovements() call captures the value at its own start and
 // checks it again once the fetch resolves — if a newer call has started in
@@ -43,7 +73,14 @@ const MOVEMENT_REASON_LABELS = {
 // alike, so the staleness guard below covers both.
 async function refreshMovements() {
     const requestId = ++movementsRequestId;
-    const res = await fetch(`/movements${showMovementHistory ? "?history=true" : ""}`, { headers: authHeaders() });
+    const [res] = await Promise.all([
+        fetch(`/movements${showMovementHistory ? "?history=true" : ""}`, { headers: authHeaders() }),
+        // Phase 4.9's prefill data — fetched every cycle alongside the list
+        // (not gated behind the dedup below) so a site coming online while
+        // a movement sits "arrived" shows up within one live-sync tick,
+        // same responsiveness as everything else on this page.
+        refreshSiteLiveness(),
+    ]);
     // A newer call (another poll tick, or a fresh loadMovements() from
     // navigating away and back) has started since this fetch went out —
     // whatever this response says, it's not the answer to display anymore.
@@ -63,8 +100,14 @@ async function refreshMovements() {
     // on an unchanged list, where rebuilding the tbody anyway would tear
     // down and recreate every action button, dropping whatever button the
     // mouse happens to be hovering (its :hover style blinks off then back
-    // on) even though nothing actually changed.
-    if (movementsCache !== null && JSON.stringify(data) === JSON.stringify(movementsCache)) return;
+    // on) even though nothing actually changed. The one exception: an
+    // "arrived" row's prefill can go stale-to-fresh purely from
+    // siteLivenessByLocation changing underneath an otherwise-identical
+    // movements list, so an unchanged list still re-renders while one is
+    // waiting on a site-check answer.
+    const unchanged = movementsCache !== null && JSON.stringify(data) === JSON.stringify(movementsCache);
+    const hasArrived = data.some(m => m.status === "arrived");
+    if (unchanged && !hasArrived) return;
     movementsCache = data;
     renderMovementsList(movementsCache);
 }
@@ -109,6 +152,29 @@ function renderMovementsList(movements) {
     attachMovementActionListeners();
 }
 
+// Phase 4.9 — "Monitoring saw Sunton come back online at 14:32, 12m after
+// you marked arrived" (PHASES.md's own example). Two cases suggest an
+// answer: monitoring currently shows offline (supports "Still Down"), or
+// it shows online with the recovery happening AFTER this movement's own
+// arrival (supports "Site Online") — a site that was already online
+// before arrival isn't evidence of anything this movement did, so that
+// case deliberately returns no hint at all rather than a misleading one.
+function siteCheckPrefill(m) {
+    if (!siteLivenessByLocation || m.to_location_id == null) return null;
+    const site = siteLivenessByLocation[m.to_location_id];
+    if (!site) return null;
+    if (site.state === "offline") return { suggestOnline: false, site };
+    if (site.state === "online" && m.arrived_at && site.state_since
+        && new Date(site.state_since) > new Date(m.arrived_at)) {
+        return { suggestOnline: true, site };
+    }
+    return null;
+}
+
+function eatTime(iso) {
+    return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", timeZone: "Africa/Nairobi" });
+}
+
 function renderMovementActions(m) {
     switch (m.status) {
         case "pending":
@@ -125,13 +191,25 @@ function renderMovementActions(m) {
                     <button type="button" class="movement-cancel-btn" data-id="${m.id}" title="Cancel movement">${deleteIconSvg()}</button>
                 </div>
             `;
-        case "arrived":
+        case "arrived": {
+            const prefill = siteCheckPrefill(m);
+            let hint = "";
+            if (prefill) {
+                hint = prefill.suggestOnline
+                    ? `<div class="site-check-hint">Monitoring saw it back online at ${eatTime(prefill.site.state_since)}, ${Math.round((new Date(prefill.site.state_since) - new Date(m.arrived_at)) / 60000)}m after you marked arrived.</div>`
+                    : `<div class="site-check-hint">Monitoring still shows this site offline.</div>`;
+            }
+            const siteIdAttr = prefill ? ` data-monitored-site-id="${prefill.site.id}"` : "";
+            const onlineCls = prefill && prefill.suggestOnline ? " suggested" : "";
+            const downCls = prefill && !prefill.suggestOnline ? " suggested" : "";
             return `
+                ${hint}
                 <div class="actions-cell">
-                    <button type="button" class="movement-site-check-btn" data-answer="true" data-id="${m.id}">Site Online</button>
-                    <button type="button" class="movement-site-check-btn" data-answer="false" data-id="${m.id}">Still Down</button>
+                    <button type="button" class="movement-site-check-btn${onlineCls}" data-answer="true" data-id="${m.id}"${siteIdAttr}>Site Online</button>
+                    <button type="button" class="movement-site-check-btn${downCls}" data-answer="false" data-id="${m.id}"${siteIdAttr}>Still Down</button>
                 </div>
             `;
+        }
         default:
             return "—";
     }
@@ -184,6 +262,22 @@ function attachMovementActionListeners() {
                 body: JSON.stringify({ is_online })
             });
             if (res.ok) {
+                // Phase 4.9 — reconciliation, not the source of truth: fired
+                // alongside confirm-online above (which just succeeded and
+                // is what actually moved the battery's lifecycle forward),
+                // never instead of it, and only when this movement's site
+                // was one monitoring could match at all (see
+                // siteCheckPrefill — a movement with no monitored site at
+                // its destination has no data-monitored-site-id to send).
+                // Best-effort: a failure here is a missed reconciliation
+                // record, not a reason to tell the tech their tap failed.
+                if (btn.dataset.monitoredSiteId) {
+                    fetch(`/monitoring/sites/${btn.dataset.monitoredSiteId}/confirmation-check`, {
+                        method: "POST",
+                        headers: authHeaders({ "Content-Type": "application/json" }),
+                        body: JSON.stringify({ is_online }),
+                    }).catch(() => {});
+                }
                 await refreshMovements();
                 await refreshBadges();
             } else {
