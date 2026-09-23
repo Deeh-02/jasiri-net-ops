@@ -43,22 +43,24 @@ TEMPLATES = {
     },
     "still_down": {
         "label": "Site still down",
-        "description": "Reminder at 15 min, 30 min, 1 h, then every 30–60 min up to 12 h. "
-                       "{{BATTERY_NOTE}} is only filled in at the 15-minute reminder.",
-        "default": "⚠ {{SITE_NAME}} is STILL DOWN — {{DURATION}} so far (since {{DOWN_SINCE}} EAT). {{BATTERY_NOTE}}",
+        "description": "Reminder at 15 min, 30 min, 1 h, then every 30–60 min up to 12 h. Exactly "
+                       "one of {{BATTERY_RECOMMENDED}} / {{BATTERY_NONE}} is filled in, and only at "
+                       "the 15-minute reminder — the other always stays empty that send.",
+        "default": "⚠ {{SITE_NAME}} is STILL DOWN — {{DURATION}} so far (since {{DOWN_SINCE}} EAT). {{BATTERY_RECOMMENDED}}{{BATTERY_NONE}}",
         "placeholders": {
             "SITE_NAME": "Site name",
             "DURATION": "How long it has been down",
             "DOWN_SINCE": "Time it went down (HH:MM)",
-            "BATTERY_NOTE": "Battery recommendation (15-min reminder only)",
+            "BATTERY_RECOMMENDED": "Battery recommendation sentence (15-min reminder only, when one is available)",
+            "BATTERY_NONE": "No-battery-available sentence (15-min reminder only, when none is available)",
         },
         "sample": {"SITE_NAME": "Kasarani Site", "DURATION": "15m", "DOWN_SINCE": "17:53",
-                   "BATTERY_NOTE": "Recommended battery: BAT-014 (priority 1 of 3)."},
+                   "BATTERY_RECOMMENDED": "Recommended battery: BAT-014 (priority 1 of 3).", "BATTERY_NONE": ""},
     },
     "battery_recommended": {
         "label": "Battery recommendation",
-        "description": "Fills {{BATTERY_NOTE}} above when a charged battery is at base. "
-                       "{{PRIORITY}} only appears when several sites are competing for batteries.",
+        "description": "Fills {{BATTERY_RECOMMENDED}} in the message above when a charged battery is "
+                       "at base. {{PRIORITY}} only appears when several sites are competing for batteries.",
         "default": "Recommended battery: {{BATTERY}} {{PRIORITY}}.",
         "placeholders": {
             "BATTERY": "Battery number",
@@ -68,7 +70,7 @@ TEMPLATES = {
     },
     "battery_none": {
         "label": "No battery available",
-        "description": "Fills {{BATTERY_NOTE}} above when no charged battery is at base.",
+        "description": "Fills {{BATTERY_NONE}} in the message above when no charged battery is at base.",
         "default": "No charged battery currently available {{PRIORITY}}.",
         "placeholders": {
             "PRIORITY": "e.g. (priority 2 of 3)",
@@ -98,20 +100,21 @@ TEMPLATES = {
     },
     "mass_down": {
         "label": "Many sites down at once",
-        "description": "Replaces individual alerts when 5 or more sites go down in the same check — "
-                       "treated as a power failure. {{BATTERY_PLAN}} says which sites get batteries first: "
-                       "most people online first, then highest revenue as the tiebreak (revenue itself is never shown).",
-        "default": "⚠ {{SITE_COUNT}} sites down at once — possible power failure. {{BATTERY_PLAN}}",
+        "description": "Replaces the individual alert above whenever 2 or more sites are down at the "
+                       "same moment — one message per person either way, no cause is guessed at. "
+                       "{{BATTERY_PLAN}} says which sites get batteries first: most people online "
+                       "first, then highest revenue as the tiebreak (revenue itself is never shown).",
+        "default": "⚠ {{SITE_COUNT}} sites down at once. {{BATTERY_PLAN}}",
         "placeholders": {
-            "SITE_COUNT": "Number of sites down",
+            "SITE_COUNT": "Number of sites currently down",
             "SITE_NAMES": "Site names, in priority order",
             "BATTERY_PLAN": "Which sites get which battery, in priority order",
         },
         "sample": {
-            "SITE_COUNT": "6",
-            "SITE_NAMES": "Kasarani Site, Thika Site, Ruiru Site, Kikuyu Site, Ngong Site, Rongai Site",
+            "SITE_COUNT": "3",
+            "SITE_NAMES": "Kasarani Site, Thika Site, Ruiru Site",
             "BATTERY_PLAN": "Send batteries: 1. Kasarani Site (BAT-014), 2. Thika Site (BAT-007). "
-                            "Next if more free up: 3. Ruiru Site, 4. Kikuyu Site, 5. Ngong Site, 6. Rongai Site.",
+                            "Next if more free up: 3. Ruiru Site.",
         },
     },
 }
@@ -119,9 +122,9 @@ TEMPLATES = {
 
 def render(body, values):
     """Fills every {{TOKEN}}, then tidies the whitespace an empty token
-    leaves behind — "...EAT). {{BATTERY_NOTE}}" with no note, or
-    "BAT-014 {{PRIORITY}}." with no priority, shouldn't send a trailing
-    space or a " ." to someone's phone."""
+    leaves behind — "...EAT). {{BATTERY_RECOMMENDED}}{{BATTERY_NONE}}" with
+    both empty, or "BAT-014 {{PRIORITY}}." with no priority, shouldn't send
+    a trailing space or a " ." to someone's phone."""
     text = PLACEHOLDER_RE.sub(lambda m: str(values.get(m.group(1).upper(), "")), body)
     text = re.sub(r"[ \t]+", " ", text)
     text = re.sub(r" +([.,;:!?)])", r"\1", text)

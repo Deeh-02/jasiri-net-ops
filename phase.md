@@ -538,17 +538,6 @@ other admin-edits-a-user's-own-setting action in this app. `in_app_enabled`
 is deliberately untouched by the admin path; only the person themselves
 turns that off.
 
-**Mass events = power failure, with a battery plan — DONE 2026-09-23.**
-Owner's call: until a mass drop's real cause can be told apart, 5+ sites
-down in one pass is treated as a power failure, not a router/network
-event. The combined alert now says "possible power failure" and carries a
-dispatch plan for every site in it: ranked by people online, then today's
-revenue as the tiebreak (same `_battery_recommendations()` ranking Task 3
-uses; revenue still never printed), charged-at-base batteries handed out
-in that order, and the sites left over listed in order as "next if more
-free up". Sent at every checkpoint, not just 15 min. The router-restart
-marker (which would let a reboot be told apart) is still not built.
-
 **Editable alert wording — DONE 2026-09-23.** New sidebar group
 **Alerts** → *Notifications* (full in-app inbox; everyone) and *SMS
 Templates* (gated on the new `sites:edit_alert_messages` permission, under
@@ -560,7 +549,38 @@ there is deliberately no revenue placeholder (4.4). Defaults live in code
 holds only overrides, so "Reset to default" is a row delete. The same text
 is used for SMS, WhatsApp and in-app. If the table is missing (code
 deployed before 0016 runs), sending falls back to the defaults rather
-than failing.
+than failing. `still_down`'s single `{{BATTERY_NOTE}}` was later split
+into `{{BATTERY_RECOMMENDED}}`/`{{BATTERY_NONE}}` (see next entry) so each
+sentence is independently editable in the SMS Templates editor.
+
+**Bundling, revised from "mass event = power failure" — DONE 2026-09-23,
+same day, same-day revision of the entry above.** The 5-site/"possible
+power failure" design shipped earlier today was replaced within hours on
+owner request: no cause is named or assumed any more (dropped — not a
+safe inference at low counts, not needed at high ones), and the threshold
+dropped from 5 to **2**. Whenever `BUNDLE_MIN_SITES` (2) or more sites are
+down at the same moment, any one of them reaching its own scheduled
+checkpoint sends one combined message covering every currently-down site,
+instead of that site's normal solo message — still carrying the same
+battery dispatch plan (ranked by people online, then today's revenue as
+the tiebreak; revenue never printed), now for every site down, not just
+the sites whose clock happened to fire.
+
+Each site keeps its own independent `SCHEDULE_MINUTES` clock, counted from
+its own `opened_at`; nothing ever resets or borrows another site's clock,
+and a site joining or leaving the down group is never itself a reason to
+send anything. What varies per send is only whether it renders solo or
+bundled, and who's named, decided fresh from whoever else is down the
+instant a clock fires — so one site's messages can legitimately alternate
+between solo and bundled framing over one outage's life as others come and
+go around it. Two firing in the very same evaluation pass still produce
+exactly one combined message, not two — verified directly (staggered
+outages at three different start times, plus simultaneous firings, plus a
+mid-bundle recovery reverting the survivor back to solo) against a scratch
+Postgres instance before this shipped. A site under its own 5-minute
+debounce doesn't count toward the group either, for the same reason it
+doesn't get its own alert. The router-restart marker (which would let a
+reboot be told apart from a real outage) is still not built.
 
 #### 4.9 — Reconcile monitor against human `confirm-online`: DONE 2026-09-23
 

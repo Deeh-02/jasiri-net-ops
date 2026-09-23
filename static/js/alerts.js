@@ -97,7 +97,8 @@ function updateCard(kind) {
     // says in its own box (saved or not), not a frozen example.
     if (kind === "still_down") {
         const battery = templates.find(x => x.kind === "battery_recommended");
-        values.BATTERY_NOTE = renderTemplate(cardFor("battery_recommended").querySelector("textarea").value, battery.sample);
+        values.BATTERY_RECOMMENDED = renderTemplate(cardFor("battery_recommended").querySelector("textarea").value, battery.sample);
+        values.BATTERY_NONE = "";
     }
     const text = renderTemplate(card.querySelector("textarea").value, values);
     card.querySelector(".template-preview").textContent = text || "(empty)";
