@@ -53,10 +53,13 @@ def send_sms(phone, message):
     mobile numbers, no group setup needed — see
     https://smsportal.hostpinnacle.co.ke/docs/api/?action=send-sms-batch).
     Auth: HOSTPINNACLE_API_KEY as a header if set, else
-    HOSTPINNACLE_USER_ID/HOSTPINNACLE_PASSWORD as documented fallback
-    credentials — never both. Configure exactly one pair in the
-    environment, never in the repo, same convention as
-    MONITORING_INGEST_TOKEN."""
+    HOSTPINNACLE_PASSWORD as a fallback param — never both. HOSTPINNACLE_USER_ID
+    is required EITHER WAY: confirmed empirically 2026-09-23 against
+    /SMSApi/info/responsecodes that apiKey alone gets rejected with their
+    code 216 "Invalid credentials" — the account's own docs say the header
+    is sufficient by itself, it isn't. It also must be the exact lowercase
+    query param name `userid`; `userId` (matching this file's other casing)
+    silently gets the same 216 rather than a clearer complaint."""
     mobile = _normalize_kenyan_phone(phone)
     if not mobile:
         return False, {"error": f"not a recognizable Kenyan mobile number: {phone!r}"}
@@ -65,8 +68,8 @@ def send_sms(phone, message):
     user_id = os.environ.get("HOSTPINNACLE_USER_ID")
     password = os.environ.get("HOSTPINNACLE_PASSWORD")
     sender_id = os.environ.get("HOSTPINNACLE_SENDER_ID")
-    if not sender_id or not (api_key or (user_id and password)):
-        return False, {"error": "HostPinnacle SMS is not configured (missing sender id or credentials)"}
+    if not sender_id or not user_id or not (api_key or password):
+        return False, {"error": "HostPinnacle SMS is not configured (missing sender id, user id, or credentials)"}
 
     params = {
         "sendMethod": "quick",
@@ -75,12 +78,12 @@ def send_sms(phone, message):
         "senderid": sender_id,
         "msgType": "text",
         "output": "json",
+        "userid": user_id,
     }
     headers = {}
     if api_key:
         headers["apiKey"] = api_key
     else:
-        params["userId"] = user_id
         params["password"] = password
 
     try:
