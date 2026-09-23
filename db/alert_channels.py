@@ -71,12 +71,21 @@ def send_sms(phone, message):
     if not sender_id or not user_id or not (api_key or password):
         return False, {"error": "HostPinnacle SMS is not configured (missing sender id, user id, or credentials)"}
 
+    # Every alert in db/monitoring_alerts.py uses ⚠/✅/— — none of them
+    # GSM-7 — so msgType can't be hardcoded to "text". Confirmed live
+    # 2026-09-23: HostPinnacle's "Msg Text and MsgType Mismatch" (171)
+    # fires on ANY non-ASCII character sent as msgType=text, even a lone
+    # em dash; "unicode" is required whenever that's true, and safe to
+    # always use ("text" is a shorter-per-segment optimization we don't
+    # need — this app's alert volume doesn't justify keeping msgType
+    # right on the edge of breaking every time someone edits a message
+    # to add an em dash or emoji).
     params = {
         "sendMethod": "quick",
         "mobile": mobile,
         "msg": message,
         "senderid": sender_id,
-        "msgType": "text",
+        "msgType": "text" if message.isascii() else "unicode",
         "output": "json",
         "userid": user_id,
     }
