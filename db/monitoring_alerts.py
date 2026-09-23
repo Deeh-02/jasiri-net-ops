@@ -51,13 +51,35 @@ itself — site_status_log and the Status page are unaffected either way.
 
 MONEY. No alert body in this file ever includes a revenue figure — see
 PHASES.md 4.4's "gating covers ... alert message bodies". Down/recovered/
-flapping messages structurally can't, since none of them touch
-revenue_events, but it's stated here so it stays true on purpose, not by
-accident, as this file grows.
+flapping messages structurally can't for state-only alerts; the battery
+recommendation below DOES read revenue_events, but only ever to rank
+sites internally — see "BATTERY RECOMMENDATION" for the line that rule
+still draws.
+
+BATTERY RECOMMENDATION (Task 3, 2026-09-23). At escalation step 1 (the
+15-minute "still down" reminder — SCHEDULE_MINUTES[1]), a down alert
+names which battery to bring: the confirmed-charged, currently-At-Base
+battery with the lowest recent removal count. This is the ONE place
+monitoring reads outside its own domain — `batteries`/`battery_movements`
+— a deliberate, documented amendment to the isolation invariant (see
+PHASES.md, 2026-09-23 and ARCHITECTURE.md's matching section), not drift:
+read-only, one direction (this file imports FROM db.batteries; that
+module has zero awareness this file exists), never joined into a
+battery-domain query.
+
+When more than one site hits step 1 in the same pass, they're ranked by
+two INTERNAL-ONLY signals — sessions_at_drop (how many people were online
+when it fell), then today's revenue as a tiebreaker — and handed out the
+best still-available battery in that order, greedily, so two sites
+escalating together are never told to send the same physical battery.
+Per PHASES.md 4.4, revenue ranks sites but is NEVER the number printed —
+a message can say a site is ahead in priority, never by how much money.
+Skipped entirely in the mass-event path (5+ sites at once reads as a
+network event, not a battery-dispatch decision).
 """
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from db.alert_channels import send_sms, send_whatsapp
 from db.connection import db_cursor, now_eat
@@ -156,15 +178,36 @@ def _format_duration(td):
     return f"{minutes}m"
 
 
-def _down_message(name, sessions_at_drop, opened_at_eat, step, downtime):
+def _down_message(name, sessions_at_drop, opened_at_eat, step, downtime, battery_note=None):
     """step 0 is the original "just went down" alert; every later checkpoint
     is a "still down" reminder — the headcount at the moment it dropped
     stops being the interesting number by then, so it's dropped in favour
-    of how long it's actually been."""
+    of how long it's actually been. battery_note (step 1 only — see
+    "BATTERY RECOMMENDATION" in the file header) is appended as its own
+    sentence, never folded into the others, so it reads as an instruction
+    rather than a fact about the site."""
     if step == 0:
         sessions_txt = f", {sessions_at_drop} people online at the time" if sessions_at_drop else ""
-        return f"⚠ {name} is DOWN{sessions_txt}. Down since {opened_at_eat.strftime('%H:%M')} EAT."
-    return f"⚠ {name} is STILL DOWN — {_format_duration(downtime)} so far (since {opened_at_eat.strftime('%H:%M')} EAT)."
+        base = f"⚠ {name} is DOWN{sessions_txt}. Down since {opened_at_eat.strftime('%H:%M')} EAT."
+    else:
+        base = f"⚠ {name} is STILL DOWN — {_format_duration(downtime)} so far (since {opened_at_eat.strftime('%H:%M')} EAT)."
+    return f"{base} {battery_note}" if battery_note else base
+
+
+def _battery_note(assignment):
+    """Turns one _battery_recommendations() entry into the sentence
+    _down_message appends. Priority wording only appears when there was
+    something to rank against (of > 1) — a lone escalating site gets a
+    plain recommendation, not "priority 1 of 1", which would just be
+    noise. Never mentions sessions or revenue, the two signals that
+    decided the ranking — only the rank itself, per PHASES.md 4.4."""
+    if assignment is None:
+        return None
+    battery = assignment["battery"]
+    priority = f" (priority {assignment['rank']} of {assignment['of']})" if assignment["of"] > 1 else ""
+    if battery is None:
+        return f"No charged battery currently available{priority}."
+    return f"Recommended battery: {battery['battery_number']}{priority}."
 
 
 def _recovery_message(name, downtime):
@@ -281,6 +324,108 @@ def _deliver_mass(cur, episodes, message, recipients):
                 ok, resp = sent_whatsapp
                 _log_delivery(cur, episode_id, site_id, r["id"], "whatsapp", "down", r["phone"],
                                "sent" if ok else "not_configured", resp)
+
+
+# ---- Battery recommendation (Task 3) ----
+# Reads batteries/battery_movements — see the file header's "BATTERY
+# RECOMMENDATION" note and PHASES.md's 2026-09-23 amendment. Every query in
+# this section is read-only and lives here, not in db/batteries.py — the
+# dependency runs one direction only.
+
+# How far back a movement counts as a "recent removal". There is no
+# explicit removal tag in battery_movements.reason (only 'site_down' /
+# 'storage' / blank) — a move AWAY from somewhere (from_location_id IS NOT
+# NULL) is the closest proxy this schema has. 30 days: long enough that a
+# battery resting after a busy week isn't penalized forever, short enough
+# that a battery worked hard six months ago and idle since reads as available.
+REMOVAL_COUNT_WINDOW = timedelta(days=30)
+
+
+def _recent_removal_counts(cur, battery_ids):
+    if not battery_ids:
+        return {}
+    cur.execute(
+        """
+        SELECT battery_id, count(*) FROM battery_movements
+        WHERE battery_id = ANY(%s) AND from_location_id IS NOT NULL
+          AND status != 'cancelled' AND created_at > now() - %s
+        GROUP BY battery_id
+        """,
+        (battery_ids, REMOVAL_COUNT_WINDOW),
+    )
+    return dict(cur.fetchall())
+
+
+def _available_batteries(cur):
+    """Active, confirmed-charged (charge_status='charged' — a human said
+    so; there is no live telemetry in this codebase), currently sitting At
+    Base (not already pending/in-transit/deployed elsewhere) — sorted by
+    lowest recent removal count first, battery_number as a deterministic
+    tiebreak. Reuses db.batteries.get_all_batteries()'s own status
+    computation rather than re-deriving "At Base" here a second time in a
+    way that could quietly drift from the Batteries page's own definition."""
+    from db.batteries import get_all_batteries
+    candidates = [b for b in get_all_batteries() if b["status"] == "At Base" and b["charge_status"] == "charged"]
+    if not candidates:
+        return []
+    removals = _recent_removal_counts(cur, [b["id"] for b in candidates])
+    candidates.sort(key=lambda b: (removals.get(b["id"], 0), b["battery_number"]))
+    return candidates
+
+
+def _eat_day_start_utc():
+    """Start of today in EAT, as the naive UTC datetime this schema's
+    timestamp columns store — same definition db/monitoring.py's own
+    (private) version uses, kept as a small local copy rather than an
+    import across module-privacy lines for one helper."""
+    start_eat = now_eat().replace(hour=0, minute=0, second=0, microsecond=0)
+    return start_eat.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def _today_revenue_by_site(cur, site_ids):
+    """INTERNAL ranking input only — never appears in an alert body
+    (PHASES.md 4.4). Same shape as db/monitoring.py's own today-revenue
+    query, kept separate rather than imported since it's three lines and
+    this file's amendment is scoped to batteries/battery_movements, not a
+    general license to reach into db/monitoring.py's internals either."""
+    if not site_ids:
+        return {}
+    cur.execute(
+        """
+        SELECT monitored_site_id, COALESCE(sum(price_kes), 0)
+        FROM revenue_events
+        WHERE monitored_site_id = ANY(%s) AND first_seen_at >= %s AND event_type <> 'baseline'
+        GROUP BY monitored_site_id
+        """,
+        (site_ids, _eat_day_start_utc()),
+    )
+    return {r[0]: float(r[1]) for r in cur.fetchall()}
+
+
+def _battery_recommendations(cur, sites_needing):
+    """sites_needing: [{'site_id', 'sessions_at_drop'}, ...] — every site
+    hitting escalation step 1 (the first "still down" reminder, 15min) in
+    this pass. Ranked by two internal-only signals, per PHASES.md 4.4:
+    sessions_at_drop (people online at the moment it fell) first, today's
+    revenue as a tiebreaker — never the figures themselves, just the
+    ordering they produce. The best still-available battery is then handed
+    out greedily in that order, so two sites escalating together are never
+    both told to send the same physical battery.
+
+    Returns {site_id: {'rank': int, 'of': int, 'battery': dict|None}}.
+    """
+    if not sites_needing:
+        return {}
+    revenue_by_site = _today_revenue_by_site(cur, [s["site_id"] for s in sites_needing])
+    ranked = sorted(
+        sites_needing,
+        key=lambda s: (-(s["sessions_at_drop"] or 0), -revenue_by_site.get(s["site_id"], 0.0)),
+    )
+    pool = _available_batteries(cur)
+    return {
+        s["site_id"]: {"rank": i + 1, "of": len(ranked), "battery": pool[i] if i < len(pool) else None}
+        for i, s in enumerate(ranked)
+    }
 
 
 # ---- Core evaluation ----
@@ -462,9 +607,19 @@ def _evaluate():
                     )
                 _deliver_mass(cur, pending_down, message, recipients)
             else:
+                # Battery recommendation (Task 3) — only step 1 (the first
+                # "still down" reminder) gets one, and only outside the mass
+                # path (see file header). Computed once for every step-1 site
+                # in this pass so they're ranked and allocated distinct
+                # batteries together, not one at a time in isolation.
+                step1_sites = [p for p in pending_down if p["step"] == 1]
+                battery_assignments = _battery_recommendations(cur, [
+                    {"site_id": p["site_id"], "sessions_at_drop": p["sessions_at_drop"]} for p in step1_sites
+                ])
                 for p in pending_down:
                     title = f"{p['name']} is down" if p["step"] == 0 else f"{p['name']} still down"
-                    message = _down_message(p["name"], p["sessions_at_drop"], p["opened_at_eat"], p["step"], p["downtime"])
+                    battery_note = _battery_note(battery_assignments.get(p["site_id"]))
+                    message = _down_message(p["name"], p["sessions_at_drop"], p["opened_at_eat"], p["step"], p["downtime"], battery_note)
                     cur.execute(
                         """
                         UPDATE site_alert_episodes

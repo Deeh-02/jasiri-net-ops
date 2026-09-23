@@ -322,12 +322,35 @@ left undesigned.
 
 Per the domain-isolation principle in RULES.md:
 
-- The monitoring domain **reads** `locations` by `location_id` and nothing else.
+- The monitoring domain **reads** `locations` by `location_id` and nothing else — **plus one scoped, read-only exception below.**
 - `locations`, `batteries`, `movements`, `inventory`, `users`, `roles` gain **zero** new columns and **zero** awareness of monitoring.
 - No monitoring table is joined into an existing domain's queries.
 - **Do not add `vlan_id` to `locations`.** A location may be unmonitored (home base, a store); a VLAN may exist before anyone maps it. Separate lifecycles, separate tables.
 
-**Proof obligation:** dropping every monitoring table must leave Phases 0–3 passing unchanged.
+**Proof obligation:** dropping every monitoring table must leave Phases 0–3 passing unchanged. Still holds under the amendment below — the read runs the other direction (monitoring depends on batteries, not batteries on monitoring), so battery domain code is untouched either way.
+
+**AMENDMENT 2026-09-23 (owner call) — Task 3, battery recommendation on a
+down alert.** A down-alert escalation recommending which battery to send
+needs to read `batteries`/`battery_movements` (lowest recent removal
+count, confirmed `charge_status`). That's a real, deliberate exception to
+"reads `locations` and nothing else", not an oversight:
+
+- **Read-only, one direction.** Monitoring may `SELECT` from `batteries`
+  and `battery_movements`. It never writes to either, never joins them
+  into a battery-domain query (the read happens entirely inside
+  monitoring's own code, called from the alerting engine), and neither
+  table gains any column or awareness of monitoring. The wall still holds
+  from the battery domain's side — `db/batteries.py`, `routers/batteries.py`
+  and the battery UI have zero knowledge monitoring exists.
+- **Confirm this is written into architecture.md as intentional** before
+  it ships, same convention as 4.2's ingest-auth exception — a future
+  session reading `db/monitoring_alerts.py` importing from `db/batteries.py`
+  needs to see this was a decision, not drift.
+- Revenue used as an internal ranking signal for which site gets battery
+  priority is a **separate, unchanged** rule — 4.4's "no revenue figure in
+  an alert body" still applies in full; ranking by revenue internally and
+  never printing the number are two different things and this amendment
+  touches only the former.
 
 ---
 

@@ -1386,6 +1386,29 @@ because the router has no retry and a rejection is silent permanent loss.
 Quarantine rows are deduplicated while unresolved, since `/ppp active`
 includes home customers that will never be monitored sites.
 
+### Battery-recommendation read — the other intentional isolation exception
+
+`db/monitoring_alerts.py` reads `batteries`/`battery_movements` to pick
+which battery to recommend on a down-alert escalation (lowest recent
+removal count, confirmed `charge_status`). PHASES.md's isolation
+invariant otherwise restricts monitoring to reading `locations` and
+nothing else — this is a documented, deliberate amendment (PHASES.md,
+2026-09-23), not drift, with the same one-way shape as the revenue
+ranking signal below: **read-only, monitoring depends on the battery
+domain, never the reverse.** `db/batteries.py`, `routers/batteries.py`
+and the battery UI have zero knowledge monitoring exists — no column,
+no import, no awareness added on that side. Dropping every monitoring
+table still leaves the battery domain fully intact and passing, which is
+what the isolation invariant's proof obligation actually protects; this
+exception only ever runs the dependency the other way.
+
+Revenue is used as an internal ranking signal for battery priority
+across multiple simultaneously-down sites, but per 4.4 never appears as
+a figure in an alert body — a message can say a site is "recommended
+first", never why in KES terms. Ranking by revenue internally and
+printing revenue are two separate rules; this exception touches only
+the first.
+
 ### Revenue attribution — durable signal first, moment-in-time second, guess last
 
 A hotspot sale (`db/monitoring.py`'s `_record_revenue`) is booked once,
