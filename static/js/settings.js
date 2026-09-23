@@ -10,6 +10,15 @@ function populateProfileForm() {
     document.getElementById("profile-email").value = currentUser.email || "";
 }
 
+async function populateNotificationsForm() {
+    const res = await fetch("/monitoring/alert-subscription", { headers: authHeaders() });
+    if (!res.ok) return;
+    const sub = await res.json();
+    document.getElementById("notif-in-app").checked = sub.in_app_enabled;
+    document.getElementById("notif-sms").checked = sub.sms_enabled;
+    document.getElementById("notif-whatsapp").checked = sub.whatsapp_enabled;
+}
+
 export function initSettings() {
     registerRoute("settings", () => {
         populateProfileForm();
@@ -23,6 +32,8 @@ export function initSettings() {
             const target = tab.dataset.settingsTab;
             document.getElementById("settings-tab-profile").hidden = target !== "profile";
             document.getElementById("settings-tab-password").hidden = target !== "password";
+            document.getElementById("settings-tab-notifications").hidden = target !== "notifications";
+            if (target === "notifications") populateNotificationsForm();
         });
     });
 
@@ -85,6 +96,25 @@ export function initSettings() {
         } else {
             const err = await response.json().catch(() => ({}));
             showMessage("password-form-msg", err.detail || "Failed to update password", true);
+        }
+    });
+
+    document.getElementById("notifications-form").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const body = {
+            in_app_enabled: document.getElementById("notif-in-app").checked,
+            sms_enabled: document.getElementById("notif-sms").checked,
+            whatsapp_enabled: document.getElementById("notif-whatsapp").checked,
+        };
+        const response = await fetch("/monitoring/alert-subscription", {
+            method: "PUT",
+            headers: authHeaders({ "Content-Type": "application/json" }),
+            body: JSON.stringify(body),
+        });
+        if (response.ok) {
+            showMessage("notifications-form-msg", "Notification preferences saved", false);
+        } else {
+            showMessage("notifications-form-msg", "Failed to save preferences", true);
         }
     });
 }

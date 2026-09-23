@@ -6,6 +6,7 @@ from typing import Optional
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
 from db import monitoring as db
+from db import monitoring_alerts
 from db import monitoring_retention
 from db.connection import now_eat
 from routers.auth import get_current_user
@@ -145,7 +146,37 @@ async def ingest(request: Request, background_tasks: BackgroundTasks):
         result = db.ingest_snapshot(snapshot, snapshot, router_ts, router_ts_utc, offset_minutes)
         counts["duplicates" if result == "duplicate" else "stored"] += 1
     background_tasks.add_task(monitoring_retention.run_if_due)
+    # Runs every heartbeat, not throttled like retention — debounce timers
+    # (Phase 4.8) need to be checked on roughly the same cadence transitions
+    # arrive on, or a threshold could sit crossed for minutes before anyone
+    # is told. Cheap (a handful of indexed queries over ~21 sites) and never
+    # raises, so it can't turn a slow SMS provider into a stuck heartbeat.
+    background_tasks.add_task(monitoring_alerts.evaluate_and_notify)
     return counts
+
+
+class AlertSubscriptionUpdate(BaseModel):
+    in_app_enabled: bool = True
+    sms_enabled: bool = False
+    whatsapp_enabled: bool = False
+
+
+# Own preferences only — no sites:* permission needed to read or set these.
+# Holding sites:receive_alerts decides whether this user is IN the recipient
+# list at all; this just decides which channels they're on if so. Someone
+# without the permission can flip these switches harmlessly — they'll never
+# be queried as a recipient (see _load_recipients in db/monitoring_alerts.py).
+@router.get("/monitoring/alert-subscription")
+def get_alert_subscription(current_user: dict = Depends(get_current_user)):
+    return monitoring_alerts.get_subscription(current_user["id"])
+
+
+@router.put("/monitoring/alert-subscription")
+def put_alert_subscription(body: AlertSubscriptionUpdate, current_user: dict = Depends(get_current_user)):
+    monitoring_alerts.set_subscription(
+        current_user["id"], body.in_app_enabled, body.sms_enabled, body.whatsapp_enabled
+    )
+    return {"ok": True}
 
 
 def require_status_access(current_user: dict = Depends(get_current_user)):

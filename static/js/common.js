@@ -441,13 +441,10 @@ function initHeaderLinkIcons() {
 }
 
 export async function refreshBadges() {
-    // No /notifications/unread-count call here: there's no notifications
-    // feature on the backend yet (no route, no table) — the bell icon in
-    // the topbar is a placeholder with no click handler either. Add the
-    // fetch back once that feature actually exists server-side.
-    const [movRes, siteRes] = await Promise.all([
+    const [movRes, siteRes, notifRes] = await Promise.all([
         fetch("/movements/active-count", { headers: authHeaders() }),
         fetch("/locations/unconfirmed-count", { headers: authHeaders() }),
+        fetch("/notifications/unread-count", { headers: authHeaders() }),
     ]);
 
     if (movRes.ok) {
@@ -468,6 +465,57 @@ export async function refreshBadges() {
         navBadge.textContent = count;
         navBadge.hidden = count === 0;
     }
+    if (notifRes.ok) {
+        const { count } = await notifRes.json();
+        const badge = document.getElementById("notifications-badge");
+        badge.textContent = count > 99 ? "99+" : count;
+        badge.hidden = count === 0;
+    }
+}
+
+function timeAgo(iso) {
+    if (!iso) return "";
+    const diffMs = Date.now() - new Date(iso).getTime();
+    const mins = Math.max(0, Math.round(diffMs / 60000));
+    if (mins < 1) return "just now";
+    if (mins < 60) return `${mins}m ago`;
+    const hours = Math.round(mins / 60);
+    if (hours < 24) return `${hours}h ago`;
+    return `${Math.round(hours / 24)}d ago`;
+}
+
+async function loadNotifications() {
+    const list = document.getElementById("notifications-list");
+    const res = await fetch("/notifications", { headers: authHeaders() });
+    if (!res.ok) return;
+    const items = await res.json();
+    if (!items.length) {
+        list.innerHTML = `<div class="notifications-empty">Nothing here yet.</div>`;
+        return;
+    }
+    list.innerHTML = items.map(n => `
+        <div class="notification-item${n.read ? "" : " unread"}" data-id="${n.id}" data-link="${n.link || ""}">
+            <div class="notification-item-title">${n.title}</div>
+            <div class="notification-item-body">${n.body}</div>
+            <div class="notification-item-time">${timeAgo(n.created_at)}</div>
+        </div>
+    `).join("");
+}
+
+// Polled independently of any one view (unlike the dashboard's live-sync,
+// which only runs while the Batteries view is on screen) — a site can drop
+// while someone is on any other page, and the bell should catch up without
+// needing that page's own refresh logic to know about it. 45s, not 60s:
+// deliberately not a multiple of the router's own 60s heartbeat, so a poll
+// doesn't consistently land just before or just after each ingest.
+const NOTIFICATION_POLL_MS = 45000;
+let notifPollId = null;
+function startNotificationPolling() {
+    clearInterval(notifPollId);
+    notifPollId = setInterval(() => {
+        if (document.visibilityState !== "visible") return;
+        refreshBadges();
+    }, NOTIFICATION_POLL_MS);
 }
 
 // ---- App-shown handlers: view modules register their own initial data load,
@@ -492,6 +540,7 @@ const logoutHandlers = [];
 export function registerLogoutHandler(fn) {
     logoutHandlers.push(fn);
 }
+registerLogoutHandler(() => clearInterval(notifPollId));
 
 export async function showApp() {
     document.getElementById("login-screen").hidden = true;
@@ -506,6 +555,7 @@ export async function showApp() {
         ...appShownHandlers.map(fn => fn()),
         refreshBadges(),
     ]);
+    startNotificationPolling();
     startRouter(firstAllowed);
 }
 
@@ -692,8 +742,39 @@ export function initShell() {
         menu.hidden = !menu.hidden;
     });
 
+    // ---- Notifications bell (Phase 4.8) ----
+    document.getElementById("notifications-btn").addEventListener("click", (e) => {
+        e.stopPropagation();
+        const panel = document.getElementById("notifications-panel");
+        const opening = panel.hidden;
+        panel.hidden = !panel.hidden;
+        if (opening) loadNotifications();
+    });
+
+    document.getElementById("notifications-mark-all-btn").addEventListener("click", async (e) => {
+        e.stopPropagation();
+        await fetch("/notifications/read-all", { method: "POST", headers: authHeaders() });
+        await Promise.all([loadNotifications(), refreshBadges()]);
+    });
+
+    document.getElementById("notifications-list").addEventListener("click", async (e) => {
+        const item = e.target.closest(".notification-item");
+        if (!item) return;
+        const id = item.dataset.id;
+        const link = item.dataset.link;
+        if (item.classList.contains("unread")) {
+            item.classList.remove("unread");
+            fetch(`/notifications/${id}/read`, { method: "POST", headers: authHeaders() })
+                .then(refreshBadges)
+                .catch(() => {});
+        }
+        document.getElementById("notifications-panel").hidden = true;
+        if (link) navigate(link);
+    });
+
     document.addEventListener("click", () => {
         document.getElementById("topbar-avatar-menu").hidden = true;
+        document.getElementById("notifications-panel").hidden = true;
     });
 
     document.getElementById("logout-btn").addEventListener("click", () => {

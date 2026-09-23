@@ -82,13 +82,22 @@
             <span class="topbar-search-kbd">⌘K</span>
         </button>
 
-        <button type="button" class="topbar-icon-btn" id="notifications-btn" title="Notifications">
-            <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M8 2C6 2 4.5 3.5 4.5 5.5V8L3 10.5H13L11.5 8V5.5C11.5 3.5 10 2 8 2Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
-                <path d="M6.5 12.5C6.5 13.3 7.2 14 8 14C8.8 14 9.5 13.3 9.5 12.5" stroke="currentColor" stroke-width="1.2"/>
-            </svg>
-            <span class="badge-count" id="notifications-badge" hidden>0</span>
-        </button>
+        <div class="topbar-notif-wrap">
+            <button type="button" class="topbar-icon-btn" id="notifications-btn" title="Notifications">
+                <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M8 2C6 2 4.5 3.5 4.5 5.5V8L3 10.5H13L11.5 8V5.5C11.5 3.5 10 2 8 2Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
+                    <path d="M6.5 12.5C6.5 13.3 7.2 14 8 14C8.8 14 9.5 13.3 9.5 12.5" stroke="currentColor" stroke-width="1.2"/>
+                </svg>
+                <span class="badge-count" id="notifications-badge" hidden>0</span>
+            </button>
+            <div class="notifications-panel" id="notifications-panel" hidden>
+                <div class="notifications-panel-header">
+                    <span>Notifications</span>
+                    <button type="button" id="notifications-mark-all-btn">Mark all read</button>
+                </div>
+                <div class="notifications-list" id="notifications-list"></div>
+            </div>
+        </div>
 
         <div class="topbar-avatar-wrap" id="topbar-avatar-wrap">
             <button type="button" class="topbar-avatar" id="topbar-avatar-btn"></button>

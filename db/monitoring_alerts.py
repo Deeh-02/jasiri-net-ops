@@ -1,0 +1,478 @@
+"""Phase 4.8 — Alerting. Turns site_status_log transitions into debounced,
+flap-aware, quiet-hours-respecting alerts across three channels: in-app
+(notifications table), SMS and WhatsApp (db/alert_channels.py).
+
+WHY A SEPARATE PASS, NOT INLINE IN ingest_snapshot(). site_status_log stays
+a pure transition record (0006's design) — every state CHANGE gets a row,
+immediately, with no notion of "was this real". Alerting needs a different
+question: "has this SPECIFIC drop lasted long enough to bother anyone", and
+answering it requires looking at elapsed time since a past transition, not
+just reacting to the transition itself. site_alert_episodes (0012) is that
+missing piece of state: one open row per site for as long as it is down or
+flapping, closed the moment it's next seen online. This module is called as
+a FastAPI background task right after an ingest POST returns (same pattern
+as monitoring_retention.run_if_due) — it runs on its own transaction,
+after ingest_snapshot's has already committed, so a slow SMS provider can
+never make the router's heartbeat POST hang.
+
+DEBOUNCE + ESCALATION. A site isn't alerted the instant it goes offline —
+only once it has stayed offline for SCHEDULE_MINUTES[0] (5 min). Below
+that, a blip closes its episode silently on recovery (nothing was ever
+sent, so there's nothing to report "back online" from). Past that first
+alert, SCHEDULE_MINUTES is a fixed list of "still down" checkpoints
+(5, 15, 30, 60min, then 1.5h through 5h, then hourly to 12h) — each one
+crossed sends exactly one reminder and advances episode.escalation_step,
+so a re-run of this function seconds later never double-sends. Past the
+schedule's last entry (12h) the episode goes quiet on its own: still open,
+still logged, just nothing left to send. Recovery at any point ends the
+schedule automatically — a resolved episode is no longer in open_by_site,
+so nothing here has to separately "cancel" a timer.
+
+FLAPPING. FLAP_THRESHOLD transitions within FLAP_WINDOW moves an episode
+into the 'flapping' state, which sends exactly one alert and then goes
+quiet — see PHASES.md 4.8: "a site bouncing 40 times a night reads green on
+any single poll" is the failure mode being avoided, but the fix must not be
+40 alerts either. Detection is unchanged and stays trigger-based, not
+time-debounced — only its message copy and its rate-limit treatment
+(see RATE_LIMITED_KINDS) changed when escalation was added.
+
+MASS EVENTS. PHASES.md 4.8 also asks for a router-restart marker so a CCR
+reboot doesn't read as N simultaneous genuine outages. That literal
+mechanism needs a router-side startup script (a live-router change, outside
+what an agent does unattended per PHASES.md's Agent boundaries). This is a
+software approximation that needs no router change at all: if
+MASS_EVENT_MIN_SITES or more sites cross the debounce threshold in the same
+evaluation pass, they are reported as ONE combined alert ("N sites dropped
+at once — likely a network event") instead of N separate SMSes, while each
+site's own episode/history stays fully intact underneath.
+
+QUIET HOURS and ACKNOWLEDGEMENT both suppress SENDING, never the episode
+itself — site_status_log and the Status page are unaffected either way.
+
+MONEY. No alert body in this file ever includes a revenue figure — see
+PHASES.md 4.4's "gating covers ... alert message bodies". Down/recovered/
+flapping messages structurally can't, since none of them touch
+revenue_events, but it's stated here so it stays true on purpose, not by
+accident, as this file grows.
+"""
+import json
+import logging
+from datetime import datetime, timedelta
+
+from db.alert_channels import send_sms, send_whatsapp
+from db.connection import db_cursor, now_eat
+from db.notifications import create as create_notification
+
+log = logging.getLogger(__name__)
+
+# Minutes-since-down at which a "still down" reminder goes out. Index 0
+# (5 min) is the original debounce threshold — below it, nothing is ever
+# sent. Each later checkpoint crossed sends exactly one reminder (never a
+# range, never repeated) and advances site_alert_episodes.escalation_step
+# (migration 0013) by one, so this list is also literally "how many sends
+# an episode can ever produce": len(SCHEDULE_MINUTES) = 16, i.e. at most 16
+# alerts over the life of one continuous outage, tapering from every few
+# minutes in hour one to hourly by hour six, and nothing at all past 12h —
+# the episode stays open and logged, it just stops paging anyone.
+SCHEDULE_MINUTES = [5, 15, 30, 60, 90, 120, 180, 240, 300, 360, 420, 480, 540, 600, 660, 720]
+
+# A site that changes state this many times within this window is flapping,
+# not down — one alert, then silence until it settles (leaves the window
+# with no further transition).
+FLAP_WINDOW = timedelta(minutes=15)
+FLAP_THRESHOLD = 4
+
+# SMS/WhatsApp are rate-limited per site per hour (PHASES.md 4.8); in-app
+# never is — it costs nothing and a bell icon is not spam.
+#
+# THIS APPLIES TO FLAPPING ONLY. Down-alert escalation (SCHEDULE_MINUTES
+# above) deliberately BYPASSES this limiter — it is already self-limiting by
+# construction (~4 sends in hour one, tapering to one an hour, one send per
+# checkpoint ever), and running it through the same hourly cap would eat an
+# episode's only two sends in its first five minutes and go silent for the
+# rest of the hour. A recovery is likewise exempt — it fires at most once
+# per episode, never a burst. Flapping is the one kind that CAN legitimately
+# burst (a site opening several short flapping episodes back to back), so
+# it is the one kind checked against RATE_LIMITED_KINDS below. If a new
+# alert kind is ever added, decide explicitly which side of that line it's
+# on — don't let it silently inherit either behaviour.
+EXTERNAL_RATE_LIMIT_WINDOW = timedelta(hours=1)
+EXTERNAL_RATE_LIMIT_MAX = 1
+RATE_LIMITED_KINDS = {"flapping"}
+
+# See "MASS EVENTS" above.
+MASS_EVENT_MIN_SITES = 5
+
+
+def evaluate_and_notify():
+    """Entry point for the background task. Never raises — an alerting bug
+    must never take down the ingest endpoint that calls it."""
+    try:
+        _evaluate()
+    except Exception:
+        log.exception("alert evaluation failed")
+
+
+# ---- Per-user subscription (Settings > Notifications) ----
+
+def get_subscription(user_id):
+    with db_cursor() as (conn, cur):
+        cur.execute(
+            "SELECT in_app_enabled, sms_enabled, whatsapp_enabled FROM monitoring_alert_subscriptions WHERE user_id = %s",
+            (user_id,),
+        )
+        row = cur.fetchone()
+    if row is None:
+        return {"in_app_enabled": True, "sms_enabled": False, "whatsapp_enabled": False}
+    return {"in_app_enabled": row[0], "sms_enabled": row[1], "whatsapp_enabled": row[2]}
+
+
+def set_subscription(user_id, in_app_enabled, sms_enabled, whatsapp_enabled):
+    with db_cursor() as (conn, cur):
+        cur.execute(
+            """
+            INSERT INTO monitoring_alert_subscriptions (user_id, in_app_enabled, sms_enabled, whatsapp_enabled)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (user_id) DO UPDATE
+                SET in_app_enabled = EXCLUDED.in_app_enabled,
+                    sms_enabled = EXCLUDED.sms_enabled,
+                    whatsapp_enabled = EXCLUDED.whatsapp_enabled,
+                    updated_at = now()
+            """,
+            (user_id, in_app_enabled, sms_enabled, whatsapp_enabled),
+        )
+        conn.commit()
+
+
+# ---- Message text ----
+
+def _format_duration(td):
+    total_minutes = max(0, int(td.total_seconds() // 60))
+    hours, minutes = divmod(total_minutes, 60)
+    if hours and minutes:
+        return f"{hours}h {minutes}m"
+    if hours:
+        return f"{hours}h"
+    return f"{minutes}m"
+
+
+def _down_message(name, sessions_at_drop, opened_at_eat, step, downtime):
+    """step 0 is the original "just went down" alert; every later checkpoint
+    is a "still down" reminder — the headcount at the moment it dropped
+    stops being the interesting number by then, so it's dropped in favour
+    of how long it's actually been."""
+    if step == 0:
+        sessions_txt = f", {sessions_at_drop} people online at the time" if sessions_at_drop else ""
+        return f"⚠ {name} is DOWN{sessions_txt}. Down since {opened_at_eat.strftime('%H:%M')} EAT."
+    return f"⚠ {name} is STILL DOWN — {_format_duration(downtime)} so far (since {opened_at_eat.strftime('%H:%M')} EAT)."
+
+
+def _recovery_message(name, downtime):
+    return f"✅ {name} is back ONLINE. Was down for {_format_duration(downtime)}."
+
+
+def _flap_message(name, flap_count):
+    minutes = int(FLAP_WINDOW.total_seconds() // 60)
+    return f"{name} unstable — {flap_count} state changes in {minutes} min, may need a physical check."
+
+
+def _mass_message(names):
+    shown = ", ".join(names[:6])
+    if len(names) > 6:
+        shown += f" and {len(names) - 6} more"
+    return f"⚠ {len(names)} sites dropped at once ({shown}) — likely a router/network event, not {len(names)} separate outages."
+
+
+# ---- Recipients ----
+
+def _load_recipients(cur):
+    """Everyone with sites:receive_alerts (admins always qualify, same rule
+    as every other permission check in this codebase), each with their own
+    channel opt-in — default in-app on, SMS/WhatsApp off for a user with no
+    subscription row yet."""
+    cur.execute(
+        """
+        SELECT u.id, u.name, u.phone,
+               COALESCE(s.in_app_enabled, true), COALESCE(s.sms_enabled, false), COALESCE(s.whatsapp_enabled, false)
+        FROM users u
+        LEFT JOIN monitoring_alert_subscriptions s ON s.user_id = u.id
+        WHERE u.status = 'active' AND (
+            u.role = 'admin'
+            OR u.role_id IN (
+                SELECT role_id FROM role_permissions
+                WHERE section = 'sites' AND action = 'receive_alerts' AND allowed
+            )
+        )
+        """
+    )
+    return [
+        {"id": r[0], "name": r[1], "phone": r[2], "in_app": r[3], "sms": r[4], "whatsapp": r[5]}
+        for r in cur.fetchall()
+    ]
+
+
+# ---- Delivery ----
+
+def _log_delivery(cur, episode_id, site_id, user_id, channel, kind, recipient, status, response):
+    cur.execute(
+        """
+        INSERT INTO alert_deliveries
+            (episode_id, monitored_site_id, user_id, channel, kind, recipient, status, provider_response)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        """,
+        (episode_id, site_id, user_id, channel, kind, recipient, status,
+         json.dumps(response) if response is not None else None),
+    )
+
+
+def _under_rate_limit(cur, site_id, channel):
+    cur.execute(
+        """
+        SELECT count(*) FROM alert_deliveries
+        WHERE monitored_site_id = %s AND channel = %s AND status = 'sent'
+          AND sent_at > now() - %s
+        """,
+        (site_id, channel, EXTERNAL_RATE_LIMIT_WINDOW),
+    )
+    return cur.fetchone()[0] < EXTERNAL_RATE_LIMIT_MAX
+
+
+def _deliver(cur, episode_id, site_id, kind, title, message, recipients):
+    """One episode, one site, one message — the ordinary (non-mass) path."""
+    for r in recipients:
+        if r["in_app"]:
+            create_notification(r["id"], f"site_{kind}", title, message, link=f"monitoring/sites/{site_id}")
+            _log_delivery(cur, episode_id, site_id, r["id"], "in_app", kind, None, "sent", None)
+        if r["sms"] and r["phone"]:
+            if kind in RATE_LIMITED_KINDS and not _under_rate_limit(cur, site_id, "sms"):
+                _log_delivery(cur, episode_id, site_id, r["id"], "sms", kind, r["phone"], "rate_limited", None)
+            else:
+                ok, resp = send_sms(r["phone"], message)
+                _log_delivery(cur, episode_id, site_id, r["id"], "sms", kind, r["phone"], "sent" if ok else "failed", resp)
+        if r["whatsapp"] and r["phone"]:
+            if kind in RATE_LIMITED_KINDS and not _under_rate_limit(cur, site_id, "whatsapp"):
+                _log_delivery(cur, episode_id, site_id, r["id"], "whatsapp", kind, r["phone"], "rate_limited", None)
+            else:
+                ok, resp = send_whatsapp(r["phone"], message)
+                _log_delivery(cur, episode_id, site_id, r["id"], "whatsapp", kind, r["phone"],
+                               "sent" if ok else "not_configured", resp)
+
+
+def _deliver_mass(cur, episodes, message, recipients):
+    """Same message, sent ONCE per recipient per channel — a mass event is
+    still one thing that happened, not N. One audit row per (site, channel,
+    recipient) underneath regardless, so each site's own alert history stays
+    accurate even though nothing was actually sent N times. Always kind
+    'down' (only the down-escalation path batches into mass events), which
+    is outside RATE_LIMITED_KINDS — no rate-limit check here on purpose."""
+    for r in recipients:
+        if r["in_app"]:
+            create_notification(r["id"], "site_down", "Multiple sites down", message, link="monitoring")
+        sent_sms = send_sms(r["phone"], message) if r["sms"] and r["phone"] else None
+        sent_whatsapp = send_whatsapp(r["phone"], message) if r["whatsapp"] and r["phone"] else None
+        for e in episodes:
+            site_id, episode_id = e["site_id"], e["episode_id"]
+            if r["in_app"]:
+                _log_delivery(cur, episode_id, site_id, r["id"], "in_app", "down", None, "sent", None)
+            if sent_sms is not None:
+                ok, resp = sent_sms
+                _log_delivery(cur, episode_id, site_id, r["id"], "sms", "down", r["phone"], "sent" if ok else "failed", resp)
+            if sent_whatsapp is not None:
+                ok, resp = sent_whatsapp
+                _log_delivery(cur, episode_id, site_id, r["id"], "whatsapp", "down", r["phone"],
+                               "sent" if ok else "not_configured", resp)
+
+
+# ---- Core evaluation ----
+
+def _in_quiet_hours(quiet_start, quiet_end):
+    if quiet_start is None or quiet_end is None:
+        return False
+    now = now_eat().time()
+    if quiet_start <= quiet_end:
+        return quiet_start <= now <= quiet_end
+    return now >= quiet_start or now <= quiet_end  # wraps midnight, e.g. 22:00-06:00
+
+
+def _sessions_before(cur, site_id, before_ts):
+    cur.execute(
+        """
+        SELECT sessions FROM site_session_counts
+        WHERE monitored_site_id = %s AND received_at < %s
+        ORDER BY received_at DESC, id DESC LIMIT 1
+        """,
+        (site_id, before_ts),
+    )
+    row = cur.fetchone()
+    return row[0] if row else None
+
+
+def _count_recent_transitions(cur, site_id, since):
+    cur.execute(
+        """
+        SELECT count(*) FROM site_status_log
+        WHERE monitored_site_id = %s AND received_at >= %s AND state IN ('online', 'offline')
+        """,
+        (site_id, since),
+    )
+    return cur.fetchone()[0]
+
+
+def _evaluate():
+    now = datetime.utcnow()
+
+    with db_cursor() as (conn, cur):
+        # Only 'pppoe' sites can ever report 'offline' today — 'activity'
+        # sites can only be online/unknown by design (Correction 6: absence
+        # of sessions is never treated as proof of an outage). 'ping' (4.6)
+        # isn't implemented in ingest_snapshot yet either, so it can't
+        # produce 'offline' rows to react to.
+        cur.execute(
+            """
+            SELECT ms.id, COALESCE(l.name, ms.name, 'VLAN ' || ms.vlan_id),
+                   ms.quiet_hours_start, ms.quiet_hours_end
+            FROM monitored_sites ms LEFT JOIN locations l ON l.id = ms.location_id
+            WHERE ms.is_active AND ms.liveness_source = 'pppoe'
+            """
+        )
+        sites = {r[0]: {"name": r[1], "quiet_start": r[2], "quiet_end": r[3]} for r in cur.fetchall()}
+        if not sites:
+            conn.commit()
+            return
+
+        site_ids = list(sites)
+        cur.execute(
+            """
+            SELECT DISTINCT ON (monitored_site_id) monitored_site_id, state, received_at
+            FROM site_status_log
+            WHERE monitored_site_id = ANY(%s)
+            ORDER BY monitored_site_id, received_at DESC, id DESC
+            """,
+            (site_ids,),
+        )
+        latest = {r[0]: {"state": r[1], "since": r[2]} for r in cur.fetchall()}
+
+        cur.execute(
+            """
+            SELECT id, monitored_site_id, opened_at, state, flap_count,
+                   down_alert_sent_at, flapping_alert_sent_at, escalation_step
+            FROM site_alert_episodes WHERE resolved_at IS NULL
+            """
+        )
+        open_by_site = {
+            r[1]: {"id": r[0], "opened_at": r[2], "state": r[3], "flap_count": r[4],
+                   "down_alert_sent_at": r[5], "flapping_alert_sent_at": r[6], "escalation_step": r[7]}
+            for r in cur.fetchall()
+        }
+
+        cur.execute("SELECT monitored_site_id FROM site_acknowledgements WHERE cleared_at IS NULL")
+        acked = {r[0] for r in cur.fetchall()}
+
+        recipients = _load_recipients(cur)
+
+        pending_down = []  # sites crossing the debounce threshold this pass
+
+        for site_id, info in sites.items():
+            st = latest.get(site_id)
+            episode = open_by_site.get(site_id)
+            quiet = _in_quiet_hours(info["quiet_start"], info["quiet_end"])
+
+            if st and st["state"] == "offline":
+                if episode is None:
+                    sessions = _sessions_before(cur, site_id, st["since"])
+                    cur.execute(
+                        """
+                        INSERT INTO site_alert_episodes (monitored_site_id, opened_at, sessions_at_drop)
+                        VALUES (%s, %s, %s) RETURNING id
+                        """,
+                        (site_id, st["since"], sessions),
+                    )
+                    episode = {"id": cur.fetchone()[0], "opened_at": st["since"], "state": "down",
+                               "flap_count": 0, "down_alert_sent_at": None, "flapping_alert_sent_at": None,
+                               "escalation_step": 0}
+
+                flap_count = _count_recent_transitions(cur, site_id, now - FLAP_WINDOW)
+                if flap_count >= FLAP_THRESHOLD and episode["state"] != "flapping":
+                    cur.execute(
+                        "UPDATE site_alert_episodes SET state = 'flapping', flap_count = %s WHERE id = %s",
+                        (flap_count, episode["id"]),
+                    )
+                    episode["state"] = "flapping"
+                    if episode["flapping_alert_sent_at"] is None and site_id not in acked and not quiet:
+                        title = f"{info['name']} is flapping"
+                        message = _flap_message(info["name"], flap_count)
+                        _deliver(cur, episode["id"], site_id, "flapping", title, message, recipients)
+                        cur.execute(
+                            "UPDATE site_alert_episodes SET flapping_alert_sent_at = now() WHERE id = %s",
+                            (episode["id"],),
+                        )
+                    continue
+
+                if episode["state"] == "flapping":
+                    continue  # stays quiet until it settles and is next seen online
+
+                down_for = now - episode["opened_at"]
+                step = episode["escalation_step"]
+                # Schedule exhausted (12h) — episode stays open and logged,
+                # just nothing left to send. Also covers acked/quiet, which
+                # suppress sending without ever advancing step, so the
+                # reminder due while muted still fires the moment the mute
+                # lifts rather than being silently skipped forever.
+                if (step < len(SCHEDULE_MINUTES) and down_for >= timedelta(minutes=SCHEDULE_MINUTES[step])
+                        and site_id not in acked and not quiet):
+                    pending_down.append({
+                        "site_id": site_id, "episode_id": episode["id"], "name": info["name"],
+                        "sessions_at_drop": _sessions_before(cur, site_id, st["since"]),
+                        "opened_at_eat": episode["opened_at"] + timedelta(hours=3),
+                        "step": step, "downtime": down_for,
+                    })
+
+            elif st and st["state"] == "online" and episode is not None:
+                cur.execute(
+                    "UPDATE site_alert_episodes SET resolved_at = %s WHERE id = %s",
+                    (st["since"], episode["id"]),
+                )
+                should_notify = episode["down_alert_sent_at"] is not None or episode["state"] == "flapping"
+                if should_notify and not quiet:
+                    downtime = st["since"] - episode["opened_at"]
+                    title = f"{info['name']} is back online"
+                    message = _recovery_message(info["name"], downtime)
+                    _deliver(cur, episode["id"], site_id, "recovered", title, message, recipients)
+                    cur.execute(
+                        "UPDATE site_alert_episodes SET recovery_alert_sent_at = now() WHERE id = %s",
+                        (episode["id"],),
+                    )
+
+        if pending_down:
+            if len(pending_down) >= MASS_EVENT_MIN_SITES:
+                # One combined message regardless of each site's own step —
+                # a coincidence this size is itself the news. Each episode's
+                # escalation_step still advances individually underneath, so
+                # a site that started earlier than the others resumes its
+                # own schedule correctly on the next pass.
+                message = _mass_message([p["name"] for p in pending_down])
+                for p in pending_down:
+                    cur.execute(
+                        """
+                        UPDATE site_alert_episodes
+                        SET down_alert_sent_at = now(), escalation_step = escalation_step + 1, mass_event = true
+                        WHERE id = %s
+                        """,
+                        (p["episode_id"],),
+                    )
+                _deliver_mass(cur, pending_down, message, recipients)
+            else:
+                for p in pending_down:
+                    title = f"{p['name']} is down" if p["step"] == 0 else f"{p['name']} still down"
+                    message = _down_message(p["name"], p["sessions_at_drop"], p["opened_at_eat"], p["step"], p["downtime"])
+                    cur.execute(
+                        """
+                        UPDATE site_alert_episodes
+                        SET down_alert_sent_at = now(), escalation_step = escalation_step + 1
+                        WHERE id = %s
+                        """,
+                        (p["episode_id"],),
+                    )
+                    _deliver(cur, p["episode_id"], p["site_id"], "down", title, message, recipients)
+
+        conn.commit()

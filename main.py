@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
-from routers import auth, permissions, sites, batteries, users, inventory, monitoring
+from routers import auth, permissions, sites, batteries, users, inventory, monitoring, notifications
 
 app = FastAPI()
 
@@ -29,7 +29,17 @@ app.include_router(batteries.router)
 app.include_router(users.router)
 app.include_router(inventory.router)
 app.include_router(monitoring.router)
+app.include_router(notifications.router)
 
 @app.get("/")
 def serve_dashboard():
     return FileResponse("static/index.html")
+
+# PHASES.md 4.8 — "External uptime monitor on an Ops health endpoint,
+# alerting distinctly from a site-down alert." Deliberately unauthenticated
+# (an external pinger like UptimeRobot/Better Uptime can't hold a JWT) and
+# deliberately does nothing but prove the process is alive — no DB round
+# trip, so it can't false-negative on a slow Supabase connection.
+@app.get("/health")
+def health():
+    return {"ok": True}

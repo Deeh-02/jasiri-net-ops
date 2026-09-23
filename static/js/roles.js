@@ -95,7 +95,16 @@ const PERM_SECTIONS = [
             {
                 id: "sites_view_status", key: "sites", label: "Site Status",
                 toggleAction: "view_status",
-                actions: [{ label: "View Revenue", action: "view_revenue" }],
+                actions: [
+                    { label: "View Revenue", action: "view_revenue" },
+                    // Phase 4.8 — who is actually texted/WhatsApped/bell-
+                    // notified on a down/recovered/flapping site. Each
+                    // person still picks their own channels in Settings >
+                    // Notifications; this only decides whether they're in
+                    // the recipient list at all. No revenue ever appears in
+                    // an alert body regardless of this flag (PHASES.md 4.4).
+                    { label: "Receive Alerts", action: "receive_alerts" },
+                ],
             },
         ]
     },
