@@ -6,6 +6,7 @@ from typing import Optional
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
 from db import monitoring as db
+from db import alert_templates
 from db import monitoring_alerts
 from db import monitoring_reconciliation
 from db import monitoring_retention
@@ -204,6 +205,43 @@ def put_alert_recipient(user_id: int, body: AdminChannelsUpdate, current_user: d
     if not user_has_permission(current_user, "roles", "edit"):
         raise HTTPException(status_code=403, detail="You don't have permission to manage alert recipients")
     monitoring_alerts.admin_set_channels(user_id, body.sms_enabled, body.whatsapp_enabled)
+    return {"ok": True}
+
+
+class AlertTemplateUpdate(BaseModel):
+    body: str
+
+
+# Alerts > SMS Templates. Its own permission (Roles > Sites > Site Status >
+# "Edit Alert Messages"), separate from receive_alerts: being paged about an
+# outage and deciding what every page says are different jobs.
+def require_template_access(current_user: dict = Depends(get_current_user)):
+    if not user_has_permission(current_user, "sites", "edit_alert_messages"):
+        raise HTTPException(status_code=403, detail="You don't have permission to edit alert messages")
+    return current_user
+
+
+@router.get("/monitoring/alert-templates")
+def get_alert_templates(current_user: dict = Depends(require_template_access)):
+    return alert_templates.list_for_editor()
+
+
+@router.put("/monitoring/alert-templates/{kind}")
+def put_alert_template(kind: str, body: AlertTemplateUpdate, current_user: dict = Depends(require_template_access)):
+    if kind not in alert_templates.TEMPLATES:
+        raise HTTPException(status_code=404, detail="Unknown message type")
+    error = alert_templates.validate(kind, body.body)
+    if error:
+        raise HTTPException(status_code=400, detail=error)
+    alert_templates.save(kind, body.body.strip(), current_user["id"])
+    return {"ok": True}
+
+
+@router.delete("/monitoring/alert-templates/{kind}")
+def reset_alert_template(kind: str, current_user: dict = Depends(require_template_access)):
+    if kind not in alert_templates.TEMPLATES:
+        raise HTTPException(status_code=404, detail="Unknown message type")
+    alert_templates.reset(kind)
     return {"ok": True}
 
 

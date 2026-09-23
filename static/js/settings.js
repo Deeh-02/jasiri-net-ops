@@ -20,9 +20,10 @@ async function populateNotificationsForm() {
 }
 
 export function initSettings() {
-    registerRoute("settings", () => {
+    registerRoute("settings", (params) => {
         populateProfileForm();
         showView("view-settings");
+        if (params[0]) document.querySelector(`.settings-tab[data-settings-tab="${params[0]}"]`)?.click();
     });
 
     document.querySelectorAll(".settings-tab").forEach(tab => {

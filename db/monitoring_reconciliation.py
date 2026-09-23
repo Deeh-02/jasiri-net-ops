@@ -83,6 +83,6 @@ def record_confirmation(site_id, human_says_online, confirmed_by):
         body = f"A technician says {name} is {human_word}, but monitoring last saw it {monitoring_word}. Worth a second look."
         for r in recipients:
             if r["in_app"]:
-                create_notification(r["id"], "site_confirmation_mismatch", title, body, link=f"monitoring/sites/{site_id}")
+                create_notification(r["id"], "site_confirmation_mismatch", title, body, link=f"site-detail/{site_id}")
 
     return {"id": confirmation_id, "monitoring_says_online": monitoring_says_online, "agrees": agrees}

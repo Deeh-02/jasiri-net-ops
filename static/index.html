@@ -16,6 +16,7 @@
     <link rel="stylesheet" href="/static/css/users.css">
     <link rel="stylesheet" href="/static/css/roles.css">
     <link rel="stylesheet" href="/static/css/settings.css">
+    <link rel="stylesheet" href="/static/css/alerts.css">
     <link rel="stylesheet" href="/static/css/inventory.css">
     <link rel="stylesheet" href="/static/css/inventory-log.css">
     <link rel="stylesheet" href="/static/css/issue-materials.css">
@@ -195,6 +196,25 @@
                 </button>
             </div>
 
+            <div class="nav-category" data-nav-group="alerts">
+                <button class="nav-heading collapsed" id="alerts-nav-toggle" data-view="notifications" data-label="Alerts">
+                    <span class="nav-heading-label">
+                        <svg class="nav-icon" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M8 2C6 2 4.5 3.5 4.5 5.5V8L3 10.5H13L11.5 8V5.5C11.5 3.5 10 2 8 2Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
+                            <path d="M6.5 12.5C6.5 13.3 7.2 14 8 14C8.8 14 9.5 13.3 9.5 12.5" stroke="currentColor" stroke-width="1.3"/>
+                        </svg>
+                        Alerts
+                    </span>
+                    <span class="chevron">▾</span>
+                </button>
+                <div class="nav-subitems collapsed" id="alerts-nav-subitems">
+                    <div class="nav-subitems-inner">
+                        <button class="nav-link sub" data-view="notifications" data-label="Notifications">Notifications</button>
+                        <button class="nav-link sub" data-view="alert-templates" data-label="SMS Templates">SMS Templates</button>
+                    </div>
+                </div>
+            </div>
+
             <div class="nav-category">
                 <button class="nav-heading" data-view="users" data-label="Users">
                     <span class="nav-heading-label">
@@ -236,6 +256,8 @@
             <div data-view-mount="return-materials"></div>
             <div data-view-mount="inventory-reports"></div>
             <div data-view-mount="inventory-manage"></div>
+            <div data-view-mount="notifications"></div>
+            <div data-view-mount="alert-templates"></div>
             <div data-view-mount="users"></div>
             <div data-view-mount="roles"></div>
             <div data-view-mount="settings"></div>

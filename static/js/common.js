@@ -102,6 +102,10 @@ const ROUTE_PERMISSION_MAP = {
     // no NAV_GROUP_MASTER_PERMISSION entry needed for it.
     "inventory-reports": ["reports", "view"],
     "inventory-manage": ["inventory_categories", "view"],
+    // Alerts group. "notifications" has no entry on purpose — it's the
+    // user's own inbox, same as the bell, so everyone logged in gets it
+    // (which also keeps the Alerts group itself always visible).
+    "alert-templates": ["sites", "edit_alert_messages"],
 };
 
 function isRouteAllowed(name) {
@@ -164,6 +168,7 @@ function applyPermissionVisibility() {
         "add-site-open-btn": ["sites", "add"],
         "add-user-open-btn": ["users", "add"],
         "add-role-open-btn": ["roles", "add"],
+        "alert-recipients-open-btn": ["roles", "edit"],
         "add-inventory-category-open-btn": ["inventory_categories", "add"],
         "add-inventory-transaction-open-btn": ["inventory_transactions", "add"],
         // Add Item opens a wizard covering both New Product (create a new
@@ -354,7 +359,10 @@ function parseRoute(hash) {
 // (never auto-collapses) the group when the active route lands inside it,
 // e.g. a page refresh or a deep link straight to a sub-route while the group
 // still shows collapsed.
-const NAV_GROUP_ROUTES = { inventory: ["inventory", "stock", "inventory-log", "inventory-manage"] };
+const NAV_GROUP_ROUTES = {
+    inventory: ["inventory", "stock", "inventory-log", "inventory-manage"],
+    alerts: ["notifications", "alert-templates"],
+};
 
 function setActiveNav(name) {
     document.querySelectorAll("[data-view]").forEach(l => l.classList.toggle("active", l.dataset.view === name));
@@ -473,7 +481,7 @@ export async function refreshBadges() {
     }
 }
 
-function timeAgo(iso) {
+export function timeAgo(iso) {
     if (!iso) return "";
     const diffMs = Date.now() - new Date(iso).getTime();
     const mins = Math.max(0, Math.round(diffMs / 60000));
@@ -655,7 +663,7 @@ function renderCmdkResults(query) {
 // ---- Fragment loader: fetches every view's HTML and injects it into its
 // mount point. Loaded eagerly, all at once, at startup — the app is small
 // enough that lazy-per-nav loading isn't worth the added state-tracking. ----
-const VIEW_NAMES = ["dashboard", "sites", "movements", "check-sites", "status", "site-detail", "trends", "manage-sites", "packages", "users", "roles", "settings", "inventory", "stock", "inventory-log", "issue-materials", "return-materials", "inventory-reports", "inventory-manage"];
+const VIEW_NAMES = ["dashboard", "sites", "movements", "check-sites", "status", "site-detail", "trends", "manage-sites", "packages", "notifications", "alert-templates", "users", "roles", "settings", "inventory", "stock", "inventory-log", "issue-materials", "return-materials", "inventory-reports", "inventory-manage"];
 
 export async function loadViewFragments() {
     await Promise.all(VIEW_NAMES.map(async (name) => {

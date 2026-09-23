@@ -538,6 +538,30 @@ other admin-edits-a-user's-own-setting action in this app. `in_app_enabled`
 is deliberately untouched by the admin path; only the person themselves
 turns that off.
 
+**Mass events = power failure, with a battery plan — DONE 2026-09-23.**
+Owner's call: until a mass drop's real cause can be told apart, 5+ sites
+down in one pass is treated as a power failure, not a router/network
+event. The combined alert now says "possible power failure" and carries a
+dispatch plan for every site in it: ranked by people online, then today's
+revenue as the tiebreak (same `_battery_recommendations()` ranking Task 3
+uses; revenue still never printed), charged-at-base batteries handed out
+in that order, and the sites left over listed in order as "next if more
+free up". Sent at every checkpoint, not just 15 min. The router-restart
+marker (which would let a reboot be told apart) is still not built.
+
+**Editable alert wording — DONE 2026-09-23.** New sidebar group
+**Alerts** → *Notifications* (full in-app inbox; everyone) and *SMS
+Templates* (gated on the new `sites:edit_alert_messages` permission, under
+Site Status in Roles). Seven templates — down, still down, battery
+recommended, no battery, recovered, flapping, mass down — each with its
+own `{{PLACEHOLDER}}` list; unknown placeholders are rejected on save, and
+there is deliberately no revenue placeholder (4.4). Defaults live in code
+(`db/alert_templates.py`); migration 0016's `alert_message_templates`
+holds only overrides, so "Reset to default" is a row delete. The same text
+is used for SMS, WhatsApp and in-app. If the table is missing (code
+deployed before 0016 runs), sending falls back to the defaults rather
+than failing.
+
 #### 4.9 — Reconcile monitor against human `confirm-online`: DONE 2026-09-23
 
 Implement the prefill above, store both answers, surface contradictions.

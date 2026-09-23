@@ -104,6 +104,9 @@ const PERM_SECTIONS = [
                     // the recipient list at all. No revenue ever appears in
                     // an alert body regardless of this flag (PHASES.md 4.4).
                     { label: "Receive Alerts", action: "receive_alerts" },
+                    // Alerts > SMS Templates — changes the wording every
+                    // recipient above gets, on every channel.
+                    { label: "Edit Alert Messages", action: "edit_alert_messages" },
                 ],
             },
         ]
@@ -377,9 +380,7 @@ function renderAlertRecipients(recipients) {
 export function initRoles() {
     document.getElementById("add-role-open-btn").addEventListener("click", () => navigate("roles/new"));
 
-    const alertRecipientsBtn = document.getElementById("alert-recipients-open-btn");
-    if (can("roles", "edit")) alertRecipientsBtn.hidden = false;
-    alertRecipientsBtn.addEventListener("click", () => navigate("roles/alert-recipients"));
+    document.getElementById("alert-recipients-open-btn").addEventListener("click", () => navigate("roles/alert-recipients"));
     document.getElementById("alert-recipients-back-btn").addEventListener("click", () => navigate("roles"));
 
     document.getElementById("role-form-cancel").addEventListener("click", () => {

@@ -8,6 +8,7 @@ import { initSiteDetail } from "./site-detail.js";
 import { initTrends } from "./trends.js";
 import { initManageSites } from "./manage-sites.js";
 import { initPackages } from "./packages.js";
+import { initAlerts } from "./alerts.js";
 import { initUsers } from "./users.js";
 import { initRoles } from "./roles.js";
 import { initSettings } from "./settings.js";
@@ -33,6 +34,7 @@ async function boot() {
     initTrends();
     initManageSites();
     initPackages();
+    initAlerts();
     initUsers();
     initRoles();
     initSettings();

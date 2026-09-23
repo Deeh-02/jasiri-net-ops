@@ -1,13 +1,15 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from db import notifications as db
 from routers.auth import get_current_user
 
 router = APIRouter()
 
 
+# The bell asks for the default 30; Alerts > Notifications asks for more.
 @router.get("/notifications")
-def list_notifications(current_user: dict = Depends(get_current_user)):
-    return db.list_for_user(current_user["id"])
+def list_notifications(limit: int = Query(db.DEFAULT_LIST_LIMIT, ge=1, le=200),
+                       current_user: dict = Depends(get_current_user)):
+    return db.list_for_user(current_user["id"], limit)
 
 
 @router.get("/notifications/unread-count")

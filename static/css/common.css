@@ -453,6 +453,33 @@ body {
 .btn-add-site:hover { opacity: 0.9; }
 .btn-add-site:active { transform: scale(0.97); }
 
+/* Several buttons side by side in a page header (Roles: Alert Recipients +
+   Add Role). .btn-add-site is display:flex, i.e. block-level, so without a
+   flex wrapper it drops onto its own line under its neighbour. */
+.page-header-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+/* .btn-secondary was only ever styled inside .modal-actions; this is the
+   same look for one sitting in a page header. */
+.page-header-row .btn-secondary {
+    background: var(--surface-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 16px;
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
+    font-size: 14px;
+    cursor: pointer;
+    transition: opacity 0.15s ease, transform 0.1s ease;
+}
+
+.page-header-row .btn-secondary:hover { opacity: 0.9; }
+.page-header-row .btn-secondary:active { transform: scale(0.97); }
+
 .view {
     animation: fadeIn 0.2s ease;
 }
@@ -1670,6 +1697,7 @@ tr:hover td { background: var(--surface-2); }
     font-size: 12px;
     color: var(--text-dim);
     margin-top: 2px;
+    white-space: pre-line; /* an edited SMS template can span several lines */
 }
 
 .notification-item-time {

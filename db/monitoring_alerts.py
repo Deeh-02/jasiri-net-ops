@@ -36,15 +36,17 @@ any single poll" is the failure mode being avoided, but the fix must not be
 time-debounced — only its message copy and its rate-limit treatment
 (see RATE_LIMITED_KINDS) changed when escalation was added.
 
-MASS EVENTS. PHASES.md 4.8 also asks for a router-restart marker so a CCR
-reboot doesn't read as N simultaneous genuine outages. That literal
-mechanism needs a router-side startup script (a live-router change, outside
-what an agent does unattended per PHASES.md's Agent boundaries). This is a
-software approximation that needs no router change at all: if
-MASS_EVENT_MIN_SITES or more sites cross the debounce threshold in the same
-evaluation pass, they are reported as ONE combined alert ("N sites dropped
-at once — likely a network event") instead of N separate SMSes, while each
-site's own episode/history stays fully intact underneath.
+MASS EVENTS. If MASS_EVENT_MIN_SITES or more sites cross an alert
+checkpoint in the same evaluation pass, they are reported as ONE combined
+alert instead of N separate SMSes, while each site's own episode/history
+stays fully intact underneath. Owner's call 2026-09-23: until the real
+cause of a mass drop can be told apart, it is treated as a POWER FAILURE,
+not a router/network event — so the combined alert carries a battery
+dispatch plan for every site in it (ranked the same way as below: most
+people online first, today's revenue as the tiebreak), at every
+checkpoint, not just the 15-minute one. (PHASES.md 4.8's router-restart
+marker, which would let a CCR reboot be told apart from a real outage,
+still needs a router-side startup script and isn't built.)
 
 QUIET HOURS and ACKNOWLEDGEMENT both suppress SENDING, never the episode
 itself — site_status_log and the Status page are unaffected either way.
@@ -74,14 +76,19 @@ best still-available battery in that order, greedily, so two sites
 escalating together are never told to send the same physical battery.
 Per PHASES.md 4.4, revenue ranks sites but is NEVER the number printed —
 a message can say a site is ahead in priority, never by how much money.
-Skipped entirely in the mass-event path (5+ sites at once reads as a
-network event, not a battery-dispatch decision).
+The mass-event path (see MASS EVENTS) uses the same ranking for its
+dispatch plan.
+
+MESSAGE WORDING lives in db/alert_templates.py (defaults) and the
+alert_message_templates table (edits made in the app) — this file only
+works out the values that fill each template's {{PLACEHOLDERS}}.
 """
 import json
 import logging
 from datetime import datetime, timedelta, timezone
 
 from db.alert_channels import send_sms, send_whatsapp
+from db.alert_templates import load_all as load_templates, render as render_template
 from db.connection import db_cursor, now_eat
 from db.notifications import create as create_notification
 
@@ -206,52 +213,85 @@ def _format_duration(td):
     return f"{minutes}m"
 
 
-def _down_message(name, sessions_at_drop, opened_at_eat, step, downtime, battery_note=None):
+# Every function below takes `t`, the {kind: body} dict from
+# alert_templates.load_all() — the wording itself lives there (editable in
+# the app), these only work out the values that go into it.
+
+def _down_message(t, name, sessions_at_drop, opened_at_eat, step, downtime, battery_note=""):
     """step 0 is the original "just went down" alert; every later checkpoint
     is a "still down" reminder — the headcount at the moment it dropped
     stops being the interesting number by then, so it's dropped in favour
     of how long it's actually been. battery_note (step 1 only — see
-    "BATTERY RECOMMENDATION" in the file header) is appended as its own
-    sentence, never folded into the others, so it reads as an instruction
-    rather than a fact about the site."""
+    "BATTERY RECOMMENDATION" in the file header) fills {{BATTERY_NOTE}}."""
+    since = opened_at_eat.strftime("%H:%M")
     if step == 0:
-        sessions_txt = f", {sessions_at_drop} people online at the time" if sessions_at_drop else ""
-        base = f"⚠ {name} is DOWN{sessions_txt}. Down since {opened_at_eat.strftime('%H:%M')} EAT."
-    else:
-        base = f"⚠ {name} is STILL DOWN — {_format_duration(downtime)} so far (since {opened_at_eat.strftime('%H:%M')} EAT)."
-    return f"{base} {battery_note}" if battery_note else base
+        people = str(sessions_at_drop) if sessions_at_drop is not None else "unknown"
+        return render_template(t["down"], {"SITE_NAME": name, "PEOPLE_ONLINE": people, "DOWN_SINCE": since})
+    return render_template(t["still_down"], {
+        "SITE_NAME": name, "DURATION": _format_duration(downtime), "DOWN_SINCE": since,
+        "BATTERY_NOTE": battery_note or "",
+    })
 
 
-def _battery_note(assignment):
-    """Turns one _battery_recommendations() entry into the sentence
-    _down_message appends. Priority wording only appears when there was
+def _battery_note(t, assignment):
+    """Turns one _battery_recommendations() entry into the sentence that
+    fills {{BATTERY_NOTE}}. Priority wording only appears when there was
     something to rank against (of > 1) — a lone escalating site gets a
     plain recommendation, not "priority 1 of 1", which would just be
     noise. Never mentions sessions or revenue, the two signals that
     decided the ranking — only the rank itself, per PHASES.md 4.4."""
     if assignment is None:
-        return None
+        return ""
     battery = assignment["battery"]
-    priority = f" (priority {assignment['rank']} of {assignment['of']})" if assignment["of"] > 1 else ""
+    priority = f"(priority {assignment['rank']} of {assignment['of']})" if assignment["of"] > 1 else ""
     if battery is None:
-        return f"No charged battery currently available{priority}."
-    return f"Recommended battery: {battery['battery_number']}{priority}."
+        return render_template(t["battery_none"], {"PRIORITY": priority})
+    return render_template(t["battery_recommended"], {"BATTERY": battery["battery_number"], "PRIORITY": priority})
 
 
-def _recovery_message(name, downtime):
-    return f"✅ {name} is back ONLINE. Was down for {_format_duration(downtime)}."
+def _recovery_message(t, name, downtime):
+    return render_template(t["recovered"], {"SITE_NAME": name, "DURATION": _format_duration(downtime)})
 
 
-def _flap_message(name, flap_count):
-    minutes = int(FLAP_WINDOW.total_seconds() // 60)
-    return f"{name} unstable — {flap_count} state changes in {minutes} min, may need a physical check."
+def _flap_message(t, name, flap_count):
+    return render_template(t["flapping"], {
+        "SITE_NAME": name, "FLAP_COUNT": flap_count,
+        "WINDOW_MINUTES": int(FLAP_WINDOW.total_seconds() // 60),
+    })
 
 
-def _mass_message(names):
-    shown = ", ".join(names[:6])
-    if len(names) > 6:
-        shown += f" and {len(names) - 6} more"
-    return f"⚠ {len(names)} sites dropped at once ({shown}) — likely a router/network event, not {len(names)} separate outages."
+def _name_list(names, limit=6):
+    shown = ", ".join(names[:limit])
+    return f"{shown} and {len(names) - limit} more" if len(names) > limit else shown
+
+
+def _battery_plan(ranked):
+    """ranked: [(site name, battery dict or None)], highest priority first —
+    batteries were handed out greedily in that same order, so the ones that
+    got a battery are always a prefix of the list. The rest keep their
+    numbering so whoever's dispatching knows which site is next the moment
+    another battery is charged or comes back."""
+    with_battery = [(n, b) for n, b in ranked if b is not None]
+    without = [n for n, b in ranked if b is None]
+    if not with_battery:
+        numbered = [f"{i}. {n}" for i, n in enumerate(without, 1)]
+        return f"No charged battery at base. Priority when one is: {_name_list(numbered)}."
+    plan = "Send batteries: " + ", ".join(
+        f"{i}. {n} ({b['battery_number']})" for i, (n, b) in enumerate(with_battery, 1)
+    ) + "."
+    if without:
+        start = len(with_battery) + 1
+        numbered = [f"{i}. {n}" for i, n in enumerate(without, start)]
+        plan += f" Next if more free up: {_name_list(numbered)}."
+    return plan
+
+
+def _mass_message(t, ranked):
+    return render_template(t["mass_down"], {
+        "SITE_COUNT": len(ranked),
+        "SITE_NAMES": _name_list([n for n, _ in ranked]),
+        "BATTERY_PLAN": _battery_plan(ranked),
+    })
 
 
 # ---- Recipients ----
@@ -324,7 +364,7 @@ def _deliver(cur, episode_id, site_id, kind, title, message, recipients):
     """One episode, one site, one message — the ordinary (non-mass) path."""
     for r in recipients:
         if r["in_app"]:
-            create_notification(r["id"], f"site_{kind}", title, message, link=f"monitoring/sites/{site_id}")
+            create_notification(r["id"], f"site_{kind}", title, message, link=f"site-detail/{site_id}")
             _log_delivery(cur, episode_id, site_id, r["id"], "in_app", kind, None, "sent", None)
         if r["sms"] and r["phone"]:
             if kind in RATE_LIMITED_KINDS and not _under_rate_limit(cur, site_id, "sms"):
@@ -348,9 +388,10 @@ def _deliver_mass(cur, episodes, message, recipients):
     accurate even though nothing was actually sent N times. Always kind
     'down' (only the down-escalation path batches into mass events), which
     is outside RATE_LIMITED_KINDS — no rate-limit check here on purpose."""
+    title = f"{len(episodes)} sites down — possible power failure"
     for r in recipients:
         if r["in_app"]:
-            create_notification(r["id"], "site_down", "Multiple sites down", message, link="monitoring")
+            create_notification(r["id"], "site_down", title, message, link="status")
         sent_sms = send_sms(r["phone"], message) if r["sms"] and r["phone"] else None
         sent_whatsapp = send_whatsapp(r["phone"], message) if r["whatsapp"] and r["phone"] else None
         for e in episodes:
@@ -445,7 +486,8 @@ def _today_revenue_by_site(cur, site_ids):
 def _battery_recommendations(cur, sites_needing):
     """sites_needing: [{'site_id', 'sessions_at_drop'}, ...] — every site
     hitting escalation step 1 (the first "still down" reminder, 15min) in
-    this pass. Ranked by two internal-only signals, per PHASES.md 4.4:
+    this pass, or every site in a mass event. Ranked by two internal-only
+    signals, per PHASES.md 4.4:
     sessions_at_drop (people online at the moment it fell) first, today's
     revenue as a tiebreaker — never the figures themselves, just the
     ordering they produce. The best still-available battery is then handed
@@ -505,6 +547,7 @@ def _count_recent_transitions(cur, site_id, since):
 
 def _evaluate():
     now = datetime.utcnow()
+    t = load_templates()
 
     with db_cursor() as (conn, cur):
         # Only 'pppoe' sites can ever report 'offline' today — 'activity'
@@ -585,7 +628,7 @@ def _evaluate():
                     episode["state"] = "flapping"
                     if episode["flapping_alert_sent_at"] is None and site_id not in acked and not quiet:
                         title = f"{info['name']} is flapping"
-                        message = _flap_message(info["name"], flap_count)
+                        message = _flap_message(t, info["name"], flap_count)
                         _deliver(cur, episode["id"], site_id, "flapping", title, message, recipients)
                         cur.execute(
                             "UPDATE site_alert_episodes SET flapping_alert_sent_at = now() WHERE id = %s",
@@ -621,7 +664,7 @@ def _evaluate():
                 if should_notify and not quiet:
                     downtime = st["since"] - episode["opened_at"]
                     title = f"{info['name']} is back online"
-                    message = _recovery_message(info["name"], downtime)
+                    message = _recovery_message(t, info["name"], downtime)
                     _deliver(cur, episode["id"], site_id, "recovered", title, message, recipients)
                     cur.execute(
                         "UPDATE site_alert_episodes SET recovery_alert_sent_at = now() WHERE id = %s",
@@ -634,8 +677,15 @@ def _evaluate():
                 # a coincidence this size is itself the news. Each episode's
                 # escalation_step still advances individually underneath, so
                 # a site that started earlier than the others resumes its
-                # own schedule correctly on the next pass.
-                message = _mass_message([p["name"] for p in pending_down])
+                # own schedule correctly on the next pass. Every site in the
+                # batch is ranked for batteries, at every step — this is the
+                # likely-power-failure case, where "which site first" is the
+                # decision someone actually has to make (see MASS EVENTS).
+                assignments = _battery_recommendations(cur, [
+                    {"site_id": p["site_id"], "sessions_at_drop": p["sessions_at_drop"]} for p in pending_down
+                ])
+                ranked = sorted(pending_down, key=lambda p: assignments[p["site_id"]]["rank"])
+                message = _mass_message(t, [(p["name"], assignments[p["site_id"]]["battery"]) for p in ranked])
                 for p in pending_down:
                     cur.execute(
                         """
@@ -647,19 +697,19 @@ def _evaluate():
                     )
                 _deliver_mass(cur, pending_down, message, recipients)
             else:
-                # Battery recommendation (Task 3) — only step 1 (the first
-                # "still down" reminder) gets one, and only outside the mass
-                # path (see file header). Computed once for every step-1 site
-                # in this pass so they're ranked and allocated distinct
-                # batteries together, not one at a time in isolation.
+                # Battery recommendation (Task 3) — on this individual path,
+                # only step 1 (the first "still down" reminder) gets one.
+                # Computed once for every step-1 site in this pass so they're
+                # ranked and allocated distinct batteries together, not one
+                # at a time in isolation.
                 step1_sites = [p for p in pending_down if p["step"] == 1]
                 battery_assignments = _battery_recommendations(cur, [
                     {"site_id": p["site_id"], "sessions_at_drop": p["sessions_at_drop"]} for p in step1_sites
                 ])
                 for p in pending_down:
                     title = f"{p['name']} is down" if p["step"] == 0 else f"{p['name']} still down"
-                    battery_note = _battery_note(battery_assignments.get(p["site_id"]))
-                    message = _down_message(p["name"], p["sessions_at_drop"], p["opened_at_eat"], p["step"], p["downtime"], battery_note)
+                    battery_note = _battery_note(t, battery_assignments.get(p["site_id"]))
+                    message = _down_message(t, p["name"], p["sessions_at_drop"], p["opened_at_eat"], p["step"], p["downtime"], battery_note)
                     cur.execute(
                         """
                         UPDATE site_alert_episodes
