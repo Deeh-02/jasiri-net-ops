@@ -138,6 +138,11 @@ def evaluate_and_notify():
 # ---- Per-user subscription (Settings > Notifications) ----
 
 def get_subscription(user_id):
+    """No-row default is opt-out, not opt-in: all three channels start on,
+    and Settings > Notifications is where someone switches one off for
+    themselves. Applies immediately to every current no-row user too, not
+    just future ones — a deliberate choice (reach over cost-control) made
+    2026-09-23 when this shipped, not a side effect of how it's coded."""
     with db_cursor() as (conn, cur):
         cur.execute(
             "SELECT in_app_enabled, sms_enabled, whatsapp_enabled FROM monitoring_alert_subscriptions WHERE user_id = %s",
@@ -145,7 +150,7 @@ def get_subscription(user_id):
         )
         row = cur.fetchone()
     if row is None:
-        return {"in_app_enabled": True, "sms_enabled": False, "whatsapp_enabled": False}
+        return {"in_app_enabled": True, "sms_enabled": True, "whatsapp_enabled": True}
     return {"in_app_enabled": row[0], "sms_enabled": row[1], "whatsapp_enabled": row[2]}
 
 
@@ -162,6 +167,29 @@ def set_subscription(user_id, in_app_enabled, sms_enabled, whatsapp_enabled):
                     updated_at = now()
             """,
             (user_id, in_app_enabled, sms_enabled, whatsapp_enabled),
+        )
+        conn.commit()
+
+
+def admin_set_channels(user_id, sms_enabled, whatsapp_enabled):
+    """The admin-facing counterpart to set_subscription (Settings >
+    Notifications, self-service, all three channels). This one only ever
+    touches sms_enabled/whatsapp_enabled — never in_app_enabled, which
+    stays whatever the user themselves has it as. Same table, same
+    columns, last write wins between this and the user's own Settings
+    page; no locking or conflict handling, same as every other
+    admin-edits-a-user's-row action in this app (see users.py PATCH)."""
+    with db_cursor() as (conn, cur):
+        cur.execute(
+            """
+            INSERT INTO monitoring_alert_subscriptions (user_id, in_app_enabled, sms_enabled, whatsapp_enabled)
+            VALUES (%s, true, %s, %s)
+            ON CONFLICT (user_id) DO UPDATE
+                SET sms_enabled = EXCLUDED.sms_enabled,
+                    whatsapp_enabled = EXCLUDED.whatsapp_enabled,
+                    updated_at = now()
+            """,
+            (user_id, sms_enabled, whatsapp_enabled),
         )
         conn.commit()
 
@@ -231,14 +259,15 @@ def _mass_message(names):
 def load_recipients(cur):
     """Everyone with sites:receive_alerts (admins always qualify, same rule
     as every other permission check in this codebase), each with their own
-    channel opt-in — default in-app on, SMS/WhatsApp off for a user with no
-    subscription row yet. Public (not underscore-prefixed): also called
-    from db/monitoring_reconciliation.py (Phase 4.9) so a confirm-online
+    channel opt-in — default is all three channels ON for a user with no
+    subscription row yet (opt-out, not opt-in — see get_subscription).
+    Public (not underscore-prefixed): also called from
+    db/monitoring_reconciliation.py (Phase 4.9) so a confirm-online
     mismatch notifies the same people, not a second hand-picked list."""
     cur.execute(
         """
         SELECT u.id, u.name, u.phone,
-               COALESCE(s.in_app_enabled, true), COALESCE(s.sms_enabled, false), COALESCE(s.whatsapp_enabled, false)
+               COALESCE(s.in_app_enabled, true), COALESCE(s.sms_enabled, true), COALESCE(s.whatsapp_enabled, true)
         FROM users u
         LEFT JOIN monitoring_alert_subscriptions s ON s.user_id = u.id
         WHERE u.status = 'active' AND (
@@ -254,6 +283,15 @@ def load_recipients(cur):
         {"id": r[0], "name": r[1], "phone": r[2], "in_app": r[3], "sms": r[4], "whatsapp": r[5]}
         for r in cur.fetchall()
     ]
+
+
+def list_recipients():
+    """load_recipients() needs a cursor because both its other callers
+    (_evaluate below, monitoring_reconciliation.record_confirmation) are
+    already inside one. The admin "Alert Recipients" view (routers/
+    monitoring.py) isn't, so it gets this standalone wrapper instead."""
+    with db_cursor() as (conn, cur):
+        return load_recipients(cur)
 
 
 # ---- Delivery ----

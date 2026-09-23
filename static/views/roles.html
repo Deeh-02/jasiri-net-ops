@@ -1,7 +1,10 @@
     <section class="view" id="view-roles" hidden>
         <div class="page-header-row">
             <h1 class="page-title">Roles</h1>
-            <button type="button" id="add-role-open-btn" class="btn-add-site">+ Add Role</button>
+            <div>
+                <button type="button" id="alert-recipients-open-btn" class="btn-secondary" hidden>Alert Recipients</button>
+                <button type="button" id="add-role-open-btn" class="btn-add-site">+ Add Role</button>
+            </div>
         </div>
 
         <div class="table-scroll">
@@ -14,6 +17,33 @@
                     </tr>
                 </thead>
                 <tbody id="roles-rows"></tbody>
+            </table>
+        </div>
+    </section>
+
+    <section class="view" id="view-alert-recipients" hidden>
+        <div class="page-header-row">
+            <h1 class="page-title">Alert Recipients</h1>
+            <button type="button" id="alert-recipients-back-btn" class="btn-secondary">Back to Roles</button>
+        </div>
+        <p class="form-hint">
+            Everyone below has "Receive Alerts" through their role. In-app is always
+            controlled by each person themselves in Settings; SMS and WhatsApp can be
+            set here on their behalf, or by them in their own Settings — same setting
+            either way, last save wins.
+        </p>
+
+        <div class="table-scroll">
+            <table id="alert-recipients-table">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Phone</th>
+                        <th>SMS</th>
+                        <th>WhatsApp</th>
+                    </tr>
+                </thead>
+                <tbody id="alert-recipients-rows"></tbody>
             </table>
         </div>
     </section>

@@ -519,6 +519,25 @@ Because this is a *sales* measure, it should reconcile against M-Pesa. Split thi
 - **Sessions-dropped-to-zero anomaly** — calibrate only after Correction 6 is resolved.
 - External uptime monitor on an Ops health endpoint, alerting distinctly from a site-down alert.
 
+**Recipient-channel defaults + admin override — DONE 2026-09-23.** Shipped
+after the rest of 4.8, on owner request: a user with no
+`monitoring_alert_subscriptions` row now defaults to all three channels ON
+(in-app + SMS + WhatsApp), not in-app-only as originally built — applied
+retroactively to every current no-row user, not just future ones (owner's
+explicit call: reach over SMS cost-control). `get_subscription`'s no-row
+return and `load_recipients`'s `COALESCE` fallback both changed; migration
+0015 flips the table's own column defaults to match, though no code path
+actually relies on them (every row write is explicit). Self-service
+Settings > Notifications is unchanged. New: an admin-facing "Alert
+Recipients" view (Roles page, gated on `roles:edit` — the same permission
+that already controls `sites:receive_alerts` itself) lists everyone
+currently eligible with SMS/WhatsApp checkboxes, writing through
+`admin_set_channels()` to the *same* `monitoring_alert_subscriptions` row
+Settings writes to — last write wins, no conflict handling, same as every
+other admin-edits-a-user's-own-setting action in this app. `in_app_enabled`
+is deliberately untouched by the admin path; only the person themselves
+turns that off.
+
 #### 4.9 — Reconcile monitor against human `confirm-online`: DONE 2026-09-23
 
 Implement the prefill above, store both answers, surface contradictions.

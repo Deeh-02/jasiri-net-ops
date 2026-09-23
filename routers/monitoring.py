@@ -158,8 +158,8 @@ async def ingest(request: Request, background_tasks: BackgroundTasks):
 
 class AlertSubscriptionUpdate(BaseModel):
     in_app_enabled: bool = True
-    sms_enabled: bool = False
-    whatsapp_enabled: bool = False
+    sms_enabled: bool = True
+    whatsapp_enabled: bool = True
 
 
 # Own preferences only — no sites:* permission needed to read or set these.
@@ -177,6 +177,33 @@ def put_alert_subscription(body: AlertSubscriptionUpdate, current_user: dict = D
     monitoring_alerts.set_subscription(
         current_user["id"], body.in_app_enabled, body.sms_enabled, body.whatsapp_enabled
     )
+    return {"ok": True}
+
+
+class AdminChannelsUpdate(BaseModel):
+    sms_enabled: bool
+    whatsapp_enabled: bool
+
+
+# Admin-side counterpart to the two endpoints above: an admin picking
+# SMS/WhatsApp on someone else's behalf, instead of that person doing it
+# themselves in Settings > Notifications. Gated on roles:edit, the same
+# permission that already controls sites:receive_alerts itself (Roles
+# page) — this list IS "who's on sites:receive_alerts", just with their
+# channels alongside, so it lives behind the same gate rather than a new
+# permission just for this view.
+@router.get("/monitoring/alert-recipients")
+def get_alert_recipients(current_user: dict = Depends(get_current_user)):
+    if not user_has_permission(current_user, "roles", "edit"):
+        raise HTTPException(status_code=403, detail="You don't have permission to manage alert recipients")
+    return monitoring_alerts.list_recipients()
+
+
+@router.put("/monitoring/alert-recipients/{user_id}")
+def put_alert_recipient(user_id: int, body: AdminChannelsUpdate, current_user: dict = Depends(get_current_user)):
+    if not user_has_permission(current_user, "roles", "edit"):
+        raise HTTPException(status_code=403, detail="You don't have permission to manage alert recipients")
+    monitoring_alerts.admin_set_channels(user_id, body.sms_enabled, body.whatsapp_enabled)
     return {"ok": True}
 
 

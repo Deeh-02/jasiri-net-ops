@@ -335,8 +335,52 @@ async function openRoleForm(roleId) {
     }
 }
 
+async function loadAlertRecipients() {
+    const res = await fetch("/monitoring/alert-recipients", { headers: authHeaders() });
+    if (!res.ok) {
+        alert("Failed to load alert recipients");
+        return;
+    }
+    const recipients = await res.json();
+    renderAlertRecipients(recipients);
+}
+
+function renderAlertRecipients(recipients) {
+    const tbody = document.getElementById("alert-recipients-rows");
+    if (!tbody) return;
+
+    tbody.innerHTML = recipients.map(r => `
+        <tr>
+            <td>${r.name}</td>
+            <td>${r.phone || "—"}</td>
+            <td><input type="checkbox" class="recipient-sms-cb" data-id="${r.id}" ${r.sms ? "checked" : ""}></td>
+            <td><input type="checkbox" class="recipient-whatsapp-cb" data-id="${r.id}" ${r.whatsapp ? "checked" : ""}></td>
+        </tr>
+    `).join("");
+
+    async function saveChannels(id) {
+        const sms = tbody.querySelector(`.recipient-sms-cb[data-id="${id}"]`).checked;
+        const whatsapp = tbody.querySelector(`.recipient-whatsapp-cb[data-id="${id}"]`).checked;
+        const res = await fetch(`/monitoring/alert-recipients/${id}`, {
+            method: "PUT",
+            headers: authHeaders({ "Content-Type": "application/json" }),
+            body: JSON.stringify({ sms_enabled: sms, whatsapp_enabled: whatsapp }),
+        });
+        if (!res.ok) alert("Failed to save — try again");
+    }
+
+    tbody.querySelectorAll(".recipient-sms-cb, .recipient-whatsapp-cb").forEach(cb => {
+        cb.addEventListener("change", () => saveChannels(cb.dataset.id));
+    });
+}
+
 export function initRoles() {
     document.getElementById("add-role-open-btn").addEventListener("click", () => navigate("roles/new"));
+
+    const alertRecipientsBtn = document.getElementById("alert-recipients-open-btn");
+    if (can("roles", "edit")) alertRecipientsBtn.hidden = false;
+    alertRecipientsBtn.addEventListener("click", () => navigate("roles/alert-recipients"));
+    document.getElementById("alert-recipients-back-btn").addEventListener("click", () => navigate("roles"));
 
     document.getElementById("role-form-cancel").addEventListener("click", () => {
         navigate("roles");
@@ -422,6 +466,10 @@ export function initRoles() {
         if (params[0] === "new") {
             await openRoleForm(null);
             showView("view-role-form");
+        } else if (params[0] === "alert-recipients") {
+            if (!can("roles", "edit")) { navigate("roles"); return; }
+            showView("view-alert-recipients");
+            loadAlertRecipients();
         } else if (params[0] && params[1] === "edit") {
             await openRoleForm(params[0]);
             showView("view-role-form");
