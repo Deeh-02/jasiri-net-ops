@@ -19,16 +19,19 @@
 -- are nullable lifecycle timestamps (a cancelled or still-pending movement
 -- may have none of them set). created_at is NOT NULL DEFAULT now() on
 -- every row without exception — the one timestamp guaranteed to exist and
--- to mean "when this log entry was made", which is what "dated before
--- Sept 5, 2026" means here.
+-- to mean "when this log entry was made", which is what the cutoff below
+-- means here.
 --
--- CUTOFF: rows with created_at < 2026-09-05 00:00:00 are deleted. Rows
--- from 2026-09-05 00:00:00 onward are kept, untouched. This is a UTC
--- boundary (created_at is stored as UTC wall-clock per db/connection.py) —
--- if "Sept 5" was meant in EAT (UTC+3), the real cutoff is 2026-09-04
--- 21:00:00 UTC. Confirm which was meant before running; the query below
--- uses the UTC reading. Check both counts against what you expect before
--- proceeding to DELETE.
+-- CUTOFF: rows with created_at < 2026-09-06 00:00:00 are deleted — i.e.
+-- everything through the end of Sept 5, 2026, inclusive. Rows from
+-- 2026-09-06 00:00:00 onward are kept, untouched. REVISED 2026-09-23 (owner
+-- call): the original spec kept Sept 5 itself; this now deletes it too, so
+-- if that reads wrong when you see the counts, the earlier boundary was
+-- created_at < 2026-09-05 00:00:00. This is a UTC boundary (created_at is
+-- stored as UTC wall-clock per db/connection.py) — if "Sept 5" was meant in
+-- EAT (UTC+3), the real cutoff is 2026-09-05 21:00:00 UTC. Confirm which
+-- was meant before running; the query below uses the UTC reading. Check
+-- both counts against what you expect before proceeding to DELETE.
 --
 -- FK CHECK (verified 2026-09-23 against schema.sql + every migrations/*.sql
 -- file): NOTHING references battery_movements.id. Its own FKs point OUT —
@@ -78,8 +81,8 @@ WHERE tc.constraint_type = 'FOREIGN KEY'
 -- STEP 1 — row counts, both sides of the split (read-only).
 -- ============================================================
 SELECT
-    count(*) FILTER (WHERE created_at < '2026-09-05 00:00:00') AS to_delete,
-    count(*) FILTER (WHERE created_at >= '2026-09-05 00:00:00') AS to_keep,
+    count(*) FILTER (WHERE created_at < '2026-09-06 00:00:00') AS to_delete,
+    count(*) FILTER (WHERE created_at >= '2026-09-06 00:00:00') AS to_keep,
     count(*) AS total,
     min(created_at) AS oldest_row,
     max(created_at) AS newest_row
@@ -92,11 +95,11 @@ FROM battery_movements;
 -- ============================================================
 SELECT b.id, b.battery_number, b.status, b.charge_status,
        count(bm.id) AS movement_rows_total,
-       count(bm.id) FILTER (WHERE bm.created_at >= '2026-09-05 00:00:00') AS movement_rows_kept
+       count(bm.id) FILTER (WHERE bm.created_at >= '2026-09-06 00:00:00') AS movement_rows_kept
 FROM batteries b
 JOIN battery_movements bm ON bm.battery_id = b.id
 GROUP BY b.id, b.battery_number, b.status, b.charge_status
-HAVING count(bm.id) FILTER (WHERE bm.created_at >= '2026-09-05 00:00:00') = 0
+HAVING count(bm.id) FILTER (WHERE bm.created_at >= '2026-09-06 00:00:00') = 0
 ORDER BY b.battery_number;
 
 
@@ -106,7 +109,7 @@ ORDER BY b.battery_number;
 -- ============================================================
 SELECT id, battery_id, from_location_id, to_location_id, reason, status, created_at
 FROM battery_movements
-WHERE created_at < '2026-09-05 00:00:00'
+WHERE created_at < '2026-09-06 00:00:00'
 ORDER BY created_at DESC
 LIMIT 20;
 
@@ -123,7 +126,7 @@ LIMIT 20;
 --     --data-only -f battery_movements_backup_2026-09-23.sql
 -- ============================================================
 CREATE TABLE IF NOT EXISTS battery_movements_backup_20260923 AS
-SELECT * FROM battery_movements WHERE created_at < '2026-09-05 00:00:00';
+SELECT * FROM battery_movements WHERE created_at < '2026-09-06 00:00:00';
 
 SELECT count(*) AS rows_backed_up FROM battery_movements_backup_20260923;
 
@@ -136,7 +139,7 @@ SELECT count(*) AS rows_backed_up FROM battery_movements_backup_20260923;
 -- ============================================================
 BEGIN;
 
-DELETE FROM battery_movements WHERE created_at < '2026-09-05 00:00:00';
+DELETE FROM battery_movements WHERE created_at < '2026-09-06 00:00:00';
 -- Compare this to Step 1's `to_delete` count before committing.
 
 SELECT count(*) AS remaining_rows FROM battery_movements;
