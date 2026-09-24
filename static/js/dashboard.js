@@ -38,15 +38,35 @@ function buildStats(batteries) {
 async function loadDashboard() {
     document.getElementById("stat-grid").innerHTML = '<div class="loading-text">Loading...</div>';
     document.getElementById("battery-rows").innerHTML = '<tr><td colspan="9" class="loading-text">Loading batteries...</td></tr>';
+    // The placeholder just replaced whatever was rendered, so nothing on
+    // screen matches batteriesCache any more. Without this, logging out and
+    // back in left the previous session's list in batteriesCache, the fresh
+    // fetch compared equal to it, the render was skipped, and "Loading..."
+    // stayed up until a page reload.
+    renderedSnapshot = null;
     await refreshData();
 }
 
+// JSON of the battery list currently drawn on screen, or null while the
+// loading placeholder is showing. Kept apart from batteriesCache (which the
+// command palette and stat modal read, so it must stay an array).
+let renderedSnapshot = null;
+let refreshInFlight = false;
+
 // ---- Quiet refresh: no blanking, just swap content in place ----
 export async function refreshData() {
-    const [batteriesRes, locationsRes] = await Promise.all([
-        fetch("/batteries", { headers: authHeaders() }),
-        fetch("/locations", { headers: authHeaders() })
-    ]);
+    refreshInFlight = true;
+    let batteriesRes, locationsRes;
+    try {
+        [batteriesRes, locationsRes] = await Promise.all([
+            fetch("/batteries", { headers: authHeaders() }),
+            fetch("/locations", { headers: authHeaders() })
+        ]);
+    } catch {
+        refreshInFlight = false;
+        return;
+    }
+    refreshInFlight = false;
     const newBatteries = batteriesRes.ok ? await batteriesRes.json() : [];
     locationsCache = locationsRes.ok ? await locationsRes.json() : [];
 
@@ -65,9 +85,11 @@ export async function refreshData() {
     // and charge dropdown, which drops whatever the mouse happens to be
     // hovering (a brief on/off flicker) for no reason. Skip the render
     // when the fetched data matches what's already on screen.
-    const changed = JSON.stringify(newBatteries) !== JSON.stringify(batteriesCache);
+    const snapshot = JSON.stringify(newBatteries);
+    const changed = snapshot !== renderedSnapshot;
     batteriesCache = newBatteries;
     if (changed) {
+        renderedSnapshot = snapshot;
         renderStats(buildStats(batteriesCache));
         renderTable(batteriesCache);
     }
@@ -213,6 +235,7 @@ async function applyChargeChange(dropdown, value) {
     const previous = battery ? battery.charge_status : null;
 
     if (battery) battery.charge_status = value;
+    renderedSnapshot = JSON.stringify(batteriesCache);
     renderStats(buildStats(batteriesCache));
     dropdown.innerHTML = chargeCellHtml(battery);
     bindChargeDropdown(dropdown);
@@ -227,6 +250,7 @@ async function applyChargeChange(dropdown, value) {
 
         if (!response.ok) {
             if (battery) battery.charge_status = previous;
+            renderedSnapshot = JSON.stringify(batteriesCache);
             renderStats(buildStats(batteriesCache));
             dropdown.innerHTML = chargeCellHtml(battery);
             bindChargeDropdown(dropdown);
@@ -674,6 +698,7 @@ function startLiveSync() {
         if (!view || view.hidden) return;
         if (document.visibilityState !== "visible") return;
         if (isDashboardBusy()) return;
+        if (refreshInFlight) return; // slow server: don't stack requests
         refreshData();
     }, LIVE_SYNC_INTERVAL_MS);
 }

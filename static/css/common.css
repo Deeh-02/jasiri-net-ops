@@ -283,60 +283,50 @@ body {
 
 .nav-badge[hidden] { display: none; }
 
-/* ---- Mobile nav: a phone can't spare 220px for a permanent side column, so
-   it collapses to 0 width by default and expands open on tap of the topbar
-   hamburger — a normal flex sibling of .content the whole time (never taken
-   out of flow), so opening it PUSHES .content over rather than floating on
-   top of it. Because it's still in-flow, it naturally starts below the
-   topbar (a sibling above .layout in the DOM) instead of overlapping it. ---- */
+/* ---- Mobile nav: an off-canvas drawer that slides over the page from the
+   left on tap of the topbar hamburger. It used to be an in-flow column that
+   animated its width from 0, which had two problems:
+   - Every frame re-laid out the whole page, because .content was pushed
+     over as the width changed. That made the animation janky on phones.
+   - With box-sizing: border-box, width:0 can't shrink below the padding, so
+     the "closed" sidebar stayed 32px wide and a sliver of the nav showed
+     down the left edge of every page.
+   Now it's position:fixed and moved only with transform, which the GPU
+   composites without any layout. The closed state is fully off-screen, and
+   visibility:hidden keeps its links out of the tab order. ---- */
 @media (max-width: 760px) {
-    /* .sidebar has no explicit height of its own — as a flex item it
-       stretches to match .layout's height (flexbox's default
-       align-items:stretch). Since .layout no longer has the fixed-position
-       drawer to guarantee full-screen coverage, IT needs to be at least a
-       full screen tall itself, or a view with short content leaves the
-       open drawer stopping partway down instead of reaching the bottom. */
-    .layout {
-        min-height: 100vh;
-    }
-
     .sidebar {
-        position: relative; /* stacking context, so it stays above the dim backdrop */
+        position: fixed;
+        top: 0;
+        bottom: 0;
+        left: 0;
         z-index: 90;
-        width: 0;
+        width: 260px;
         max-width: 82vw;
-        /* Constant, not transitioned — box-sizing: border-box (global, see
-           top of file) already makes width:0 collapse the box fully
-           regardless of padding, so animating padding too never bought
-           anything but a second layout property recalculating in lockstep
-           with width every frame. One animated property is cheaper than
-           two. */
         padding: 24px 16px;
-        border-right: none;
-        overflow: hidden;
-        transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-        will-change: width;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        -webkit-overflow-scrolling: touch;
+        border-right: 1px solid var(--border);
+        box-shadow: none;
+        transform: translate3d(-100%, 0, 0);
+        visibility: hidden;
+        /* visibility waits for the slide-out to finish before hiding. */
+        transition:
+            transform 0.3s cubic-bezier(0.32, 0.72, 0, 1),
+            box-shadow 0.3s ease,
+            visibility 0s linear 0.3s;
+        will-change: transform;
     }
 
     .sidebar.open {
-        width: 240px;
-        border-right: 1px solid var(--border);
-        overflow-y: auto;
-    }
-
-    /* The actual source of the roughness: with align-items:stretch (flex's
-       default), every direct child was resizing to match .sidebar's current
-       width on every animation frame — every nav label and icon was
-       reflowing/re-wrapping continuously for the whole 250ms, not just
-       .sidebar's own box. Pinning children at the fully-open content width
-       (240px sidebar − 16px×2 padding = 208px) keeps their layout stable for
-       the entire transition — .sidebar's shrinking width just clips more or
-       less of that fixed-width content via overflow:hidden above, instead of
-       forcing it to relayout. A transform-based slide gets this same benefit
-       for free (the moving box's own content never resizes); here it's
-       applied to content stability instead of position. */
-    .nav-category {
-        min-width: 208px;
+        transform: translate3d(0, 0, 0);
+        visibility: visible;
+        box-shadow: 8px 0 32px rgba(0, 0, 0, 0.45);
+        transition:
+            transform 0.3s cubic-bezier(0.32, 0.72, 0, 1),
+            box-shadow 0.3s ease,
+            visibility 0s;
     }
 
     /* Taller than the desktop nav rows — thumb targets, not cursor targets. */
@@ -345,18 +335,30 @@ body {
     }
 }
 
-/* Dims .content while the nav is open (tapping it closes the nav). Sits
-   above .content's default stacking but below both the topbar (60) and the
-   sidebar (90) — those two stay fully visible, only the pushed-over content
-   behind them dims. */
+@media (max-width: 760px) and (prefers-reduced-motion: reduce) {
+    .sidebar, .sidebar.open, .sidebar-backdrop { transition: none; }
+}
+
+/* Dims the page (topbar included) while the drawer is open. Tapping it
+   closes the drawer. Always rendered on phones so it can fade in and out.
+   It only takes taps while .open is set. */
 .sidebar-backdrop {
     position: fixed;
     inset: 0;
     background: rgba(8, 10, 14, 0.6);
-    z-index: 50;
+    z-index: 80;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity 0.3s ease, visibility 0s linear 0.3s;
 }
 
-.sidebar-backdrop[hidden] { display: none; }
+.sidebar-backdrop.open {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transition: opacity 0.3s ease, visibility 0s;
+}
 
 /* The drawer only exists on phones — never leave the backdrop stranded if the
    window is widened while the nav is open. */

@@ -789,6 +789,7 @@ export function initShell() {
 
     document.getElementById("logout-btn").addEventListener("click", () => {
         logoutHandlers.forEach(fn => fn());
+        setNavOpen(false);
         clearSession();
         document.getElementById("global-topbar").hidden = true;
         document.getElementById("app-layout").hidden = true;
@@ -803,7 +804,7 @@ export function initShell() {
 
     function setNavOpen(isOpen) {
         sidebar.classList.toggle("open", isOpen);
-        sidebarBackdrop.hidden = !isOpen;
+        sidebarBackdrop.classList.toggle("open", isOpen);
     }
 
     document.getElementById("nav-toggle-btn").addEventListener("click", () => {

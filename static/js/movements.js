@@ -42,14 +42,23 @@ async function refreshSiteLiveness() {
     }
 }
 
-// Bumped by loadMovements() on every route re-dispatch and history-filter
-// toggle. A refreshMovements() call captures the value at its own start and
-// checks it again once the fetch resolves — if a newer call has started in
-// the meantime, this one's response is stale (however it got that way: a
-// slower request, or one that simply started earlier) and is discarded
-// instead of overwriting the screen with an answer to a question nobody's
-// asking anymore.
-let movementsRequestId = 0;
+// Two separate staleness checks. They used to be one counter bumped by
+// every call, which meant each 1.5s poll tick invalidated whatever request
+// was still in flight. On a slow server (any response over 1.5s) nothing
+// ever got to render, and the table sat on "Loading movements..." for good.
+//
+// movementsGeneration: bumped only by loadMovements() (navigation, history
+// toggle). A response from an older generation answered a different
+// question (e.g. history off vs on) and is dropped.
+// movementsSeq / movementsAppliedSeq: within one generation, a response is
+// dropped only if a *newer* one has already been rendered. A slower older
+// response can never overwrite a newer one, but a newer request no longer
+// cancels an older one that hasn't been answered yet.
+let movementsGeneration = 0;
+let movementsSeq = 0;
+let movementsAppliedSeq = 0;
+let movementsInFlight = 0;
+let livenessInFlight = false;
 
 export const MOVEMENT_STATUS_META = {
     pending: { label: "Pending", cls: "pending" },
@@ -72,29 +81,38 @@ const MOVEMENT_REASON_LABELS = {
 // the one function every fetch of this list goes through, load or poll
 // alike, so the staleness guard below covers both.
 async function refreshMovements() {
-    const requestId = ++movementsRequestId;
-    const [res] = await Promise.all([
-        fetch(`/movements${showMovementHistory ? "?history=true" : ""}`, { headers: authHeaders() }),
-        // Phase 4.9's prefill data — fetched every cycle alongside the list
-        // (not gated behind the dedup below) so a site coming online while
-        // a movement sits "arrived" shows up within one live-sync tick,
-        // same responsiveness as everything else on this page.
-        refreshSiteLiveness(),
-    ]);
-    // A newer call (another poll tick, or a fresh loadMovements() from
-    // navigating away and back) has started since this fetch went out —
-    // whatever this response says, it's not the answer to display anymore.
-    // Without this, two overlapping requests race on nothing but network
-    // timing: whichever happens to resolve *last* wins the render, even if
-    // it was the *first* one issued and is now describing an older state
-    // than what the newer request already put on screen.
-    if (requestId !== movementsRequestId) return;
-    if (!res.ok) {
-        document.getElementById("movements-rows").innerHTML = '<tr><td colspan="6" class="loading-text">Failed to load movements</td></tr>';
+    const generation = movementsGeneration;
+    const seq = ++movementsSeq;
+    const isStale = () => generation !== movementsGeneration || seq < movementsAppliedSeq;
+    movementsInFlight++;
+    let res, data;
+    // Phase 4.9's prefill data — refreshed every cycle alongside the list
+    // (not gated behind the dedup below), but not awaited: it's only a hint,
+    // and /monitoring/status can be slow, so the table shouldn't wait on it.
+    // An "arrived" row always re-renders on the next tick (see hasArrived
+    // below), which is when a late answer shows up.
+    if (!livenessInFlight) {
+        livenessInFlight = true;
+        refreshSiteLiveness().finally(() => { livenessInFlight = false; });
+    }
+    try {
+        res = await fetch(`/movements${showMovementHistory ? "?history=true" : ""}`, { headers: authHeaders() });
+        if (res.ok) data = await res.json();
+    } catch {
+        res = null;
+    } finally {
+        movementsInFlight--;
+    }
+    if (isStale()) return;
+    movementsAppliedSeq = seq;
+    if (!res || !res.ok) {
+        // Only replace the loading placeholder — a failed background poll
+        // shouldn't wipe a table that's already showing good data.
+        if (movementsCache === null) {
+            document.getElementById("movements-rows").innerHTML = '<tr><td colspan="6" class="loading-text">Failed to load movements</td></tr>';
+        }
         return;
     }
-    const data = await res.json();
-    if (requestId !== movementsRequestId) return;
     // movementsCache is null exactly when there's nothing on screen yet to
     // compare against (see its declaration above) — most other polls land
     // on an unchanged list, where rebuilding the tbody anyway would tear
@@ -122,6 +140,7 @@ async function refreshMovements() {
 async function loadMovements() {
     document.getElementById("movements-rows").innerHTML = '<tr><td colspan="6" class="loading-text">Loading movements...</td></tr>';
     movementsCache = null;
+    movementsGeneration++;
     await refreshMovements();
 }
 
@@ -308,6 +327,9 @@ function startLiveSync() {
         const view = document.getElementById("view-movements");
         if (!view || view.hidden) return;
         if (document.visibilityState !== "visible") return;
+        // Don't pile a new request on top of one still waiting — on a slow
+        // server that just queues more work and answers nothing sooner.
+        if (movementsInFlight > 0) return;
         refreshMovements();
     }, LIVE_SYNC_INTERVAL_MS);
 }
