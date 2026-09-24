@@ -1,5 +1,6 @@
 import {
     authHeaders, showMessage, showView, navigate, registerRoute, refreshBadges, timeAgo, formatDate, getCurrentUser,
+    registerNotificationsChangedHandler,
 } from "./common.js";
 
 function esc(s) {
@@ -213,6 +214,12 @@ export function initAlerts() {
     registerRoute("notifications", () => {
         showView("view-notifications");
         loadNotificationsPage();
+    });
+
+    // The bell (or a new alert on the poll) changed what's read while this
+    // page is open — reload so it never disagrees with the bell.
+    registerNotificationsChangedHandler(() => {
+        if (!document.getElementById("view-notifications").hidden) loadNotificationsPage();
     });
 
     registerRoute("alert-templates", () => {

@@ -283,6 +283,20 @@ body {
 
 .nav-badge[hidden] { display: none; }
 
+/* Right-hand end of a collapsible heading: its count badge + chevron. */
+.nav-heading-end {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* Once the group is open, the sub-link below shows the same count, so the
+   heading's copy steps aside instead of showing it twice. */
+.nav-heading:not(.collapsed) .nav-badge-group { display: none; }
+
+/* A badge inside a sub-link sits at the far right, like on a heading. */
+.nav-link .nav-badge { margin-left: auto; }
+
 /* ---- Mobile nav: an off-canvas drawer that slides over the page from the
    left on tap of the topbar hamburger. It used to be an in-flow column that
    animated its width from 0, which had two problems:
@@ -425,7 +439,7 @@ body {
     margin: 0;
 }
 
-/* .btn-add-site is used by 4+ views (movements-link-btn, check-sites-link-btn,
+/* .btn-add-site is used by several views (movements-link-btn, status-link-btn,
    add-user-open-btn, add-role-open-btn) — genuinely shared, not one view's. */
 .btn-add-site {
     background: var(--accent);
@@ -491,7 +505,7 @@ body {
     to { opacity: 1; transform: translateY(0); }
 }
 
-/* ---- Stat grid: shared by dashboard's battery stats and check-sites' stats ---- */
+/* ---- Stat grid: dashboard's battery stats and other views' summary cards ---- */
 .stat-grid {
     display: grid;
     grid-template-columns: repeat(5, 1fr);
@@ -674,6 +688,77 @@ body {
     }
 }
 
+/* ---- Compact tables on phones (opt-in: add table-compact next to
+   table-scroll). The default above squeezes every column to fit the screen,
+   so cells wrapped onto 3-5 lines and the 55vh box showed about three rows.
+   Compact tables instead:
+   - keep every cell on one line, so a row is one line tall;
+   - drop the 55vh inner scroll box and let the page scroll, so the whole
+     screen is used for rows;
+   - pin the first column (the row's name) while the rest swipes sideways.
+   Batteries, Reports and Alerts deliberately don't opt in. ---- */
+@media (max-width: 760px) {
+    .table-scroll.table-compact {
+        max-height: none;
+        overflow-y: visible;
+    }
+
+    .table-compact th,
+    .table-compact td {
+        white-space: nowrap;
+        padding: 10px 12px;
+        font-size: 13px;
+    }
+
+    .table-compact th { font-size: 10px; }
+
+    /* Headers aren't sticky here: with no vertical scroll box of its own,
+       there's nothing for them to stick to. */
+    .table-compact thead th {
+        position: static;
+        box-shadow: none;
+        transform: none;
+    }
+
+    /* Long free text (addresses, notes, descriptions) is cut with "…" rather
+       than making one column a screen wide. The full text is still in the
+       edit/view dialog. */
+    .table-compact td {
+        max-width: 220px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    /* Pinned first column. Opaque background, or the cells swiping
+       underneath show through it. */
+    .table-compact th:first-child,
+    .table-compact td:first-child {
+        position: sticky;
+        left: 0;
+        z-index: 5;
+        max-width: 150px;
+        box-shadow: 1px 0 0 var(--border);
+    }
+
+    .table-compact td:first-child { background: var(--surface); }
+    .table-compact thead th:first-child { background: var(--surface-2); }
+    .table-compact tr:hover td:first-child { background: var(--surface-2); }
+
+    /* Row action buttons sit side by side instead of stacking. */
+    .table-compact .actions-cell {
+        flex-wrap: nowrap;
+    }
+
+    /* A "No rows"/"Loading..." message spans every column and should wrap
+       and stay put, not be pinned or cut off. */
+    .table-compact td[colspan] {
+        position: static;
+        white-space: normal;
+        max-width: none;
+        box-shadow: none;
+    }
+}
+
 /* ---- Frozen leading column: pinned in place while the rest of a wide table
    scrolls sideways underneath, so the technician never loses track of which
    row they're on. Phones only — nothing overflows at desktop widths, so
@@ -764,8 +849,8 @@ tr:hover td { background: var(--surface-2); }
 }
 
 /* Base status pill — view-specific color variants live in each view's own
-   CSS file (dashboard: deployed/at-base, movements: movement-*, check-sites:
-   site-online/site-offline), always paired with this base class. */
+   CSS file (dashboard: deployed/at-base, movements: movement-*),
+   always paired with this base class. */
 .status-pill {
     display: inline-block;
     white-space: nowrap;

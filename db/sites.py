@@ -1,4 +1,4 @@
-from db.connection import db_cursor, utc_iso, now_eat, to_eat
+from db.connection import db_cursor
 
 def add_location(name, contact_name=None, contact_phone=None, address=None, is_home_base=False):
     with db_cursor() as (conn, cur):
@@ -62,59 +62,6 @@ def get_all_locations():
         for r in rows
     ]
 
-def confirm_site(location_id, is_online):
-    """One-tap check-in from the Check Sites list — now records the actual
-    online/offline state, not just that someone looked."""
-    with db_cursor() as (conn, cur):
-        cur.execute(
-            "UPDATE locations SET is_online = %s, verification_confirmed_at = NOW() WHERE id = %s;",
-            (is_online, location_id)
-        )
-        conn.commit()
-
-def get_sites_with_verification_status():
-    """is_online is the real, persistent state of the site (only changes when
-    someone explicitly answers online/offline, from here or from a movement's
-    site-check). needs_check is just the hourly nag, derived on read by
-    comparing verification_confirmed_at's hour to the current hour — separate
-    concept from the actual online/offline value."""
-    with db_cursor() as (conn, cur):
-        cur.execute("""
-            SELECT id, name, is_online, verification_confirmed_at
-            FROM locations
-            WHERE is_active = true
-            ORDER BY name;
-        """)
-        rows = cur.fetchall()
-
-    now = now_eat()
-    result = []
-    for r in rows:
-        confirmed_at = r[3]
-        confirmed_at_eat = to_eat(confirmed_at)
-        needs_check = not (
-            confirmed_at_eat is not None
-            and confirmed_at_eat.date() == now.date()
-            and confirmed_at_eat.hour == now.hour
-        )
-        result.append({
-            "id": r[0],
-            "name": r[1],
-            "is_online": r[2],
-            "needs_check": needs_check,
-            "verification_confirmed_at": utc_iso(confirmed_at),
-        })
-    return result
-
-def get_unconfirmed_site_count():
-    """Outside the 8am-8pm active window (East Africa Time), nothing is
-    flagged — badge shows 0."""
-    now = now_eat()
-    if not (8 <= now.hour < 20):
-        return 0
-    sites = get_sites_with_verification_status()
-    return sum(1 for s in sites if s["needs_check"])
-
 def is_location_home_base(location_id):
     """Used by db/batteries.py's record_movement — a battery leaving home base
     resets its charge_status to 'unknown' since we lose visibility once it's
@@ -128,8 +75,7 @@ def is_location_home_base(location_id):
 def set_location_online_status(location_id, is_online, stamp_confirmed):
     """Used by db/batteries.py's movement site-check actions. stamp_confirmed
     controls whether verification_confirmed_at also updates — mark_site_still_down
-    deliberately leaves it stale so the hourly check keeps flagging the site
-    until someone reports it back online."""
+    deliberately leaves it stale, since nobody has confirmed the site is fine."""
     with db_cursor() as (conn, cur):
         if stamp_confirmed:
             cur.execute(

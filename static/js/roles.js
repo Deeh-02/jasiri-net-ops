@@ -88,7 +88,6 @@ const PERM_SECTIONS = [
     {
         key: "sites", label: "Sites", actions: ["add", "edit", "delete"],
         children: [
-            { key: "site_checks", label: "Check Sites", actions: ["confirm"] },
             // Network monitoring (Status tab). view_status gates the tab and
             // its endpoints; view_revenue is nested under it and is the only
             // thing that puts revenue figures in the API payload.
@@ -189,7 +188,7 @@ const PERM_SECTIONS = [
 ];
 
 const ACTION_NOUN = {
-    batteries: "battery", movements: "movement", sites: "site", site_checks: "site check",
+    batteries: "battery", movements: "movement", sites: "site",
     users: "user", roles: "role", inventory_items: "item",
     inventory_categories: "category",
     inventory_transactions: "transaction",

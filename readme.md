@@ -65,8 +65,9 @@ at least one `admin`-role user created directly before the app is usable.
   permission split. A site confirmed still down closes the movement out
   but flags the battery (red status pill, still reads "Deployed") until
   the site is confirmed back online, independent of the movement record.
-- **Sites** — site directory plus an hourly online/offline
-  verification flow ("Check Sites").
+- **Sites** — site directory, with network status and trends from
+  router monitoring (the manual hourly "Check Sites" list was removed
+  2026-09-24 once monitoring covered it).
 - **Users / Roles** — user management with a granular,
   section-and-action permission grid per role.
 - **Settings** — profile editing, password change with a show/hide

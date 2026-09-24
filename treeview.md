@@ -102,7 +102,6 @@ battery-tracker/
     │   │                                 #   modals + stat-detail click-through modal
     │   ├── movements.html               # Movements tracking table (pending/in-transit/etc.)
     │   ├── sites.html
-    │   ├── check-sites.html
     │   ├── users.html
     │   ├── roles.html                   # role list + permission-grid edit form
     │   ├── settings.html                # Profile + Password tabs
@@ -151,7 +150,6 @@ battery-tracker/
     │   │                                 #   dashboard.js's refreshData() after a cancel;
     │   │                                 #   refreshMovements() has the same unchanged-data skip
     │   ├── sites.js
-    │   ├── check-sites.js
     │   ├── users.js
     │   ├── roles.js                      # permission-grid rendering — flat + nested checkbox
     │   │                                 #   sections (incl. Inventory's Items/Stock/Categories/
@@ -197,7 +195,6 @@ battery-tracker/
         │                                 #   .battery-row-flagged red row accent)
         ├── movements.css
         ├── sites.css
-        ├── check-sites.css
         ├── users.css
         ├── roles.css                      # permission-grid layout, slant-tab-free (Roles has no
         │                                 #   tab group — Settings and the View Battery modal do)

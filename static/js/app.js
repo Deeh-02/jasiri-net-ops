@@ -2,7 +2,6 @@ import { loadViewFragments, initShell, resolveAuthUI, bootAuth } from "./common.
 import { initDashboard } from "./dashboard.js";
 import { initSites } from "./sites.js";
 import { initMovements } from "./movements.js";
-import { initCheckSites } from "./check-sites.js";
 import { initStatus } from "./status.js";
 import { initSiteDetail } from "./site-detail.js";
 import { initTrends } from "./trends.js";
@@ -29,7 +28,6 @@ async function boot() {
     initDashboard();
     initSites();
     initMovements();
-    initCheckSites();
     initStatus();
     initSiteDetail();
     initTrends();

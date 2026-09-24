@@ -395,8 +395,8 @@ def get_active_movement_count():
     """Badge count for the Movements nav/quick-link — mirrors
     get_active_movements()'s "not yet fully resolved" status set, so the
     badge and the default (non-history) Movements list always agree on
-    what counts as still-open. Not time-gated, same as Check Sites'
-    unconfirmed-count badge: it reflects what needs attention right now."""
+    what counts as still-open. Not time-gated: it reflects what needs
+    attention right now."""
     with db_cursor() as (conn, cur):
         cur.execute(
             """
@@ -493,9 +493,9 @@ def record_movement(battery_id, from_location_id, to_location_id, reason=None, m
 
 def confirm_site_online(movement_id):
     """Movement -> Site Confirmed Online. Cross-feature link: also flips the
-    destination site's is_online to TRUE and stamps verification_confirmed_at —
-    this IS the hourly confirmation, not a separate write. If the site was
-    sitting Offline in the Check Sites list, this brings it back Online there too."""
+    destination site's is_online to TRUE and stamps verification_confirmed_at.
+    (Those two columns used to feed the Check Sites page, removed 2026-09-24;
+    they're still written so the record of who confirmed what stays intact.)"""
     with db_cursor() as (conn, cur):
         cur.execute(
             """
@@ -517,14 +517,12 @@ def mark_site_still_down(movement_id):
     """Answering a site-check as 'still down' closes the MOVEMENT out as
     'completed' — its lifecycle ends here, no further status changes are
     expected on this record. The battery's own real-world resolution (once
-    the site is eventually confirmed back online, whether via Check Sites
-    or a later movement) is tracked separately via the location's
-    is_online, not by keeping this movement open.
+    the site is eventually confirmed back online by a later movement) is
+    tracked separately via the location's is_online, not by keeping this
+    movement open.
 
-    Marks the destination site is_online = FALSE, so it shows Offline in the
-    Check Sites list too. Deliberately does NOT stamp verification_confirmed_at —
-    the site keeps getting flagged as needing a check every hour until someone
-    reports it back online, rather than going quiet just because we know it's down."""
+    Marks the destination site is_online = FALSE. Deliberately does NOT stamp
+    verification_confirmed_at, since nobody has confirmed the site is fine."""
     with db_cursor() as (conn, cur):
         cur.execute(
             """

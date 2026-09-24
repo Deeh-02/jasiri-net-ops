@@ -7,7 +7,6 @@
     <link rel="stylesheet" href="/static/css/dashboard.css">
     <link rel="stylesheet" href="/static/css/sites.css">
     <link rel="stylesheet" href="/static/css/movements.css">
-    <link rel="stylesheet" href="/static/css/check-sites.css">
     <link rel="stylesheet" href="/static/css/status.css">
     <link rel="stylesheet" href="/static/css/site-detail.css">
     <link rel="stylesheet" href="/static/css/trends.css">
@@ -160,7 +159,6 @@
                         </svg>
                         Sites
                     </span>
-                    <span class="nav-badge" id="sites-nav-badge" hidden>0</span>
                 </button>
             </div>
 
@@ -213,11 +211,14 @@
                         </svg>
                         Alerts
                     </span>
-                    <span class="chevron">▾</span>
+                    <span class="nav-heading-end">
+                        <span class="nav-badge nav-badge-group" id="alerts-nav-badge" hidden>0</span>
+                        <span class="chevron">▾</span>
+                    </span>
                 </button>
                 <div class="nav-subitems collapsed" id="alerts-nav-subitems">
                     <div class="nav-subitems-inner">
-                        <button class="nav-link sub" data-view="notifications" data-label="Notifications">Notifications</button>
+                        <button class="nav-link sub" data-view="notifications" data-label="Notifications">Notifications<span class="nav-badge" id="notifications-nav-badge" hidden>0</span></button>
                         <button class="nav-link sub" data-view="alert-templates" data-label="SMS Templates">SMS Templates</button>
                     </div>
                 </div>
@@ -251,7 +252,6 @@
             <div data-view-mount="dashboard"></div>
             <div data-view-mount="sites"></div>
             <div data-view-mount="movements"></div>
-            <div data-view-mount="check-sites"></div>
             <div data-view-mount="status"></div>
             <div data-view-mount="site-detail"></div>
             <div data-view-mount="trends"></div>

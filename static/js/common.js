@@ -70,7 +70,6 @@ const ROUTE_PERMISSION_MAP = {
     users: ["users", "view"],
     roles: ["roles", "view"],
     movements: ["movements", "view"],
-    "check-sites": ["site_checks", "view"],
     status: ["sites", "view_status"],
     // Drilling into one site isn't a heavier claim than seeing it listed on
     // Status, so it shares that route's gate rather than getting its own.
@@ -213,9 +212,6 @@ function applyPermissionVisibility() {
 
     const manageSitesLinkBtn = document.getElementById("manage-sites-link-btn");
     if (manageSitesLinkBtn) manageSitesLinkBtn.hidden = !can("sites", "manage_monitoring");
-
-    const checkSitesLinkBtn = document.getElementById("check-sites-link-btn");
-    if (checkSitesLinkBtn) checkSitesLinkBtn.hidden = !can("site_checks", "view");
 
     const issueMaterialsLinkBtn = document.getElementById("issue-materials-link-btn");
     if (issueMaterialsLinkBtn) issueMaterialsLinkBtn.hidden = !can("inventory_transactions", "issue");
@@ -428,12 +424,6 @@ function startRouter(fallback) {
 
 function initHeaderLinkIcons() {
     document.getElementById("movements-link-icon").innerHTML = moveIconSvg();
-    document.getElementById("check-sites-link-icon").innerHTML = `
-        <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M8 1.5L14 4V8C14 11.5 11.5 13.8 8 14.5C4.5 13.8 2 11.5 2 8V4L8 1.5Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
-            <path d="M5.5 8L7.2 9.7L10.5 6.2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-    `;
     const issueMaterialsLinkIcon = document.getElementById("issue-materials-link-icon");
     if (issueMaterialsLinkIcon) issueMaterialsLinkIcon.innerHTML = `
         <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -450,10 +440,39 @@ function initHeaderLinkIcons() {
     `;
 }
 
+// Views that show notification read state themselves (Alerts >
+// Notifications) register here to be told when the unread count changes —
+// whether that came from the bell's "Mark all read", tapping an item in the
+// bell, the view's own buttons, or a new alert arriving on the 45s poll.
+// Without this the bell and the Notifications page each kept their own
+// picture, and marking all read in one left the other showing unread items.
+const notificationsChangedHandlers = [];
+export function registerNotificationsChangedHandler(fn) {
+    notificationsChangedHandlers.push(fn);
+}
+
+// null until the first count arrives, so the first refresh after login
+// never counts as a "change" by itself.
+let lastUnreadCount = null;
+
+// Same number in three places: the bell, the Alerts heading in the sidebar,
+// and its Notifications sub-link. The heading's copy is hidden by CSS while
+// the group is expanded, so the count never shows twice side by side.
+function renderUnreadBadges(count) {
+    const bellBadge = document.getElementById("notifications-badge");
+    bellBadge.textContent = count > 99 ? "99+" : count;
+    bellBadge.hidden = count === 0;
+    ["alerts-nav-badge", "notifications-nav-badge"].forEach(id => {
+        const badge = document.getElementById(id);
+        if (!badge) return;
+        badge.textContent = count > 99 ? "99+" : count;
+        badge.hidden = count === 0;
+    });
+}
+
 export async function refreshBadges() {
-    const [movRes, siteRes, notifRes] = await Promise.all([
+    const [movRes, notifRes] = await Promise.all([
         fetch("/movements/active-count", { headers: authHeaders() }),
-        fetch("/locations/unconfirmed-count", { headers: authHeaders() }),
         fetch("/notifications/unread-count", { headers: authHeaders() }),
     ]);
 
@@ -466,20 +485,12 @@ export async function refreshBadges() {
         navBadge.textContent = count;
         navBadge.hidden = count === 0;
     }
-    if (siteRes.ok) {
-        const { count } = await siteRes.json();
-        const badge = document.getElementById("sites-badge");
-        badge.textContent = count;
-        badge.hidden = count === 0;
-        const navBadge = document.getElementById("sites-nav-badge");
-        navBadge.textContent = count;
-        navBadge.hidden = count === 0;
-    }
     if (notifRes.ok) {
         const { count } = await notifRes.json();
-        const badge = document.getElementById("notifications-badge");
-        badge.textContent = count > 99 ? "99+" : count;
-        badge.hidden = count === 0;
+        renderUnreadBadges(count);
+        const changed = lastUnreadCount !== null && count !== lastUnreadCount;
+        lastUnreadCount = count;
+        if (changed) notificationsChangedHandlers.forEach(fn => fn());
     }
 }
 
@@ -550,7 +561,10 @@ const logoutHandlers = [];
 export function registerLogoutHandler(fn) {
     logoutHandlers.push(fn);
 }
-registerLogoutHandler(() => clearInterval(notifPollId));
+registerLogoutHandler(() => {
+    clearInterval(notifPollId);
+    lastUnreadCount = null; // the next login may be a different person
+});
 
 export async function showApp() {
     document.getElementById("login-screen").hidden = true;
@@ -665,7 +679,7 @@ function renderCmdkResults(query) {
 // ---- Fragment loader: fetches every view's HTML and injects it into its
 // mount point. Loaded eagerly, all at once, at startup — the app is small
 // enough that lazy-per-nav loading isn't worth the added state-tracking. ----
-const VIEW_NAMES = ["dashboard", "sites", "movements", "check-sites", "status", "site-detail", "trends", "manage-sites", "packages", "notifications", "alert-templates", "users", "roles", "settings", "inventory", "stock", "inventory-log", "issue-materials", "return-materials", "inventory-reports", "sms-status", "inventory-manage"];
+const VIEW_NAMES = ["dashboard", "sites", "movements", "status", "site-detail", "trends", "manage-sites", "packages", "notifications", "alert-templates", "users", "roles", "settings", "inventory", "stock", "inventory-log", "issue-materials", "return-materials", "inventory-reports", "sms-status", "inventory-manage"];
 
 export async function loadViewFragments() {
     await Promise.all(VIEW_NAMES.map(async (name) => {

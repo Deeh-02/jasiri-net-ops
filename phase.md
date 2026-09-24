@@ -389,6 +389,7 @@ After this phase the router answers the same question in ~60 seconds.
 3. `confirm-online` becomes a **prefilled one-tap**: *"Monitoring saw Sunton come back online at 14:32, 12m after you marked arrived"* — accept or contradict.
 4. **Both answers stored.** A contradiction is a finding: uplink up while the tech says otherwise usually means something else at the site is dead.
 5. Re-check whether `unconfirmed-count` still earns its nav badge once most confirmations are pre-answered. The re-check is in scope; changing it is not.
+   **Update 2026-09-24 (owner decision):** the Check Sites page, its `unconfirmed-count` Sites nav badge and the three `/locations/verification`, `/locations/{id}/confirm`, `/locations/unconfirmed-count` endpoints were removed. Monitoring answers "is it up" and Check Sites no longer did anything useful. The movement `confirm-online` check (point 2) is untouched. The `site_checks` permission rows and the `locations.verification_confirmed_at` / `is_online` columns were left in place (no schema change).
 
 ---
 
