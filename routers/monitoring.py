@@ -10,6 +10,7 @@ from db import alert_templates
 from db import monitoring_alerts
 from db import monitoring_reconciliation
 from db import monitoring_retention
+from db import sms_log
 from db.connection import now_eat
 from routers.auth import get_current_user
 from routers.permissions import user_has_permission
@@ -516,3 +517,25 @@ def update_site(site_id: int, body: SiteUpdate, current_user: dict = Depends(req
     if not found:
         raise HTTPException(status_code=404, detail="Monitored site not found")
     return {"ok": True}
+
+
+# Reports > SMS Status — the delivery log behind every alert. Gated on
+# reports:view, the same master permission as the other Reports pages.
+@router.get("/monitoring/sms-log")
+def get_sms_log(start: Optional[str] = None, end: Optional[str] = None,
+                channel: Optional[str] = None, status: Optional[str] = None,
+                current_user: dict = Depends(get_current_user)):
+    if not user_has_permission(current_user, "reports", "view"):
+        raise HTTPException(status_code=403, detail="You don't have permission to view reports")
+    if channel and channel not in sms_log.CHANNELS:
+        raise HTTPException(status_code=400, detail="Unknown channel")
+    try:
+        first = date.fromisoformat(start) if start else date.today() - timedelta(days=30)
+        last = date.fromisoformat(end) if end else date.today()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Dates must be YYYY-MM-DD")
+    # Days are picked in EAT (UTC+3); sent_at is stored in UTC.
+    eat = timedelta(hours=3)
+    since = datetime.combine(first, datetime.min.time()) - eat
+    until = datetime.combine(last + timedelta(days=1), datetime.min.time()) - eat
+    return sms_log.list_deliveries(since, until, channel, status)

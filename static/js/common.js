@@ -101,6 +101,7 @@ const ROUTE_PERMISSION_MAP = {
     // plain heading[data-view] branch in applyPermissionVisibility() below —
     // no NAV_GROUP_MASTER_PERMISSION entry needed for it.
     "inventory-reports": ["reports", "view"],
+    "sms-status": ["reports", "view"],
     "inventory-manage": ["inventory_categories", "view"],
     // Alerts group. "notifications" has no entry on purpose — it's the
     // user's own inbox, same as the bell, so everyone logged in gets it
@@ -362,6 +363,7 @@ function parseRoute(hash) {
 const NAV_GROUP_ROUTES = {
     inventory: ["inventory", "stock", "inventory-log", "inventory-manage"],
     alerts: ["notifications", "alert-templates"],
+    reports: ["inventory-reports", "sms-status"],
 };
 
 function setActiveNav(name) {
@@ -663,7 +665,7 @@ function renderCmdkResults(query) {
 // ---- Fragment loader: fetches every view's HTML and injects it into its
 // mount point. Loaded eagerly, all at once, at startup — the app is small
 // enough that lazy-per-nav loading isn't worth the added state-tracking. ----
-const VIEW_NAMES = ["dashboard", "sites", "movements", "check-sites", "status", "site-detail", "trends", "manage-sites", "packages", "notifications", "alert-templates", "users", "roles", "settings", "inventory", "stock", "inventory-log", "issue-materials", "return-materials", "inventory-reports", "inventory-manage"];
+const VIEW_NAMES = ["dashboard", "sites", "movements", "check-sites", "status", "site-detail", "trends", "manage-sites", "packages", "notifications", "alert-templates", "users", "roles", "settings", "inventory", "stock", "inventory-log", "issue-materials", "return-materials", "inventory-reports", "sms-status", "inventory-manage"];
 
 export async function loadViewFragments() {
     await Promise.all(VIEW_NAMES.map(async (name) => {

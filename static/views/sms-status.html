@@ -1,0 +1,49 @@
+    <section class="view" id="view-sms-status" hidden>
+        <div class="page-header-row">
+            <h1 class="page-title">SMS Status</h1>
+        </div>
+
+        <div class="sms-status-filters">
+            <label>From <input type="date" id="sms-status-start"></label>
+            <label>To <input type="date" id="sms-status-end"></label>
+            <label>Channel
+                <select id="sms-status-channel">
+                    <option value="sms">SMS</option>
+                    <option value="whatsapp">WhatsApp</option>
+                    <option value="in_app">In-app</option>
+                    <option value="">All</option>
+                </select>
+            </label>
+            <label>Status
+                <select id="sms-status-status">
+                    <option value="">All</option>
+                    <option value="sent">Sent</option>
+                    <option value="failed">Failed</option>
+                    <option value="not_configured">Not configured</option>
+                    <option value="rate_limited">Rate limited</option>
+                    <option value="skipped_quiet_hours">Quiet hours</option>
+                </select>
+            </label>
+        </div>
+
+        <div class="sms-status-summary" id="sms-status-summary"></div>
+
+        <div class="table-scroll">
+            <table id="sms-status-table">
+                <thead>
+                    <tr>
+                        <th>Id</th>
+                        <th>Type</th>
+                        <th>Channel</th>
+                        <th>Recipient</th>
+                        <th>Mobile No</th>
+                        <th>Site</th>
+                        <th>Status</th>
+                        <th>Provider response</th>
+                        <th>Sent</th>
+                    </tr>
+                </thead>
+                <tbody id="sms-status-rows"></tbody>
+            </table>
+        </div>
+    </section>
