@@ -19,6 +19,8 @@ import { initIssueMaterials } from "./issue-materials.js";
 import { initReturnMaterials } from "./return-materials.js";
 import { initInventoryReports } from "./inventory-reports.js";
 import { initSmsStatus } from "./sms-status.js";
+import { initCustomers } from "./customers.js";
+import { initBroadcast } from "./broadcast.js";
 
 async function boot() {
     initShell();
@@ -45,6 +47,8 @@ async function boot() {
     initReturnMaterials();
     initInventoryReports();
     initSmsStatus();
+    initCustomers();
+    initBroadcast();
 
     bootAuth();
 }

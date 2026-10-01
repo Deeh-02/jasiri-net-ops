@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
-from routers import auth, permissions, sites, batteries, users, inventory, monitoring, notifications
+from routers import auth, permissions, sites, batteries, users, inventory, monitoring, notifications, customers
 
 app = FastAPI()
 
@@ -30,6 +30,7 @@ app.include_router(users.router)
 app.include_router(inventory.router)
 app.include_router(monitoring.router)
 app.include_router(notifications.router)
+app.include_router(customers.router)
 
 @app.get("/")
 def serve_dashboard():

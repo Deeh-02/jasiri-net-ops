@@ -106,6 +106,8 @@ const ROUTE_PERMISSION_MAP = {
     // user's own inbox, same as the bell, so everyone logged in gets it
     // (which also keeps the Alerts group itself always visible).
     "alert-templates": ["sites", "edit_alert_messages"],
+    customers: ["sites", "send_broadcasts"],
+    broadcast: ["sites", "send_broadcasts"],
 };
 
 function isRouteAllowed(name) {
@@ -358,7 +360,7 @@ function parseRoute(hash) {
 // still shows collapsed.
 const NAV_GROUP_ROUTES = {
     inventory: ["inventory", "stock", "inventory-log", "inventory-manage"],
-    alerts: ["notifications", "alert-templates"],
+    alerts: ["notifications", "alert-templates", "customers", "broadcast"],
     reports: ["inventory-reports", "sms-status"],
 };
 
@@ -679,7 +681,7 @@ function renderCmdkResults(query) {
 // ---- Fragment loader: fetches every view's HTML and injects it into its
 // mount point. Loaded eagerly, all at once, at startup — the app is small
 // enough that lazy-per-nav loading isn't worth the added state-tracking. ----
-const VIEW_NAMES = ["dashboard", "sites", "movements", "status", "site-detail", "trends", "manage-sites", "packages", "notifications", "alert-templates", "users", "roles", "settings", "inventory", "stock", "inventory-log", "issue-materials", "return-materials", "inventory-reports", "sms-status", "inventory-manage"];
+const VIEW_NAMES = ["dashboard", "sites", "movements", "status", "site-detail", "trends", "manage-sites", "packages", "notifications", "alert-templates", "customers", "broadcast", "users", "roles", "settings", "inventory", "stock", "inventory-log", "issue-materials", "return-materials", "inventory-reports", "sms-status", "inventory-manage"];
 
 export async function loadViewFragments() {
     await Promise.all(VIEW_NAMES.map(async (name) => {

@@ -106,6 +106,10 @@ const PERM_SECTIONS = [
                     // Alerts > SMS Templates — changes the wording every
                     // recipient above gets, on every channel.
                     { label: "Edit Alert Messages", action: "edit_alert_messages" },
+                    // Alerts > Customers / Broadcast — import the PPPoE customer
+                    // list and text them. Holds phone numbers and can message
+                    // every customer, so it's its own switch.
+                    { label: "Customer Broadcasts", action: "send_broadcasts" },
                 ],
             },
         ]
