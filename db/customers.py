@@ -188,14 +188,19 @@ def _audience(cur, router_ids, status_filter):
     cond = STATUS_FILTERS[status_filter]
     cur.execute(
         f"""
-        SELECT DISTINCT ON (c.phone) c.id, c.phone, c.name
-        FROM ppp_customers c
+        SELECT DISTINCT ON (c.phone) c.id, c.phone, c.name, c.username, r.name, c.account_status, c.enabled
+        FROM ppp_customers c JOIN ppp_routers r ON r.id = c.router_id
         WHERE c.router_id = ANY(%s) AND c.phone IS NOT NULL AND {cond}
         ORDER BY c.phone, c.id
         """,
         (router_ids,),
     )
-    recipients = [{"customer_id": r[0], "phone": r[1], "name": r[2]} for r in cur.fetchall()]
+    recipients = [
+        {"customer_id": r[0], "phone": r[1], "name": r[2], "username": r[3], "router": r[4],
+         "account_status": r[5], "enabled": r[6]}
+        for r in cur.fetchall()
+    ]
+    recipients.sort(key=lambda r: (r["router"], (r["name"] or r["username"]).lower()))
     cur.execute(
         f"SELECT count(*) FROM ppp_customers c WHERE c.router_id = ANY(%s) AND c.phone IS NULL AND {cond}",
         (router_ids,),
@@ -206,27 +211,32 @@ def _audience(cur, router_ids, status_filter):
 def audience_preview(router_ids, status_filter):
     with db_cursor() as (conn, cur):
         recipients, no_phone = _audience(cur, router_ids, status_filter)
-    return {"count": len(recipients), "no_phone": no_phone}
+    return {"count": len(recipients), "no_phone": no_phone, "recipients": recipients}
 
 
 def render_message(template, name):
     return template.replace("{{NAME}}", (name or "").strip() or "Customer")
 
 
-def start_broadcast(user_id, message, router_ids, status_filter, expected_count):
-    """Validates, snapshots the audience and records the broadcast. Returns
-    (broadcast_id, recipients). expected_count is what the user saw in the
-    preview — if the audience has changed since (a re-import in between), the
-    send is refused rather than going to a different number of people."""
+def start_broadcast(user_id, message, router_ids, status_filter, customer_ids):
+    """Validates, snapshots the recipients and records the broadcast. Returns
+    (broadcast_id, recipients). customer_ids are the people the user left
+    ticked in the audience list. Each must still be in that audience — if one
+    isn't (a re-import or edit in between moved them), the send is refused
+    rather than going to somebody the user didn't see.
+
+    status_filter is recorded as given, except 'selected' when the user sent
+    to fewer people than the audience holds, so the history never claims
+    "Active customers" for a hand-picked few."""
+    if not customer_ids:
+        raise BroadcastRefused("Tick at least one person to send to")
     with db_cursor() as (conn, cur):
-        recipients, _ = _audience(cur, router_ids, status_filter)
-        if not recipients:
-            raise BroadcastRefused("Nobody matches that audience")
-        if len(recipients) != expected_count:
-            raise BroadcastRefused(
-                f"The audience changed: it is now {len(recipients)} people, not {expected_count}. "
-                "Preview again to confirm."
-            )
+        audience, _ = _audience(cur, router_ids, status_filter)
+        by_id = {r["customer_id"]: r for r in audience}
+        wanted = set(customer_ids)
+        if not wanted <= by_id.keys():
+            raise BroadcastRefused("The customer list changed since you checked it. Check the audience again.")
+        recipients = [by_id[i] for i in by_id if i in wanted]
         cur.execute(
             "SELECT 1 FROM customer_broadcasts WHERE message = %s AND created_at > now() - %s",
             (message, DUPLICATE_WINDOW),
@@ -238,7 +248,8 @@ def start_broadcast(user_id, message, router_ids, status_filter, expected_count)
             INSERT INTO customer_broadcasts (message, router_ids, status_filter, recipient_count, sent_by)
             VALUES (%s, %s, %s, %s, %s) RETURNING id
             """,
-            (message, router_ids, status_filter, len(recipients), user_id),
+            (message, router_ids, status_filter if len(recipients) == len(audience) else "selected",
+             len(recipients), user_id),
         )
         broadcast_id = cur.fetchone()[0]
         conn.commit()

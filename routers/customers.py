@@ -133,7 +133,7 @@ def preview(body: AudienceQuery, current_user: dict = Depends(require_broadcast_
 
 class BroadcastCreate(AudienceQuery):
     message: str = Field(min_length=1, max_length=db.MAX_MESSAGE_LENGTH)
-    expected_count: int
+    customer_ids: list[int] = Field(min_length=1, max_length=5000)
 
 
 @router.post("/customers/broadcasts")
@@ -149,7 +149,7 @@ def send_broadcast(
         raise HTTPException(status_code=400, detail="Write a message first")
     try:
         broadcast_id, recipients = db.start_broadcast(
-            current_user["id"], message, body.router_ids, body.status_filter, body.expected_count
+            current_user["id"], message, body.router_ids, body.status_filter, body.customer_ids
         )
     except db.BroadcastRefused as e:
         raise HTTPException(status_code=409, detail=str(e))

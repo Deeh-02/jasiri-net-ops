@@ -4,7 +4,7 @@
         </div>
 
         <div class="broadcast-intro">
-            <p>Send one SMS to PPPoE customers. Check the audience first &mdash; you'll see exactly how many people it reaches before anything is sent. A person with two accounts is texted once.</p>
+            <p>Send one SMS to PPPoE customers. Check the audience to see exactly who would be texted, then untick anyone you don't want to reach. To text one person or a few, choose &ldquo;Pick customers myself&rdquo; and tick them. A person with two accounts is listed and texted once.</p>
         </div>
 
         <div class="broadcast-form">
@@ -18,6 +18,7 @@
                     <option value="active">Active (paying) only</option>
                     <option value="expired">Expired only</option>
                     <option value="all">Everyone</option>
+                    <option value="pick">Pick customers myself</option>
                 </select>
             </label>
 
@@ -31,6 +32,16 @@
             </fieldset>
 
             <div class="broadcast-audience" id="broadcast-audience"></div>
+
+            <div class="broadcast-recipients" id="broadcast-recipients" hidden>
+                <div class="broadcast-recipients-toolbar">
+                    <input type="search" id="broadcast-recipient-search" placeholder="Search name, username or phone">
+                    <button type="button" id="broadcast-select-visible">Tick shown</button>
+                    <button type="button" id="broadcast-clear-visible">Untick shown</button>
+                </div>
+                <div class="broadcast-recipients-count" id="broadcast-recipients-count"></div>
+                <div class="broadcast-recipients-list" id="broadcast-recipients-list"></div>
+            </div>
 
             <div class="broadcast-actions">
                 <button type="button" id="broadcast-preview-btn">Check audience</button>
