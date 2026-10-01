@@ -67,6 +67,7 @@
 }
 
 .broadcast-audience .warn { color: var(--danger); }
+.broadcast-audience .dim { color: var(--text-dim); }
 
 .broadcast-actions { display: flex; gap: 10px; }
 
@@ -135,6 +136,7 @@
     cursor: pointer;
 }
 
+.broadcast-recipients-empty,
 .broadcast-recipients-count {
     font-size: 12.5px;
     color: var(--text-dim);

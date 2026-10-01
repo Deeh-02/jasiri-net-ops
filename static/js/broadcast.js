@@ -8,9 +8,12 @@ const STATUS_LABEL = { active: "Active", expired: "Expired", all: "Everyone", se
 const STATE_LABEL = { sending: "Sending…", done: "Done", interrupted: "Interrupted" };
 
 let routers = [];
-// The audience the user last checked: Send is only allowed for exactly this.
+// The audience currently listed: Send is only allowed for exactly this.
 let checked = null;
 let pollTimer = null;
+// Bumped on every refresh so a slow answer for an earlier choice can't
+// overwrite the list for the current one.
+let refreshToken = 0;
 
 function selectedRouterIds() {
     return [...document.querySelectorAll("#broadcast-routers input:checked")].map(i => Number(i.value));
@@ -33,9 +36,10 @@ function setMessage(text, isError) {
     el.className = `form-msg ${isError ? "error" : "success"}`;
 }
 
-function invalidateCheck() {
+function clearAudience(hint) {
     checked = null;
-    document.getElementById("broadcast-audience").textContent = "";
+    refreshToken++;
+    document.getElementById("broadcast-audience").textContent = hint || "";
     document.getElementById("broadcast-recipients").hidden = true;
     updateSendButton();
 }
@@ -46,8 +50,14 @@ function updateSendButton() {
     document.getElementById("broadcast-counter").textContent = `${document.getElementById("broadcast-message").value.length} / 480`;
 }
 
+// A phone is stored as 2547XXXXXXXX; people search the way they write it
+// (0712…, +254712…, 712…), so compare digits only and treat a leading 0 as 254.
 function matchesSearch(r, q) {
-    return !q || `${r.name || ""} ${r.username} ${r.phone}`.toLowerCase().includes(q);
+    if (!q) return true;
+    if (`${r.name || ""} ${r.username}`.toLowerCase().includes(q)) return true;
+    const digits = q.replace(/\D/g, "");
+    if (!digits) return false;
+    return r.phone.includes(digits.startsWith("0") ? "254" + digits.slice(1) : digits);
 }
 
 function visibleRecipients() {
@@ -55,11 +65,25 @@ function visibleRecipients() {
     return checked.recipients.filter(r => matchesSearch(r, q));
 }
 
-function updateRecipientCount() {
+// The line above the list, updated on every tick so it reads live.
+function updateSummary() {
+    const total = checked.recipients.length;
+    const ticked = checked.selected.size;
     const shown = visibleRecipients();
-    document.getElementById("broadcast-recipients-count").textContent =
-        `${checked.selected.size} of ${checked.recipients.length} ticked` +
-        (shown.length !== checked.recipients.length ? ` · showing ${shown.length}` : "");
+    const searching = shown.length !== total;
+    document.getElementById("broadcast-audience").innerHTML =
+        (ticked
+            ? `<strong>${ticked}</strong> of ${total} ${total === 1 ? "person" : "people"} will get this message.` +
+              (ticked === total ? " Untick anyone you don't want to reach." : "")
+            : `<strong>Nobody ticked yet.</strong> ${total} ${total === 1 ? "person matches" : "people match"} — tick who to text.`) +
+        (searching ? ` <span class="dim">Showing ${shown.length} matching your search.</span>` : "") +
+        (checked.no_phone ? ` <span class="warn">${checked.no_phone} matching customer${checked.no_phone === 1 ? " has" : "s have"} no usable phone number and can't be texted.</span>` : "");
+    document.getElementById("broadcast-select-visible").textContent = searching ? `Tick shown (${shown.length})` : "Tick all";
+    document.getElementById("broadcast-clear-visible").textContent = searching ? `Untick shown (${shown.length})` : "Untick all";
+}
+
+function updateRecipientCount() {
+    updateSummary();
     updateSendButton();
 }
 
@@ -73,36 +97,38 @@ function renderRecipients() {
                 <span class="broadcast-recipient-sub">${esc(r.username)} · ${esc(r.phone)} · ${esc(r.router)}</span>
             </span>
             <span class="broadcast-recipient-status ${esc(r.account_status.toLowerCase())}">${esc(r.account_status)}${r.enabled ? "" : " (disabled)"}</span>
-        </label>`).join("") : `<div class="broadcast-recipients-count">Nobody matches that search.</div>`;
+        </label>`).join("") : `<div class="broadcast-recipients-empty">${checked.recipients.length ? "Nobody matches that search." : "No customers with a phone number match."}</div>`;
 }
 
-async function checkAudience() {
+// Runs whenever the routers or the customers choice changes (and on opening
+// the page), so the list is always the one Send would use.
+async function refreshAudience() {
     const audience = currentAudience();
-    const box = document.getElementById("broadcast-audience");
     if (!audience.router_ids.length) {
-        box.innerHTML = `<span class="warn">Pick at least one router.</span>`;
+        clearAudience("Pick at least one router to see who would be texted.");
         return;
     }
+    const token = ++refreshToken;
     const res = await fetch("/customers/broadcasts/preview", {
         method: "POST", headers: authHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({ router_ids: audience.router_ids, status_filter: audience.status_filter }),
     });
+    if (token !== refreshToken) return;
     if (!res.ok) {
-        box.innerHTML = `<span class="warn">Couldn't check the audience.</span>`;
+        clearAudience("Couldn't load the customers.");
         return;
     }
     const data = await res.json();
+    if (token !== refreshToken) return;
     checked = {
         router_ids: audience.router_ids,
         status_filter: audience.status_filter,
         recipients: data.recipients,
+        no_phone: data.no_phone,
         selected: new Set(audience.startEmpty ? [] : data.recipients.map(r => r.customer_id)),
     };
-    box.innerHTML = `<strong>${data.count}</strong> ${data.count === 1 ? "person matches" : "people match"}.` +
-        (data.no_phone ? ` <span class="warn">${data.no_phone} matching customer${data.no_phone === 1 ? " has" : "s have"} no usable phone number and can't be texted.</span>` : "") +
-        (audience.startEmpty ? " Tick the people to text." : " Untick anyone you don't want to reach.");
     document.getElementById("broadcast-recipient-search").value = "";
-    document.getElementById("broadcast-recipients").hidden = !data.recipients.length;
+    document.getElementById("broadcast-recipients").hidden = false;
     renderRecipients();
 }
 
@@ -137,7 +163,7 @@ async function sendBroadcast() {
     }
     setMessage(`Sending to ${data.recipient_count} ${data.recipient_count === 1 ? "person" : "people"}…`, false);
     document.getElementById("broadcast-message").value = "";
-    invalidateCheck();
+    refreshAudience();
     loadHistory();
 }
 
@@ -175,15 +201,14 @@ async function loadPage() {
         box.innerHTML = routers.map(r =>
             `<label class="checkbox-row"><input type="checkbox" value="${r.id}"> ${esc(r.name)}</label>`).join("");
     }
-    invalidateCheck();
+    refreshAudience();
     loadHistory();
 }
 
 export function initBroadcast() {
-    document.getElementById("broadcast-routers").addEventListener("change", invalidateCheck);
-    document.getElementById("broadcast-status").addEventListener("change", invalidateCheck);
+    document.getElementById("broadcast-routers").addEventListener("change", refreshAudience);
+    document.getElementById("broadcast-status").addEventListener("change", refreshAudience);
     document.getElementById("broadcast-message").addEventListener("input", updateSendButton);
-    document.getElementById("broadcast-preview-btn").addEventListener("click", checkAudience);
     document.getElementById("broadcast-send-btn").addEventListener("click", sendBroadcast);
     document.getElementById("broadcast-recipient-search").addEventListener("input", () => checked && renderRecipients());
     document.getElementById("broadcast-select-visible").addEventListener("click", () => checked && setShownTicked(true));
