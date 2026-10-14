@@ -11,10 +11,10 @@ keeps this in sync automatically.
 battery-tracker/
 ├── main.py                        # FastAPI app: mounts /static, registers every router, serves "/",
 │                                    #   forces Cache-Control:no-cache on every /static/* response
-├── requirements.txt                # Python deps — no ORM, no test framework
+├── requirements.txt                # Python deps — no ORM; tests use stdlib unittest, nothing to install
 ├── schema.sql                      # STALE — see ARCHITECTURE.md's Schema choices section
 ├── run_test.py                     # ad-hoc manual debug script (prints one battery's movement
-│                                    #   history) — not a test suite, no test framework in this repo
+│                                    #   history) — not a test suite; the real tests are in tests/
 ├── ask_deepseek.py                 # DeepSeek delegation script — see DELEGATION.md
 ├── .gitignore
 │
@@ -35,7 +35,19 @@ battery-tracker/
 │   │                                   #   silently-stopped user list (2026-09-21) is visible
 │   ├── 0010_revenue_events_origin_vlan.sql # Phase 4.7: origin_vlan_id — the VLAN a sale came
 │   │                                   #   from even when it isn't a registered site yet
-│   └── 0011_site_acknowledgements.sql  # Phase 4.5: mute a known-bad site without changing its state
+│   ├── 0011_site_acknowledgements.sql  # Phase 4.5: mute a known-bad site without changing its state
+│   ├── 0012_site_alerting.sql          # Phase 4.8: notifications, alert subscriptions, alert episodes,
+│   │                                   #   alert_deliveries (the audit log SMS Status reads)
+│   ├── 0013_alert_escalation_step.sql  # Phase 4.8: escalation_step on an episode (reminder ladder)
+│   ├── 0014_site_confirmations.sql     # Phase 4.9: monitor vs human confirm-online, both answers kept
+│   ├── 0015_alert_channels_default_on.sql # SMS/WhatsApp default ON for people with no row
+│   ├── 0016_alert_message_templates.sql # editable alert wording — only overrides are rows
+│   ├── 0017_ppp_customers_and_broadcasts.sql # PPPoE customer list + manual SMS broadcasts
+│   ├── 0018_alert_send_window.sql      # one-row alert_settings: only send alerts between two times (EAT)
+│   ├── 0019_daily_site_revenue.sql     # revenue reporting: daily + hourly per-site tables, frozen days,
+│   │                                   #   re-freeze log
+│   ├── 0020_revenue_report_config.sql  # revenue report thresholds — only overrides are rows
+│   └── 0021_revenue_site_status.sql    # revenue alerts judged per site-day, with the thresholds used
 │
 ├── router/                          # RouterOS scripts, pasted onto the CCR by a human — never run by Ops
 │   └── ops-heartbeat.rsc             # Phase 4.3: read-only 60s heartbeat POSTing to /monitoring/ingest
@@ -48,7 +60,10 @@ battery-tracker/
 │   ├── sites.py                      # locations CRUD, hourly online/offline verification
 │   ├── batteries.py                  # batteries CRUD + movements (create/list/lifecycle actions)
 │   ├── users.py                      # users + roles + role_permissions CRUD
-│   ├── monitoring.py                 # Phase 4: token-auth /monitoring/ingest + status/revenue API
+│   ├── monitoring.py                 # Phase 4: token-auth /monitoring/ingest + status/revenue API,
+│   │                                  #   alert wording + send window, /monitoring/revenue-report/*
+│   ├── notifications.py              # the in-app bell + Alerts > Notifications inbox
+│   ├── customers.py                  # PPPoE customer list upload + manual SMS broadcasts
 │   └── inventory.py                  # the whole Inventory domain's routes — categories,
 │                                      #   locations, items/products, issue/return carts,
 │                                      #   transaction log, reconciliation, reports/summaries.
@@ -72,6 +87,24 @@ battery-tracker/
 │   ├── monitoring_retention.py         # Phase 4: rolls up raw session/status rows past
 │   │                                   #   SESSION_RAW_KEEP; run_if_due called from the ingest
 │   │                                   #   request itself, no separate scheduler
+│   ├── monitoring_alerts.py            # Phase 4.8: debounced/flap-aware alerts, escalation ladder,
+│   │                                   #   bundling + battery plan; mutes on quiet hours, the send
+│   │                                   #   window and acknowledgement
+│   ├── monitoring_reconciliation.py    # Phase 4.9: store monitor vs human confirm-online answers
+│   ├── alert_channels.py               # SMS (HostPinnacle) / WhatsApp senders
+│   ├── alert_templates.py              # alert wording: code defaults + editable overrides
+│   ├── alert_settings.py               # the global alert send window (fails open)
+│   ├── notifications.py                # notifications table access (the bell)
+│   ├── sms_log.py                      # alert_deliveries reads for Reports > SMS Status
+│   ├── customers.py                    # PPPoE customers + broadcast history
+│   ├── customer_import.py              # parses the uploaded customer spreadsheet
+│   ├── revenue_daily.py                # revenue reporting: builds/freezes daily + hourly tables from
+│   │                                   #   revenue_events; CLI backfill/refresh/refreeze
+│   ├── revenue_logic.py                # revenue reporting's PURE rules — period resolver, compare,
+│   │                                   #   contributions, rankings, trend, alert rules; no I/O
+│   ├── revenue_config.py               # report thresholds: code defaults + editable overrides
+│   ├── revenue_report.py               # Level 1/2 report assembly (cards, trend, site table, metrics)
+│   ├── revenue_alerts.py               # runs the alert rules per site-day, stores/reads results
 │   ├── inventory_locations.py          # inventory_locations CRUD + get_or_create_location_by_name
 │   │                                   #   (Issue/Return's free-typed Site field, Add/Edit Unit's
 │   │                                   #   Location field) + get_default_store_location (Return's
@@ -102,6 +135,18 @@ battery-tracker/
     │   │                                 #   modals + stat-detail click-through modal
     │   ├── movements.html               # Movements tracking table (pending/in-transit/etc.)
     │   ├── sites.html
+    │   ├── status.html                  # Sites > Status: live state, known issues, acknowledgements
+    │   ├── trends.html                  # Sites > Trends: every site over a day/week/month
+    │   ├── site-detail.html             # one site's report (route site-detail/:id/:kind/:value)
+    │   ├── manage-sites.html            # monitored-site setup (gated manage_monitoring)
+    │   ├── packages.html                # hotspot package prices — what each sale is worth
+    │   ├── notifications.html           # Alerts > Notifications inbox
+    │   ├── alert-templates.html         # Alerts > SMS Templates: send window + editable wording
+    │   ├── customers.html               # Alerts > Customers: PPPoE customer list
+    │   ├── broadcast.html               # Alerts > Broadcast: manual SMS to chosen customers
+    │   ├── sms-status.html              # Reports > SMS Status: the alert delivery log
+    │   ├── revenue.html                 # Reports > Revenue: cards, findings, attention, sites,
+    │   │                                 #   rankings, trend
     │   ├── users.html
     │   ├── roles.html                   # role list + permission-grid edit form
     │   ├── settings.html                # Profile + Password tabs
@@ -150,6 +195,17 @@ battery-tracker/
     │   │                                 #   dashboard.js's refreshData() after a cancel;
     │   │                                 #   refreshMovements() has the same unchanged-data skip
     │   ├── sites.js
+    │   ├── status.js                     # Status tab (own module — imports only common.js)
+    │   ├── trends.js                     # Trends tab
+    │   ├── site-detail.js                # site report: charts, period controls
+    │   ├── manage-sites.js
+    │   ├── packages.js
+    │   ├── alerts.js                     # Notifications inbox + SMS Templates + the send-window card
+    │   ├── customers.js
+    │   ├── broadcast.js
+    │   ├── sms-status.js
+    │   ├── revenue.js                    # Reports > Revenue: renders the API's pre-formatted
+    │   │                                 #   figures, sorts the site table client-side, SVG trend
     │   ├── users.js
     │   ├── roles.js                      # permission-grid rendering — flat + nested checkbox
     │   │                                 #   sections (incl. Inventory's Items/Stock/Categories/
@@ -195,6 +251,16 @@ battery-tracker/
         │                                 #   .battery-row-flagged red row accent)
         ├── movements.css
         ├── sites.css
+        ├── status.css                     # Status page + the Status/Trends tab strip
+        ├── trends.css                     # Trends tab; .fleet-range switch is reused by Revenue
+        ├── site-detail.css
+        ├── manage-sites.css
+        ├── packages.css
+        ├── alerts.css                     # Notifications, SMS Templates, send-window card
+        ├── customers.css
+        ├── broadcast.css
+        ├── sms-status.css
+        ├── revenue.css                    # Reports > Revenue (.rev-* classes)
         ├── users.css
         ├── roles.css                      # permission-grid layout, slant-tab-free (Roles has no
         │                                 #   tab group — Settings and the View Battery modal do)
@@ -212,6 +278,14 @@ battery-tracker/
         │                                 #   cart-group serial list
         └── inventory-reports.css
 ```
+
+`tests/` (not shown above, to keep the tree readable): `__init__.py` plus
+`test_revenue_logic.py` (period resolver, compare), `test_revenue_trend.py`
+(split, rolling mean, MAD band, slope, summary), `test_revenue_sites.py`
+(contributions, rankings, per-site series), `test_revenue_alerts.py` (the
+red/amber/green rules) and `test_revenue_config.py`. Standard-library
+`unittest`, no database needed — run from the repo root with
+`python -m unittest discover -s tests -t .`.
 
 ## Governance / reference docs (repo root, not shown in the tree above)
 

@@ -28,6 +28,8 @@ note that `schema.sql` is currently stale relative to the live DB.
 ```
 main.py              # creates the app, mounts /static, registers routers, serves "/"
 migrations/           # numbered .sql scripts, run by hand — no migration framework
+tests/                 # unittest, stdlib only, no DB — currently the revenue report's pure rules;
+                        # run: python -m unittest discover -s tests -t .
 routers/              # one file per domain: auth, permissions, sites, batteries, users, inventory
 db/                    # connection.py (shared) + one file per domain — EXCEPT inventory,
                         # which is one router (routers/inventory.py) over several files

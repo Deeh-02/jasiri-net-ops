@@ -47,6 +47,13 @@ Then:
 uvicorn main:app --reload
 ```
 
+Tests (standard-library `unittest`, no database needed — they cover the
+revenue report's rules):
+
+```bash
+python -m unittest discover -s tests -t .
+```
+
 The app serves itself at `http://127.0.0.1:8000/` — `main.py` mounts
 `/static` and serves `static/index.html` (the SPA shell) at `/`.
 
@@ -68,6 +75,20 @@ at least one `admin`-role user created directly before the app is usable.
 - **Sites** — site directory, with network status and trends from
   router monitoring (the manual hourly "Check Sites" list was removed
   2026-09-24 once monitoring covered it).
+- **Alerts** — people on the alert list are told when a site goes down,
+  stays down, flaps or comes back, by in-app notification, SMS and
+  WhatsApp. Wording is editable (Alerts → SMS Templates), alerts can be
+  limited to set hours of the day (same page), a site someone has
+  acknowledged is left out of the "send a battery" list, and
+  Customers/Broadcast sends a manual SMS to chosen PPPoE customers.
+- **Revenue report** (Reports → Revenue) — a deterministic, read-only
+  report on hotspot sales: headline cards (today, yesterday, week, month,
+  year, each against a chosen comparison), key findings, a site table with
+  each site's share of the change, rankings, and a trend chart. Sites that
+  need attention are flagged red/amber/green by stated rules, each showing
+  the numbers that triggered it. No AI — every figure traces to stored
+  sales, and a past day reads the same every time. Gated on the View
+  Revenue permission.
 - **Users / Roles** — user management with a granular,
   section-and-action permission grid per role.
 - **Settings** — profile editing, password change with a show/hide
@@ -120,7 +141,7 @@ picking this up too:
 Phases 0–3 are confirmed done and merged to `main` — structural split,
 mobile fixes, finish-incomplete-functionality, and Phase 3 ("Ops Inventory
 System," the Inventory domain described above). Phase 4 ("Network
-Monitoring," site status + hotspot revenue tracking) is active, on the
-`phase-4-network-monitoring` branch, not yet merged. See
+Monitoring," site status, alerting and hotspot revenue reporting) is
+active, on the `phase-4-network-monitoring` branch, not yet merged. See
 [phase.md](phase.md) and [changelog.md](changelog.md) for the full
 breakdown.

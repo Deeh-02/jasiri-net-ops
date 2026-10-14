@@ -5,6 +5,44 @@ Phase-based, not version-based — this project ships in named phases (see
 concise, user-facing summary; full technical detail lives in the git log
 and in `phase.md`'s own per-phase writeups.
 
+## Phase 4 — Network Monitoring (in progress, on `phase-4-network-monitoring`)
+
+Not merged yet; the entry below is filled in as pieces land. Full detail and
+the reasoning behind each decision is in `phase.md` §4.
+
+**Site status and reports**
+- Status and Trends pages for every monitored site, driven by a 60-second
+  router heartbeat: online/offline/flapping, people connected, uptime, and a
+  per-site report for any day, week or month.
+- Acknowledge a known-bad site to move it out of the headline without
+  hiding that it's down.
+- Hotspot sales are recorded per site, with the package price at the time
+  of the sale; Packages shows what each package is worth.
+
+**Alerts**
+- Debounced down alerts with a reminder ladder, a one-off flapping alert,
+  and a back-online message, by in-app notification, SMS and WhatsApp.
+- When two or more sites are down at once, one combined message with a
+  "which site gets which battery" plan. A site someone has acknowledged is
+  left out of that plan (2026-10-14).
+- Message wording is editable (Alerts → SMS Templates).
+- Alerts can be limited to set hours of the day (2026-10-14); reminders that
+  came due overnight go out once when the hours open, not one per poll.
+- Reports → SMS Status shows every alert actually sent.
+- Customers and Broadcast: upload the PPPoE customer list and send a manual
+  SMS to chosen customers.
+
+**Revenue report** (2026-10-14)
+- Reports → Revenue: today / yesterday / week / month / year against a
+  chosen comparison, partial periods compared to the same point, key
+  findings, a plain-language summary, a sortable site table with each site's
+  share of the change, rankings, and a trend chart with an "unusual" band.
+- Sites needing attention are flagged red / amber / green by stated rules,
+  each showing the numbers that triggered it; thresholds are editable
+  defaults. Hotspot sales only for now — PPPoE revenue is not included.
+- Past days are frozen, so a report for an earlier date is the same every
+  time it's opened.
+
 ## Phase 3 — Ops Inventory System (completed 2026-09-17, merged to `main`)
 
 A new inventory/asset-tracking domain for field operations, entirely
