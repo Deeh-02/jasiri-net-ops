@@ -583,6 +583,38 @@ debounce doesn't count toward the group either, for the same reason it
 doesn't get its own alert. The router-restart marker (which would let a
 reboot be told apart from a real outage) is still not built.
 
+**Send window + acknowledged sites out of the battery plan — DONE
+2026-10-14, on owner request.** Three changes to when and about what alerts
+are sent:
+
+- **Alert send window.** New global setting, edited at the top of Alerts →
+  *SMS Templates* ("When alerts are sent", same `sites:edit_alert_messages`
+  gate as the wording). When enabled, alerts of every kind are only *sent*
+  between a start and end time (EAT, may wrap midnight; default off, so an
+  untouched install behaves as before). Outside it nothing is sent but the
+  episode keeps running — it mutes sending exactly as per-site quiet hours
+  do, and both apply. Stored in migration 0018's single-row
+  `alert_settings` (`db/alert_settings.py`); a missing table falls back to
+  "send at any hour", never to silence. Known and accepted: a *recovery*
+  that happens outside the window is not sent later — it fires once, on the
+  transition, and is dropped if muted (same as it always was for quiet
+  hours).
+- **Catch-up is one send.** A reminder that came due while muted (window,
+  quiet hours or acknowledgement) used to fire once per poll after the mute
+  lifted, advancing one checkpoint each time — a site down overnight would
+  have burst a dozen texts at 08:00. A send now sets `escalation_step` to
+  the number of checkpoints already crossed, so it is one message; the
+  battery recommendation rides on whichever send covers the 15-minute
+  checkpoint, and a late first alert is worded as a reminder with a
+  duration rather than "just went down".
+- **Acknowledged sites are out of the bundle.** Reverses the original
+  "currently down is a physical fact" rule above for acknowledged sites
+  only: they no longer count toward `BUNDLE_MIN_SITES` and aren't listed in
+  the battery plan, since someone has already said they're handling that
+  site and the one charged battery shouldn't be sent there. One
+  acknowledged site plus one unacknowledged one is a solo message about the
+  unacknowledged one. Quiet-hours sites still count, as before.
+
 #### 4.9 — Reconcile monitor against human `confirm-online`: DONE 2026-09-23
 
 Implement the prefill above, store both answers, surface contradictions.

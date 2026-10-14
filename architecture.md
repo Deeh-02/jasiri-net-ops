@@ -1409,6 +1409,21 @@ first", never why in KES terms. Ranking by revenue internally and
 printing revenue are two separate rules; this exception touches only
 the first.
 
+### Alert send window — one global row, fails open
+
+`alert_settings` (migration 0018) holds exactly one row (`CHECK (id = 1)`):
+whether alerts are limited to a window, and its start/end in EAT. It is a
+table rather than an env var so the owner can change it from Alerts → SMS
+Templates without a deploy, and a single constrained row rather than
+key/value pairs because there are three fields and no second consumer yet.
+It is read at the top of every alert pass (`db/alert_settings.get()`),
+which **fails open**: a missing table or a database error means "send at
+any hour" — the same rule `db/alert_templates.load_all()` follows — because
+the cost of a missed migration must be a setting that can't be edited, never
+an outage nobody was told about. The window only ever suppresses *sending*;
+episodes, `site_status_log` and the Status page are untouched, which is also
+why a muted reminder can simply fire when the window opens.
+
 ### Revenue attribution — durable signal first, moment-in-time second, guess last
 
 A hotspot sale (`db/monitoring.py`'s `_record_revenue`) is booked once,
