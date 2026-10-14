@@ -64,21 +64,30 @@ exactly one combined message per recipient, never two near-identical ones
 — see _deliver_bundle's "one message per subscriber per send".
 
 The combined message carries a battery dispatch plan for every site
-CURRENTLY down (ranked the same way as below: most people online first,
-today's revenue as the tiebreak), not just the sites whose own clock
-happened to fire this pass — "currently down" is read as a physical fact
-here, so it also counts acknowledged/quiet-hours sites toward both the
-2-site threshold and the plan, even though those sites' own messages stay
-suppressed as always. The one exception: a site under its own 5-minute
-debounce (SCHEDULE_MINUTES[0]) never counts either, for itself or anyone
-else's bundle — the debounce exists precisely so a blip is never
-announced, and folding it into someone else's message the moment it
-appears would defeat that. (PHASES.md 4.8's router-restart marker, which
+currently down AND not acknowledged (ranked the same way as below: most
+people online first, today's revenue as the tiebreak), not just the sites
+whose own clock happened to fire this pass. Acknowledged sites (Owner's
+call 2026-10-14, reversing the original "down is a physical fact" rule)
+are left out of the plan and out of the 2-site threshold entirely — "send
+a battery there" is a request to act, and someone has already said they're
+handling that site, so listing it again is noise and can send the one
+charged battery to a site that's already being dealt with. One
+acknowledged site plus one unacknowledged one is therefore a solo
+message about the unacknowledged one. Quiet-hours sites still count, as
+before. A site under its own 5-minute debounce (SCHEDULE_MINUTES[0])
+never counts either, for itself or anyone else's bundle — the debounce
+exists precisely so a blip is never announced, and folding it into
+someone else's message the moment it appears would defeat that. (PHASES.md 4.8's router-restart marker, which
 would let a CCR reboot be told apart from a real outage, still needs a
 router-side startup script and isn't built.)
 
-QUIET HOURS and ACKNOWLEDGEMENT both suppress SENDING, never the episode
+QUIET HOURS, the global SEND WINDOW (db/alert_settings.py, Alerts > SMS
+Templates) and ACKNOWLEDGEMENT all suppress SENDING, never the episode
 itself — site_status_log and the Status page are unaffected either way.
+A reminder that came due while muted goes out once when the mute lifts, and
+the escalation step jumps past every checkpoint already crossed (see
+`next_step` in _evaluate) — otherwise a site that was down all night would
+fire one catch-up reminder per poll the moment the window opened.
 
 MONEY. No alert body in this file ever includes a revenue figure — see
 PHASES.md 4.4's "gating covers ... alert message bodies". Down/recovered/
@@ -118,6 +127,7 @@ import json
 import logging
 from datetime import datetime, timedelta, timezone
 
+from db import alert_settings
 from db.alert_channels import send_sms, send_whatsapp
 from db.alert_templates import load_all as load_templates, render as render_template
 from db.connection import db_cursor, now_eat
@@ -592,6 +602,7 @@ def _count_recent_transitions(cur, site_id, since):
 def _evaluate():
     now = datetime.utcnow()
     t = load_templates()
+    window_open = alert_settings.is_open(alert_settings.get())
 
     with db_cursor() as (conn, cur):
         # Only 'pppoe' sites can ever report 'offline' today — 'activity'
@@ -648,7 +659,10 @@ def _evaluate():
         for site_id, info in sites.items():
             st = latest.get(site_id)
             episode = open_by_site.get(site_id)
-            quiet = _in_quiet_hours(info["quiet_start"], info["quiet_end"])
+            # Outside the global send window every site is muted the same
+            # way a site's own quiet hours mute it — sending only, never
+            # the episode.
+            quiet = not window_open or _in_quiet_hours(info["quiet_start"], info["quiet_end"])
 
             if st and st["state"] == "offline":
                 if episode is None:
@@ -689,15 +703,15 @@ def _evaluate():
                 step = episode["escalation_step"]
 
                 # Past its own 5-minute debounce (SCHEDULE_MINUTES[0]) — it
-                # counts toward the bundling group from here on regardless
-                # of acked/quiet or whether ITS OWN clock happens to fire
-                # this pass; "down" is a physical fact once confirmed, and
-                # acked/quiet only ever suppress that site's own sends (see
-                # BUNDLING in the file header). A site under 5 minutes down
-                # stays out of it too — the debounce exists so a blip is
-                # never announced, in its own alert OR anyone else's bundled
-                # one.
-                if down_for >= timedelta(minutes=SCHEDULE_MINUTES[0]):
+                # counts toward the bundling group from here on, whether or
+                # not ITS OWN clock happens to fire this pass, and whether
+                # or not it's in quiet hours. Acknowledged sites don't (see
+                # BUNDLING in the file header): they're already being
+                # handled, so they're neither counted nor sent a battery. A
+                # site under 5 minutes down stays out too — the debounce
+                # exists so a blip is never announced, in its own alert OR
+                # anyone else's bundled one.
+                if down_for >= timedelta(minutes=SCHEDULE_MINUTES[0]) and site_id not in acked:
                     currently_down[site_id] = {
                         "site_id": site_id, "episode_id": episode["id"], "name": info["name"],
                         "sessions_at_drop": sessions_at_drop,
@@ -710,11 +724,18 @@ def _evaluate():
                 # lifts rather than being silently skipped forever.
                 if (step < len(SCHEDULE_MINUTES) and down_for >= timedelta(minutes=SCHEDULE_MINUTES[step])
                         and site_id not in acked and not quiet):
+                    # Checkpoints already crossed. Normally step + 1; larger
+                    # when the site sat muted past several of them, in which
+                    # case this one send covers them all.
+                    next_step = sum(1 for m in SCHEDULE_MINUTES if down_for >= timedelta(minutes=m))
                     pending_down.append({
                         "site_id": site_id, "episode_id": episode["id"], "name": info["name"],
                         "sessions_at_drop": sessions_at_drop,
                         "opened_at_eat": episode["opened_at"] + timedelta(hours=3),
-                        "step": step, "downtime": down_for,
+                        "step": step, "next_step": next_step, "downtime": down_for,
+                        # The "just went down" wording only fits a send that
+                        # is on time; a late one is a reminder with a duration.
+                        "first_alert": step == 0 and next_step == 1,
                     })
 
             elif st and st["state"] == "online" and episode is not None:
@@ -753,34 +774,37 @@ def _evaluate():
                     cur.execute(
                         """
                         UPDATE site_alert_episodes
-                        SET down_alert_sent_at = now(), escalation_step = escalation_step + 1, mass_event = true
+                        SET down_alert_sent_at = now(), escalation_step = %s, mass_event = true
                         WHERE id = %s
                         """,
-                        (p["episode_id"],),
+                        (p["next_step"], p["episode_id"]),
                     )
                 _deliver_bundle(cur, all_down, message, recipients)
             else:
                 # Solo path — only one site can be in pending_down here,
                 # since currently_down (which pending_down is always a
                 # subset of) has fewer than BUNDLE_MIN_SITES sites in it.
-                # Battery recommendation (Task 3) still only fires at step 1
-                # (the first "still down" reminder).
-                step1_sites = [p for p in pending_down if p["step"] == 1]
+                # Battery recommendation (Task 3) goes on the send that
+                # covers the 15-minute checkpoint (step 1) — normally that
+                # checkpoint's own send, or the catch-up send if the site
+                # was muted when it came due.
+                step1_sites = [p for p in pending_down if p["step"] <= 1 < p["next_step"]]
                 battery_assignments = _battery_recommendations(cur, [
                     {"site_id": p["site_id"], "sessions_at_drop": p["sessions_at_drop"]} for p in step1_sites
                 ])
                 for p in pending_down:
-                    title = f"{p['name']} is down" if p["step"] == 0 else f"{p['name']} still down"
+                    title = f"{p['name']} is down" if p["first_alert"] else f"{p['name']} still down"
                     battery_recommended, battery_none = _battery_slots(t, battery_assignments.get(p["site_id"]))
-                    message = _down_message(t, p["name"], p["sessions_at_drop"], p["opened_at_eat"], p["step"], p["downtime"],
+                    message = _down_message(t, p["name"], p["sessions_at_drop"], p["opened_at_eat"],
+                                             0 if p["first_alert"] else max(p["step"], 1), p["downtime"],
                                              battery_recommended, battery_none)
                     cur.execute(
                         """
                         UPDATE site_alert_episodes
-                        SET down_alert_sent_at = now(), escalation_step = escalation_step + 1
+                        SET down_alert_sent_at = now(), escalation_step = %s
                         WHERE id = %s
                         """,
-                        (p["episode_id"],),
+                        (p["next_step"], p["episode_id"]),
                     )
                     _deliver(cur, p["episode_id"], p["site_id"], "down", title, message, recipients)
 

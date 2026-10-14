@@ -101,7 +101,8 @@ TEMPLATES = {
     "mass_down": {
         "label": "Many sites down at once",
         "description": "Replaces the individual alert above whenever 2 or more sites are down at the "
-                       "same moment — one message per person either way, no cause is guessed at. "
+                       "same moment (acknowledged sites don't count and aren't listed) — one message per "
+                       "person either way, no cause is guessed at. "
                        "{{BATTERY_PLAN}} says which sites get batteries first: most people online "
                        "first, then highest revenue as the tiebreak (revenue itself is never shown).",
         "default": "⚠ {{SITE_COUNT}} sites down at once. {{BATTERY_PLAN}}",

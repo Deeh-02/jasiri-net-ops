@@ -193,3 +193,37 @@
 
 .template-actions button:hover { opacity: 0.9; }
 .template-actions button:active { transform: scale(0.97); }
+
+/* Sending window card (top of SMS Templates) */
+.window-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    color: var(--text);
+    cursor: pointer;
+}
+
+.window-times {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin-top: 12px;
+    font-family: 'Inter', sans-serif;
+    font-size: 13px;
+    color: var(--text-dim);
+}
+
+.window-times input[type="time"] {
+    margin-left: 6px;
+    background: var(--surface-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 8px;
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+}
+
+.window-times input[type="time"]:disabled { opacity: 0.5; }

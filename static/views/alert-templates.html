@@ -8,5 +8,25 @@
             <p>Click a label under a box to insert it — for example <code>{{SITE_NAME}}</code> becomes the site's name when the message is sent. The line under each box shows how it will read with example values.</p>
         </div>
 
+        <div class="template-card" id="alert-window-card">
+            <div class="template-card-head">
+                <h3>When alerts are sent</h3>
+            </div>
+            <p class="template-desc">Alerts are only sent inside these hours (Nairobi time). If a site is still down when the hours start, you get one reminder then. Sites that have been acknowledged are never included in the "send battery" list.</p>
+            <label class="window-toggle">
+                <input type="checkbox" id="alert-window-enabled">
+                <span>Only send alerts during set hours</span>
+            </label>
+            <div class="window-times" id="alert-window-times">
+                <label>From <input type="time" id="alert-window-start" value="08:00"></label>
+                <label>Until <input type="time" id="alert-window-end" value="18:00"></label>
+            </div>
+            <div class="template-meta" id="alert-window-meta"></div>
+            <div class="template-actions">
+                <button type="button" class="template-save-btn" id="alert-window-save">Save</button>
+            </div>
+            <div class="form-msg" id="alert-window-msg"></div>
+        </div>
+
         <div id="alert-templates-list"></div>
     </section>

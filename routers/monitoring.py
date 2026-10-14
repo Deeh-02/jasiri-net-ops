@@ -6,7 +6,7 @@ from typing import Optional
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
 from db import monitoring as db
-from db import alert_templates
+from db import alert_settings, alert_templates
 from db import monitoring_alerts
 from db import monitoring_reconciliation
 from db import monitoring_retention
@@ -243,6 +243,29 @@ def reset_alert_template(kind: str, current_user: dict = Depends(require_templat
     if kind not in alert_templates.TEMPLATES:
         raise HTTPException(status_code=404, detail="Unknown message type")
     alert_templates.reset(kind)
+    return {"ok": True}
+
+
+class AlertSettingsUpdate(BaseModel):
+    enabled: bool
+    start: str  # "HH:MM", East Africa Time
+    end: str
+
+
+# Same gate as the message wording — the page they're edited on.
+@router.get("/monitoring/alert-settings")
+def get_alert_settings(current_user: dict = Depends(require_template_access)):
+    return alert_settings.get_for_editor()
+
+
+@router.put("/monitoring/alert-settings")
+def put_alert_settings(body: AlertSettingsUpdate, current_user: dict = Depends(require_template_access)):
+    start, end = alert_settings.parse_time(body.start), alert_settings.parse_time(body.end)
+    if start is None or end is None:
+        raise HTTPException(status_code=400, detail="Enter the start and end as times, like 08:00")
+    if start == end:
+        raise HTTPException(status_code=400, detail="Start and end can't be the same time")
+    alert_settings.save(body.enabled, start, end, current_user["id"])
     return {"ok": True}
 
 

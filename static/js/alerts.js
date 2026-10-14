@@ -152,7 +152,47 @@ async function resetTemplate(kind) {
     showMessage(`template-msg-${kind}`, "Back to default", false);
 }
 
+// ---- Alerts > SMS Templates: the sending window ----
+
+function syncWindowInputs() {
+    const on = document.getElementById("alert-window-enabled").checked;
+    document.getElementById("alert-window-start").disabled = !on;
+    document.getElementById("alert-window-end").disabled = !on;
+}
+
+async function loadAlertWindow() {
+    const res = await fetch("/monitoring/alert-settings", { headers: authHeaders() });
+    if (!res.ok) return;
+    const s = await res.json();
+    document.getElementById("alert-window-enabled").checked = s.enabled;
+    document.getElementById("alert-window-start").value = s.start;
+    document.getElementById("alert-window-end").value = s.end;
+    document.getElementById("alert-window-meta").textContent = s.updated_at
+        ? `Changed${s.updated_by ? ` by ${s.updated_by}` : ""} ${timeAgo(s.updated_at)}`
+        : "Alerts go out at any hour";
+    syncWindowInputs();
+}
+
+async function saveAlertWindow() {
+    const enabled = document.getElementById("alert-window-enabled").checked;
+    const start = document.getElementById("alert-window-start").value;
+    const end = document.getElementById("alert-window-end").value;
+    const res = await fetch("/monitoring/alert-settings", {
+        method: "PUT",
+        headers: authHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ enabled, start, end }),
+    });
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        showMessage("alert-window-msg", err.detail || "Failed to save", true);
+        return;
+    }
+    showMessage("alert-window-msg", enabled ? `Saved — alerts only go out ${start}–${end}` : "Saved — alerts go out at any hour", false);
+    loadAlertWindow();
+}
+
 async function loadTemplatesPage() {
+    loadAlertWindow();
     const wrap = document.getElementById("alert-templates-list");
     const res = await fetch("/monitoring/alert-templates", { headers: authHeaders() });
     if (!res.ok) {
@@ -221,6 +261,9 @@ export function initAlerts() {
     registerNotificationsChangedHandler(() => {
         if (!document.getElementById("view-notifications").hidden) loadNotificationsPage();
     });
+
+    document.getElementById("alert-window-enabled").addEventListener("change", syncWindowInputs);
+    document.getElementById("alert-window-save").addEventListener("click", saveAlertWindow);
 
     registerRoute("alert-templates", () => {
         showView("view-alert-templates");
