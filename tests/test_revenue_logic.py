@@ -143,6 +143,22 @@ class HistoryCoverage(unittest.TestCase):
         self.assertIsNotNone(r.comparison_ranges)
         self.assertTrue(any("History only starts" in n for n in r.notes))
 
+    def test_baseline_median_drops_weeks_before_history_instead_of_zeroing_them(self):
+        # Tuesdays 6/10, 29/9, 22/9 have data; 15/9, 8/9, 1/9 are before history.
+        r = resolve("day", date(2026, 10, 13), self.NOW, mode="baseline_median", baseline_weeks=6,
+                    history_start=date(2026, 9, 22))
+        self.assertEqual([c[0] for c in r.comparison_ranges],
+                         [at(2026, 10, 6), at(2026, 9, 29), at(2026, 9, 22)])
+        self.assertEqual(r.coverage, "partial")
+        self.assertIn("3 of 6", " ".join(r.notes))
+        self.assertEqual(r.comparison_label, "median of the last 3 Tuesdays")
+
+    def test_baseline_median_with_no_week_in_history_is_none(self):
+        r = resolve("day", date(2026, 9, 25), self.NOW, mode="baseline_median", baseline_weeks=6,
+                    history_start=date(2026, 9, 22))
+        self.assertEqual(r.coverage, "none")
+        self.assertIsNone(r.comparison_ranges)
+
     def test_fully_covered(self):
         r = resolve("day", date(2026, 10, 14), self.NOW, history_start=date(2026, 9, 21))
         self.assertEqual(r.coverage, "full")

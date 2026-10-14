@@ -197,6 +197,9 @@ def run_if_due():
             return
         _last_run = time.monotonic()
         refresh()
+        # Judge yesterday against the numbers just written (never raises).
+        from db import revenue_alerts
+        revenue_alerts.store_day()
     except Exception:
         log.exception("revenue refresh failed")
     finally:

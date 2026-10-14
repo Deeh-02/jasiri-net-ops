@@ -10,7 +10,7 @@ from db import alert_settings, alert_templates
 from db import monitoring_alerts
 from db import monitoring_reconciliation
 from db import monitoring_retention
-from db import revenue_daily
+from db import revenue_alerts, revenue_daily, revenue_report
 from db import sms_log
 from db.connection import now_eat
 from routers.auth import get_current_user
@@ -249,6 +249,70 @@ def reset_alert_template(kind: str, current_user: dict = Depends(require_templat
         raise HTTPException(status_code=404, detail="Unknown message type")
     alert_templates.reset(kind)
     return {"ok": True}
+
+
+# ---- Revenue report, Level 1 ----
+# Money, so gated on sites:view_revenue like every other revenue figure.
+# Read-only; reads only the derived revenue tables (migration 0019).
+def require_revenue_view(current_user: dict = Depends(get_current_user)):
+    if not user_has_permission(current_user, "sites", "view_revenue"):
+        raise HTTPException(status_code=403, detail="You don't have permission to view revenue")
+    return current_user
+
+
+@router.get("/monitoring/revenue-report/overview")
+def revenue_overview(today_mode: Optional[str] = None, yesterday_mode: Optional[str] = None,
+                     wtd_mode: Optional[str] = None, mtd_mode: Optional[str] = None,
+                     ytd_mode: Optional[str] = None, current_user: dict = Depends(require_revenue_view)):
+    modes = {k: v for k, v in {"today": today_mode, "yesterday": yesterday_mode, "wtd": wtd_mode,
+                               "mtd": mtd_mode, "ytd": ytd_mode}.items() if v}
+    try:
+        return revenue_report.overview(modes=modes)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/monitoring/revenue-report/card")
+def revenue_card(granularity: str, anchor: date, mode: Optional[str] = None,
+                 custom_anchor: Optional[date] = None, current_user: dict = Depends(require_revenue_view)):
+    try:
+        return revenue_report.card(granularity, anchor, mode=mode, custom_anchor=custom_anchor)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/monitoring/revenue-report/sites")
+def revenue_sites(granularity: str = "day", anchor: Optional[date] = None, mode: Optional[str] = None,
+                  custom_anchor: Optional[date] = None, sort: str = "largest_loss",
+                  current_user: dict = Depends(require_revenue_view)):
+    try:
+        return revenue_report.sites_report(granularity, anchor, mode=mode, custom_anchor=custom_anchor, sort=sort)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/monitoring/revenue-report/sites/{site_id}/metrics")
+def revenue_site_metrics(site_id: int, current_user: dict = Depends(require_revenue_view)):
+    result = revenue_report.site_metrics(site_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Monitored site not found")
+    return result
+
+
+@router.get("/monitoring/revenue-report/alerts")
+def revenue_alerts_report(day: Optional[date] = None, current_user: dict = Depends(require_revenue_view)):
+    try:
+        return revenue_alerts.report(day)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/monitoring/revenue-report/trend")
+def revenue_trend(series: str = "daily_30", current_user: dict = Depends(require_revenue_view)):
+    try:
+        return revenue_report.trend(series)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 class AlertSettingsUpdate(BaseModel):
