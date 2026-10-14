@@ -101,6 +101,10 @@ const ROUTE_PERMISSION_MAP = {
     // no NAV_GROUP_MASTER_PERMISSION entry needed for it.
     "inventory-reports": ["reports", "view"],
     "sms-status": ["reports", "view"],
+    // Money, so its own gate: the same permission that shows revenue on
+    // Status and Trends. Sits in the Reports group but doesn't need
+    // reports:view (the group shows if any child is allowed).
+    revenue: ["sites", "view_revenue"],
     "inventory-manage": ["inventory_categories", "view"],
     // Alerts group. "notifications" has no entry on purpose — it's the
     // user's own inbox, same as the bell, so everyone logged in gets it
@@ -361,7 +365,7 @@ function parseRoute(hash) {
 const NAV_GROUP_ROUTES = {
     inventory: ["inventory", "stock", "inventory-log", "inventory-manage"],
     alerts: ["notifications", "alert-templates", "customers", "broadcast"],
-    reports: ["inventory-reports", "sms-status"],
+    reports: ["inventory-reports", "sms-status", "revenue"],
 };
 
 function setActiveNav(name) {
@@ -681,7 +685,7 @@ function renderCmdkResults(query) {
 // ---- Fragment loader: fetches every view's HTML and injects it into its
 // mount point. Loaded eagerly, all at once, at startup — the app is small
 // enough that lazy-per-nav loading isn't worth the added state-tracking. ----
-const VIEW_NAMES = ["dashboard", "sites", "movements", "status", "site-detail", "trends", "manage-sites", "packages", "notifications", "alert-templates", "customers", "broadcast", "users", "roles", "settings", "inventory", "stock", "inventory-log", "issue-materials", "return-materials", "inventory-reports", "sms-status", "inventory-manage"];
+const VIEW_NAMES = ["dashboard", "sites", "movements", "status", "site-detail", "trends", "manage-sites", "packages", "notifications", "alert-templates", "customers", "broadcast", "users", "roles", "settings", "inventory", "stock", "inventory-log", "issue-materials", "return-materials", "inventory-reports", "sms-status", "revenue", "inventory-manage"];
 
 export async function loadViewFragments() {
     await Promise.all(VIEW_NAMES.map(async (name) => {

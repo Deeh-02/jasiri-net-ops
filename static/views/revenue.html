@@ -1,0 +1,95 @@
+    <section class="view" id="view-revenue" hidden>
+        <div class="page-header-row">
+            <h1 class="page-title">Revenue <span>Report</span></h1>
+        </div>
+
+        <!-- 1. Header -->
+        <div class="rev-header">
+            <div class="rev-header-line" id="rev-header-line">Loading&hellip;</div>
+            <div class="rev-header-meta" id="rev-header-meta"></div>
+        </div>
+
+        <!-- Period for the findings, site table and rankings below -->
+        <div class="rev-controls">
+            <div class="fleet-range" id="rev-gran" role="group" aria-label="Report by">
+                <button type="button" data-gran="day" aria-pressed="true">Day</button>
+                <button type="button" data-gran="week" aria-pressed="false">Week</button>
+                <button type="button" data-gran="month" aria-pressed="false">Month</button>
+                <button type="button" data-gran="year" aria-pressed="false">Year</button>
+            </div>
+            <label class="rev-field">Period
+                <input type="date" id="rev-anchor" aria-label="Day inside the period to report">
+            </label>
+            <label class="rev-field">Compare with
+                <select id="rev-mode" aria-label="Comparison"></select>
+            </label>
+            <label class="rev-field" id="rev-custom-wrap" hidden>Custom period
+                <input type="date" id="rev-custom" aria-label="Day inside the period to compare with">
+            </label>
+        </div>
+        <div class="rev-period-note" id="rev-period-note"></div>
+
+        <!-- 2. Headline cards -->
+        <div class="rev-cards" id="rev-cards"></div>
+
+        <!-- 3. Key findings -->
+        <h2 class="rev-h2">Key findings</h2>
+        <div class="rev-findings" id="rev-findings"></div>
+
+        <!-- 4. Summary -->
+        <h2 class="rev-h2">Summary</h2>
+        <div class="rev-summary" id="rev-summary"></div>
+
+        <!-- 5. Attention required -->
+        <h2 class="rev-h2">Attention required <span class="rev-h2-sub" id="rev-attention-sub"></span></h2>
+        <div id="rev-attention"></div>
+
+        <!-- 6. Site table -->
+        <h2 class="rev-h2">Sites</h2>
+        <div class="rev-presets" id="rev-presets" role="group" aria-label="Sort sites">
+            <button type="button" data-sort="largest_loss">Largest loss</button>
+            <button type="button" data-sort="largest_gain">Largest gain</button>
+            <button type="button" data-sort="largest_pct_decline">Largest % decline</button>
+            <button type="button" data-sort="largest_pct_growth">Largest % growth</button>
+            <button type="button" data-sort="revenue">Revenue</button>
+        </div>
+        <div class="table-scroll">
+            <table class="rev-table" id="rev-sites-table">
+                <thead>
+                    <tr>
+                        <th data-col="name">Site</th>
+                        <th data-col="current" class="num">Current</th>
+                        <th data-col="previous" class="num">Previous</th>
+                        <th data-col="abs_change" class="num">Change</th>
+                        <th data-col="pct_change" class="num">%</th>
+                        <th data-col="share" class="num" title="Share of the gross decline (for sites that fell) or gross gain (for sites that rose)">Share of change</th>
+                        <th data-col="trend7" title="Last 7 completed days vs the 7 before">7-day trend</th>
+                        <th data-col="status" title="As of the last completed day">Status</th>
+                    </tr>
+                </thead>
+                <tbody id="rev-sites-body"></tbody>
+            </table>
+        </div>
+        <div class="rev-footnote" id="rev-sites-foot"></div>
+
+        <!-- 7. Rankings -->
+        <h2 class="rev-h2">Rankings</h2>
+        <div class="rev-rankings" id="rev-rankings"></div>
+
+        <!-- 8. Trend -->
+        <h2 class="rev-h2">Trend</h2>
+        <div class="rev-controls">
+            <label class="rev-field">Series
+                <select id="rev-series" aria-label="Trend series">
+                    <option value="daily_7">Last 7 days</option>
+                    <option value="daily_30" selected>Last 30 days</option>
+                    <option value="daily_90">Last 90 days</option>
+                    <option value="weekly_12">Last 12 weeks</option>
+                    <option value="monthly_12">Last 12 months</option>
+                    <option value="year_current">This year, by month</option>
+                    <option value="year_previous">Last year, by month</option>
+                </select>
+            </label>
+        </div>
+        <div class="rev-trend" id="rev-trend"></div>
+    </section>

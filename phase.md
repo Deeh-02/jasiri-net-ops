@@ -650,6 +650,59 @@ same prefill treatment to Check Sites itself (`/locations/{id}/confirm`)
 would be a natural next step — deliberately not done here, since item 3
 above only names `confirm-online` by name.
 
+#### 4.11 — Revenue reporting: DONE 2026-10-14
+
+A deterministic, read-only revenue report (Reports → Revenue; no AI, every
+number traces to stored sales). Spec: the "Revenue Reporting — Spec v2"
+brief; built in its §10 order. **Hotspot sales only in v1** — PPPoE
+revenue is never read.
+
+- **Data (0019).** `daily_site_revenue` and `hourly_site_revenue`, built
+  from `revenue_events` (sales with a site, `event_type <> 'baseline'`, EAT
+  days; a row for every active site and day, zeros included). Today and
+  yesterday are recomputed every 15 min (`revenue_daily.run_if_due`, one
+  background task on ingest); older days are frozen and change only through
+  `python -m db.revenue_daily refreeze … --reason`, which is logged to
+  `daily_revenue_refreeze_log`. **Unplaced sales are excluded** (owner's
+  call), so network totals sit slightly under the Status page's "revenue
+  today" by the unplaced amount (none since 2026-09-23). The hourly table is
+  kept for all history, not just today, because "MTD at 19:00 vs last month's
+  same point" needs sub-day totals for past days.
+- **Rules (pure, tested).** `db/revenue_logic.py`: `resolve()` (partial
+  periods are compared with the same elapsed point; unequal lengths and
+  partly-covered history are labelled, not hidden), `compare()` (New / No
+  activity, never a % from a zero base), contributions to *gross* change,
+  rankings with the absolute floor, MAD band, trend slope, and the §6 alert
+  rules (`evaluate_day`). A week or month before history is *missing*, not
+  zero — a baseline median uses only the weeks that exist.
+- **Config (0020).** `revenue_report_config` holds only overrides; defaults
+  are in `db/revenue_config.py`. Starting values, to be tuned against real
+  data (see below).
+- **API.** `GET /monitoring/revenue-report/{overview,card,sites,
+  sites/{id}/metrics,alerts,trend}`, all gated on `sites:view_revenue`.
+- **Alerts (0021).** One row per site-day in `revenue_site_status`, with
+  the rules that fired, their triggering values and the thresholds in force,
+  so a past day reads back as it was judged. Status is always as of the
+  last *completed* day against the same weekday last week.
+- **UI.** `static/js/revenue.js` — header, five cards (each switchable to
+  another comparison), key findings, summary, attention list, sortable site
+  table, rankings, trend chart (7-day average, usual-range band, unusual
+  points).
+
+**Judgement calls.** Streaks and the 7-day-vs-7-day rule have no floor in
+the spec but §9.5 says alerts always need one: `amber_min_abs` /
+`green_min_abs` are applied. The active-site average excludes the day being
+judged. History is treated as starting the first full day after the first
+sale (2026-09-22), not 09-21.
+
+**Known limits, not bugs.** Until about mid-November, month/year
+comparisons return "No comparable data" and a 6-week baseline uses only the
+weeks that exist. Comparing one day with one day is noisy for small sites
+(a good day last week makes this week's ordinary day look red); if that
+proves too loud, require the day to also be below the site's own baseline
+for the % rules. After a large one-day drop the 7-day-vs-7-day amber rule
+keeps firing for a week and, by the spec's precedence, hides "Recovered".
+
 #### 4.10 — OPTIONAL: event-driven fast path · *touches the router*
 
 Deferred by Correction 4 — the operational case for 6s over 60s is weak, and the heartbeat is free. If it is ever wanted:

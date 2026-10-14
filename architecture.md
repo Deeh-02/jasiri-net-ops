@@ -1424,6 +1424,30 @@ an outage nobody was told about. The window only ever suppresses *sending*;
 episodes, `site_status_log` and the Status page are untouched, which is also
 why a muted reminder can simply fire when the window opens.
 
+### Revenue reports — derived tables, frozen days, one pure rules module
+
+Reports never read `revenue_events` directly: `daily_site_revenue` /
+`hourly_site_revenue` (migration 0019) are built from it and each day is
+frozen once it's older than yesterday. That is what makes "a report for a
+past date returns the same numbers every time" true — `revenue_events`
+itself can't promise it, because the unplaced-sale backfill can attach a
+sale to a site up to a day late. Frozen days change only through an explicit,
+logged re-freeze.
+
+The rules (which periods compare, how a change is expressed, who counts as
+active, what is red) live in `db/revenue_logic.py` as pure functions of their
+arguments — no clock, no database — so every rule has a fixed-input test and
+the report can't drift from what the tests say. `db/revenue_report.py` and
+`db/revenue_alerts.py` are the thin I/O around them. Thresholds are rows in
+`revenue_report_config` over code defaults (same shape as alert templates),
+and judged days are stored with the thresholds that judged them, so changing
+a threshold never rewrites history.
+
+Isolation: this layer reads `monitored_sites` and `locations` (names) and the
+revenue tables, writes only its own tables, and touches no existing
+network-activity code beyond one throttled background task scheduled from the
+ingest handler.
+
 ### Revenue attribution — durable signal first, moment-in-time second, guess last
 
 A hotspot sale (`db/monitoring.py`'s `_record_revenue`) is booked once,
