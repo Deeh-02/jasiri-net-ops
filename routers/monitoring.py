@@ -10,6 +10,7 @@ from db import alert_settings, alert_templates
 from db import monitoring_alerts
 from db import monitoring_reconciliation
 from db import monitoring_retention
+from db import revenue_daily
 from db import sms_log
 from db.connection import now_eat
 from routers.auth import get_current_user
@@ -155,6 +156,10 @@ async def ingest(request: Request, background_tasks: BackgroundTasks):
     # is told. Cheap (a handful of indexed queries over ~21 sites) and never
     # raises, so it can't turn a slow SMS provider into a stuck heartbeat.
     background_tasks.add_task(monitoring_alerts.evaluate_and_notify)
+    # Revenue report tables (migration 0019): throttled to every 15 min
+    # inside run_if_due, and swallows its own errors, so it can't slow or
+    # fail a heartbeat. Reads revenue_events only; changes nothing in ingest.
+    background_tasks.add_task(revenue_daily.run_if_due)
     return counts
 
 
