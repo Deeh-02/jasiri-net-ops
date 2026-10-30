@@ -36,6 +36,19 @@ app.include_router(customers.router)
 def serve_dashboard():
     return FileResponse("static/index.html")
 
+
+# The service worker must be served from the site root to control every page
+# (a worker under /static/ could only control /static/*), and the manifest
+# gets its own media type. no-cache so a new sw.js is picked up promptly.
+@app.get("/sw.js")
+def serve_service_worker():
+    return FileResponse("static/sw.js", media_type="application/javascript", headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/manifest.webmanifest")
+def serve_manifest():
+    return FileResponse("static/manifest.webmanifest", media_type="application/manifest+json", headers={"Cache-Control": "no-cache"})
+
 # PHASES.md 4.8 — "External uptime monitor on an Ops health endpoint,
 # alerting distinctly from a site-down alert." Deliberately unauthenticated
 # (an external pinger like UptimeRobot/Better Uptime can't hold a JWT) and
