@@ -10,6 +10,21 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-title" content="Jasiri Ops">
     <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <link rel="preload" as="image" href="/static/icons/splash.png">
+    <!-- Inline so the opening screen paints before any stylesheet loads. Only
+         the installed app shows it: Android's own splash is just the app icon,
+         so this is what puts JASIRI NET on screen at launch. -->
+    <style>
+        #app-splash { display: none; }
+        @media (display-mode: standalone) {
+            #app-splash {
+                display: flex; position: fixed; inset: 0; z-index: 99999;
+                align-items: center; justify-content: center;
+                background: #000; transition: opacity .25s ease;
+            }
+            #app-splash img { width: min(78vw, 360px); height: auto; }
+        }
+    </style>
     <link rel="stylesheet" href="/static/css/common.css">
     <link rel="stylesheet" href="/static/css/dashboard.css">
     <link rel="stylesheet" href="/static/css/sites.css">
@@ -33,6 +48,8 @@
     <link rel="stylesheet" href="/static/css/inventory-reports.css">
 </head>
 <body>
+
+    <div id="app-splash"><img src="/static/icons/splash.png" alt="Jasiri Net"></div>
 
     <div class="auth-loading" id="auth-loading"></div>
 
@@ -291,6 +308,23 @@
 
     <script type="module" src="/static/js/app.js"></script>
     <script>
+        // Holds the opening screen long enough to read, and never longer than
+        // 4s so a slow font or image can't leave it covering the app.
+        (function () {
+            const splash = document.getElementById("app-splash");
+            let gone = false;
+            function hide() {
+                if (gone) return;
+                gone = true;
+                splash.style.opacity = "0";
+                setTimeout(() => splash.remove(), 300);
+            }
+            const whenLoaded = () => setTimeout(hide, Math.max(0, 1400 - performance.now()));
+            if (document.readyState === "complete") whenLoaded();
+            else window.addEventListener("load", whenLoaded);
+            setTimeout(hide, 4000);
+        })();
+
         if ("serviceWorker" in navigator) {
             window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
         }
