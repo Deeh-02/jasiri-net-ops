@@ -32,6 +32,13 @@
         <!-- 2. Headline cards -->
         <div class="rev-cards" id="rev-cards"></div>
 
+        <!-- AI analysis: admin only (revealed by revenue.js; the endpoint
+             refuses everyone else too). Words only - figures come from the report. -->
+        <div class="rev-insights" id="rev-insights" hidden>
+            <h2 class="rev-h2">AI analysis <span class="rev-h2-sub" id="rev-insights-stamp"></span></h2>
+            <div class="rev-insights-body" id="rev-insights-body" aria-live="polite"></div>
+        </div>
+
         <!-- 3. Key findings -->
         <h2 class="rev-h2">Key findings</h2>
         <div class="rev-findings" id="rev-findings"></div>

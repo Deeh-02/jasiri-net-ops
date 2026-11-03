@@ -1,4 +1,4 @@
-import { authHeaders, showView, registerRoute, navigate } from "./common.js";
+import { authHeaders, showView, registerRoute, navigate, getCurrentUser } from "./common.js";
 
 function esc(s) {
     return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -56,6 +56,27 @@ const PRESETS = {
 
 let loadToken = 0;
 
+// ---- Live refresh ----
+// A poll re-reads the same endpoints the page loaded from and redraws only
+// what changed, so the selected Day/Week/Month/Year, the date, the Compare-with
+// choices and the scroll position are all left alone.
+const POLL_DEFAULT_SECONDS = 30;   // the server's REVENUE_POLL_SECONDS replaces this
+let pollMs = POLL_DEFAULT_SECONDS * 1000;
+let pollTimer = null;
+let pollBusy = false;
+let lastOkAt = null;               // time of the last fully successful fetch
+let isOffline = false;
+let historyStart = null;
+
+// What each section last drew (as JSON), so an identical answer is skipped.
+const lastDrawn = {};
+function changed(section, data) {
+    const json = JSON.stringify(data);
+    if (lastDrawn[section] === json) return false;
+    lastDrawn[section] = json;
+    return true;
+}
+
 async function api(path) {
     const res = await fetch(path, { headers: authHeaders() });
     if (!res.ok) {
@@ -91,7 +112,7 @@ function cardHtml(c) {
               ${modes.map(m => `<option value="${m}" ${m === c.mode ? "selected" : ""}>${esc(MODE_LABEL[m] || m)}</option>`).join("")}
            </select>` : "";
     return `
-        <div class="rev-card">
+        <div class="rev-card" data-key="${esc(c.key)}">
             <div class="rev-card-title">${esc(c.title)}</div>
             <div class="rev-card-period">${esc(c.period_label)}</div>
             <div class="rev-card-value">${esc(d.current)}</div>
@@ -102,32 +123,81 @@ function cardHtml(c) {
         </div>`;
 }
 
-function renderCards(o) {
-    $("rev-header-line").textContent = o.header;
-    const asOf = o.as_of ? new Date(o.as_of).toLocaleTimeString("en-GB", { timeZone: "Africa/Nairobi", hour: "2-digit", minute: "2-digit" }) : null;
-    $("rev-header-meta").textContent = [
+function nairobiTime(date) {
+    return date.toLocaleTimeString("en-GB", { timeZone: "Africa/Nairobi", hour: "2-digit", minute: "2-digit" });
+}
+
+// "updated HH:MM" is the time of the last SUCCESSFUL fetch. When the latest
+// poll failed the old figures stay on screen and this says so, instead of
+// letting them go quietly stale.
+function renderMeta() {
+    const meta = $("rev-header-meta");
+    const stamp = !lastOkAt ? null : isOffline
+        ? `offline, last updated ${nairobiTime(lastOkAt)}`
+        : `updated ${nairobiTime(lastOkAt)}`;
+    meta.textContent = [
         "Hotspot sales only · Nairobi time",
-        o.history_start ? `history from ${shortDay(o.history_start)}` : null,
-        asOf ? `updated ${asOf}` : null,
+        historyStart ? `history from ${shortDay(historyStart)}` : null,
+        stamp,
     ].filter(Boolean).join(" · ");
+    meta.classList.toggle("rev-offline", isOffline);
+}
+
+function markFetched(ok) {
+    if (ok) lastOkAt = new Date();
+    isOffline = !ok;
+    renderMeta();
+}
+
+// Replaces only the cards that look different. Compared by their HTML, not
+// their data: a partial card's data carries a "now" that moves every poll
+// even when the figure on it hasn't. During a background poll, a card whose
+// dropdown the user has open is left until the next one, so the list doesn't
+// snap shut under them.
+function patchCards(container, items, isBackgroundPoll) {
+    const kids = [...container.children];
+    const sameShape = kids.length === items.length && kids.every((el, i) => el.dataset.key === items[i].key);
+    if (!sameShape) {
+        container.innerHTML = items.map(i => i.html).join("");
+        items.forEach(i => { lastDrawn[`card:${i.key}`] = i.json; });
+        return;
+    }
+    items.forEach((item, i) => {
+        if (lastDrawn[`card:${item.key}`] === item.json) return;
+        if (isBackgroundPoll && kids[i].contains(document.activeElement)) return;
+        kids[i].outerHTML = item.html;
+        lastDrawn[`card:${item.key}`] = item.json;
+    });
+}
+
+function renderCards(o, isBackgroundPoll = false) {
+    $("rev-header-line").textContent = o.header;
+    historyStart = o.history_start;
+    renderMeta();
 
     const n = o.attention_count;
     const attention = `
-        <div class="rev-card is-attention ${n > 0 ? "has-red" : ""}" id="rev-attention-card" role="button" tabindex="0">
+        <div class="rev-card is-attention ${n > 0 ? "has-red" : ""}" data-key="attention" id="rev-attention-card" role="button" tabindex="0">
             <div class="rev-card-title">Needs attention</div>
             <div class="rev-card-period">Last completed day</div>
             <div class="rev-attention-count">${n == null ? "—" : `● ${n}`}</div>
             <div class="rev-card-vs">${n == null ? "Couldn't be worked out" : n === 1 ? "site to investigate" : "sites to investigate"}</div>
         </div>`;
-    $("rev-cards").innerHTML = o.cards.map(cardHtml).join("") + attention;
-    $("rev-summary").innerHTML = o.summary.length
-        ? o.summary.map(s => `<p>${esc(s)}</p>`).join("")
-        : `<div class="rev-empty">Nothing to summarise yet.</div>`;
+    patchCards($("rev-cards"), [
+        ...o.cards.map(c => { const html = cardHtml(c); return { key: c.key, json: html, html }; }),
+        { key: "attention", json: attention, html: attention },
+    ], isBackgroundPoll);
+    if (changed("summary", o.summary)) {
+        $("rev-summary").innerHTML = o.summary.length
+            ? o.summary.map(s => `<p>${esc(s)}</p>`).join("")
+            : `<div class="rev-empty">Nothing to summarise yet.</div>`;
+    }
 }
 
 // ---- 3. Key findings ----
 
 function renderFindings(report, trend) {
+    if (!changed("findings", [report.network, report.rankings, report.contributions, trend])) return;
     const out = [];
     const c = report.contributions;
     const r = report.rankings;
@@ -174,6 +244,7 @@ function sideText(side, noun) {
 // ---- 5. Attention ----
 
 function renderAttention(a) {
+    if (!changed("attention", a)) return;
     $("rev-attention-sub").textContent = `${a.day_label || ""} · ${a.counts.red} investigate · ${a.counts.amber} attention · ${a.counts.green} positive`;
     if (!a.sites.length) {
         $("rev-attention").innerHTML = `<div class="rev-empty">No site is flagged for ${esc(a.day_label || "this day")}.</div>`;
@@ -222,8 +293,15 @@ function sortedSites() {
     });
 }
 
+// A poll or load goes through here (skipped when nothing changed); a sort
+// click calls drawSites() directly, since the order changed, not the data.
 function renderSites(report) {
     state.report = report;
+    if (changed("sites", report)) drawSites();
+}
+
+function drawSites() {
+    const report = state.report;
     const body = $("rev-sites-body");
     if (!report.sites.length) {
         body.innerHTML = `<tr><td colspan="8">No site data for this period.</td></tr>`;
@@ -273,6 +351,7 @@ const RANKS = [
 ];
 
 function renderRankings(report) {
+    if (!changed("rankings", report.rankings)) return;
     const box = $("rev-rankings");
     if (!report.rankings) {
         box.innerHTML = `<div class="rev-empty">Rankings need a comparison period with data.</div>`;
@@ -289,6 +368,7 @@ function renderRankings(report) {
 // ---- 8. Trend chart ----
 
 function renderTrend(t) {
+    if (!changed("trend", t)) return;
     const box = $("rev-trend");
     const pts = t.points;
     if (!pts.length) {
@@ -387,21 +467,37 @@ function fail(id, err) {
     $(id).innerHTML = `<div class="rev-empty">${esc(err.message || "Couldn't load.")}</div>`;
 }
 
+// The five requests that make up the page. Used by both the first load and
+// every poll, so a poll can never show something the page itself wouldn't.
+function fetchPageData() {
+    const trend = api(`/monitoring/revenue-report/trend?series=${state.series}`);
+    const findingsTrend = state.series === "daily_30" ? trend : api("/monitoring/revenue-report/trend?series=daily_30");
+    return {
+        overview: api(`/monitoring/revenue-report/overview?${overviewQuery()}`),
+        sites: api(`/monitoring/revenue-report/sites?${reportQuery()}`),
+        alerts: api("/monitoring/revenue-report/alerts"),
+        trend,
+        findingsTrend,
+    };
+}
+
 async function loadReport() {
     const token = ++loadToken;
     const view = $("view-revenue");
     view.classList.add("is-loading");
     const guard = fn => d => { if (token === loadToken) fn(d); };
+    // A fresh load (period, comparison or series changed) redraws everything.
+    Object.keys(lastDrawn).forEach(k => delete lastDrawn[k]);
+    let allOk = true;
+    const noteFailure = () => { allOk = false; };
 
-    const overview = api(`/monitoring/revenue-report/overview?${overviewQuery()}`);
-    const sites = api(`/monitoring/revenue-report/sites?${reportQuery()}`);
-    const alerts = api("/monitoring/revenue-report/alerts");
-    const trend = api(`/monitoring/revenue-report/trend?series=${state.series}`);
-    const findingsTrend = state.series === "daily_30" ? trend : api("/monitoring/revenue-report/trend?series=daily_30");
+    const { overview, sites, alerts, trend, findingsTrend } = fetchPageData();
+    loadInsights(true);
 
-    overview.then(guard(renderCards)).catch(e => { fail("rev-cards", e); $("rev-header-line").textContent = "Revenue report unavailable"; });
-    alerts.then(guard(renderAttention)).catch(e => fail("rev-attention", e));
-    trend.then(guard(renderTrend)).catch(e => fail("rev-trend", e));
+    overview.then(guard(o => { renderCards(o); applyPollInterval(o.poll_seconds); }))
+        .catch(e => { noteFailure(); fail("rev-cards", e); $("rev-header-line").textContent = "Revenue report unavailable"; });
+    alerts.then(guard(renderAttention)).catch(e => { noteFailure(); fail("rev-attention", e); });
+    trend.then(guard(renderTrend)).catch(e => { noteFailure(); fail("rev-trend", e); });
 
     try {
         const [report, ft] = await Promise.all([sites, findingsTrend.catch(() => null)]);
@@ -411,16 +507,157 @@ async function loadReport() {
         renderRankings(report);
         renderFindings(report, ft);
     } catch (e) {
+        noteFailure();
         fail("rev-findings", e);
         $("rev-sites-body").innerHTML = `<tr><td colspan="8">${esc(e.message)}</td></tr>`;
     } finally {
         await Promise.allSettled([overview, alerts, trend]);
-        if (token === loadToken) view.classList.remove("is-loading");
+        if (token === loadToken) {
+            view.classList.remove("is-loading");
+            markFetched(allOk);
+        }
     }
+}
+
+// ---- Polling ----
+
+async function refreshQuietly() {
+    if (pollBusy) return;
+    pollBusy = true;
+    const token = loadToken;
+    try {
+        const data = fetchPageData();
+        const [overview, report, alerts, trend, findingsTrend] = await Promise.all([
+            data.overview, data.sites, data.alerts, data.trend, data.findingsTrend.catch(() => null)]);
+        if (token !== loadToken) return;   // the user changed something mid-flight; that load wins
+        renderCards(overview, true);
+        renderAttention(alerts);
+        renderTrend(trend);
+        renderPeriod(report);
+        renderSites(report);
+        renderRankings(report);
+        renderFindings(report, findingsTrend);
+        applyPollInterval(overview.poll_seconds);
+        markFetched(true);
+        loadInsights(false);
+    } catch (e) {
+        // Keep what is on screen and say so; the next tick tries again.
+        if (token === loadToken) markFetched(false);
+    } finally {
+        pollBusy = false;
+    }
+}
+
+const revenueViewIsOpen = () => !$("view-revenue").hidden;
+
+function stopPolling() {
+    clearInterval(pollTimer);
+    pollTimer = null;
+}
+
+function startPolling() {
+    stopPolling();
+    if (document.hidden) return;
+    pollTimer = setInterval(() => {
+        // Left the page, or the tab went to the background: stop quietly.
+        if (document.hidden || !revenueViewIsOpen()) stopPolling();
+        else refreshQuietly();
+    }, pollMs);
+}
+
+function applyPollInterval(seconds) {
+    const ms = Number(seconds) * 1000;
+    if (!ms || ms === pollMs) return;
+    pollMs = ms;
+    if (pollTimer) startPolling();
+}
+
+// A hidden tab does not poll; coming back refreshes at once.
+document.addEventListener("visibilitychange", () => {
+    if (document.hidden) {
+        stopPolling();
+    } else if (revenueViewIsOpen()) {
+        refreshQuietly();
+        startPolling();
+    }
+});
+
+// ---- AI analysis panel (admin only) ----
+// Words only. The server fills every figure in from the same report the cards
+// use, so nothing here formats or checks a number. It loads on its own and a
+// failure only changes the panel: the rest of the page never waits for it.
+
+let insightsToken = 0;
+let insightsInFlight = false;
+
+function insightsQuery() {
+    const q = overviewQuery();
+    q.set("period", state.gran);
+    if (state.anchor) q.set("anchor", state.anchor);
+    if (state.mode) q.set("compare", state.mode);
+    if (state.mode === "custom" && state.custom) q.set("custom_anchor", state.custom);
+    return q.toString();
+}
+
+async function loadInsights(isNewView) {
+    if (getCurrentUser()?.role !== "admin") return;
+    if (!isNewView && insightsInFlight) return;
+    const token = ++insightsToken;
+    insightsInFlight = true;
+    $("rev-insights").hidden = false;
+    if (isNewView) renderInsights({ status: "preparing" });   // never leave the last view's analysis under a new one
+    try {
+        const res = await fetch(`/monitoring/revenue-report/insights?${insightsQuery()}`, { headers: authHeaders() });
+        if (token !== insightsToken) return;
+        if (res.status === 403) { $("rev-insights").hidden = true; return; }
+        if (!res.ok) throw new Error(`insights ${res.status}`);
+        renderInsights(await res.json());
+    } catch (e) {
+        if (token === insightsToken) renderInsights(null);
+    } finally {
+        if (token === insightsToken) insightsInFlight = false;
+    }
+}
+
+function insightsList(label, items) {
+    const frag = document.createDocumentFragment();
+    if (!items.length) return frag;
+    const title = document.createElement("div");
+    title.className = "rev-insights-label";
+    title.textContent = label;
+    const list = document.createElement("ul");
+    items.forEach(text => {
+        const li = document.createElement("li");
+        li.textContent = text;
+        list.appendChild(li);
+    });
+    frag.append(title, list);
+    return frag;
+}
+
+function renderInsights(data) {
+    if (!changed("insights", data)) return;
+    const body = $("rev-insights-body");
+    const stamp = $("rev-insights-stamp");
+    body.replaceChildren();
+    stamp.textContent = "";
+    if (data?.status === "ok") {
+        const headline = document.createElement("p");
+        headline.className = "rev-insights-headline";
+        headline.textContent = data.insights.headline;
+        body.append(headline, insightsList("Highlights", data.insights.highlights), insightsList("Watch", data.insights.watch));
+        stamp.textContent = `Analysis from ${nairobiTime(new Date(data.generated_at))}`;
+        return;
+    }
+    const note = document.createElement("div");
+    note.className = "rev-insights-note";
+    note.textContent = data?.status === "preparing" ? "Preparing analysis…" : "Insights unavailable";
+    body.appendChild(note);
 }
 
 function renderPeriod(report) {
     const p = report.period;
+    if (!changed("period", p)) return;
     const sel = $("rev-mode");
     sel.innerHTML = p.available_modes.map(m => `<option value="${m}" ${m === p.mode ? "selected" : ""}>${esc(MODE_LABEL[m] || m)}</option>`).join("");
     $("rev-custom-wrap").hidden = p.mode !== "custom";
@@ -469,14 +706,14 @@ export function initRevenue() {
         if (!btn) return;
         state.sort = btn.dataset.sort;
         state.col = null;
-        if (state.report) renderSites(state.report);
+        if (state.report) drawSites();
     });
     document.querySelector("#rev-sites-table thead").addEventListener("click", e => {
         const th = e.target.closest("th[data-col]");
         if (!th || !state.report) return;
         if (state.col === th.dataset.col) state.colDir *= -1;
         else { state.col = th.dataset.col; state.colDir = th.classList.contains("num") ? -1 : 1; }
-        renderSites(state.report);
+        drawSites();
     });
 
     const goLink = e => {
@@ -488,5 +725,6 @@ export function initRevenue() {
     registerRoute("revenue", () => {
         showView("view-revenue");
         loadReport();
+        startPolling();
     });
 }
