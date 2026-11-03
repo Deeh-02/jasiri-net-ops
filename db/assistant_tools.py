@@ -34,7 +34,7 @@ log = logging.getLogger(__name__)
 MAX_ROWS = 20
 MAX_DAILY_POINTS = 62
 MAX_HISTORY_DAYS = 366
-MAX_RESULT_CHARS = 12000
+MAX_RESULT_CHARS = 20000
 
 
 class ToolArgumentError(ValueError):
@@ -268,6 +268,55 @@ def get_revenue_history(args):
     }
 
 
+# The Revenue Report's own words for its red / amber / green flags.
+STATUS_WORDS = {"red": "investigate", "amber": "needs attention", "green": "doing well"}
+
+
+def get_site_performance(args):
+    """Every site ranked by its usual daily revenue, with whether it's
+    slipping: the same figures as the Revenue Report's site table."""
+    _no_extra_keys(args, ())
+    yesterday = now_eat().date() - timedelta(days=1)
+    report = revenue_report.sites_report("day", yesterday)
+    # Same 14 completed days the average covers (the report's own window).
+    window = revenue_report.site_window_totals(yesterday - timedelta(days=13), yesterday)
+    totals = window["totals"]
+    network_total = sum(totals.values(), Decimal(0))
+    rows = sorted(report["sites"], key=lambda r: -Decimal(str(r["avg_daily_14d"])))
+    result_sites = []
+    for rank, r in enumerate(rows, start=1):
+        trend = r.get("trend7")
+        site_total = totals.get(r["site_id"], Decimal(0))
+        result_sites.append({
+            "rank_by_daily_average": rank,
+            "site": r["name"],
+            "active": r["active"],
+            "average_per_day_last_14_days": format_kes(r["avg_daily_14d"]),
+            "total_last_14_days": format_kes(site_total),
+            "share_of_network_total": (f"{(site_total / network_total * 100).quantize(Decimal('0.1'))}%"
+                                       if network_total else None),
+            "last_7_days_vs_previous_7": (None if trend is None else
+                                          f"{trend['pct_change']:+}%" if trend["pct_change"] is not None
+                                          else trend["label"]),
+            "yesterday": r["display"]["current"],
+            "yesterday_vs_same_weekday_last_week": r["display"]["pct_change"] or r["label"],
+            "flag_for_yesterday": STATUS_WORDS.get(r["status"]),
+            "why_flagged": [a["text"][:160] for a in (r.get("status_alerts") or [])[:2]],
+        })
+    return {
+        "scope": "hotspot sales only, attributed to a site",
+        "flags_are_as_of": report["status_day"],
+        "window": {"from": window["first"].isoformat() if window["first"] else None,
+                   "to": window["last"].isoformat() if window["last"] else None},
+        "network_total_last_14_days": format_kes(network_total),
+        "how_to_read": ("ranked by average daily revenue over the last 14 completed days (the ranking by "
+                        "total_last_14_days is the same order); 'last_7_days_vs_previous_7' "
+                        "is the recent direction; flags are the Revenue Report's alert rules for yesterday "
+                        "(investigate / needs attention / doing well)"),
+        "sites": result_sites,
+    }
+
+
 def get_site_status(args):
     """Which sites are up or down right now, people connected, 30-day uptime."""
     _no_extra_keys(args, ("site",))
@@ -370,6 +419,13 @@ TOOLS = {
          "group_by": {"type": "string", "enum": ["day", "week", "month"],
                       "description": f"default day (at most {MAX_DAILY_POINTS} days); use week or month for longer"}},
         required=("start_date",))),
+    "get_site_performance": (get_site_performance, {"admin"}, _schema(
+        "get_site_performance",
+        "Every site ranked by its usual daily revenue (average of the last 14 completed days), with its "
+        "14-day total, share of the network total, the network total, "
+        "last 7 days vs the 7 before, yesterday vs the same weekday last week, and the Revenue Report's "
+        "flag (investigate / needs attention / doing well) with the reason. Use for 'which sites make the "
+        "most', 'which are doing badly', 'top earners that are slipping', comparing all sites.")),
     "get_site_status": (get_site_status, {"admin"}, _schema(
         "get_site_status",
         "Live status of the monitored hotspot sites: online/offline, people connected, 30-day uptime, "

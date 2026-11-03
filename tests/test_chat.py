@@ -81,10 +81,10 @@ class AdminOnly(unittest.TestCase):
 
 
 class ToolsByRole(unittest.TestCase):
-    def test_admin_gets_the_six_tools(self):
+    def test_admin_gets_the_seven_tools(self):
         names = {t["function"]["name"] for t in assistant_tools.tools_for(assistant_tools.role_for(ADMIN))}
-        self.assertEqual(names, {"get_revenue_summary", "get_revenue_history", "get_site_status", "get_site_contact",
-                                 "get_packages", "lookup_customer"})
+        self.assertEqual(names, {"get_revenue_summary", "get_revenue_history", "get_site_performance",
+                                 "get_site_status", "get_site_contact", "get_packages", "lookup_customer"})
 
     def test_everyone_else_gets_none(self):
         for user in (TECHNICIAN, CUSTOM_ROLE, {}, {"role": None}, {"role": "Admin"}):
@@ -370,6 +370,49 @@ class SiteContactTool(unittest.TestCase):
         for args in ({}, {"site": "  "}, {"site": "--"}):
             with self.assertRaises(assistant_tools.ToolArgumentError, msg=args):
                 assistant_tools.get_site_contact(args)
+
+
+def perf_row(name, avg, trend_pct, status=None, alerts=(), yesterday="KSh 1,000", pct="+1.0%", site_id=None):
+    return {"site_id": site_id or name, "name": name, "active": True, "avg_daily_14d": Decimal(avg), "status": status, "label": None,
+            "status_alerts": [{"rule_id": "r", "severity": "red", "text": t} for t in alerts],
+            "trend7": None if trend_pct is None else {"pct_change": Decimal(trend_pct), "label": None},
+            "display": {"current": yesterday, "pct_change": pct}}
+
+
+class SitePerformanceTool(unittest.TestCase):
+    """'Of the sites that make the most a day, which are performing badly?'"""
+
+    def test_ranked_by_daily_average_with_flags(self):
+        report = {"status_day": "2026-11-02", "sites": [
+            perf_row("Maji", "420.50", "3.2"),
+            perf_row("ACK", "1250", "-24.0", status="red", alerts=["-30.0% (-KSh 400) vs Mon 26/10"]),
+            perf_row("Garage", "900", None, status="green"),
+        ]}
+        window = {"first": date(2026, 10, 20), "last": date(2026, 11, 2),
+                  "totals": {"ACK": Decimal(17500), "Garage": Decimal(12600), "Maji": Decimal("5887")}}
+        with mock.patch.object(assistant_tools, "now_eat", return_value=datetime(2026, 11, 3, 15, 0)), \
+                mock.patch.object(assistant_tools.revenue_report, "sites_report", return_value=report) as call, \
+                mock.patch.object(assistant_tools.revenue_report, "site_window_totals", return_value=window) as totals:
+            result = assistant_tools.get_site_performance({})
+        self.assertEqual(call.call_args.args, ("day", date(2026, 11, 2)))
+        self.assertEqual(totals.call_args.args, (date(2026, 10, 20), date(2026, 11, 2)))
+        self.assertEqual(result["network_total_last_14_days"], "KSh 35,987")
+        self.assertEqual(result["sites"][0]["total_last_14_days"], "KSh 17,500")
+        self.assertEqual(result["sites"][0]["share_of_network_total"], "48.6%")
+        sites = result["sites"]
+        self.assertEqual([s["site"] for s in sites], ["ACK", "Garage", "Maji"])
+        top = sites[0]
+        self.assertEqual(top["average_per_day_last_14_days"], "KSh 1,250")
+        self.assertEqual(top["last_7_days_vs_previous_7"], "-24.0%")
+        self.assertEqual(top["flag_for_yesterday"], "investigate")
+        self.assertEqual(top["why_flagged"], ["-30.0% (-KSh 400) vs Mon 26/10"])
+        self.assertIsNone(sites[1]["last_7_days_vs_previous_7"])
+        self.assertEqual(sites[1]["flag_for_yesterday"], "doing well")
+        self.assertEqual(sites[2]["average_per_day_last_14_days"], "KSh 420.50")
+
+    def test_takes_no_arguments(self):
+        with self.assertRaises(assistant_tools.ToolArgumentError):
+            assistant_tools.get_site_performance({"sql": "select 1"})
 
 
 class SiteStatusFilter(unittest.TestCase):

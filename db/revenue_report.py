@@ -372,6 +372,20 @@ def daily_history(first, last, site_id=None, now=None):
     return {"history_start": hist, "days": days}
 
 
+def site_window_totals(first, last):
+    """{site_id: revenue} summed over EAT days first..last (inclusive), plus
+    the window actually used — it starts no earlier than history_start, the
+    same clamp the site table's 14-day average uses."""
+    with db_cursor() as (conn, cur):
+        hist = history_start(cur)
+        if hist is None or last < hist:
+            return {"first": None, "last": None, "totals": {}}
+        first = max(first, hist)
+        series = _site_series(cur, first, last)
+    totals = {sid: sum(days.values(), Decimal(0)) for sid, days in series.items()}
+    return {"first": first, "last": last, "totals": totals}
+
+
 # ---- Level 2: sites ----
 
 SERIES_LOOKBACK_DAYS = 120  # covers a 6-week baseline plus 12 weeks of weekly history
