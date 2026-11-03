@@ -45,10 +45,20 @@ DEFAULT_SYSTEM_PROMPT = (
 )
 
 # Fixed lines added after the prompt whatever CHAT_SYSTEM_PROMPT says: the
-# date (so "yesterday" means something) and plain text, because the chat
-# window shows text as-is and markdown would come out as stray asterisks.
+# date (so "yesterday" means something); plain text, because the chat
+# window shows text as-is and markdown would come out as stray asterisks;
+# and "look it up again". That last one is because tool results only live
+# inside one request — the browser sends back the conversation TEXT, not the
+# data — so on a follow-up question the model can't see what a tool said
+# before. Seen in use: asked about a ranking it had given earlier, it
+# answered from its own earlier sentence and put ACK 7th instead of 4th.
 FIXED_PROMPT_LINES = (
     "Today is {today}. All dates and times from the tools are Nairobi time.\n"
+    "Earlier tool results are NOT available to you on later questions. For every answer that contains "
+    "figures, rankings, statuses or names from the data, call the tool again now, even if the same "
+    "figures appear earlier in the conversation; never repeat or correct earlier figures from memory. "
+    "Quote ranks and figures exactly as the tool gives them; never re-sort, re-rank or recalculate them "
+    "yourself. If you notice an earlier answer was wrong, say so plainly and give the checked figures.\n"
     "Write plain text only: no markdown, no asterisks, no tables. Short lines or simple '-' lists are fine."
 )
 

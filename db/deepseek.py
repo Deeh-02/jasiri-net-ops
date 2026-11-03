@@ -62,7 +62,8 @@ def chat(messages, tools=None, timeout_seconds=30, max_tokens=900):
     body = {
         "model": os.environ.get("DEEPSEEK_MODEL", DEFAULT_MODEL),
         "messages": messages,
-        "temperature": 0.2,
+        # 0: answers about money should be the same every time, not creative.
+        "temperature": 0,
         "max_tokens": max_tokens,
         # Same setting ask_deepseek.py uses: DeepSeek defaults to slow,
         # costlier "thinking" mode, which short answers don't need.
