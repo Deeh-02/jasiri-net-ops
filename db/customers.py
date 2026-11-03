@@ -11,7 +11,7 @@ from psycopg2.extras import Json, execute_values
 
 from db.alert_channels import send_sms
 from db.connection import db_cursor, utc_iso
-from db.customer_import import EAT_OFFSET
+from db.customer_import import EAT_OFFSET, normalize_phone
 
 log = logging.getLogger(__name__)
 
@@ -178,6 +178,34 @@ def list_customers(router_id=None):
         return [
             {"id": r[0], "router": r[1], "username": r[2], "name": r[3], "phone": r[4], "plan": r[5],
              "expiry": utc_iso(r[6]), "account_status": r[7], "enabled": r[8]}
+            for r in cur.fetchall()
+        ]
+
+
+def search_customers(query, limit=10):
+    """PPPoE customers whose username, name or phone contains `query` (case
+    doesn't matter), best matches first: an exact username, then the rest by
+    username. For the admin assistant. Phone is searched but NOT returned —
+    the assistant's answers pass through DeepSeek, and the number isn't
+    needed to answer "what plan is X on / when do they expire"."""
+    pattern = "%" + query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+    # Phones are stored normalised (2547...), so "0712 345 678" is matched as that.
+    phone = normalize_phone(query)
+    phone_pattern = f"%{phone}%" if phone else pattern
+    with db_cursor() as (conn, cur):
+        cur.execute(
+            """
+            SELECT r.name, c.username, c.name, c.plan, c.expiry, c.account_status, c.enabled
+            FROM ppp_customers c JOIN ppp_routers r ON r.id = c.router_id
+            WHERE c.username ILIKE %s OR c.name ILIKE %s OR c.phone ILIKE %s
+            ORDER BY (lower(c.username) = lower(%s)) DESC, c.username
+            LIMIT %s
+            """,
+            (pattern, pattern, phone_pattern, query, limit),
+        )
+        return [
+            {"router": r[0], "username": r[1], "name": r[2], "plan": r[3], "expiry": utc_iso(r[4]),
+             "account_status": r[5], "enabled": r[6]}
             for r in cur.fetchall()
         ]
 

@@ -5,24 +5,22 @@ Phase-based, not version-based — this project ships in named phases (see
 concise, user-facing summary; full technical detail lives in the git log
 and in `phase.md`'s own per-phase writeups.
 
-## Revenue Report: live figures and AI analysis (on `feature/revenue-insights`)
+## Revenue Report live figures, and an admin assistant (on `feature/revenue-insights`)
 
-Built outside the phase plan at the owner's request (2026-11-03). The rest
-of the DeepSeek assistant scope (chat, role-based tools) is on hold until
-customers can log in.
+Built outside the phase plan at the owner's request (2026-11-03).
 
 - The Revenue page refreshes itself every 30 seconds while it's open and
   the tab is visible, and refreshes at once when you come back to the tab.
   Only the figures that changed are redrawn: your period, date, comparison
   and scroll position stay put. "updated HH:MM" is the last successful
   refresh; if one fails, the old figures stay and it says "offline".
-- Admins get an "AI analysis" panel: a headline, up to three highlights and
-  two things to watch, written by DeepSeek. DeepSeek writes the words only.
-  Every figure is filled in from the same report the cards use, and any
-  answer with a number typed in is thrown away. It is regenerated at most
-  every 10 minutes per view, and only when the figures have changed. If
-  DeepSeek is down the panel says "Insights unavailable" and the rest of
-  the page is unaffected.
+- Admins get an "Ask" button on every page: a chat assistant (DeepSeek) that
+  can look up revenue (the same figures as the Revenue Report), site status,
+  packages and prices, and PPPoE customers. It only reads; it can't change
+  anything. Technicians and custom roles don't see it and the server refuses
+  them. Customer phone numbers are never sent to DeepSeek.
+- An AI analysis panel on the Revenue page was tried and taken out again in
+  favour of the assistant.
 
 ## Phase 4 — Network Monitoring (in progress, on `phase-4-network-monitoring`)
 

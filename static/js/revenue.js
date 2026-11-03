@@ -1,4 +1,4 @@
-import { authHeaders, showView, registerRoute, navigate, getCurrentUser } from "./common.js";
+import { authHeaders, showView, registerRoute, navigate } from "./common.js";
 
 function esc(s) {
     return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -492,7 +492,6 @@ async function loadReport() {
     const noteFailure = () => { allOk = false; };
 
     const { overview, sites, alerts, trend, findingsTrend } = fetchPageData();
-    loadInsights(true);
 
     overview.then(guard(o => { renderCards(o); applyPollInterval(o.poll_seconds); }))
         .catch(e => { noteFailure(); fail("rev-cards", e); $("rev-header-line").textContent = "Revenue report unavailable"; });
@@ -539,7 +538,6 @@ async function refreshQuietly() {
         renderFindings(report, findingsTrend);
         applyPollInterval(overview.poll_seconds);
         markFetched(true);
-        loadInsights(false);
     } catch (e) {
         // Keep what is on screen and say so; the next tick tries again.
         if (token === loadToken) markFetched(false);
@@ -581,79 +579,6 @@ document.addEventListener("visibilitychange", () => {
         startPolling();
     }
 });
-
-// ---- AI analysis panel (admin only) ----
-// Words only. The server fills every figure in from the same report the cards
-// use, so nothing here formats or checks a number. It loads on its own and a
-// failure only changes the panel: the rest of the page never waits for it.
-
-let insightsToken = 0;
-let insightsInFlight = false;
-
-function insightsQuery() {
-    const q = overviewQuery();
-    q.set("period", state.gran);
-    if (state.anchor) q.set("anchor", state.anchor);
-    if (state.mode) q.set("compare", state.mode);
-    if (state.mode === "custom" && state.custom) q.set("custom_anchor", state.custom);
-    return q.toString();
-}
-
-async function loadInsights(isNewView) {
-    if (getCurrentUser()?.role !== "admin") return;
-    if (!isNewView && insightsInFlight) return;
-    const token = ++insightsToken;
-    insightsInFlight = true;
-    $("rev-insights").hidden = false;
-    if (isNewView) renderInsights({ status: "preparing" });   // never leave the last view's analysis under a new one
-    try {
-        const res = await fetch(`/monitoring/revenue-report/insights?${insightsQuery()}`, { headers: authHeaders() });
-        if (token !== insightsToken) return;
-        if (res.status === 403) { $("rev-insights").hidden = true; return; }
-        if (!res.ok) throw new Error(`insights ${res.status}`);
-        renderInsights(await res.json());
-    } catch (e) {
-        if (token === insightsToken) renderInsights(null);
-    } finally {
-        if (token === insightsToken) insightsInFlight = false;
-    }
-}
-
-function insightsList(label, items) {
-    const frag = document.createDocumentFragment();
-    if (!items.length) return frag;
-    const title = document.createElement("div");
-    title.className = "rev-insights-label";
-    title.textContent = label;
-    const list = document.createElement("ul");
-    items.forEach(text => {
-        const li = document.createElement("li");
-        li.textContent = text;
-        list.appendChild(li);
-    });
-    frag.append(title, list);
-    return frag;
-}
-
-function renderInsights(data) {
-    if (!changed("insights", data)) return;
-    const body = $("rev-insights-body");
-    const stamp = $("rev-insights-stamp");
-    body.replaceChildren();
-    stamp.textContent = "";
-    if (data?.status === "ok") {
-        const headline = document.createElement("p");
-        headline.className = "rev-insights-headline";
-        headline.textContent = data.insights.headline;
-        body.append(headline, insightsList("Highlights", data.insights.highlights), insightsList("Watch", data.insights.watch));
-        stamp.textContent = `Analysis from ${nairobiTime(new Date(data.generated_at))}`;
-        return;
-    }
-    const note = document.createElement("div");
-    note.className = "rev-insights-note";
-    note.textContent = data?.status === "preparing" ? "Preparing analysis…" : "Insights unavailable";
-    body.appendChild(note);
-}
 
 function renderPeriod(report) {
     const p = report.period;

@@ -22,6 +22,7 @@ import { initSmsStatus } from "./sms-status.js";
 import { initRevenue } from "./revenue.js";
 import { initCustomers } from "./customers.js";
 import { initBroadcast } from "./broadcast.js";
+import { initChat } from "./chat.js";
 
 async function boot() {
     initShell();
@@ -51,6 +52,7 @@ async function boot() {
     initRevenue();
     initCustomers();
     initBroadcast();
+    initChat();
 
     bootAuth();
 }

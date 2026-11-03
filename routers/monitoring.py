@@ -10,11 +10,11 @@ from db import alert_settings, alert_templates
 from db import monitoring_alerts
 from db import monitoring_reconciliation
 from db import monitoring_retention
-from db import revenue_alerts, revenue_daily, revenue_insights, revenue_report
+from db import revenue_alerts, revenue_daily, revenue_report
 from db import sms_log
 from db.connection import now_eat
 from routers.auth import get_current_user
-from routers.permissions import require_admin, user_has_permission
+from routers.permissions import user_has_permission
 
 router = APIRouter()
 
@@ -321,23 +321,6 @@ def revenue_alerts_report(day: Optional[date] = None, current_user: dict = Depen
 def revenue_trend(series: str = "daily_30", current_user: dict = Depends(require_revenue_view)):
     try:
         return revenue_report.trend(series)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-
-# The AI analysis panel. Admin only (not the view_revenue permission): it
-# sends aggregate figures to DeepSeek. It writes words only; every number in
-# it is filled in from the same report functions the cards use.
-@router.get("/monitoring/revenue-report/insights")
-def revenue_insights_panel(period: str = "day", anchor: Optional[date] = None, compare: Optional[str] = None,
-                           custom_anchor: Optional[date] = None,
-                           today_mode: Optional[str] = None, yesterday_mode: Optional[str] = None,
-                           wtd_mode: Optional[str] = None, mtd_mode: Optional[str] = None,
-                           ytd_mode: Optional[str] = None, current_user: dict = Depends(require_admin)):
-    modes = {k: v for k, v in {"today": today_mode, "yesterday": yesterday_mode, "wtd": wtd_mode,
-                               "mtd": mtd_mode, "ytd": ytd_mode}.items() if v}
-    try:
-        return revenue_insights.get_insights(period, anchor, compare, modes, custom_anchor)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

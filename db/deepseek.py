@@ -1,5 +1,6 @@
 """The one place this app talks to DeepSeek at runtime (ask_deepseek.py is a
-separate developer tool, not part of the app).
+separate developer tool, not part of the app). Used by the admin assistant
+(routers/chat.py).
 
 Configured from the environment, read at call time so a missing key never
 stops the app from starting — it only means features that need the model
@@ -38,30 +39,48 @@ def is_configured():
     return bool(os.environ.get("DEEPSEEK_API_KEY"))
 
 
-def chat_json(messages, timeout_seconds=30, max_tokens=700):
-    """One chat completion that must answer in a JSON object. Returns the
-    reply text (still a string — the caller validates it)."""
+def _post(url, body, api_key, timeout_seconds):
+    """One HTTP attempt. Returns the response, or raises DeepSeekError for a
+    timeout / network failure."""
+    try:
+        return requests.post(url, json=body, timeout=timeout_seconds,
+                             headers={"Authorization": f"Bearer {api_key}"})
+    except requests.Timeout:
+        raise DeepSeekError("timeout")
+    except requests.RequestException:
+        raise DeepSeekError("network")
+
+
+def chat(messages, tools=None, timeout_seconds=30, max_tokens=900):
+    """One chat completion. Returns the reply message as a dict: 'content'
+    (text, may be empty) and, when the model wants data, 'tool_calls'.
+    A network blip or a DeepSeek 5xx is retried once; nothing else is."""
     api_key = os.environ.get("DEEPSEEK_API_KEY")
     if not api_key:
         raise DeepSeekError("not_configured")
-    base_url = os.environ.get("DEEPSEEK_BASE_URL", DEFAULT_BASE_URL).rstrip("/")
+    url = os.environ.get("DEEPSEEK_BASE_URL", DEFAULT_BASE_URL).rstrip("/") + "/chat/completions"
     body = {
         "model": os.environ.get("DEEPSEEK_MODEL", DEFAULT_MODEL),
         "messages": messages,
         "temperature": 0.2,
         "max_tokens": max_tokens,
-        "response_format": {"type": "json_object"},
         # Same setting ask_deepseek.py uses: DeepSeek defaults to slow,
-        # costlier "thinking" mode, which a short summary doesn't need.
+        # costlier "thinking" mode, which short answers don't need.
         "thinking": {"type": "disabled"},
     }
-    try:
-        res = requests.post(f"{base_url}/chat/completions", json=body, timeout=timeout_seconds,
-                            headers={"Authorization": f"Bearer {api_key}"})
-    except requests.Timeout:
-        raise DeepSeekError("timeout")
-    except requests.RequestException:
-        raise DeepSeekError("network")
+    if tools:
+        body["tools"] = tools
+
+    for attempt in (1, 2):
+        try:
+            res = _post(url, body, api_key, timeout_seconds)
+        except DeepSeekError as e:
+            if attempt == 2 or e.kind == "timeout":
+                raise  # a second 30-second wait is worse than an error
+            continue
+        if res.status_code >= 500 and attempt == 1:
+            continue
+        break
 
     if res.status_code == 429:
         raise DeepSeekError("rate_limited")
@@ -75,6 +94,9 @@ def chat_json(messages, timeout_seconds=30, max_tokens=700):
         log.error("DeepSeek answered HTTP %s", res.status_code)
         raise DeepSeekError("upstream")
     try:
-        return res.json()["choices"][0]["message"]["content"]
+        message = res.json()["choices"][0]["message"]
     except (ValueError, KeyError, IndexError, TypeError):
         raise DeepSeekError("bad_response")
+    if not isinstance(message, dict):
+        raise DeepSeekError("bad_response")
+    return message

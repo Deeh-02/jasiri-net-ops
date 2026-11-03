@@ -325,6 +325,48 @@ def trend(series, now=None):
     }
 
 
+# ---- History over a date range (admin assistant) ----
+
+def find_sites(name_fragment):
+    """[(site_id, name)] of monitored sites whose name contains the fragment,
+    named the same way as everywhere else in this report."""
+    with db_cursor() as (conn, cur):
+        cur.execute(
+            """
+            SELECT ms.id, COALESCE(l.name, ms.name, 'VLAN ' || ms.vlan_id) AS site_name
+            FROM monitored_sites ms LEFT JOIN locations l ON l.id = ms.location_id
+            WHERE COALESCE(l.name, ms.name, 'VLAN ' || ms.vlan_id) ILIKE %s
+            ORDER BY site_name
+            """,
+            ("%" + name_fragment.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%",),
+        )
+        return cur.fetchall()
+
+
+def daily_history(first, last, site_id=None, now=None):
+    """Revenue for each EAT day first..last (inclusive), oldest first, for the
+    network or one site. A day with no row is a 0, not a gap (see migration
+    0019). Days before history_start are dropped, and today is flagged as
+    still in progress. Same table the trend chart reads."""
+    today = to_eat_naive(now or now_eat()).date()
+    last = min(last, today)
+    with db_cursor() as (conn, cur):
+        hist = history_start(cur)
+        if hist is None or last < hist:
+            return {"history_start": hist, "days": []}
+        first = max(first, hist)
+        if site_id is None:
+            totals = _daily_totals(cur, first, last)
+        else:
+            totals = _site_series(cur, first, last).get(site_id, {})
+    days = []
+    d = first
+    while d <= last:
+        days.append({"date": d, "revenue": Decimal(totals.get(d, 0)), "in_progress": d == today})
+        d += timedelta(days=1)
+    return {"history_start": hist, "days": days}
+
+
 # ---- Level 2: sites ----
 
 SERIES_LOOKBACK_DAYS = 120  # covers a 6-week baseline plus 12 weeks of weekly history
