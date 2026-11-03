@@ -7,6 +7,7 @@ comparison rules are in db/revenue_logic.py and the thresholds in
 db/revenue_config.py. Money leaves this module as JSON numbers plus a
 pre-formatted 'KSh 10,810' string, so the client never formats or rounds.
 """
+import re
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 
@@ -329,16 +330,20 @@ def trend(series, now=None):
 
 def find_sites(name_fragment):
     """[(site_id, name)] of monitored sites whose name contains the fragment,
-    named the same way as everywhere else in this report."""
+    named the same way as everywhere else in this report. Spaces, case and
+    punctuation are ignored, so "Red Soil" finds "Redsoil"."""
+    key = re.sub(r"[^a-z0-9]", "", name_fragment.lower())
+    if not key:
+        return []
     with db_cursor() as (conn, cur):
         cur.execute(
             """
             SELECT ms.id, COALESCE(l.name, ms.name, 'VLAN ' || ms.vlan_id) AS site_name
             FROM monitored_sites ms LEFT JOIN locations l ON l.id = ms.location_id
-            WHERE COALESCE(l.name, ms.name, 'VLAN ' || ms.vlan_id) ILIKE %s
+            WHERE regexp_replace(lower(COALESCE(l.name, ms.name, 'VLAN ' || ms.vlan_id)), '[^a-z0-9]', '', 'g') LIKE %s
             ORDER BY site_name
             """,
-            ("%" + name_fragment.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%",),
+            (f"%{key}%",),
         )
         return cur.fetchall()
 

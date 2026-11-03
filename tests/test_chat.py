@@ -81,10 +81,10 @@ class AdminOnly(unittest.TestCase):
 
 
 class ToolsByRole(unittest.TestCase):
-    def test_admin_gets_the_five_tools(self):
+    def test_admin_gets_the_six_tools(self):
         names = {t["function"]["name"] for t in assistant_tools.tools_for(assistant_tools.role_for(ADMIN))}
-        self.assertEqual(names, {"get_revenue_summary", "get_revenue_history", "get_site_status", "get_packages",
-                                 "lookup_customer"})
+        self.assertEqual(names, {"get_revenue_summary", "get_revenue_history", "get_site_status", "get_site_contact",
+                                 "get_packages", "lookup_customer"})
 
     def test_everyone_else_gets_none(self):
         for user in (TECHNICIAN, CUSTOM_ROLE, {}, {"role": None}, {"role": "Admin"}):
@@ -328,6 +328,60 @@ class RevenueHistoryTool(unittest.TestCase):
                          {"start_date": "2026-10-01", "end_date": "2026-09-01"}):
                 with self.assertRaises(assistant_tools.ToolArgumentError, msg=args):
                     assistant_tools.get_revenue_history(args)
+
+
+LOCATIONS = [
+    {"id": 1, "name": "Home Base", "contact_name": None, "contact_phone": None, "address": None, "is_home_base": True},
+    {"id": 2, "name": "Redsoil", "contact_name": "Mama Wanjiru", "contact_phone": "0712000111",
+     "address": "Next to the chemist", "is_home_base": False},
+    {"id": 3, "name": "Garage", "contact_name": "Otieno", "contact_phone": "0722000222", "address": None,
+     "is_home_base": False},
+    {"id": 4, "name": "Garage Rd", "contact_name": "Achieng", "contact_phone": "0733000333", "address": None,
+     "is_home_base": False},
+]
+
+
+class SiteContactTool(unittest.TestCase):
+    """'Who is the contact for Red Soil?'"""
+
+    def ask(self, site):
+        with mock.patch.object(assistant_tools.sites, "get_all_locations", return_value=LOCATIONS):
+            return assistant_tools.get_site_contact({"site": site})
+
+    def test_spaces_and_case_dont_matter(self):
+        for spelling in ("Red Soil", "redsoil", "RED-SOIL", "red soil "):
+            result = self.ask(spelling)
+            self.assertEqual(result["sites"], [{"site": "Redsoil", "contact_name": "Mama Wanjiru",
+                                                "contact_phone": "0712000111", "address": "Next to the chemist"}],
+                             spelling)
+
+    def test_exact_name_wins(self):
+        self.assertEqual([s["site"] for s in self.ask("garage")["sites"]], ["Garage"])
+
+    def test_partial_name_lists_every_match(self):
+        self.assertEqual([s["site"] for s in self.ask("gar")["sites"]], ["Garage", "Garage Rd"])
+
+    def test_no_match_lists_the_sites_it_knows(self):
+        result = self.ask("Kamutini")
+        self.assertIn("no site matches", result["error"])
+        self.assertIn("Redsoil", result["known_sites"])
+
+    def test_site_is_required(self):
+        for args in ({}, {"site": "  "}, {"site": "--"}):
+            with self.assertRaises(assistant_tools.ToolArgumentError, msg=args):
+                assistant_tools.get_site_contact(args)
+
+
+class SiteStatusFilter(unittest.TestCase):
+    def test_red_soil_finds_redsoil_hotspot(self):
+        statuses = [{"name": "Redsoil_Hotspot", "state": "online", "state_since": None, "sessions": 4,
+                     "sessions_at_drop": None, "uptime_30d_pct": 99.0, "ack": None},
+                    {"name": "Garage", "state": "offline", "state_since": None, "sessions": 0,
+                     "sessions_at_drop": 3, "uptime_30d_pct": 90.0, "ack": None}]
+        with mock.patch.object(assistant_tools.monitoring, "get_site_statuses", return_value=statuses), \
+                mock.patch.object(assistant_tools.monitoring, "get_last_ingest_at", return_value=None):
+            result = assistant_tools.get_site_status({"site": "Red Soil"})
+        self.assertEqual([s["site"] for s in result["sites"]], ["Redsoil_Hotspot"])
 
 
 class CustomerTool(unittest.TestCase):

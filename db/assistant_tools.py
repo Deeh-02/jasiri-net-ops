@@ -12,17 +12,20 @@ anything, so a mistake in one layer is caught by the other.
 
 WHAT LEAVES. DeepSeek receives every tool result, so results are trimmed to
 what an answer needs: revenue is totals only (no individual sales), and the
-customer lookup returns plan/status/expiry but not phone numbers.
+customer lookup returns plan/status/expiry but not phone numbers. The one
+phone number that does go out is a SITE's contact (get_site_contact): giving
+it is that tool's whole purpose.
 
 Every call is written to the log (time, user, role, tool, allowed or not,
 outcome) — never the arguments' values or the result.
 """
 import json
 import logging
+import re
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
-from db import customers, monitoring, revenue_config, revenue_report
+from db import customers, monitoring, revenue_config, revenue_report, sites
 from db.connection import EAT, now_eat
 from db.revenue_logic import MODES, compare, format_kes, slope_pct_of_mean, trend_label
 
@@ -70,6 +73,13 @@ def _optional_date(args, key):
         return date.fromisoformat(value)
     except (TypeError, ValueError):
         raise ToolArgumentError(f"{key} must be a date like 2026-11-03")
+
+
+def _name_key(text):
+    """'Red Soil' / 'Redsoil_Hotspot' -> 'redsoil' / 'redsoilhotspot': site names
+    are written every which way, so they're compared without case, spaces or
+    punctuation."""
+    return re.sub(r"[^a-z0-9]", "", (text or "").lower())
 
 
 # ---- The tools ----
@@ -176,7 +186,7 @@ def _resolve_site(name):
     """(site_id, site name) for a name fragment, or a dict to hand back to the
     model when there's no match or more than one."""
     matches = revenue_report.find_sites(name)
-    exact = [m for m in matches if m[1].lower() == name.lower()]
+    exact = [m for m in matches if _name_key(m[1]) == _name_key(name)]
     if len(exact) == 1 or len(matches) == 1:
         return (exact or matches)[0]
     if not matches:
@@ -264,7 +274,7 @@ def get_site_status(args):
     name_filter = _optional_text(args, "site", 60)
     sites = monitoring.get_site_statuses(include_revenue=True)
     if name_filter:
-        sites = [s for s in sites if name_filter.lower() in s["name"].lower()]
+        sites = [s for s in sites if _name_key(name_filter) in _name_key(s["name"])]
     counts = {}
     for s in sites:
         counts[s["state"]] = counts.get(s["state"], 0) + 1
@@ -278,6 +288,26 @@ def get_site_status(args):
             "revenue_today_kes": s.get("revenue_today_kes"),
         } for s in sites[:MAX_ROWS * 2]],
     }
+
+
+def get_site_contact(args):
+    """The contact person, phone and address saved for a site (Sites page)."""
+    _no_extra_keys(args, ("site",))
+    name = _optional_text(args, "site", 60)
+    if not name or not _name_key(name):
+        raise ToolArgumentError("site is required")
+    key = _name_key(name)
+    locations = sites.get_all_locations()
+    matches = [loc for loc in locations if key in _name_key(loc["name"])]
+    exact = [loc for loc in matches if _name_key(loc["name"]) == key]
+    if exact:
+        matches = exact
+    if not matches:
+        return {"error": f"no site matches '{name}'", "known_sites": [loc["name"] for loc in locations][:MAX_ROWS * 2]}
+    if len(matches) > 5:
+        return {"error": "more than one site matches; ask which one", "candidates": [loc["name"] for loc in matches]}
+    return {"sites": [{"site": loc["name"], "contact_name": loc["contact_name"], "contact_phone": loc["contact_phone"],
+                       "address": loc["address"]} for loc in matches]}
 
 
 def get_packages(args):
@@ -345,6 +375,12 @@ TOOLS = {
         "Live status of the monitored hotspot sites: online/offline, people connected, 30-day uptime, "
         "today's revenue per site. Optionally filter by part of a site name.",
         {"site": {"type": "string", "description": "part of a site name"}})),
+    "get_site_contact": (get_site_contact, {"admin"}, _schema(
+        "get_site_contact",
+        "The contact person, phone number and address saved for a site or location (as on the Sites page). "
+        "Use for 'who is the contact for X', 'who do I call at X', 'where is X'.",
+        {"site": {"type": "string", "description": "the site name, or part of it"}},
+        required=("site",))),
     "get_packages": (get_packages, {"admin"}, _schema(
         "get_packages", "The hotspot packages currently on sale, with price and duration.")),
     "lookup_customer": (lookup_customer, {"admin"}, _schema(
