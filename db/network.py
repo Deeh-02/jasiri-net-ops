@@ -567,12 +567,21 @@ def pppoe(slug, now=None):
     }
 
 
+def _primary_interface(cur, slug):
+    """The in-service link with the lowest route distance (ties: oldest)."""
+    cur.execute(
+        "SELECT interface FROM network_uplinks WHERE router = %s AND in_service "
+        "ORDER BY (reading->>'distance')::int NULLS LAST, first_seen_at, interface LIMIT 1", (slug,))
+    row = cur.fetchone()
+    return row[0] if row else None
+
+
 def uplink_history(slug, range_key, now=None, link=None):
     """Points for the chart (1h: per minute, 24h: per 5 minutes, 7d: per
     hour) plus the outages in that window, for marking gaps. `link` charts one
     link (the interface name); without it, the router's total across links."""
     if range_key not in logic.HISTORY_RANGES:
-        raise ValueError("range must be 1h, 24h or 7d")
+        raise ValueError("range must be 1h, 6h, 24h or 7d")
     now = now or datetime.utcnow()
     look_back, bucket_min = logic.HISTORY_RANGES[range_key]
     since = now - look_back
@@ -612,6 +621,13 @@ def uplink_history(slug, range_key, now=None, link=None):
         if link is not None:
             # This link's own outages, plus the router-wide silences that hide everything.
             found = [e for e in found if e["details"].get("link") in (None, link)]
+        else:
+            # The total is shaded for router-wide silences and the PRIMARY link's
+            # outages only: a backup link that is down (or unpaid) doesn't stop
+            # customers, so it must not paint the whole chart red. Its own
+            # chart and the Events list still show it.
+            primary = _primary_interface(cur, slug)
+            found = [e for e in found if e["details"].get("link") in (None, primary)]
         outages = [e for e in logic.merge_outages(found) if e["type"] in OUTAGE_TYPES]
     return {"range": range_key, "bucket_minutes": bucket_min, "from": utc_iso(since), "to": utc_iso(now),
             "link": link, "points": points, "outages": [serialise_event(e, now) for e in outages]}

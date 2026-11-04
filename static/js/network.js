@@ -344,6 +344,19 @@ function svg(tag, attrs, text) {
     return node;
 }
 
+// Axis for a chart whose highest value is `peak`: round steps (1, 2 or 5 times
+// a power of ten) with 3 to 5 intervals, topping out just above the peak. It
+// still follows the traffic: a quiet hour gets a small axis, a busy one a big one.
+function niceAxis(peak) {
+    const want = Math.max(10, peak * 1.05);
+    const magnitude = 10 ** Math.floor(Math.log10(want));
+    for (const step of [magnitude / 10, magnitude / 5, magnitude / 2, magnitude, magnitude * 2, magnitude * 5]) {
+        const intervals = Math.ceil(want / step);
+        if (intervals >= 3 && intervals <= 5) return { step, top: intervals * step };
+    }
+    return { step: want / 4, top: want };
+}
+
 function renderHistory(h) {
     const box = $("net-chart");
     const pts = h.points.filter(p => p.download_mbps_avg != null);
@@ -354,7 +367,8 @@ function renderHistory(h) {
     const W = 720, H = 230, L = 46, R = 10, T = 22, B = 24;   // T leaves room for the "Mbps" label
     const t0 = new Date(h.from).getTime(), t1 = new Date(h.to).getTime();
     const x = t => L + ((t - t0) / (t1 - t0)) * (W - L - R);
-    const top = Math.max(10, ...pts.map(p => Math.max(p.download_mbps_avg, p.upload_mbps_avg || 0))) * 1.1;
+    const axis = niceAxis(Math.max(0, ...pts.map(p => Math.max(p.download_mbps_avg, p.upload_mbps_avg || 0))));
+    const top = axis.top;
     const y = v => T + (1 - v / top) * (H - T - B);
     const chart = svg("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": "Uplink traffic" });
 
@@ -363,11 +377,10 @@ function renderHistory(h) {
         const b = Math.min(x(o.ended_at ? new Date(o.ended_at).getTime() : t1), W - R);
         if (b > a) chart.append(svg("rect", { class: "outage", x: a, y: T, width: Math.max(b - a, 2), height: H - T - B }));
     });
-    [0, 0.25, 0.5, 0.75, 1].forEach(f => {
-        const v = top * f;
+    for (let v = 0; v <= top + axis.step / 2; v += axis.step) {
         chart.append(svg("line", { class: "grid", x1: L, x2: W - R, y1: y(v), y2: y(v) }),
                      svg("text", { x: L - 6, y: y(v) + 3, "text-anchor": "end" }, `${Math.round(v)}`));
-    });
+    }
     chart.append(svg("text", { x: 4, y: 10 }, "Mbps"));
     const line = (key, cls) => svg("polyline", { class: cls,
         points: pts.filter(p => p[key] != null).map(p => `${x(new Date(p.t).getTime())},${y(p[key])}`).join(" ") });

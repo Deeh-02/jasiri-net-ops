@@ -345,4 +345,5 @@ def assemble_batch(parts, expected):
 # ---- History ----
 
 # range -> (look-back, bucket size in minutes)
-HISTORY_RANGES = {"1h": (timedelta(hours=1), 1), "24h": (timedelta(hours=24), 5), "7d": (timedelta(days=7), 60)}
+HISTORY_RANGES = {"1h": (timedelta(hours=1), 1), "6h": (timedelta(hours=6), 2),
+                  "24h": (timedelta(hours=24), 5), "7d": (timedelta(days=7), 60)}

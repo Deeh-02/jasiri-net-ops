@@ -55,6 +55,11 @@ two default routes (Airtel, Veenet) and the page now knows about both.
 - A failure of the primary link is red even when customers are online via the
   backup; a dead backup is amber. Events name the link.
 - The chart has a link picker, and a cursor readout (time, download, upload).
+- Chart: a **6h** range (1h, 6h, 24h, 7d); round axis numbers (0, 100, 200,
+  300) that still follow the traffic; and the total chart is only shaded for
+  router-wide silences and the PRIMARY link's outages, so an unpaid or dead
+  backup link no longer paints the whole chart red (its own chart and the
+  Events list still show it).
 - **Not in service** switch (migration 0024): an admin can grey out a link
   that is plugged in but not paid for yet (Veenet), so it stops raising
   warnings and events until it is switched back on.

@@ -363,6 +363,18 @@ class TwoLinks(unittest.TestCase):
         self.assertEqual(logic.total_traffic(links + [links[0]]), (125_000_000, 21_000_000))
 
 
+class ChartRanges(unittest.TestCase):
+    def test_the_chart_offers_1h_6h_24h_and_7d(self):
+        self.assertEqual(list(logic.HISTORY_RANGES), ["1h", "6h", "24h", "7d"])
+        look_back, bucket = logic.HISTORY_RANGES["6h"]
+        self.assertEqual((look_back, bucket), (timedelta(hours=6), 2))
+        self.assertLessEqual(look_back / timedelta(minutes=bucket), 400)   # a sensible number of points
+
+    def test_an_unknown_range_is_refused(self):
+        with self.assertRaises(ValueError):
+            network.uplink_history("ccr2116", "30d")
+
+
 class Links(unittest.TestCase):
     def test_the_old_message_shape_is_one_link(self):
         links = logic.links_of(live())
