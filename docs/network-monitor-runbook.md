@@ -83,6 +83,14 @@ export NETWORK_INGEST_TOKEN_CCR2116="...the token..."
 python tools/render_router_script.py            # add --gateway-ip / --internet-target 1.1.1.1 if wanted
 ```
 
+**For the JS-CORE1 CCR2116, always pass the Airtel gateway:**
+`python tools/render_router_script.py --gateway-ip 102.0.27.189`
+The router has two default routes: Airtel (distance 1, `sfp-sfpplus1`) and Veenet
+(distance 2, standby, VLAN 808 on `sfp-sfpplus3`). Auto-detect follows whichever is
+active, so during an Airtel failure it would start pinging Veenet's gateway and the
+page would look healthy. Pinning the Airtel gateway keeps the check on Airtel. The
+uplink card watches `sfp-sfpplus1` only, so it reads near zero while traffic is on Veenet.
+
 This writes `router-rendered/ops-live.rsc` and `router-rendered/ops-sessions.rsc`.
 That folder is gitignored because it holds the token. Delete it when you're done.
 

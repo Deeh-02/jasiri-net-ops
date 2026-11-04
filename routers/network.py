@@ -162,7 +162,9 @@ def _reject(status, reason, slug=None):
 def check_token(authorization, slug):
     """True if `authorization` is 'Bearer <this router's token>'. Constant-time.
     A router with no token configured accepts nothing (fails closed)."""
-    expected = os.environ.get(f"NETWORK_INGEST_TOKEN_{slug.upper().replace('-', '_')}")
+    # strip(): a dashboard paste often adds a trailing space or newline, which
+    # would otherwise make a correct token silently never match.
+    expected = (os.environ.get(f"NETWORK_INGEST_TOKEN_{slug.upper().replace('-', '_')}") or "").strip()
     if not expected or not authorization or not authorization.startswith("Bearer "):
         return False
     return hmac.compare_digest(authorization[len("Bearer "):].encode(), expected.encode())
@@ -197,6 +199,11 @@ async def ingest(request: Request):
     # Token before anything else about the router, so an unauthenticated
     # caller learns nothing about which routers exist.
     if not check_token(request.headers.get("authorization"), slug):
+        # Lengths only, never the values: tells "variable missing" (0) from
+        # "set but different" when a token is rejected.
+        configured = len((os.environ.get(f"NETWORK_INGEST_TOKEN_{slug.upper().replace('-', '_')}") or "").strip())
+        sent = len((request.headers.get("authorization") or "").removeprefix("Bearer ").strip())
+        log.warning("network ingest token mismatch router=%s configured_len=%s sent_len=%s", slug, configured, sent)
         _reject(401, "invalid ingest token", slug)
     known = db.get_router(slug)
     if known is None or not known["is_enabled"]:
