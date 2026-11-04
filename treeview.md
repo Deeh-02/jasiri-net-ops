@@ -52,7 +52,8 @@ battery-tracker/
 │   ├── 0021_revenue_site_status.sql    # revenue alerts judged per site-day, with the thresholds used
 │   ├── 0022_network_monitor.sql        # Network page: routers, latest reading, session parts, rollups, events
 │   ├── 0023_network_uplinks.sql        # Network page: one row per internet link + per-link rollups
-│   └── 0024_network_uplink_in_service.sql  # Network page: per-link 'not in service' switch
+│   ├── 0024_network_uplink_in_service.sql  # Network page: per-link 'not in service' switch
+│   └── 0025_network_samples.sql        # Network page: raw 15-second readings for the Live chart (1 hour)
 │
 ├── router/                          # RouterOS scripts, pasted onto the CCR by a human — never run by Ops
 │   ├── ops-heartbeat.rsc             # Phase 4.3: read-only 60s heartbeat POSTing to /monitoring/ingest

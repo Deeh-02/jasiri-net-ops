@@ -99,6 +99,10 @@
 .net-key.peak::before { background: var(--text-dim); opacity: 0.6; height: 1px; }
 .net-key.outage::before { height: 10px; background: rgba(239, 91, 91, 0.25); }
 .net-chart { margin-top: 10px; position: relative; }
+.net-live-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--text-dim); margin-right: 6px; vertical-align: middle; }
+#net-range button[aria-pressed="true"] .net-live-dot { background: var(--accent); animation: net-pulse 2s ease-in-out infinite; }
+@keyframes net-pulse { 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { #net-range button[aria-pressed="true"] .net-live-dot { animation: none; } }
 .net-chart svg { width: 100%; height: auto; display: block; touch-action: pan-y; }   /* vertical swipes still scroll the page */
 .net-chart .hover-line { stroke: var(--text-dim); stroke-width: 1; pointer-events: none; }
 .net-chart .hover-dot { stroke: var(--surface); stroke-width: 2; pointer-events: none; }

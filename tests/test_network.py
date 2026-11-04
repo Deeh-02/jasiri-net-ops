@@ -364,8 +364,9 @@ class TwoLinks(unittest.TestCase):
 
 
 class ChartRanges(unittest.TestCase):
-    def test_the_chart_offers_1h_6h_24h_and_7d(self):
-        self.assertEqual(list(logic.HISTORY_RANGES), ["1h", "6h", "24h", "7d"])
+    def test_the_chart_offers_live_1h_6h_24h_and_7d(self):
+        self.assertEqual(list(logic.HISTORY_RANGES), ["live", "1h", "6h", "24h", "7d"])
+        self.assertEqual(logic.HISTORY_RANGES["live"], (timedelta(minutes=10), 0))   # raw readings, no buckets
         look_back, bucket = logic.HISTORY_RANGES["6h"]
         self.assertEqual((look_back, bucket), (timedelta(hours=6), 2))
         self.assertLessEqual(look_back / timedelta(minutes=bucket), 400)   # a sensible number of points

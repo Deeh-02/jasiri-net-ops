@@ -1,5 +1,5 @@
-"""Network page — data access (migrations 0022 and 0023). Writes only the
-seven network_* tables; reads the customer list only through
+"""Network page — data access (migrations 0022 to 0025). Writes only the
+network_* tables; reads the customer list only through
 db.customers.match_usernames. The rules (status, outages, gateway memory)
 are in db/network_logic.py; this file stores and fetches.
 
@@ -19,6 +19,7 @@ log = logging.getLogger(__name__)
 
 PURGE_EVERY = timedelta(hours=1)
 MINUTES_KEEP = timedelta(days=30)
+SAMPLES_KEEP = timedelta(hours=1)      # raw readings, for the Live chart only
 EVENTS_KEEP = timedelta(days=90)
 _last_purge = None
 
@@ -223,6 +224,11 @@ def _store_link(cur, slug, link, now, restarted, previous_received_at, cfg):
          source, link.get("active"), Json(link), now, streak, seen_alive, None, rose),
     )
     _add_to_link_rollup(cur, slug, link, now)
+    # The raw reading, for the Live chart (kept an hour).
+    cur.execute(
+        "INSERT INTO network_samples (router, interface, received_at, rx_bps, tx_bps) VALUES (%s, %s, %s, %s, %s) "
+        "ON CONFLICT DO NOTHING",
+        (slug, link["interface"], now, link.get("rx_bps") or 0, link.get("tx_bps") or 0))
     return {"state": gateway_state, "fail_streak": streak, "seen_alive": seen_alive, "rose": rose}
 
 
@@ -323,6 +329,7 @@ def purge_if_due(now=None):
         with db_cursor() as (conn, cur):
             cur.execute("DELETE FROM network_minutes WHERE minute < %s", (now - MINUTES_KEEP,))
             cur.execute("DELETE FROM network_uplink_minutes WHERE minute < %s", (now - MINUTES_KEEP,))
+            cur.execute("DELETE FROM network_samples WHERE received_at < %s", (now - SAMPLES_KEEP,))
             cur.execute("DELETE FROM network_events WHERE ended_at IS NOT NULL AND ended_at < %s",
                         (now - EVENTS_KEEP,))
             conn.commit()
@@ -590,11 +597,12 @@ def _primary_interface(cur, slug):
 
 
 def uplink_history(slug, range_key, now=None, link=None):
-    """Points for the chart (1h: per minute, 24h: per 5 minutes, 7d: per
+    """Points for the chart (live: every 15-second reading of the last 10
+    minutes; 1h: per minute, 6h: per 2 minutes, 24h: per 5 minutes, 7d: per
     hour) plus the outages in that window, for marking gaps. `link` charts one
     link (the interface name); without it, the router's total across links."""
     if range_key not in logic.HISTORY_RANGES:
-        raise ValueError("range must be 1h, 6h, 24h or 7d")
+        raise ValueError("range must be live, 1h, 6h, 24h or 7d")
     now = now or datetime.utcnow()
     look_back, bucket_min = logic.HISTORY_RANGES[range_key]
     since = now - look_back
@@ -605,31 +613,10 @@ def uplink_history(slug, range_key, now=None, link=None):
         table, extra, where, args = ("network_uplink_minutes", "NULL, NULL", "router = %s AND interface = %s",
                                      [slug, link])
     with db_cursor() as (conn, cur):
-        cur.execute(
-            f"""
-            SELECT to_timestamp(floor(extract(epoch FROM minute) / %s) * %s) AT TIME ZONE 'UTC' AS bucket,
-                   sum(rx_bps_sum) / NULLIF(sum(samples), 0), max(rx_bps_max),
-                   sum(tx_bps_sum) / NULLIF(sum(samples), 0), max(tx_bps_max),
-                   {extra},
-                   sum(gw_rtt_ms_sum) / NULLIF(sum(gw_rtt_samples), 0),
-                   max(gw_loss_pct_max)
-            FROM {table}
-            WHERE {where} AND minute >= %s
-            GROUP BY bucket ORDER BY bucket
-            """,
-            (bucket_min * 60, bucket_min * 60, *args, since),
-        )
-        points = [{
-            "t": utc_iso(r[0]),
-            "download_mbps_avg": None if r[1] is None else round(float(r[1]) / 1e6, 2),
-            "download_mbps_max": None if r[2] is None else round(r[2] / 1e6, 2),
-            "upload_mbps_avg": None if r[3] is None else round(float(r[3]) / 1e6, 2),
-            "upload_mbps_max": None if r[4] is None else round(r[4] / 1e6, 2),
-            "pppoe_online": r[5],
-            "cpu_pct_avg": None if r[6] is None else round(float(r[6]), 1),
-            "gateway_rtt_ms_avg": None if r[7] is None else round(float(r[7]), 1),
-            "gateway_loss_pct_max": None if r[8] is None else float(r[8]),
-        } for r in cur.fetchall()]
+        if bucket_min == 0:
+            points = _live_points(cur, slug, since, link)
+        else:
+            points = _bucket_points(cur, slug, since, bucket_min, table, extra, where, args)
         found = _events(cur, slug, since=since, limit=200)
         if link is not None:
             # This link's own outages, plus the router-wide silences that hide everything.
@@ -644,6 +631,50 @@ def uplink_history(slug, range_key, now=None, link=None):
         outages = [e for e in logic.merge_outages(found) if e["type"] in OUTAGE_TYPES]
     return {"range": range_key, "bucket_minutes": bucket_min, "from": utc_iso(since), "to": utc_iso(now),
             "link": link, "points": points, "outages": [serialise_event(e, now) for e in outages]}
+
+
+def _live_points(cur, slug, since, link):
+    """One point per 15-second reading. A reading is one instant, so its
+    average and its peak are the same number: max is left empty and the page
+    draws no separate peak line."""
+    if link is None:
+        cur.execute("SELECT received_at, sum(rx_bps), sum(tx_bps) FROM network_samples "
+                    "WHERE router = %s AND received_at >= %s GROUP BY received_at ORDER BY received_at", (slug, since))
+    else:
+        cur.execute("SELECT received_at, rx_bps, tx_bps FROM network_samples "
+                    "WHERE router = %s AND interface = %s AND received_at >= %s ORDER BY received_at", (slug, link, since))
+    return [{"t": utc_iso(r[0]), "download_mbps_avg": round(float(r[1]) / 1e6, 2), "download_mbps_max": None,
+             "upload_mbps_avg": round(float(r[2]) / 1e6, 2), "upload_mbps_max": None,
+             "pppoe_online": None, "cpu_pct_avg": None, "gateway_rtt_ms_avg": None, "gateway_loss_pct_max": None}
+            for r in cur.fetchall()]
+
+
+def _bucket_points(cur, slug, since, bucket_min, table, extra, where, args):
+    cur.execute(
+            f"""
+            SELECT to_timestamp(floor(extract(epoch FROM minute) / %s) * %s) AT TIME ZONE 'UTC' AS bucket,
+                   sum(rx_bps_sum) / NULLIF(sum(samples), 0), max(rx_bps_max),
+                   sum(tx_bps_sum) / NULLIF(sum(samples), 0), max(tx_bps_max),
+                   {extra},
+                   sum(gw_rtt_ms_sum) / NULLIF(sum(gw_rtt_samples), 0),
+                   max(gw_loss_pct_max)
+            FROM {table}
+            WHERE {where} AND minute >= %s
+            GROUP BY bucket ORDER BY bucket
+            """,
+            (bucket_min * 60, bucket_min * 60, *args, since),
+        )
+    return [{
+            "t": utc_iso(r[0]),
+            "download_mbps_avg": None if r[1] is None else round(float(r[1]) / 1e6, 2),
+            "download_mbps_max": None if r[2] is None else round(r[2] / 1e6, 2),
+            "upload_mbps_avg": None if r[3] is None else round(float(r[3]) / 1e6, 2),
+            "upload_mbps_max": None if r[4] is None else round(r[4] / 1e6, 2),
+            "pppoe_online": r[5],
+            "cpu_pct_avg": None if r[6] is None else round(float(r[6]), 1),
+            "gateway_rtt_ms_avg": None if r[7] is None else round(float(r[7]), 1),
+            "gateway_loss_pct_max": None if r[8] is None else float(r[8]),
+        } for r in cur.fetchall()]
 
 
 def events(slug, limit=50, now=None):

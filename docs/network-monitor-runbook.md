@@ -20,6 +20,7 @@ schedulers, both scripts and their variables, and nothing else.
    `psql "$DATABASE_URL" -f migrations/0022_network_monitor.sql`
    `psql "$DATABASE_URL" -f migrations/0023_network_uplinks.sql`
    `psql "$DATABASE_URL" -f migrations/0024_network_uplink_in_service.sql`
+   `psql "$DATABASE_URL" -f migrations/0025_network_samples.sql`
 2. **Make a token** and keep it somewhere safe:
    `python tools/render_router_script.py --new-token`
 3. **On Render**, add the environment variable `NETWORK_INGEST_TOKEN_CCR2116` with that token,

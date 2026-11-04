@@ -1682,6 +1682,12 @@ Settled:
   events, its open outage events are closed, and it can't be the primary. Its
   readings, memory and rollups keep updating, so switching it back on starts
   from the truth.
+- **Live chart (migration 0025).** The router reports every 15 s, and the
+  1-minute rollups can't show that, so each link's raw reading also goes into
+  `network_samples` (kept an hour, purged hourly with the rest). The Live
+  range is the last 10 minutes from there, one point per reading, polled
+  every 5 s by the page while Live is selected. Per-second needs the router
+  to report faster: a separate tiny script was offered and not chosen.
 - **Verified** against a throwaway PostgreSQL 16 (31 checks: migration twice,
   discovery of a second and a third link, a failover with per-link events,
   capacity edit surviving later readings, purge, the old message shape) and in

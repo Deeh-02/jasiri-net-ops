@@ -8,10 +8,12 @@ import { authHeaders, showView, registerRoute } from "./common.js";
 const ROUTER = "ccr2116";
 const OVERVIEW_MS = 15000;   // header, uplink card, events
 const SESSIONS_MS = 30000;   // PPPoE table
-const HISTORY_MS = 60000;    // chart (1-minute rollups — faster is pointless)
+const HISTORY_MS = 60000;    // chart, 1h and longer (1-minute rollups — faster is pointless)
+const LIVE_MS = 5000;        // chart, Live (readings land every 15 s; 5 s keeps the lag short)
 
 const state = {
-    range: "1h",
+    range: "live",
+    historyAt: 0,        // when the chart was last fetched (Live refetches more often)
     link: "",            // chart: "" = all links added together, else a link's interface
     linkSig: "",         // the links the chart picker was built for
     editing: null,       // interface whose capacity form is open (the page leaves it alone)
@@ -398,7 +400,7 @@ function renderHistory(h) {
                  line("download_mbps_avg", "down"), line("upload_mbps_avg", "up"));
     const fmt = t => new Date(t).toLocaleString("en-GB", h.range === "7d"
         ? { timeZone: "Africa/Nairobi", weekday: "short", day: "2-digit" }
-        : { timeZone: "Africa/Nairobi", hour: "2-digit", minute: "2-digit" });
+        : { timeZone: "Africa/Nairobi", hour: "2-digit", minute: "2-digit", ...(h.range === "live" ? { second: "2-digit" } : {}) });
     for (let i = 0; i <= 4; i++) {
         const t = t0 + ((t1 - t0) * i) / 4;
         chart.append(svg("text", { x: x(t), y: H - 6, "text-anchor": i === 0 ? "start" : i === 4 ? "end" : "middle" }, fmt(t)));
@@ -424,7 +426,7 @@ function addHover(box, chart, pts, h, g) {
 
     const when = t => new Date(t).toLocaleString("en-GB", { timeZone: "Africa/Nairobi",
         ...(h.range === "7d" ? { weekday: "short", day: "2-digit", month: "short" } : {}),
-        hour: "2-digit", minute: "2-digit" });
+        hour: "2-digit", minute: "2-digit", ...(h.range === "live" ? { second: "2-digit" } : {}) });
     const outageAt = t => h.outages.some(o =>
         new Date(o.started_at).getTime() <= t && t <= (o.ended_at ? new Date(o.ended_at).getTime() : g.t1));
     const nearest = target => {
@@ -594,6 +596,7 @@ async function loadSessions() {
 }
 
 async function loadHistory() {
+    state.historyAt = Date.now();
     try {
         const link = state.link ? `&link=${encodeURIComponent(state.link)}` : "";
         renderHistory(await api(`/network/uplink-history?router=${ROUTER}&range=${state.range}${link}`));
@@ -616,7 +619,10 @@ function startPolling() {
         if (document.hidden || !viewIsOpen()) stopPolling();
         else fn();
     }, ms);
-    state.timers = [every(loadOverview, OVERVIEW_MS), every(loadSessions, SESSIONS_MS), every(loadHistory, HISTORY_MS)];
+    // The chart timer ticks every 5 s: Live redraws each tick, the longer ranges
+    // only once a minute.
+    const historyDue = () => { if (state.range === "live" || Date.now() - state.historyAt >= HISTORY_MS) loadHistory(); };
+    state.timers = [every(loadOverview, OVERVIEW_MS), every(loadSessions, SESSIONS_MS), every(historyDue, LIVE_MS)];
 }
 
 function loadAll() {

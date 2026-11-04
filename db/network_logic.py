@@ -345,5 +345,7 @@ def assemble_batch(parts, expected):
 # ---- History ----
 
 # range -> (look-back, bucket size in minutes)
-HISTORY_RANGES = {"1h": (timedelta(hours=1), 1), "6h": (timedelta(hours=6), 2),
+# "live" has no bucket (0): every 15-second reading is its own point, from
+# network_samples. The others come from the 1-minute rollups.
+HISTORY_RANGES = {"live": (timedelta(minutes=10), 0), "1h": (timedelta(hours=1), 1), "6h": (timedelta(hours=6), 2),
                   "24h": (timedelta(hours=24), 5), "7d": (timedelta(days=7), 60)}
