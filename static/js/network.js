@@ -12,6 +12,9 @@ const HISTORY_MS = 60000;    // chart (1-minute rollups — faster is pointless)
 
 const state = {
     range: "1h",
+    link: "",            // chart: "" = all links added together, else a link's interface
+    linkSig: "",         // the links the chart picker was built for
+    editing: null,       // interface whose capacity form is open (the page leaves it alone)
     search: "",
     status: "",
     sessions: null,      // last /network/pppoe answer, re-filtered in place
@@ -70,8 +73,8 @@ function headline(o) {
         return { cls: "red not-reporting", line: "■ Router has not reported yet",
                  note: "Waiting for the first reading from the CCR2116 script. See docs/network-monitor-runbook.md." };
     }
-    if (s.state === "gateway_down") return { cls: "red", line: "▲ Gateway not responding" };
-    if (s.state === "uplink_down") return { cls: "red", line: "▲ Uplink down" };
+    // The reason already names the link when there are several ("airtel Primary: Gateway not responding").
+    if (s.state === "gateway_down" || s.state === "uplink_down") return { cls: "red", line: `▲ ${s.reasons[0].text}` };
     if (s.level === "amber") return { cls: "amber", line: "◆ Running, with warnings" };
     if ((o.live.pppoe_online ?? 0) === 0) {
         return { cls: "", line: "● Up — 0 PPPoE clients online",
@@ -87,7 +90,10 @@ function renderHero(o) {
         o.received_at ? `last reading ${nairobiTime(new Date(o.received_at))}` : null].filter(Boolean).join(" · ");
     $("net-hero-line").textContent = h.line;
     const reasons = $("net-hero-reasons");
-    reasons.replaceChildren(...(o.status.state === "not_reporting" ? [] : o.status.reasons.map(r => el("li", null, r.text))));
+    // When the headline IS the first reason, don't say it twice underneath.
+    const listed = o.status.state === "not_reporting" ? []
+        : o.status.reasons.filter((r, i) => !(i === 0 && h.line.endsWith(r.text)));
+    reasons.replaceChildren(...listed.map(r => el("li", null, r.text)));
     const notes = [h.note];
     if (o.last_outage) {
         const out = o.last_outage;
@@ -105,18 +111,7 @@ function renderUpdated() {
     box.classList.toggle("is-offline", state.isOffline);
 }
 
-// ---- Uplink card ----
-
-function renderRate(prefix, value, pct, peak, capacity, threshold) {
-    $(`net-${prefix}`).textContent = mbps(value);
-    const bar = $(`net-${prefix}-bar`);
-    bar.style.width = `${Math.min(pct ?? 0, 100)}%`;
-    bar.classList.toggle("busy", (pct ?? 0) >= threshold);
-    $(`net-${prefix}-note`).textContent = [
-        pct == null ? null : `${pct}% of ${capacity} Mbps contracted`,
-        peak == null ? null : `peak today ${mbps(peak)}`,
-    ].filter(Boolean).join(" · ");
-}
+// ---- Links and totals ----
 
 function fact(label, value, tone) {
     const wrap = el("div");
@@ -124,44 +119,182 @@ function fact(label, value, tone) {
     return wrap;
 }
 
-function renderUplink(o) {
-    const live = o.live, uplink = live.uplink || {}, gw = live.gateway || {}, sys = live.system || {};
-    const cap = o.router.uplink_capacity_mbps;
-    const amberAt = o.thresholds.utilization_amber_pct;
-    $("net-uplink-sub").textContent = `${uplink.interface || "uplink"} · Airtel · every customer's traffic, PPPoE and hotspot`;
-    renderRate("down", o.uplink.download_mbps, o.uplink.download_utilization_pct, o.uplink.peak_today_download_mbps, cap, amberAt);
-    renderRate("up", o.uplink.upload_mbps, o.uplink.upload_utilization_pct, o.uplink.peak_today_upload_mbps, cap, amberAt);
+function badge(text, tone) {
+    return el("span", `net-link-badge${tone ? ` ${tone}` : ""}`, text);
+}
 
-    const gwTone = { alive: "good", missed: "warn", not_responding: "bad", no_ping: null, not_detectable: "warn" }[o.gateway.state];
+function rateBlock(label, value, pct, capacity, threshold) {
+    const block = el("div", "net-rate");
+    const bar = el("div", "net-bar");
+    bar.setAttribute("aria-hidden", "true");
+    const fill = el("div", "net-bar-fill");
+    fill.style.width = `${Math.min(pct ?? 0, 100)}%`;
+    fill.classList.toggle("busy", (pct ?? 0) >= threshold && !capacity.estimated);
+    bar.append(fill);
+    block.append(el("div", "net-rate-label", label), el("div", "net-rate-value net-rate-small", mbps(value)), bar,
+                 el("div", "net-rate-note", pct == null ? "" : `${pct}% of ${capacity.mbps} Mbps${capacity.estimated ? " (estimated)" : ""}`));
+    return block;
+}
+
+function capacityLine(l, canEdit) {
+    const cap = l.capacity;
+    const line = el("div", "net-link-cap");
+    line.append(el("span", null, cap.mbps == null
+        ? "Capacity not known"
+        : `Capacity ${cap.mbps} Mbps · ${cap.estimated ? "estimated from the port speed (no busy warnings until confirmed)" : "set by an admin"}`));
+    if (canEdit) {
+        const edit = el("button", "net-link-edit", cap.estimated ? "Set the real speed" : "Edit");
+        edit.type = "button";
+        edit.addEventListener("click", () => openCapacityForm(l, line));
+        line.append(edit);
+    }
+    return line;
+}
+
+function openCapacityForm(l, line) {
+    state.editing = l.interface;   // the 15-second refresh leaves the form alone
+    const form = el("form", "net-link-form");
+    const input = el("input");
+    input.type = "number"; input.min = "1"; input.max = "100000"; input.step = "any"; input.required = true;
+    input.value = l.capacity.mbps ?? "";
+    input.setAttribute("aria-label", `Contracted speed of ${l.name} in Mbps`);
+    const msg = el("span", "net-link-msg");
+    const button = (text, onClick, kind = "button") => {
+        const b = el("button", null, text);
+        b.type = kind;
+        if (onClick) b.addEventListener("click", onClick);
+        return b;
+    };
+    const close = () => { state.editing = null; loadOverview(); };
+    form.addEventListener("submit", async e => {
+        e.preventDefault();
+        msg.textContent = "Saving…";
+        msg.textContent = await saveCapacity(l.interface, Number(input.value)) || "";
+        if (!msg.textContent) close();
+    });
+    form.append(input, el("span", null, "Mbps"), button("Save", null, "submit"),
+                button("Use port speed", async () => {
+                    msg.textContent = (await saveCapacity(l.interface, null)) || "";
+                    if (!msg.textContent) close();
+                }),
+                button("Cancel", close), msg);
+    line.replaceChildren(form);
+    input.focus();
+}
+
+// Returns an error message, or "" when saved.
+async function saveCapacity(interfaceName, capacity) {
+    try {
+        const res = await fetch("/network/uplinks/capacity", {
+            method: "PUT", headers: authHeaders({ "Content-Type": "application/json" }),
+            body: JSON.stringify({ router: ROUTER, interface: interfaceName, capacity_mbps: capacity }),
+        });
+        if (res.ok) return "";
+        const err = await res.json().catch(() => ({}));
+        return typeof err.detail === "string" ? err.detail : "Couldn't save that figure";
+    } catch (e) {
+        return "Couldn't reach the server";
+    }
+}
+
+function linkCard(l, o) {
+    const amberAt = o.thresholds.utilization_amber_pct;
+    const card = el("div", `net-link${l.listed ? "" : " is-gone"}${l.running === false ? " is-down" : ""}`);
+    const head = el("div", "net-link-head");
+    const badges = el("div", "net-link-badges");
+    badges.append(badge(l.primary ? "Primary" : "Backup"));
+    if (!l.listed) badges.append(badge("No longer reported", "warn"));
+    else if (l.active === true) badges.append(badge("Carrying traffic", "good"));
+    else if (l.active === false) badges.append(badge("Standby"));
+    head.append(el("h3", "net-link-name", l.name), badges);
+    card.append(head, el("div", "net-link-sub",
+        [l.running === false ? "▲ Down" : "● Up", l.interface, l.link_rate].filter(Boolean).join(" · ")));
+
+    const rates = el("div", "net-link-rates");
+    rates.append(rateBlock("Download", l.download_mbps, l.download_utilization_pct, l.capacity, amberAt),
+                 rateBlock("Upload", l.upload_mbps, l.upload_utilization_pct, l.capacity, amberAt));
+    card.append(rates, capacityLine(l, o.can_edit_capacity));
+
+    const peaks = [l.peak_today.download_mbps != null ? `today ↓ ${mbps(l.peak_today.download_mbps)} ↑ ${mbps(l.peak_today.upload_mbps)}` : null,
+                   l.peak_30d.download_mbps != null ? `30 days ↓ ${mbps(l.peak_30d.download_mbps)} ↑ ${mbps(l.peak_30d.upload_mbps)}` : null]
+        .filter(Boolean).join(" · ");
+    const gw = l.gateway;
+    const gwTone = { alive: "good", missed: "warn", not_responding: "bad", no_ping: null, not_detectable: "warn" }[gw.state];
     const gwDetail = [gw.address, gw.rtt_ms_avg != null ? `${gw.rtt_ms_avg} ms avg` : null,
                       gw.rtt_ms_max != null ? `${gw.rtt_ms_max} max` : null,
                       gw.loss_pct != null ? `${gw.loss_pct}% loss` : null].filter(Boolean).join(" · ");
-    const errors = ["rx_errors", "tx_errors", "rx_drops", "tx_drops"].map(k => uplink[k]).filter(v => v != null);
-    const facts = [
-        fact("Link", uplink.running === false ? "Down" : `Up${uplink.link_rate ? ` · ${uplink.link_rate}` : ""}`,
-             uplink.running === false ? "bad" : "good"),
-        fact("Gateway", `${o.gateway.label}${gwDetail ? ` — ${gwDetail}` : ""}`, gwTone),
-    ];
+    const facts = [];
+    if (peaks) facts.push(fact("Peak seen", peaks));
+    facts.push(fact("Gateway", `${gw.label}${gwDetail ? ` — ${gwDetail}` : ""}`, gwTone));
+    const counts = Object.values(l.errors).filter(v => v != null);
+    if (counts.length) {
+        const e = l.errors;
+        facts.push(fact("Errors / drops", `${e.rx_errors ?? "—"} / ${e.tx_errors ?? "—"} errors · ${e.rx_drops ?? "—"} / ${e.tx_drops ?? "—"} drops (rx / tx)`,
+                        o.status.reasons.some(r => r.code === "errors") ? "warn" : null));
+    }
+    const sfp = l.sfp;
+    if (sfp && (sfp.temp_c != null || sfp.rx_dbm != null || sfp.tx_dbm != null)) {
+        facts.push(fact("SFP", [sfp.temp_c != null ? `${sfp.temp_c} °C` : null, sfp.rx_dbm != null ? `rx ${sfp.rx_dbm} dBm` : null,
+                                sfp.tx_dbm != null ? `tx ${sfp.tx_dbm} dBm` : null].filter(Boolean).join(" · ")));
+    }
+    const list = el("dl", "net-facts net-link-facts");
+    list.append(...facts);
+    card.append(list);
+    return card;
+}
+
+function renderLinks(o) {
+    if (state.editing) return;   // someone is typing a capacity; don't wipe the form
+    const box = $("net-links");
+    if (!o.links.length) {
+        box.replaceChildren(el("div", "net-empty", "No link has been reported yet."));
+        return;
+    }
+    box.replaceChildren(...o.links.map(l => linkCard(l, o)));
+}
+
+function renderTotals(o) {
+    const live = o.live, sys = live.system || {};
+    const current = o.links.filter(l => l.listed).length;
+    $("net-uplink-sub").textContent = `${current} link${current === 1 ? "" : "s"} added together · every customer's traffic, PPPoE and hotspot`;
+    $("net-down").textContent = mbps(o.total.download_mbps);
+    $("net-up").textContent = mbps(o.total.upload_mbps);
+    $("net-down-note").textContent = o.total.peak_today_download_mbps == null ? "" : `peak today ${mbps(o.total.peak_today_download_mbps)}`;
+    $("net-up-note").textContent = o.total.peak_today_upload_mbps == null ? "" : `peak today ${mbps(o.total.peak_today_upload_mbps)}`;
+
+    const facts = [];
     if (live.internet) {
         const i = live.internet;
         facts.push(fact(`Internet (${i.target})`, i.alive ? `Reachable${i.rtt_ms_avg != null ? ` · ${i.rtt_ms_avg} ms` : ""}` : "Not reachable",
                         i.alive ? "good" : "warn"));
     }
     facts.push(
-        fact("Errors / drops", errors.length ? `${uplink.rx_errors ?? "—"} / ${uplink.tx_errors ?? "—"} errors · ${uplink.rx_drops ?? "—"} / ${uplink.tx_drops ?? "—"} drops (rx / tx)` : "—",
-             o.status.reasons.some(r => r.code === "errors") ? "warn" : null),
         fact("CPU", sys.cpu_pct == null ? "—" : `${sys.cpu_pct}%`, (sys.cpu_pct ?? 0) >= o.thresholds.cpu_amber_pct ? "warn" : null),
         fact("Router temperature", sys.temp_c == null ? "—" : `${sys.temp_c} °C`),
         fact("Router uptime", duration(live.uptime_s)),
         fact("PPPoE online", live.pppoe_online == null ? "—" : String(live.pppoe_online)),
         fact("RouterOS", sys.routeros || "—"),
     );
-    const sfp = uplink.sfp;
-    if (sfp && (sfp.temp_c != null || sfp.rx_dbm != null || sfp.tx_dbm != null)) {
-        facts.push(fact("SFP", [sfp.temp_c != null ? `${sfp.temp_c} °C` : null, sfp.rx_dbm != null ? `rx ${sfp.rx_dbm} dBm` : null,
-                                sfp.tx_dbm != null ? `tx ${sfp.tx_dbm} dBm` : null].filter(Boolean).join(" · ")));
-    }
     $("net-facts").replaceChildren(...facts);
+}
+
+// The chart can show all links together or one link. The picker is rebuilt
+// only when the set of links changes, so a click isn't undone by a refresh.
+function renderLinkPicker(o) {
+    const signature = o.links.map(l => l.interface).join("|");
+    if (signature === state.linkSig) return;
+    state.linkSig = signature;
+    if (state.link && !o.links.some(l => l.interface === state.link)) state.link = "";
+    const box = $("net-link-pick");
+    box.hidden = o.links.length < 2;
+    const choices = [["", "All links"], ...o.links.map(l => [l.interface, l.name])];
+    box.replaceChildren(...choices.map(([key, label]) => {
+        const b = el("button", null, label);
+        b.type = "button";
+        b.dataset.link = key;
+        b.setAttribute("aria-pressed", String(key === state.link));
+        return b;
+    }));
 }
 
 // ---- Chart ----
@@ -181,7 +314,7 @@ function renderHistory(h) {
         box.replaceChildren(el("div", "net-empty", "No readings in this window yet."));
         return;
     }
-    const W = 720, H = 220, L = 46, R = 10, T = 10, B = 24;
+    const W = 720, H = 230, L = 46, R = 10, T = 22, B = 24;   // T leaves room for the "Mbps" label
     const t0 = new Date(h.from).getTime(), t1 = new Date(h.to).getTime();
     const x = t => L + ((t - t0) / (t1 - t0)) * (W - L - R);
     const top = Math.max(10, ...pts.map(p => Math.max(p.download_mbps_avg, p.upload_mbps_avg || 0))) * 1.1;
@@ -198,7 +331,7 @@ function renderHistory(h) {
         chart.append(svg("line", { class: "grid", x1: L, x2: W - R, y1: y(v), y2: y(v) }),
                      svg("text", { x: L - 6, y: y(v) + 3, "text-anchor": "end" }, `${Math.round(v)}`));
     });
-    chart.append(svg("text", { x: 4, y: T + 8 }, "Mbps"));
+    chart.append(svg("text", { x: 4, y: 10 }, "Mbps"));
     const line = (key, cls) => svg("polyline", { class: cls,
         points: pts.filter(p => p[key] != null).map(p => `${x(new Date(p.t).getTime())},${y(p[key])}`).join(" ") });
     chart.append(line("download_mbps_avg", "down"), line("upload_mbps_avg", "up"));
@@ -210,6 +343,63 @@ function renderHistory(h) {
         chart.append(svg("text", { x: x(t), y: H - 6, "text-anchor": i === 0 ? "start" : i === 4 ? "end" : "middle" }, fmt(t)));
     }
     box.replaceChildren(chart);
+    addHover(box, chart, pts, h, { W, H, L, R, T, B, x, y, t0, t1 });
+}
+
+// Hover/touch readout: a guide line that follows the pointer along the chart,
+// a dot on each line, and a box with the time and both rates. The chart is
+// redrawn every minute, so this is attached to each new drawing. Everything
+// shown is text (no HTML from data).
+function addHover(box, chart, pts, h, g) {
+    const times = pts.map(p => new Date(p.t).getTime());
+    const guide = svg("line", { class: "hover-line", x1: 0, x2: 0, y1: g.T, y2: g.H - g.B });
+    const dotDown = svg("circle", { class: "hover-dot down", r: 4 });
+    const dotUp = svg("circle", { class: "hover-dot up", r: 4 });
+    const marks = [guide, dotDown, dotUp];
+    marks.forEach(n => { n.style.display = "none"; chart.append(n); });
+    const tip = el("div", "net-tip");
+    tip.hidden = true;
+    box.append(tip);
+
+    const when = t => new Date(t).toLocaleString("en-GB", { timeZone: "Africa/Nairobi",
+        ...(h.range === "7d" ? { weekday: "short", day: "2-digit", month: "short" } : {}),
+        hour: "2-digit", minute: "2-digit" });
+    const outageAt = t => h.outages.some(o =>
+        new Date(o.started_at).getTime() <= t && t <= (o.ended_at ? new Date(o.ended_at).getTime() : g.t1));
+    const nearest = target => {
+        let lo = 0, hi = times.length - 1;
+        while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (times[mid] < target) lo = mid; else hi = mid; }
+        return Math.abs(times[lo] - target) <= Math.abs(times[hi] - target) ? lo : hi;
+    };
+    const row = (cls, label, value) => {
+        const line = el("div", `net-tip-row ${cls}`);
+        line.append(el("span", null, label), el("b", null, value == null ? "n/a" : `${value.toFixed(1)} Mbps`));
+        return line;
+    };
+    const hide = () => { marks.forEach(n => { n.style.display = "none"; }); tip.hidden = true; };
+
+    chart.addEventListener("pointermove", e => {
+        const rect = chart.getBoundingClientRect();
+        const px = ((e.clientX - rect.left) / rect.width) * g.W;
+        if (px < g.L || px > g.W - g.R) { hide(); return; }
+        const target = g.t0 + ((px - g.L) / (g.W - g.L - g.R)) * (g.t1 - g.t0);
+        const i = nearest(target), p = pts[i], cx = g.x(times[i]);
+        guide.setAttribute("x1", cx); guide.setAttribute("x2", cx);
+        dotDown.setAttribute("cx", cx); dotDown.setAttribute("cy", g.y(p.download_mbps_avg));
+        dotUp.setAttribute("cx", cx);
+        if (p.upload_mbps_avg != null) dotUp.setAttribute("cy", g.y(p.upload_mbps_avg));
+        marks.forEach(n => { n.style.display = ""; });
+        if (p.upload_mbps_avg == null) dotUp.style.display = "none";
+
+        tip.replaceChildren(el("div", "net-tip-time", when(times[i])),
+                            row("down", "Download", p.download_mbps_avg), row("up", "Upload", p.upload_mbps_avg));
+        if (outageAt(times[i])) tip.append(el("div", "net-tip-out", "Router not reporting"));
+        tip.hidden = false;
+        tip.style.left = `${(cx / g.W) * rect.width}px`;
+        tip.classList.toggle("flip", cx > g.W * 0.6);   // flip to the left near the right edge
+    });
+    chart.addEventListener("pointerleave", hide);
+    chart.addEventListener("pointercancel", hide);
 }
 
 // ---- Events ----
@@ -218,8 +408,8 @@ const EVENT_TEXT = {
     not_reporting: e => e.cause === "restart"
         ? "Router not reporting — it restarted or lost power"
         : "Router not reporting — it stayed up, so most likely an upstream or gateway outage",
-    gateway_down: () => "Gateway not responding",
-    uplink_down: () => "Uplink down",
+    gateway_down: e => `Gateway not responding${e.link ? ` — ${e.link}` : ""}`,
+    uplink_down: e => `Uplink down${e.link ? ` — ${e.link}` : ""}`,
     router_restarted: () => "Router restarted",
 };
 
@@ -316,7 +506,9 @@ async function loadOverview() {
             api(`/network/events?router=${ROUTER}&limit=30`),
         ]);
         renderHero(overview);
-        renderUplink(overview);
+        renderLinks(overview);
+        renderTotals(overview);
+        renderLinkPicker(overview);
         renderEvents(events.events);
         state.lastOkAt = new Date();
         state.isOffline = false;
@@ -340,7 +532,8 @@ async function loadSessions() {
 
 async function loadHistory() {
     try {
-        renderHistory(await api(`/network/uplink-history?router=${ROUTER}&range=${state.range}`));
+        const link = state.link ? `&link=${encodeURIComponent(state.link)}` : "";
+        renderHistory(await api(`/network/uplink-history?router=${ROUTER}&range=${state.range}${link}`));
     } catch (e) {
         $("net-chart").replaceChildren(el("div", "net-empty", e.message));
     }
@@ -380,6 +573,13 @@ export function initNetwork() {
         if (!btn) return;
         state.range = btn.dataset.range;
         document.querySelectorAll("#net-range button").forEach(b => b.setAttribute("aria-pressed", String(b === btn)));
+        loadHistory();
+    });
+    $("net-link-pick").addEventListener("click", e => {
+        const btn = e.target.closest("button[data-link]");
+        if (!btn) return;
+        state.link = btn.dataset.link;
+        document.querySelectorAll("#net-link-pick button").forEach(b => b.setAttribute("aria-pressed", String(b === btn)));
         loadHistory();
     });
     $("net-status-filter").addEventListener("click", e => {

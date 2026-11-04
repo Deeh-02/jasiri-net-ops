@@ -1,5 +1,5 @@
-"""Network page — data access (migration 0022). Writes only the five
-network_* tables; reads the customer list only through
+"""Network page — data access (migrations 0022 and 0023). Writes only the
+seven network_* tables; reads the customer list only through
 db.customers.match_usernames. The rules (status, outages, gateway memory)
 are in db/network_logic.py; this file stores and fetches.
 
@@ -39,11 +39,12 @@ def get_router(slug):
 
 # ---- Writing ----
 
-def _open_event(cur, slug, event_type):
+def _open_event(cur, slug, event_type, link=None):
+    """The open event of this type (for this link, when given), or None."""
     cur.execute(
         "SELECT id FROM network_events WHERE router = %s AND type = %s AND ended_at IS NULL "
-        "ORDER BY started_at DESC LIMIT 1",
-        (slug, event_type),
+        "AND details->>'link' IS NOT DISTINCT FROM %s ORDER BY started_at DESC LIMIT 1",
+        (slug, event_type, link),
     )
     row = cur.fetchone()
     return row[0] if row else None
@@ -68,36 +69,54 @@ def _ensure_latest_row(cur, slug):
     cur.execute("INSERT INTO network_latest (router) VALUES (%s) ON CONFLICT (router) DO NOTHING", (slug,))
 
 
-def _track_open_events(cur, slug, live, gateway_state, previous_received_at, now, restarted):
-    """Opens or closes gateway_down / uplink_down as the reading changes."""
-    open_gateway = _open_event(cur, slug, "gateway_down")
+def _track_link_events(cur, slug, link, gateway_state, previous_received_at, now):
+    """Opens or closes gateway_down / uplink_down for ONE link as its reading
+    changes. The link is recorded in the event so Airtel's outage and Veenet's
+    are told apart."""
+    key = link["interface"]
+    who = {"link": key, "label": link.get("label")}
+    gateway_address = (link.get("gateway") or {}).get("address")
+    open_gateway = _open_event(cur, slug, "gateway_down", key)
     if gateway_state == "not_responding" and open_gateway is None:
         # The first failed check was the reading before this one.
         _add_event(cur, slug, "gateway_down", previous_received_at or now, None,
-                   {"address": (live.get("gateway") or {}).get("address")})
+                   {**who, "address": gateway_address})
     elif gateway_state not in ("not_responding", "unknown") and open_gateway is not None:
         _close_event(cur, open_gateway, now)
 
-    open_uplink = _open_event(cur, slug, "uplink_down")
-    running = (live.get("uplink") or {}).get("running")
-    if running is False and open_uplink is None:
-        _add_event(cur, slug, "uplink_down", now, None, {"interface": live["uplink"].get("interface")})
-    elif running is True and open_uplink is not None:
+    open_uplink = _open_event(cur, slug, "uplink_down", key)
+    if link.get("running") is False and open_uplink is None:
+        _add_event(cur, slug, "uplink_down", now, None, {**who, "interface": key})
+    elif link.get("running") is True and open_uplink is not None:
         _close_event(cur, open_uplink, now)
 
-    if restarted:
-        # Anything still open before a restart ended, at the latest, when the
-        # router went down.
-        cur.execute(
-            "UPDATE network_events SET ended_at = %s WHERE router = %s AND ended_at IS NULL AND started_at < %s "
-            "AND type IN ('gateway_down', 'uplink_down')",
-            (now - timedelta(seconds=live["uptime_s"]), slug, now - timedelta(seconds=live["uptime_s"])),
-        )
+
+def _close_events_for_restart(cur, slug, live, now):
+    """Anything still open before a restart ended, at the latest, when the
+    router went down."""
+    booted = now - timedelta(seconds=live["uptime_s"])
+    cur.execute(
+        "UPDATE network_events SET ended_at = %s WHERE router = %s AND ended_at IS NULL AND started_at < %s "
+        "AND type IN ('gateway_down', 'uplink_down')",
+        (booted, slug, booted),
+    )
+
+
+def _carrying_link(links):
+    """The link traffic is using now (its default route is active); failing
+    that, the primary. Its gateway is what the router-level rollup records."""
+    active = [l for l in links if l.get("active")]
+    if active:
+        return active[0]
+    primary = logic.primary_interface(links)
+    return next((l for l in links if l["interface"] == primary), links[0] if links else {})
 
 
 def _add_to_rollup(cur, slug, live, now):
-    uplink = live.get("uplink") or {}
-    gateway = live.get("gateway") or {}
+    """The router-level 1-minute rollup: traffic is the SUM of every link."""
+    links = logic.links_of(live)
+    rx, tx = logic.total_traffic(links)
+    gateway = _carrying_link(links).get("gateway") or {}
     cpu = (live.get("system") or {}).get("cpu_pct")
     rtt = gateway.get("rtt_ms_avg")
     cur.execute(
@@ -120,7 +139,7 @@ def _add_to_rollup(cur, slug, live, now):
             gw_loss_pct_max = GREATEST(network_minutes.gw_loss_pct_max, EXCLUDED.gw_loss_pct_max)
         """,
         (slug, now.replace(second=0, microsecond=0),
-         uplink.get("rx_bps") or 0, uplink.get("rx_bps") or 0, uplink.get("tx_bps") or 0, uplink.get("tx_bps") or 0,
+         rx, rx, tx, tx,
          live.get("pppoe_online"),
          cpu or 0, 0 if cpu is None else 1,
          rtt or 0, 0 if rtt is None else 1,
@@ -128,43 +147,117 @@ def _add_to_rollup(cur, slug, live, now):
     )
 
 
+def _add_to_link_rollup(cur, slug, link, now):
+    gateway = link.get("gateway") or {}
+    rtt = gateway.get("rtt_ms_avg")
+    rx, tx = link.get("rx_bps") or 0, link.get("tx_bps") or 0
+    cur.execute(
+        """
+        INSERT INTO network_uplink_minutes (router, interface, minute, samples, rx_bps_sum, rx_bps_max,
+                                            tx_bps_sum, tx_bps_max, gw_rtt_ms_sum, gw_rtt_samples, gw_loss_pct_max)
+        VALUES (%s, %s, %s, 1, %s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT (router, interface, minute) DO UPDATE SET
+            samples = network_uplink_minutes.samples + 1,
+            rx_bps_sum = network_uplink_minutes.rx_bps_sum + EXCLUDED.rx_bps_sum,
+            rx_bps_max = GREATEST(network_uplink_minutes.rx_bps_max, EXCLUDED.rx_bps_max),
+            tx_bps_sum = network_uplink_minutes.tx_bps_sum + EXCLUDED.tx_bps_sum,
+            tx_bps_max = GREATEST(network_uplink_minutes.tx_bps_max, EXCLUDED.tx_bps_max),
+            gw_rtt_ms_sum = network_uplink_minutes.gw_rtt_ms_sum + EXCLUDED.gw_rtt_ms_sum,
+            gw_rtt_samples = network_uplink_minutes.gw_rtt_samples + EXCLUDED.gw_rtt_samples,
+            gw_loss_pct_max = GREATEST(network_uplink_minutes.gw_loss_pct_max, EXCLUDED.gw_loss_pct_max)
+        """,
+        (slug, link["interface"], now.replace(second=0, microsecond=0), rx, rx, tx, tx,
+         rtt or 0, 0 if rtt is None else 1, gateway.get("loss_pct")),
+    )
+
+
+def _link_row(cur, slug, interface):
+    """The stored row for a link, locked, or None if the link is new."""
+    cur.execute(
+        "SELECT gateway_address, capacity_mbps, capacity_source, reading, gateway_fail_streak, "
+        "gateway_seen_alive, counters_rose_at FROM network_uplinks WHERE router = %s AND interface = %s FOR UPDATE",
+        (slug, interface),
+    )
+    row = cur.fetchone()
+    if row is None:
+        return None
+    return {"gateway_address": row[0], "capacity_mbps": None if row[1] is None else float(row[1]),
+            "capacity_source": row[2], "reading": row[3], "gateway_fail_streak": row[4],
+            "gateway_seen_alive": row[5], "counters_rose_at": row[6]}
+
+
+def _store_link(cur, slug, link, now, restarted, previous_received_at, cfg):
+    """Everything that follows from one link's reading; returns its gateway
+    state and updated memory."""
+    previous = _link_row(cur, slug, link["interface"])
+    rate = logic.parse_rate_mbps(link.get("link_rate"))
+    capacity, source = logic.next_capacity(previous, rate)
+    streak, seen_alive = logic.next_gateway_memory(
+        {"address": (previous or {}).get("gateway_address"),
+         "fail_streak": (previous or {}).get("gateway_fail_streak", 0),
+         "seen_alive": (previous or {}).get("gateway_seen_alive", False)},
+        link.get("gateway"))
+    gateway_state = logic.gateway_view(link.get("gateway"), streak, seen_alive, cfg)["state"]
+    _track_link_events(cur, slug, link, gateway_state, previous_received_at, now)
+    rose = logic.counters_rose((previous or {}).get("reading"), link, restarted)
+    cur.execute(
+        """
+        INSERT INTO network_uplinks (router, interface, label, gateway_address, link_rate_mbps, capacity_mbps,
+                                     capacity_source, active, reading, reading_received_at, gateway_fail_streak,
+                                     gateway_seen_alive, counters_rose_at)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT (router, interface) DO UPDATE SET
+            label = EXCLUDED.label, gateway_address = EXCLUDED.gateway_address,
+            link_rate_mbps = EXCLUDED.link_rate_mbps, capacity_mbps = EXCLUDED.capacity_mbps,
+            capacity_source = EXCLUDED.capacity_source, active = EXCLUDED.active, reading = EXCLUDED.reading,
+            reading_received_at = EXCLUDED.reading_received_at,
+            gateway_fail_streak = EXCLUDED.gateway_fail_streak, gateway_seen_alive = EXCLUDED.gateway_seen_alive,
+            counters_rose_at = CASE WHEN %s THEN EXCLUDED.reading_received_at
+                                    ELSE network_uplinks.counters_rose_at END
+        """,
+        (slug, link["interface"], link.get("label"), (link.get("gateway") or {}).get("address"), rate, capacity,
+         source, link.get("active"), Json(link), now, streak, seen_alive, None, rose),
+    )
+    _add_to_link_rollup(cur, slug, link, now)
+    return {"state": gateway_state, "fail_streak": streak, "seen_alive": seen_alive, "rose": rose}
+
+
 def record_live(slug, live, now=None):
     """Stores one live reading and everything that follows from it: restart
-    and quiet-period events, gateway/uplink up-down, router-reported events
-    (deduplicated), the error-counter check and the minute rollup. One
-    transaction; the latest row is locked so two readings can't interleave."""
+    and quiet-period events, each link's gateway/uplink up-down, its error
+    counters and rollup, router-reported events (deduplicated), and the
+    router-level minute rollup. One transaction; the latest row is locked so
+    two readings can't interleave."""
     now = now or datetime.utcnow()
     cfg = logic.thresholds()
+    links = logic.links_of(live)
     with db_cursor() as (conn, cur):
         _ensure_latest_row(cur, slug)
         cur.execute(
-            "SELECT live, live_received_at, last_uptime_s, gateway_fail_streak, gateway_seen_alive "
-            "FROM network_latest WHERE router = %s FOR UPDATE",
+            "SELECT live, live_received_at, last_uptime_s FROM network_latest WHERE router = %s FOR UPDATE",
             (slug,),
         )
-        prev_live, prev_received, prev_uptime, prev_streak, prev_seen = cur.fetchone()
+        prev_live, prev_received, prev_uptime = cur.fetchone()
 
         restarted = logic.is_restart(prev_uptime, live["uptime_s"])
         if restarted:
             booted = now - timedelta(seconds=live["uptime_s"])
             _add_event(cur, slug, "router_restarted", booted, booted, {"previous_uptime_s": prev_uptime})
+            _close_events_for_restart(cur, slug, live, now)
         quiet = logic.quiet_period(prev_received, now, restarted, live["uptime_s"], cfg)
         if quiet:
             _add_event(cur, slug, "not_reporting", quiet["started_at"], quiet["ended_at"], quiet["details"])
 
-        streak, seen_alive = logic.next_gateway_memory(
-            {"address": ((prev_live or {}).get("gateway") or {}).get("address"),
-             "fail_streak": prev_streak, "seen_alive": prev_seen},
-            live.get("gateway"))
-        gateway_state = logic.gateway_view(live.get("gateway"), streak, seen_alive, cfg)["state"]
-        _track_open_events(cur, slug, live, gateway_state, prev_received, now, restarted)
+        results = {l["interface"]: _store_link(cur, slug, l, now, restarted, prev_received, cfg) for l in links}
+        primary = results.get(logic.primary_interface(links)) or {"state": "unknown", "fail_streak": 0,
+                                                                  "seen_alive": False}
 
         for event in live.get("events") or []:
             started, ended = logic.router_event_times(event, now)
             _add_event(cur, slug, event["type"], started, ended, {"duration_s": event["duration_s"]},
                        source="router", router_event_id=event["event_id"])
 
-        rose = logic.counters_rose(prev_live, live, restarted)
+        rose = any(r["rose"] for r in results.values())
         cur.execute(
             """
             UPDATE network_latest SET live = %s, live_received_at = %s, last_uptime_s = %s,
@@ -172,12 +265,13 @@ def record_live(slug, live, now=None):
                    counters_rose_at = CASE WHEN %s THEN %s ELSE counters_rose_at END
             WHERE router = %s
             """,
-            (Json(live), now, live["uptime_s"], streak, seen_alive, rose, now, slug),
+            (Json(live), now, live["uptime_s"], primary["fail_streak"], primary["seen_alive"], rose, now, slug),
         )
         _add_to_rollup(cur, slug, live, now)
         conn.commit()
     purge_if_due(now)
-    return {"restarted": restarted, "quiet_period": quiet is not None, "gateway": gateway_state}
+    return {"restarted": restarted, "quiet_period": quiet is not None,
+            "gateway": primary["state"], "links": {k: v["state"] for k, v in results.items()}}
 
 
 def record_session_part(slug, message, now=None):
@@ -213,7 +307,7 @@ def record_session_part(slug, message, now=None):
 
 
 def purge_if_due(now=None):
-    """Drops rollups past 30 days and closed events past 90. At most hourly,
+    """Drops rollups (router and per-link) past 30 days and closed events past 90. At most hourly,
     called from ingest itself — no separate scheduler (same approach as
     db/monitoring_retention.py). Never raises: it must not fail an ingest."""
     global _last_purge
@@ -224,6 +318,7 @@ def purge_if_due(now=None):
     try:
         with db_cursor() as (conn, cur):
             cur.execute("DELETE FROM network_minutes WHERE minute < %s", (now - MINUTES_KEEP,))
+            cur.execute("DELETE FROM network_uplink_minutes WHERE minute < %s", (now - MINUTES_KEEP,))
             cur.execute("DELETE FROM network_events WHERE ended_at IS NOT NULL AND ended_at < %s",
                         (now - EVENTS_KEEP,))
             conn.commit()
@@ -272,14 +367,82 @@ def serialise_event(e, now):
         "ongoing": ended is None, "duration_s": duration, "source": e["source"],
         "reported_after_reconnecting": e["source"] == "router",
         "cause": e["details"].get("cause"),
+        "link": e["details"].get("label") or e["details"].get("link"),
     }
 
 
 OUTAGE_TYPES = ("not_reporting", "gateway_down", "uplink_down")
 
 
+def _mbps(bps):
+    return None if bps is None else round(float(bps) / 1e6, 1)
+
+
+def _link_entries(cur, slug, live, now, this_minute, eat_midnight_utc):
+    """One entry per link the router has ever reported, with what the status
+    rules and the page need: its stored reading and memory, its last two full
+    minutes, its peaks, and whether the newest message still lists it."""
+    cur.execute(
+        "SELECT interface, label, link_rate_mbps, capacity_mbps, capacity_source, active, reading, "
+        "reading_received_at, gateway_fail_streak, gateway_seen_alive, counters_rose_at "
+        "FROM network_uplinks WHERE router = %s ORDER BY first_seen_at, interface", (slug,))
+    rows = cur.fetchall()
+    cur.execute(
+        "SELECT interface, rx_bps_sum / samples, tx_bps_sum / samples FROM network_uplink_minutes "
+        "WHERE router = %s AND minute < %s AND minute >= %s AND samples > 0 ORDER BY minute DESC",
+        (slug, this_minute, this_minute - timedelta(minutes=5)))
+    recent = {}
+    for interface, rx, tx in cur.fetchall():
+        recent.setdefault(interface, []).append({"rx_bps_avg": float(rx), "tx_bps_avg": float(tx)})
+    cur.execute(
+        "SELECT interface, max(rx_bps_max) FILTER (WHERE minute >= %s), max(tx_bps_max) FILTER (WHERE minute >= %s), "
+        "max(rx_bps_max), max(tx_bps_max) FROM network_uplink_minutes WHERE router = %s GROUP BY interface",
+        (eat_midnight_utc, eat_midnight_utc, slug))
+    peaks = {r[0]: r[1:] for r in cur.fetchall()}
+
+    listed = {l["interface"] for l in logic.links_of(live)}
+    readings = [r[6] for r in rows if r[6]]
+    primary = logic.primary_interface([x for x in readings if x["interface"] in listed] or readings)
+    entries = []
+    for (interface, label, rate, capacity, source, active, reading, received, streak, seen, rose) in rows:
+        peak = peaks.get(interface, (None, None, None, None))
+        entries.append({
+            "interface": interface, "label": label, "reading": reading or {}, "listed": interface in listed,
+            "link_rate_mbps": None if rate is None else float(rate),
+            "capacity_mbps": None if capacity is None else float(capacity), "capacity_source": source,
+            "active": active, "reading_received_at": received,
+            "gateway_fail_streak": streak, "gateway_seen_alive": seen, "counters_rose_at": rose,
+            "recent_minutes": recent.get(interface, [])[:2], "primary": interface == primary,
+            "peaks": {"today_rx": peak[0], "today_tx": peak[1], "all_rx": peak[2], "all_tx": peak[3]},
+        })
+    return entries
+
+
+def _link_view(e, cfg):
+    """The page's card for one link."""
+    reading = e["reading"]
+    gateway = logic.gateway_view(reading.get("gateway"), e["gateway_fail_streak"], e["gateway_seen_alive"], cfg)
+    gw = reading.get("gateway") or {}
+    capacity = e["capacity_mbps"]
+    return {
+        "interface": e["interface"], "label": e["label"], "name": e["label"] or e["interface"],
+        "primary": e["primary"], "active": e["active"], "listed": e["listed"],
+        "running": reading.get("running"), "link_rate": reading.get("link_rate"),
+        "download_mbps": _mbps(reading.get("rx_bps")), "upload_mbps": _mbps(reading.get("tx_bps")),
+        "capacity": {"mbps": capacity, "source": e["capacity_source"], "estimated": e["capacity_source"] != "admin"},
+        "download_utilization_pct": logic.utilization_pct(reading.get("rx_bps"), capacity),
+        "upload_utilization_pct": logic.utilization_pct(reading.get("tx_bps"), capacity),
+        "peak_today": {"download_mbps": _mbps(e["peaks"]["today_rx"]), "upload_mbps": _mbps(e["peaks"]["today_tx"])},
+        "peak_30d": {"download_mbps": _mbps(e["peaks"]["all_rx"]), "upload_mbps": _mbps(e["peaks"]["all_tx"])},
+        "gateway": {**gateway, "address": gw.get("address"), "rtt_ms_avg": gw.get("rtt_ms_avg"),
+                    "rtt_ms_max": gw.get("rtt_ms_max"), "loss_pct": gw.get("loss_pct")},
+        "errors": {k: reading.get(k) for k in ("rx_errors", "tx_errors", "rx_drops", "tx_drops")},
+        "sfp": reading.get("sfp"),
+    }
+
+
 def overview(slug, now=None):
-    """Everything the page's header and uplink card need, for one router."""
+    """Everything the page's header, link cards and totals need, for one router."""
     now = now or datetime.utcnow()
     cfg = logic.thresholds()
     router = get_router(slug)
@@ -290,41 +453,51 @@ def overview(slug, now=None):
     eat_midnight_utc = datetime.combine(now_eat().date(), datetime.min.time()) - timedelta(hours=3)
     with db_cursor() as (conn, cur):
         latest = _latest(cur, slug)
-        cur.execute(
-            "SELECT rx_bps_sum / samples, tx_bps_sum / samples FROM network_minutes "
-            "WHERE router = %s AND minute < %s AND samples > 0 ORDER BY minute DESC LIMIT 2",
-            (slug, this_minute),
-        )
-        recent = [{"rx_bps_avg": float(r[0]), "tx_bps_avg": float(r[1])} for r in cur.fetchall()]
+        live = (latest or {}).get("live") or {}
+        entries = _link_entries(cur, slug, live, now, this_minute, eat_midnight_utc)
         cur.execute("SELECT max(rx_bps_max), max(tx_bps_max) FROM network_minutes WHERE router = %s AND minute >= %s",
                     (slug, eat_midnight_utc))
         peak_rx, peak_tx = cur.fetchone()
         recent_events = _events(cur, slug, since=now - timedelta(days=7), limit=50)
 
-    state = logic.status(latest, recent, now, router["uplink_capacity_mbps"], cfg)
-    live = (latest or {}).get("live") or {}
-    uplink = live.get("uplink") or {}
-    gateway = logic.gateway_view(live.get("gateway"), (latest or {}).get("gateway_fail_streak", 0),
-                                 (latest or {}).get("gateway_seen_alive", False), cfg)
+    current = [e for e in entries if e["listed"]]
+    state = logic.status(latest, current, now, cfg)
+    links = logic.links_of(live)
+    rx, tx = logic.total_traffic(links)
     outages = [e for e in logic.merge_outages(recent_events) if e["type"] in OUTAGE_TYPES]
-    capacity = router["uplink_capacity_mbps"]
     return {
-        "router": {"slug": slug, "name": router["name"], "uplink_capacity_mbps": capacity},
+        "router": {"slug": slug, "name": router["name"]},
         "status": {**state, "since": utc_iso(state.get("since"))},
         "received_at": utc_iso((latest or {}).get("live_received_at")),
         "live": live,
-        "uplink": {
-            "download_mbps": None if uplink.get("rx_bps") is None else round(uplink["rx_bps"] / 1e6, 1),
-            "upload_mbps": None if uplink.get("tx_bps") is None else round(uplink["tx_bps"] / 1e6, 1),
-            "download_utilization_pct": logic.utilization_pct(uplink.get("rx_bps"), capacity),
-            "upload_utilization_pct": logic.utilization_pct(uplink.get("tx_bps"), capacity),
-            "peak_today_download_mbps": None if peak_rx is None else round(peak_rx / 1e6, 1),
-            "peak_today_upload_mbps": None if peak_tx is None else round(peak_tx / 1e6, 1),
-        },
-        "gateway": gateway,
+        "links": [_link_view(e, cfg) for e in entries],
+        "total": {"download_mbps": _mbps(rx) if links else None, "upload_mbps": _mbps(tx) if links else None,
+                  "peak_today_download_mbps": _mbps(peak_rx), "peak_today_upload_mbps": _mbps(peak_tx)},
         "last_outage": serialise_event(outages[0], now) if outages else None,
         "thresholds": cfg,
     }
+
+
+def set_capacity(slug, interface, capacity_mbps):
+    """An admin's figure for a link's contracted speed; None goes back to the
+    automatic one (the port speed the router reports). Returns the link's new
+    {capacity_mbps, capacity_source}, or None if there is no such link."""
+    with db_cursor() as (conn, cur):
+        if capacity_mbps is None:
+            cur.execute(
+                "UPDATE network_uplinks SET capacity_mbps = link_rate_mbps, capacity_source = 'auto' "
+                "WHERE router = %s AND interface = %s RETURNING capacity_mbps, capacity_source",
+                (slug, interface))
+        else:
+            cur.execute(
+                "UPDATE network_uplinks SET capacity_mbps = %s, capacity_source = 'admin' "
+                "WHERE router = %s AND interface = %s RETURNING capacity_mbps, capacity_source",
+                (capacity_mbps, slug, interface))
+        row = cur.fetchone()
+        conn.commit()
+    if row is None:
+        return None
+    return {"capacity_mbps": None if row[0] is None else float(row[0]), "capacity_source": row[1]}
 
 
 def pppoe(slug, now=None):
@@ -368,29 +541,35 @@ def pppoe(slug, now=None):
     }
 
 
-def uplink_history(slug, range_key, now=None):
+def uplink_history(slug, range_key, now=None, link=None):
     """Points for the chart (1h: per minute, 24h: per 5 minutes, 7d: per
-    hour) plus the outages in that window, for marking gaps."""
+    hour) plus the outages in that window, for marking gaps. `link` charts one
+    link (the interface name); without it, the router's total across links."""
     if range_key not in logic.HISTORY_RANGES:
         raise ValueError("range must be 1h, 24h or 7d")
     now = now or datetime.utcnow()
     look_back, bucket_min = logic.HISTORY_RANGES[range_key]
     since = now - look_back
+    if link is None:
+        table, extra, where, args = ("network_minutes", "max(pppoe_online), sum(cpu_pct_sum) / NULLIF(sum(cpu_samples), 0)",
+                                     "router = %s", [slug])
+    else:
+        table, extra, where, args = ("network_uplink_minutes", "NULL, NULL", "router = %s AND interface = %s",
+                                     [slug, link])
     with db_cursor() as (conn, cur):
         cur.execute(
-            """
+            f"""
             SELECT to_timestamp(floor(extract(epoch FROM minute) / %s) * %s) AT TIME ZONE 'UTC' AS bucket,
                    sum(rx_bps_sum) / NULLIF(sum(samples), 0), max(rx_bps_max),
                    sum(tx_bps_sum) / NULLIF(sum(samples), 0), max(tx_bps_max),
-                   max(pppoe_online),
-                   sum(cpu_pct_sum) / NULLIF(sum(cpu_samples), 0),
+                   {extra},
                    sum(gw_rtt_ms_sum) / NULLIF(sum(gw_rtt_samples), 0),
                    max(gw_loss_pct_max)
-            FROM network_minutes
-            WHERE router = %s AND minute >= %s
+            FROM {table}
+            WHERE {where} AND minute >= %s
             GROUP BY bucket ORDER BY bucket
             """,
-            (bucket_min * 60, bucket_min * 60, slug, since),
+            (bucket_min * 60, bucket_min * 60, *args, since),
         )
         points = [{
             "t": utc_iso(r[0]),
@@ -403,10 +582,13 @@ def uplink_history(slug, range_key, now=None):
             "gateway_rtt_ms_avg": None if r[7] is None else round(float(r[7]), 1),
             "gateway_loss_pct_max": None if r[8] is None else float(r[8]),
         } for r in cur.fetchall()]
-        outages = [e for e in logic.merge_outages(_events(cur, slug, since=since, limit=200))
-                   if e["type"] in OUTAGE_TYPES]
+        found = _events(cur, slug, since=since, limit=200)
+        if link is not None:
+            # This link's own outages, plus the router-wide silences that hide everything.
+            found = [e for e in found if e["details"].get("link") in (None, link)]
+        outages = [e for e in logic.merge_outages(found) if e["type"] in OUTAGE_TYPES]
     return {"range": range_key, "bucket_minutes": bucket_min, "from": utc_iso(since), "to": utc_iso(now),
-            "points": points, "outages": [serialise_event(e, now) for e in outages]}
+            "link": link, "points": points, "outages": [serialise_event(e, now) for e in outages]}
 
 
 def events(slug, limit=50, now=None):

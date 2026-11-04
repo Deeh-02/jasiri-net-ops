@@ -23,11 +23,11 @@ from collections import defaultdict, deque
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from db import network as db
 from routers.auth import get_current_user
-from routers.permissions import user_has_permission
+from routers.permissions import require_admin, user_has_permission
 
 router = APIRouter()
 log = logging.getLogger(__name__)
@@ -97,6 +97,17 @@ class Gateway(Strict):
     arp: Optional[str] = Field(default=None, max_length=32)
 
 
+class Link(Uplink):
+    """One internet link: the uplink's readings plus what the router knows
+    about its route. `label` is the route's comment ("airtel Primary"), `active`
+    whether that route is the one carrying traffic, `distance` its priority
+    (lowest = the link the owner prefers)."""
+    label: Optional[str] = Field(default=None, max_length=64)
+    active: Optional[bool] = None
+    distance: Optional[int] = Field(default=None, ge=0, le=255)
+    gateway: Optional[Gateway] = None
+
+
 class Internet(Strict):
     target: str = Field(max_length=64)
     alive: Optional[bool] = None
@@ -124,12 +135,29 @@ class LiveMessage(Strict):
     router: str
     seq: Optional[int] = Field(default=None, ge=0)
     uptime_s: int = Field(ge=0)
-    uplink: Uplink
-    gateway: Gateway
+    # The router sends `links` (one per default route). Scripts written before
+    # that sent a single `uplink` + `gateway`; those are wrapped as one link.
+    links: Optional[list[Link]] = Field(default=None, min_length=1, max_length=8)
+    uplink: Optional[Uplink] = None
+    gateway: Optional[Gateway] = None
     internet: Optional[Internet] = None
     system: System
     pppoe_online: int = Field(ge=0, le=100_000)
     events: list[RouterEvent] = Field(default_factory=list, max_length=20)
+
+    @model_validator(mode="after")
+    def _one_shape(self):
+        if self.links is None:
+            if self.uplink is None or self.gateway is None:
+                raise ValueError("send `links`, or both `uplink` and `gateway`")
+            self.links = [Link(**self.uplink.model_dump(), active=True, gateway=self.gateway)]
+        elif self.uplink is not None or self.gateway is not None:
+            raise ValueError("send either `links` or `uplink` + `gateway`, not both")
+        names = [link.interface for link in self.links]
+        if len(set(names)) != len(names):
+            raise ValueError("the same interface appears twice in `links`")
+        self.uplink = self.gateway = None   # from here on, `links` is the one source
+        return self
 
 
 class Session(Strict):
@@ -186,11 +214,11 @@ def parse_message(data):
     """LiveMessage or SessionsMessage, or raises ValueError/ValidationError."""
     if not isinstance(data, dict):
         raise ValueError("body must be a JSON object")
-    if "uplink" in data:
+    if "links" in data or "uplink" in data:
         return LiveMessage.model_validate(data)
     if "batch_id" in data:
         return SessionsMessage.model_validate(data)
-    raise ValueError("neither a live message (uplink) nor a session list (batch_id)")
+    raise ValueError("neither a live message (links) nor a session list (batch_id)")
 
 
 @router.post("/network/ingest")
@@ -250,7 +278,26 @@ def _found(result):
 
 @router.get("/network/overview")
 def network_overview(router: str = "ccr2116", current_user: dict = Depends(require_network_view)):
-    return _found(db.overview(router))
+    data = _found(db.overview(router))
+    # Only an admin may correct a link's capacity (see PUT /network/uplinks/capacity).
+    return {**data, "can_edit_capacity": current_user["role"] == "admin"}
+
+
+class CapacityRequest(Strict):
+    router: str = Field(default="ccr2116", max_length=32)
+    interface: str = Field(min_length=1, max_length=64)
+    # None puts the link back on its automatic figure (the port speed).
+    capacity_mbps: Optional[float] = Field(default=None, gt=0, le=100_000)
+
+
+@router.put("/network/uplinks/capacity")
+def set_uplink_capacity(body: CapacityRequest, current_user: dict = Depends(require_admin)):
+    result = db.set_capacity(body.router, body.interface, body.capacity_mbps)
+    if result is None:
+        raise HTTPException(status_code=404, detail="No such link on that router")
+    log.info("network capacity set by %s: router=%s link=%s capacity=%s", current_user.get("username"),
+             body.router, body.interface, body.capacity_mbps)
+    return {"ok": True, **result}
 
 
 @router.get("/network/pppoe")
@@ -259,12 +306,14 @@ def network_pppoe(router: str = "ccr2116", current_user: dict = Depends(require_
 
 
 @router.get("/network/uplink-history")
-def network_uplink_history(router: str = "ccr2116", range: str = "1h",
+def network_uplink_history(router: str = "ccr2116", range: str = "1h", link: Optional[str] = None,
                            current_user: dict = Depends(require_network_view)):
     if db.get_router(router) is None:
         raise HTTPException(status_code=404, detail="Unknown router")
+    if link is not None and len(link) > 64:
+        raise HTTPException(status_code=400, detail="link is too long")
     try:
-        return db.uplink_history(router, range)
+        return db.uplink_history(router, range, link=link)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

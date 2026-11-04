@@ -42,6 +42,24 @@ def live(**overrides):
     return message
 
 
+def live_links(**overrides):
+    """A live message in the multi-link shape: Airtel (active) and Veenet (standby)."""
+    message = live()
+    del message["uplink"], message["gateway"]
+    message["links"] = [
+        {"interface": "sfp-sfpplus1", "label": "airtel Primary", "active": True, "distance": 1,
+         "running": True, "link_rate": "1Gbps", "rx_bps": 120_000_000, "tx_bps": 20_000_000,
+         "gateway": {"address": "102.0.27.189", "source": "auto", "alive": True, "loss_pct": 0,
+                     "rtt_ms_avg": 1.0, "rtt_ms_max": 1.1, "arp": "reachable"}},
+        {"interface": "sfp-sfpplus3", "label": "veenet PRIMARY", "active": False, "distance": 2,
+         "running": True, "link_rate": "1Gbps", "rx_bps": 0, "tx_bps": 0,
+         "gateway": {"address": "102.204.89.183", "source": "auto", "alive": True, "loss_pct": 0,
+                     "rtt_ms_avg": 2.0, "rtt_ms_max": 2.5, "arp": "reachable"}},
+    ]
+    message.update(overrides)
+    return message
+
+
 def request(body, token=TOKEN, extra_headers=None):
     raw = body if isinstance(body, bytes) else json.dumps(body).encode()
     headers = {"content-type": "application/json", "content-length": str(len(raw)), **(extra_headers or {})}
@@ -81,9 +99,28 @@ class Ingest(unittest.TestCase):
     def test_a_good_live_message_is_stored(self):
         self.assertEqual(self.post(live())["ok"], True)
         stored = self.record_live.call_args.args[1]
-        self.assertEqual(stored["uplink"]["rx_bps"], 120_000_000)
-        self.assertEqual(stored["uplink"]["sfp"]["rx_dbm"], -6.12)   # "-6.12dBm" -> number
+        # The single-link shape older scripts send is stored as one link.
+        link = stored["links"][0]
+        self.assertEqual((link["interface"], link["active"], link["rx_bps"]), ("sfp-sfpplus1", True, 120_000_000))
+        self.assertEqual(link["sfp"]["rx_dbm"], -6.12)   # "-6.12dBm" -> number
+        self.assertEqual(link["gateway"]["address"], "41.90.0.1")
         self.assertEqual(stored["system"]["temp_c"], 45)
+        self.assertIsNone(stored["uplink"])
+
+    def test_a_message_with_several_links_is_stored_as_sent(self):
+        self.post(live_links())
+        stored = self.record_live.call_args.args[1]
+        self.assertEqual([(l["interface"], l["label"], l["active"], l["distance"]) for l in stored["links"]],
+                         [("sfp-sfpplus1", "airtel Primary", True, 1), ("sfp-sfpplus3", "veenet PRIMARY", False, 2)])
+
+    def test_links_and_the_old_shape_cannot_be_mixed_or_repeated(self):
+        both = {**live_links(), "uplink": live()["uplink"], "gateway": live()["gateway"]}
+        twice = live_links()
+        twice["links"] = [twice["links"][0], dict(twice["links"][0])]
+        neither = live()
+        del neither["uplink"], neither["gateway"]
+        for body in (both, twice, neither, {**live_links(), "links": []}):
+            self.assertEqual(self.status_of(body), 422)
 
     def test_wrong_or_missing_token_is_401(self):
         self.assertEqual(self.status_of(live(), token=None), 401)
@@ -202,7 +239,8 @@ class BetweenReadings(unittest.TestCase):
         self.assertIsNone(logic.quiet_period(NOW - timedelta(seconds=30), NOW, False, 1, CFG))
 
     def test_counters_rising(self):
-        before, after = live(), live(uplink={**live()["uplink"], "rx_errors": 3})
+        before = logic.links_of(live())[0]
+        after = logic.links_of(live(uplink={**live()["uplink"], "rx_errors": 3}))[0]
         self.assertTrue(logic.counters_rose(before, after, restarted=False))
         self.assertFalse(logic.counters_rose(before, after, restarted=True))
         self.assertFalse(logic.counters_rose(before, before, restarted=False))
@@ -212,57 +250,144 @@ class BetweenReadings(unittest.TestCase):
         self.assertEqual((started, ended), (NOW - timedelta(seconds=150), NOW - timedelta(seconds=30)))
 
 
-def latest(received_ago_s=5, streak=0, seen=True, **live_overrides):
-    return {"live": live(**live_overrides), "live_received_at": NOW - timedelta(seconds=received_ago_s),
-            "gateway_fail_streak": streak, "gateway_seen_alive": seen, "counters_rose_at": None}
+def latest(received_ago_s=5, **live_overrides):
+    return {"live": live(**live_overrides), "live_received_at": NOW - timedelta(seconds=received_ago_s)}
+
+
+def entry(link, primary=True, streak=0, seen=True, minutes=(), capacity=350, source="admin", rose=None):
+    return {"interface": link["interface"], "label": link.get("label"), "reading": link, "primary": primary,
+            "gateway_fail_streak": streak, "gateway_seen_alive": seen, "counters_rose_at": rose,
+            "recent_minutes": list(minutes), "capacity_mbps": capacity, "capacity_source": source}
+
+
+def single(streak=0, seen=True, minutes=(), source="admin", rose=None, **live_overrides):
+    """(latest row, [one link entry]) for the single-link shape."""
+    row = latest(**live_overrides)
+    return row, [entry(logic.links_of(row["live"])[0], streak=streak, seen=seen, minutes=minutes,
+                       source=source, rose=rose)]
 
 
 class Status(unittest.TestCase):
-    def check(self, row, minutes=(), capacity=350):
-        return logic.status(row, list(minutes), NOW, capacity, CFG)
+    def check(self, pair):
+        return logic.status(pair[0], pair[1], NOW, CFG)
 
     def test_green(self):
-        self.assertEqual(self.check(latest())["level"], "green")
+        self.assertEqual(self.check(single())["level"], "green")
 
     def test_not_reporting_after_60_seconds(self):
-        result = self.check(latest(received_ago_s=61))
+        result = self.check((latest(received_ago_s=61), []))
         self.assertEqual((result["level"], result["state"]), ("red", "not_reporting"))
         self.assertIn("possible upstream outage", result["reasons"][0]["text"])
 
     def test_three_red_states_are_different(self):
-        not_reporting = self.check(latest(received_ago_s=90))["state"]
-        gateway_down = self.check(latest(streak=2, gateway={**live()["gateway"], "alive": False}))["state"]
-        no_clients = self.check(latest(pppoe_online=0))
+        not_reporting = self.check((latest(received_ago_s=90), []))["state"]
+        gateway_down = self.check(single(streak=2, gateway={**live()["gateway"], "alive": False}))["state"]
+        no_clients = self.check(single(pppoe_online=0))
         self.assertEqual({not_reporting, gateway_down}, {"not_reporting", "gateway_down"})
         self.assertEqual(no_clients["level"], "green")   # 0 clients is not an outage
 
     def test_uplink_not_running_is_red(self):
-        row = latest(uplink={**live()["uplink"], "running": False})
-        self.assertEqual(self.check(row)["state"], "uplink_down")
+        pair = single(uplink={**live()["uplink"], "running": False})
+        self.assertEqual(self.check(pair)["state"], "uplink_down")
 
     def test_busy_needs_two_minutes_against_the_contracted_rate(self):
         hot = {"rx_bps_avg": 300_000_000, "tx_bps_avg": 10_000_000}      # 85.7% of 350 Mbps
         calm = {"rx_bps_avg": 100_000_000, "tx_bps_avg": 10_000_000}
-        self.assertEqual(self.check(latest(), [hot, hot])["level"], "amber")
-        self.assertEqual(self.check(latest(), [hot, calm])["level"], "green")
-        self.assertEqual(self.check(latest(), [hot])["level"], "green")
-        # Against a 10 Gbps PORT speed it would be 3%; the contract is what counts.
+        self.assertEqual(self.check(single(minutes=[hot, hot]))["level"], "amber")
+        self.assertEqual(self.check(single(minutes=[hot, calm]))["level"], "green")
+        self.assertEqual(self.check(single(minutes=[hot]))["level"], "green")
         self.assertEqual(logic.utilization_pct(300_000_000, 350), 85.7)
+
+    def test_an_estimated_capacity_never_raises_a_busy_warning(self):
+        # Port speed is not the contract: judging "busy" against it would be a guess.
+        full = {"rx_bps_avg": 340_000_000, "tx_bps_avg": 10_000_000}
+        self.assertEqual(self.check(single(minutes=[full, full], source="auto"))["level"], "green")
 
     def test_amber_reasons(self):
         cases = [
-            latest(system={**live()["system"], "cpu_pct": 85}),
-            latest(gateway={**live()["gateway"], "loss_pct": 33}),
-            latest(gateway={**live()["gateway"], "rtt_ms_avg": 80}),
-            latest(internet={"target": "1.1.1.1", "alive": False, "loss_pct": 100, "rtt_ms_avg": None}),
-            {**latest(), "counters_rose_at": NOW - timedelta(seconds=30)},
+            single(system={**live()["system"], "cpu_pct": 85}),
+            single(gateway={**live()["gateway"], "loss_pct": 33}),
+            single(gateway={**live()["gateway"], "rtt_ms_avg": 80}),
+            single(internet={"target": "1.1.1.1", "alive": False, "loss_pct": 100, "rtt_ms_avg": None}),
+            single(rose=NOW - timedelta(seconds=30)),
         ]
-        for row in cases:
-            self.assertEqual(self.check(row)["level"], "amber", row)
-        self.assertEqual(self.check({**latest(), "counters_rose_at": NOW - timedelta(minutes=10)})["level"], "green")
+        for pair in cases:
+            self.assertEqual(self.check(pair)["level"], "amber", pair)
+        self.assertEqual(self.check(single(rose=NOW - timedelta(minutes=10)))["level"], "green")
 
     def test_never_reported(self):
-        self.assertEqual(self.check(None)["state"], "never_reported")
+        self.assertEqual(self.check((None, []))["state"], "never_reported")
+
+
+class TwoLinks(unittest.TestCase):
+    """Airtel (primary, distance 1) and Veenet (backup, distance 2)."""
+
+    def pair(self, airtel=None, veenet=None, airtel_streak=0, veenet_streak=0):
+        message = live_links()
+        airtel_link, veenet_link = message["links"]
+        airtel_link.update(airtel or {})
+        veenet_link.update(veenet or {})
+        row = {"live": message, "live_received_at": NOW - timedelta(seconds=5)}
+        return row, [entry(airtel_link, primary=True, streak=airtel_streak),
+                     entry(veenet_link, primary=False, streak=veenet_streak)]
+
+    def check(self, pair):
+        return logic.status(pair[0], pair[1], NOW, CFG)
+
+    def test_both_links_fine_is_green(self):
+        self.assertEqual(self.check(self.pair())["level"], "green")
+
+    def test_the_primary_link_failing_is_red_and_names_the_link(self):
+        down = {"gateway": {**live_links()["links"][0]["gateway"], "alive": False}}
+        result = self.check(self.pair(airtel=down, airtel_streak=2))
+        self.assertEqual((result["level"], result["state"]), ("red", "gateway_down"))
+        self.assertTrue(result["reasons"][0]["text"].startswith("airtel Primary:"))
+
+    def test_the_backup_link_failing_is_only_amber(self):
+        down = {"gateway": {**live_links()["links"][1]["gateway"], "alive": False}}
+        result = self.check(self.pair(veenet=down, veenet_streak=2))
+        self.assertEqual(result["level"], "amber")
+        self.assertEqual(result["reasons"][0]["code"], "standby_gateway_down")
+        self.assertIn("no failover", result["reasons"][0]["text"])
+
+    def test_traffic_on_the_backup_is_called_out(self):
+        result = self.check(self.pair(airtel={"active": False}, veenet={"active": True, "rx_bps": 90_000_000}))
+        self.assertEqual(result["level"], "amber")
+        self.assertIn("on_backup", [r["code"] for r in result["reasons"]])
+        self.assertIn("veenet PRIMARY", [r["text"] for r in result["reasons"] if r["code"] == "on_backup"][0])
+
+    def test_total_traffic_adds_the_links_once_each(self):
+        links = live_links()["links"]
+        links[1]["rx_bps"], links[1]["tx_bps"] = 5_000_000, 1_000_000
+        self.assertEqual(logic.total_traffic(links), (125_000_000, 21_000_000))
+        self.assertEqual(logic.total_traffic(links + [links[0]]), (125_000_000, 21_000_000))
+
+
+class Links(unittest.TestCase):
+    def test_the_old_message_shape_is_one_link(self):
+        links = logic.links_of(live())
+        self.assertEqual([(l["interface"], l["active"], l["gateway"]["address"]) for l in links],
+                         [("sfp-sfpplus1", True, "41.90.0.1")])
+        self.assertEqual(logic.links_of({}), [])
+
+    def test_port_speed_text(self):
+        for text, want in (("1Gbps", 1000.0), ("10Gbps", 10000.0), ("100Mbps", 100.0), ("2.5Gbps", 2500.0),
+                           (None, None), ("auto", None)):
+            self.assertEqual(logic.parse_rate_mbps(text), want, text)
+
+    def test_the_primary_is_the_lowest_distance(self):
+        links = live_links()["links"]
+        self.assertEqual(logic.primary_interface(links), "sfp-sfpplus1")
+        self.assertEqual(logic.primary_interface(list(reversed(links))), "sfp-sfpplus1")
+        self.assertEqual(logic.primary_interface([{"interface": "a"}, {"interface": "b"}]), "a")
+        self.assertIsNone(logic.primary_interface([]))
+
+    def test_capacity_starts_at_port_speed_and_an_admin_figure_sticks(self):
+        self.assertEqual(logic.next_capacity(None, 1000.0), (1000.0, "auto"))
+        self.assertEqual(logic.next_capacity({"capacity_mbps": 1000.0, "capacity_source": "auto"}, 10000.0),
+                         (10000.0, "auto"))     # the port was upgraded: the estimate follows
+        self.assertEqual(logic.next_capacity({"capacity_mbps": 350.0, "capacity_source": "admin"}, 10000.0),
+                         (350.0, "admin"))      # the router never overrides the admin
 
 
 def event(kind, start_min, end_min, source="ops"):
@@ -371,6 +496,10 @@ class ReadPermission(unittest.TestCase):
             if route.path == "/network/ingest":
                 continue
             guards = [d.call for d in route.dependant.dependencies]
+            if route.path == "/network/uplinks/capacity":
+                # Correcting a link's contracted speed is the admin's call.
+                self.assertIn(api.require_admin, guards, route.path)
+                continue
             self.assertIn(api.require_network_view, guards, route.path)
 
 

@@ -37,6 +37,12 @@ default-route gateway. Globals confirmed NOT to survive between runs on the
 2116 too (2026-11-04 test: a counter logged 1 on every run), which is what the
 stateless design assumes. Design notes in ARCHITECTURE.md "Network page".
 
+**Several links (2026-11-04, migration 0023).** The Network page now tracks
+each internet link (Airtel and Veenet on the 2116) found from the default
+routes, with per-link status, events, chart and an admin-editable capacity.
+Needs `migrations/0023_network_uplinks.sql` and the new `ops-live` script
+(dry run first, per the runbook).
+
 ### 4.0 — Router reconnaissance: COMPLETE
 
 Run against `JS-Core2-CCR2004` on 2026-09-18. **RouterOS 7.24.2**,

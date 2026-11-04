@@ -14,7 +14,7 @@ Usage (from the repo root, with the values in your environment):
   python tools/render_router_script.py --live         # copies that really send
   python tools/render_router_script.py --new-token    # print a fresh random token, nothing else
 
-Options: --router ccr2116 (default), --gateway-ip a.b.c.d, --internet-target 1.1.1.1,
+Options: --router ccr2116 (default), --internet-target 1.1.1.1,
 --out DIR (default router-rendered).
 """
 import argparse
@@ -59,13 +59,11 @@ def set_local(source, name, value, quoted=True):
     return pattern.sub(lambda m: m.group(1) + replacement, source, count=1)
 
 
-def render(source, url, token, slug, live, gateway_ip=None, internet_target=None):
+def render(source, url, token, slug, live, internet_target=None):
     out = set_local(source, "ingestUrl", url)
     out = set_local(out, "ingestToken", token)
     out = set_local(out, "routerSlug", slug)
     out = set_local(out, "dryRun", "false" if live else "true", quoted=False)
-    if gateway_ip is not None and ":local gatewayIp " in out:
-        out = set_local(out, "gatewayIp", gateway_ip)
     if internet_target is not None and ":local internetPingTarget " in out:
         out = set_local(out, "internetPingTarget", internet_target)
     return out
@@ -97,7 +95,6 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--router", default="ccr2116")
     parser.add_argument("--live", action="store_true", help="copies that really send (default: dry run)")
-    parser.add_argument("--gateway-ip")
     parser.add_argument("--internet-target")
     parser.add_argument("--out", default=str(REPO / "router-rendered"))
     parser.add_argument("--new-token", action="store_true", help="print a fresh random token and exit")
@@ -112,9 +109,8 @@ def main():
         url = ingest_url(os.environ.get("NETWORK_INGEST_URL"))
         token_var = f"NETWORK_INGEST_TOKEN_{args.router.upper().replace('-', '_')}"
         token = check_token(os.environ.get(token_var))
-        for value, name in ((args.gateway_ip, "--gateway-ip"), (args.internet_target, "--internet-target")):
-            if value is not None and not IP_SHAPE.match(value):
-                raise ValueError(f"{name} must be an IPv4 address")
+        if args.internet_target is not None and not IP_SHAPE.match(args.internet_target):
+            raise ValueError("--internet-target must be an IPv4 address")
     except ValueError as e:
         print(f"ERROR: {e}", file=sys.stderr)
         return 1
@@ -125,7 +121,7 @@ def main():
     for name in SCRIPTS:
         source = (REPO / "router" / name).read_text(encoding="utf-8")
         target = out_dir / name
-        target.write_text(render(source, url, token, args.router, args.live, args.gateway_ip, args.internet_target),
+        target.write_text(render(source, url, token, args.router, args.live, args.internet_target),
                           encoding="utf-8")
         target.chmod(0o600)   # it holds the token
         written.append(f"  {target}")

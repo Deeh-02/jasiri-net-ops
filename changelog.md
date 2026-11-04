@@ -42,6 +42,25 @@ Built outside the phase plan at the owner's request (2026-11-03/04), on
 - An AI-written analysis panel on the Revenue page (DeepSeek wrote the
   words, the server filled in every figure). Replaced by the assistant.
 
+## Network page: several internet links (Phase 4, 2026-11-04)
+
+Migration 0023 (two new tables) and a new `ops-live` script. The router has
+two default routes (Airtel, Veenet) and the page now knows about both.
+
+- One card per link, found from the router's default routes: name (the route
+  comment), Primary/Backup, Carrying traffic/Standby, traffic with a bar, its
+  gateway, errors and SFP. A new link appears by itself.
+- Capacity is estimated from the port speed until an admin confirms it with
+  **Set the real speed**; "busy" warnings only use a confirmed figure.
+- A failure of the primary link is red even when customers are online via the
+  backup; a dead backup is amber. Events name the link.
+- The chart has a link picker, and a cursor readout (time, download, upload).
+- Fixed from the first dry run: the gateway ping now uses `/ping`
+  (`/tool flood-ping` is blocked by the 2116's device-mode and the script
+  hid the error, showing a working gateway as 100% lost); SFP power is
+  converted from thousandths of a dBm; ARP states `delay`/`stale`/`probe`
+  count as "seen".
+
 ## Network page — CCR2116 uplink, gateway and PPPoE clients (Phase 4, 2026-11-04)
 
 Added to Phase 4 at the owner's call. Not live until migration 0022 is run,

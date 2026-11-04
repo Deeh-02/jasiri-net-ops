@@ -14,8 +14,14 @@
             <div class="net-hero-note" id="net-hero-note"></div>
         </div>
 
-        <!-- Uplink: ALL customer traffic (2116 -> 2004 and the OLT), never
-             "PPPoE traffic". -->
+        <!-- Internet links: one card per link, found by the router's default
+             routes (Airtel, Veenet, anything added later). Capacity starts at
+             the port speed ("estimated") until an admin confirms it. -->
+        <h2 class="net-h2">Internet links <span class="net-h2-sub">found from the router's default routes</span></h2>
+        <div class="net-links" id="net-links"></div>
+
+        <!-- All traffic: every link added together — every customer's
+             traffic, PPPoE and hotspot, never "PPPoE traffic". -->
         <div class="net-card">
             <div class="net-card-head">
                 <h2 class="net-h2">All traffic <span class="net-h2-sub" id="net-uplink-sub"></span></h2>
@@ -24,19 +30,18 @@
                 <div class="net-rate">
                     <div class="net-rate-label">Download</div>
                     <div class="net-rate-value" id="net-down">—</div>
-                    <div class="net-bar" aria-hidden="true"><div class="net-bar-fill" id="net-down-bar"></div></div>
                     <div class="net-rate-note" id="net-down-note"></div>
                 </div>
                 <div class="net-rate">
                     <div class="net-rate-label">Upload</div>
                     <div class="net-rate-value" id="net-up">—</div>
-                    <div class="net-bar" aria-hidden="true"><div class="net-bar-fill" id="net-up-bar"></div></div>
                     <div class="net-rate-note" id="net-up-note"></div>
                 </div>
             </div>
             <dl class="net-facts" id="net-facts"></dl>
 
             <div class="net-chart-head">
+                <div class="fleet-range" id="net-link-pick" role="group" aria-label="Chart link" hidden></div>
                 <div class="fleet-range" id="net-range" role="group" aria-label="Chart range">
                     <button type="button" data-range="1h" aria-pressed="true">1h</button>
                     <button type="button" data-range="24h" aria-pressed="false">24h</button>

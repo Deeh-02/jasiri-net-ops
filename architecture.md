@@ -1632,6 +1632,52 @@ API, no open ports). Settled:
 - **Routes** are `/network/*`, not `/api/network/*`, like the rest of the
   app. Reads need `sites:view_network` (Roles → Sites → Network (CCR2116)).
 
+#### Several internet links (added 2026-11-04, migration 0023)
+
+The CCR2116 has two default routes (Airtel distance 1 on `sfp-sfpplus1`, Veenet
+distance 2 on `sfp-sfpplus3` over VLAN 808). The first build watched one fixed
+port and would have gone green on a Veenet failover while Airtel was down.
+Settled:
+
+- **Links are discovered, not configured.** The live script reads every
+  enabled default route in the main table; each is one link, named by the
+  route comment, with its gateway, distance and whether it is the active route
+  (found with the `find ... && active` filter, not a property). The interface
+  is taken from the route's resolved next hop (`immediate-gw`, falling back to
+  the gateway text and `gateway-status`); a VLAN is followed to its parent
+  port, because the switch chip's hardware-offloaded traffic shows on the
+  port and not on the VLAN interface (`l3-hw-offloading=yes`). Two routes on
+  one port are counted once. A new ISP link needs no change on the router or
+  in Ops. The old `--gateway-ip` option is gone.
+- **The message** carries `links: [...]`. The single `uplink` + `gateway` of
+  the first script is still accepted and wrapped as one link, so a router
+  running the old script keeps working through an upgrade.
+- **Storage.** `network_uplinks` (one row per router + interface: label,
+  gateway, newest reading, the per-link memory the router can't keep, and the
+  capacity) and `network_uplink_minutes` (per-link rollups). `network_minutes`
+  stays the router-level rollup and now holds the SUM of the links, so the
+  existing chart and "peak today" are unchanged. Events carry
+  `details.link`, so Airtel's outage and Veenet's are separate.
+- **Status.** The primary link is the lowest route distance. Trouble on it is
+  red even when customers are online through the backup; trouble on a backup
+  link is amber ("no failover"); traffic on the backup while the primary isn't
+  the active route is amber; a link the router stops listing stays on the
+  page, greyed, and is ignored by the status.
+- **Capacity.** The router can't know the contracted speed. A new link starts
+  at its port speed with `capacity_source = 'auto'` ("estimated"). An admin
+  sets the real figure (`PUT /network/uplinks/capacity`, `require_admin`);
+  that becomes `'admin'` and the router's readings never overwrite it.
+  "Busy" is only judged against an admin figure: a port-speed estimate would
+  call a full 350 Mbps link on a 1 Gbps port "fine". A capacity guessed from
+  observed traffic was rejected: the Airtel link peaks near 140 of 350 Mbps,
+  so "highest seen" would read as nearly full all day. The highest rate seen
+  in 30 days is shown beside the capacity as a hint instead.
+- **Verified** against a throwaway PostgreSQL 16 (31 checks: migration twice,
+  discovery of a second and a third link, a failover with per-link events,
+  capacity edit surviving later readings, purge, the old message shape) and in
+  headless Chromium against fake data (cards, picker, tooltip, admin edit,
+  failover, phone width).
+
 ### Open: Supabase security advisory (2026-10-31)
 
 Supabase flagged `rls_disabled_in_public` (and, on the separate

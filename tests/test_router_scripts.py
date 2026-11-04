@@ -17,6 +17,7 @@ UNINSTALL = REPO / "router" / "uninstall-ops-monitor.rsc"
 ALLOWED = [
     ("interface", "monitor-traffic"), ("interface", "ethernet", "monitor"),
     ("interface", "find"), ("interface", "get"), ("interface", "print"),
+    ("interface", "vlan", "find"), ("interface", "vlan", "get"),    # a VLAN's parent port
     ("ppp", "active", "find"), ("ppp", "active", "get"), ("ppp", "active", "print"),
     ("system", "resource", "get"), ("system", "resource", "print"),
     ("system", "health", "find"), ("system", "health", "get"), ("system", "health", "print"),
@@ -86,6 +87,14 @@ class AllowList(unittest.TestCase):
         self.assertNotIn("/tool flood-ping", code_only(text))
         self.assertIn("/ping $addr count=3 interval=200ms as-value", text)
 
+    def test_links_are_discovered_not_configured(self):
+        # A new ISP link must need no edit on the router: no fixed interface or gateway.
+        text = MONITOR_SCRIPTS[0].read_text()
+        for gone in (":local uplinkInterface", ":local gatewayIp"):
+            self.assertNotIn(gone, text)
+        self.assertIn("/ip route find where dst-address=0.0.0.0/0", text)
+        self.assertIn("/interface vlan get", text)    # the port a VLAN rides on is the one measured
+
     def test_the_lint_itself_catches_writes(self):
         sample = ':local x 1\n:set x 2\n/ppp active remove [find]\n/system reboot\n# /user add (comment)\n:put "/file print"\n'
         bad = [c for c in commands(sample) if not is_allowed(c)]
@@ -123,12 +132,10 @@ class RenderTool(unittest.TestCase):
         self.source = MONITOR_SCRIPTS[0].read_text()
 
     def test_fills_url_token_and_mode(self):
-        out = self.tool.render(self.source, "https://ops.example.com/network/ingest", "A" * 40, "ccr2116", live=True,
-                               gateway_ip="41.90.0.1")
+        out = self.tool.render(self.source, "https://ops.example.com/network/ingest", "A" * 40, "ccr2116", live=True)
         self.assertIn(':local ingestUrl "https://ops.example.com/network/ingest"', out)
         self.assertIn(f':local ingestToken "{"A" * 40}"', out)
         self.assertIn(":local dryRun false", out)
-        self.assertIn(':local gatewayIp "41.90.0.1"', out)
         self.assertNotIn("PASTE-NETWORK_INGEST_TOKEN", out)
 
     def test_refuses_tokens_that_would_break_the_header(self):

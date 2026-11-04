@@ -49,7 +49,9 @@ battery-tracker/
 │   ├── 0019_daily_site_revenue.sql     # revenue reporting: daily + hourly per-site tables, frozen days,
 │   │                                   #   re-freeze log
 │   ├── 0020_revenue_report_config.sql  # revenue report thresholds — only overrides are rows
-│   └── 0021_revenue_site_status.sql    # revenue alerts judged per site-day, with the thresholds used
+│   ├── 0021_revenue_site_status.sql    # revenue alerts judged per site-day, with the thresholds used
+│   ├── 0022_network_monitor.sql        # Network page: routers, latest reading, session parts, rollups, events
+│   └── 0023_network_uplinks.sql        # Network page: one row per internet link + per-link rollups
 │
 ├── router/                          # RouterOS scripts, pasted onto the CCR by a human — never run by Ops
 │   ├── ops-heartbeat.rsc             # Phase 4.3: read-only 60s heartbeat POSTing to /monitoring/ingest
