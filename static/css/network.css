@@ -59,6 +59,7 @@
 .net-link { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
 .net-link.is-down { border-color: var(--danger); }
 .net-link.is-gone { opacity: 0.6; }
+.net-link.is-off { opacity: 0.65; border-style: dashed; }
 .net-link-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
 .net-link-name { font-family: 'Space Grotesk', sans-serif; font-size: 16px; margin: 0; color: var(--text); overflow-wrap: anywhere; }
 .net-link-badges { display: flex; gap: 6px; flex-wrap: wrap; }

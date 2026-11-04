@@ -496,8 +496,8 @@ class ReadPermission(unittest.TestCase):
             if route.path == "/network/ingest":
                 continue
             guards = [d.call for d in route.dependant.dependencies]
-            if route.path == "/network/uplinks/capacity":
-                # Correcting a link's contracted speed is the admin's call.
+            if route.path in ("/network/uplinks/capacity", "/network/uplinks/service"):
+                # Correcting a link's contracted speed, or switching it off, is the admin's call.
                 self.assertIn(api.require_admin, guards, route.path)
                 continue
             self.assertIn(api.require_network_view, guards, route.path)

@@ -175,7 +175,8 @@ def _link_row(cur, slug, interface):
     """The stored row for a link, locked, or None if the link is new."""
     cur.execute(
         "SELECT gateway_address, capacity_mbps, capacity_source, reading, gateway_fail_streak, "
-        "gateway_seen_alive, counters_rose_at FROM network_uplinks WHERE router = %s AND interface = %s FOR UPDATE",
+        "gateway_seen_alive, counters_rose_at, in_service FROM network_uplinks "
+        "WHERE router = %s AND interface = %s FOR UPDATE",
         (slug, interface),
     )
     row = cur.fetchone()
@@ -183,7 +184,7 @@ def _link_row(cur, slug, interface):
         return None
     return {"gateway_address": row[0], "capacity_mbps": None if row[1] is None else float(row[1]),
             "capacity_source": row[2], "reading": row[3], "gateway_fail_streak": row[4],
-            "gateway_seen_alive": row[5], "counters_rose_at": row[6]}
+            "gateway_seen_alive": row[5], "counters_rose_at": row[6], "in_service": row[7]}
 
 
 def _store_link(cur, slug, link, now, restarted, previous_received_at, cfg):
@@ -198,7 +199,10 @@ def _store_link(cur, slug, link, now, restarted, previous_received_at, cfg):
          "seen_alive": (previous or {}).get("gateway_seen_alive", False)},
         link.get("gateway"))
     gateway_state = logic.gateway_view(link.get("gateway"), streak, seen_alive, cfg)["state"]
-    _track_link_events(cur, slug, link, gateway_state, previous_received_at, now)
+    # A link an admin has switched off raises no events (its memory above still
+    # follows the readings, so switching it back on starts from the truth).
+    if previous is None or previous["in_service"]:
+        _track_link_events(cur, slug, link, gateway_state, previous_received_at, now)
     rose = logic.counters_rose((previous or {}).get("reading"), link, restarted)
     cur.execute(
         """
@@ -384,7 +388,7 @@ def _link_entries(cur, slug, live, now, this_minute, eat_midnight_utc):
     minutes, its peaks, and whether the newest message still lists it."""
     cur.execute(
         "SELECT interface, label, link_rate_mbps, capacity_mbps, capacity_source, active, reading, "
-        "reading_received_at, gateway_fail_streak, gateway_seen_alive, counters_rose_at "
+        "reading_received_at, gateway_fail_streak, gateway_seen_alive, counters_rose_at, in_service "
         "FROM network_uplinks WHERE router = %s ORDER BY first_seen_at, interface", (slug,))
     rows = cur.fetchall()
     cur.execute(
@@ -401,13 +405,17 @@ def _link_entries(cur, slug, live, now, this_minute, eat_midnight_utc):
     peaks = {r[0]: r[1:] for r in cur.fetchall()}
 
     listed = {l["interface"] for l in logic.links_of(live)}
+    off = {r[0] for r in rows if not r[11]}
     readings = [r[6] for r in rows if r[6]]
-    primary = logic.primary_interface([x for x in readings if x["interface"] in listed] or readings)
+    # The primary is chosen among the links that are listed AND in service.
+    live_readings = [x for x in readings if x["interface"] in listed and x["interface"] not in off]
+    primary = logic.primary_interface(live_readings or readings)
     entries = []
-    for (interface, label, rate, capacity, source, active, reading, received, streak, seen, rose) in rows:
+    for (interface, label, rate, capacity, source, active, reading, received, streak, seen, rose, in_service) in rows:
         peak = peaks.get(interface, (None, None, None, None))
         entries.append({
             "interface": interface, "label": label, "reading": reading or {}, "listed": interface in listed,
+            "in_service": in_service,
             "link_rate_mbps": None if rate is None else float(rate),
             "capacity_mbps": None if capacity is None else float(capacity), "capacity_source": source,
             "active": active, "reading_received_at": received,
@@ -426,7 +434,7 @@ def _link_view(e, cfg):
     capacity = e["capacity_mbps"]
     return {
         "interface": e["interface"], "label": e["label"], "name": e["label"] or e["interface"],
-        "primary": e["primary"], "active": e["active"], "listed": e["listed"],
+        "primary": e["primary"], "active": e["active"], "listed": e["listed"], "in_service": e["in_service"],
         "running": reading.get("running"), "link_rate": reading.get("link_rate"),
         "download_mbps": _mbps(reading.get("rx_bps")), "upload_mbps": _mbps(reading.get("tx_bps")),
         "capacity": {"mbps": capacity, "source": e["capacity_source"], "estimated": e["capacity_source"] != "admin"},
@@ -460,7 +468,7 @@ def overview(slug, now=None):
         peak_rx, peak_tx = cur.fetchone()
         recent_events = _events(cur, slug, since=now - timedelta(days=7), limit=50)
 
-    current = [e for e in entries if e["listed"]]
+    current = [e for e in entries if e["listed"] and e["in_service"]]
     state = logic.status(latest, current, now, cfg)
     links = logic.links_of(live)
     rx, tx = logic.total_traffic(links)
@@ -498,6 +506,24 @@ def set_capacity(slug, interface, capacity_mbps):
     if row is None:
         return None
     return {"capacity_mbps": None if row[0] is None else float(row[0]), "capacity_source": row[1]}
+
+
+def set_in_service(slug, interface, in_service):
+    """An admin switches a link on or off. Off closes the link's open outage
+    events (they were about a link that isn't expected to work) and stops new
+    ones. Returns {in_service}, or None if there is no such link."""
+    now = datetime.utcnow()
+    with db_cursor() as (conn, cur):
+        cur.execute("UPDATE network_uplinks SET in_service = %s WHERE router = %s AND interface = %s RETURNING in_service",
+                    (in_service, slug, interface))
+        row = cur.fetchone()
+        if row is not None and not in_service:
+            cur.execute(
+                "UPDATE network_events SET ended_at = %s WHERE router = %s AND ended_at IS NULL "
+                "AND details->>'link' = %s AND type IN ('gateway_down', 'uplink_down')",
+                (now, slug, interface))
+        conn.commit()
+    return None if row is None else {"in_service": row[0]}
 
 
 def pppoe(slug, now=None):

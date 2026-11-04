@@ -1674,6 +1674,14 @@ Settled:
   observed traffic was rejected: the Airtel link peaks near 140 of 350 Mbps,
   so "highest seen" would read as nearly full all day. The highest rate seen
   in 30 days is shown beside the capacity as a hint instead.
+- **Not in service (migration 0024).** A link that is plugged in but not paid
+  for (Veenet, 2026-11-04) never answers its gateway and would hold the page
+  amber for as long as that lasts, masking real warnings. An admin switches it
+  off (`PUT /network/uplinks/service`, `require_admin`): the card stays,
+  greyed and labelled, but the link is left out of the status and the
+  events, its open outage events are closed, and it can't be the primary. Its
+  readings, memory and rollups keep updating, so switching it back on starts
+  from the truth.
 - **Verified** against a throwaway PostgreSQL 16 (31 checks: migration twice,
   discovery of a second and a third link, a failover with per-link events,
   capacity edit surviving later readings, purge, the old message shape) and in

@@ -19,6 +19,7 @@ schedulers, both scripts and their variables, and nothing else.
    both are safe to run twice):
    `psql "$DATABASE_URL" -f migrations/0022_network_monitor.sql`
    `psql "$DATABASE_URL" -f migrations/0023_network_uplinks.sql`
+   `psql "$DATABASE_URL" -f migrations/0024_network_uplink_in_service.sql`
 2. **Make a token** and keep it somewhere safe:
    `python tools/render_router_script.py --new-token`
 3. **On Render**, add the environment variable `NETWORK_INGEST_TOKEN_CCR2116` with that token,
@@ -203,6 +204,10 @@ the **Set the real speed** button on the link's card; from then on it is marked 
 admin* and the router never overwrites it. **Use port speed** puts it back. "Busy" warnings
 (80% or more for 2+ minutes) are only raised against a figure an admin has set, because a
 port-speed estimate would call a full link "fine". If the contract changes, press **Edit**.
+
+**A link that isn't paid for or in use yet.** It never answers its gateway, which would keep
+the page amber. An admin presses **Mark not in service** on its card: it stays on the page,
+greyed, but raises no warnings or events. **Put back in service** restores normal checking.
 
 **What the colours mean with two links**
 - Trouble on the **primary** link (port down, gateway not responding) is **red**, even when

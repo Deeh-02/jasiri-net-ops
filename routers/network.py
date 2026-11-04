@@ -300,6 +300,24 @@ def set_uplink_capacity(body: CapacityRequest, current_user: dict = Depends(requ
     return {"ok": True, **result}
 
 
+class ServiceRequest(Strict):
+    router: str = Field(default="ccr2116", max_length=32)
+    interface: str = Field(min_length=1, max_length=64)
+    in_service: bool
+
+
+@router.put("/network/uplinks/service")
+def set_uplink_service(body: ServiceRequest, current_user: dict = Depends(require_admin)):
+    """Switch a link off (plugged in but not paid for / not in use) or back on.
+    An off link stays on the page, greyed, but raises no warnings or events."""
+    result = db.set_in_service(body.router, body.interface, body.in_service)
+    if result is None:
+        raise HTTPException(status_code=404, detail="No such link on that router")
+    log.info("network link service changed by %s: router=%s link=%s in_service=%s", current_user.get("username"),
+             body.router, body.interface, body.in_service)
+    return {"ok": True, **result}
+
+
 @router.get("/network/pppoe")
 def network_pppoe(router: str = "ccr2116", current_user: dict = Depends(require_network_view)):
     return _found(db.pppoe(router))

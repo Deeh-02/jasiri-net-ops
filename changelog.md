@@ -55,6 +55,9 @@ two default routes (Airtel, Veenet) and the page now knows about both.
 - A failure of the primary link is red even when customers are online via the
   backup; a dead backup is amber. Events name the link.
 - The chart has a link picker, and a cursor readout (time, download, upload).
+- **Not in service** switch (migration 0024): an admin can grey out a link
+  that is plugged in but not paid for yet (Veenet), so it stops raising
+  warnings and events until it is switched back on.
 - Fixed from the first dry run: the gateway ping now uses `/ping`
   (`/tool flood-ping` is blocked by the 2116's device-mode and the script
   hid the error, showing a working gateway as 100% lost); SFP power is

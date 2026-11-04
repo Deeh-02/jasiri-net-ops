@@ -197,13 +197,49 @@ async function saveCapacity(interfaceName, capacity) {
     }
 }
 
+// An admin switches a link off when it is plugged in but not paid for or not
+// in use yet: it stays on the page, greyed, but raises no warnings.
+async function saveService(interfaceName, inService) {
+    try {
+        const res = await fetch("/network/uplinks/service", {
+            method: "PUT", headers: authHeaders({ "Content-Type": "application/json" }),
+            body: JSON.stringify({ router: ROUTER, interface: interfaceName, in_service: inService }),
+        });
+        if (res.ok) return "";
+        const err = await res.json().catch(() => ({}));
+        return typeof err.detail === "string" ? err.detail : "Couldn't change that";
+    } catch (e) {
+        return "Couldn't reach the server";
+    }
+}
+
+function serviceLine(l) {
+    const line = el("div", "net-link-cap net-link-svc");
+    const off = l.in_service === false;
+    const msg = el("span", "net-link-msg");
+    const button = el("button", "net-link-edit", off ? "Put back in service" : "Mark not in service");
+    button.type = "button";
+    button.addEventListener("click", async () => {
+        button.disabled = true;
+        msg.textContent = (await saveService(l.interface, off)) || "";
+        if (msg.textContent) button.disabled = false;
+        else loadOverview();
+    });
+    line.append(el("span", null, off
+        ? "Not in service: no warnings or events from this link."
+        : "Plugged in but not paid for or not in use yet?"), button, msg);
+    return line;
+}
+
 function linkCard(l, o) {
     const amberAt = o.thresholds.utilization_amber_pct;
-    const card = el("div", `net-link${l.listed ? "" : " is-gone"}${l.running === false ? " is-down" : ""}`);
+    const off = l.in_service === false;
+    const card = el("div", `net-link${l.listed ? "" : " is-gone"}${off ? " is-off" : ""}${l.running === false && !off ? " is-down" : ""}`);
     const head = el("div", "net-link-head");
     const badges = el("div", "net-link-badges");
     badges.append(badge(l.primary ? "Primary" : "Backup"));
-    if (!l.listed) badges.append(badge("No longer reported", "warn"));
+    if (off) badges.append(badge("Not in service", "warn"));
+    else if (!l.listed) badges.append(badge("No longer reported", "warn"));
     else if (l.active === true) badges.append(badge("Carrying traffic", "good"));
     else if (l.active === false) badges.append(badge("Standby"));
     head.append(el("h3", "net-link-name", l.name), badges);
@@ -214,12 +250,13 @@ function linkCard(l, o) {
     rates.append(rateBlock("Download", l.download_mbps, l.download_utilization_pct, l.capacity, amberAt),
                  rateBlock("Upload", l.upload_mbps, l.upload_utilization_pct, l.capacity, amberAt));
     card.append(rates, capacityLine(l, o.can_edit_capacity));
+    if (o.can_edit_capacity) card.append(serviceLine(l));
 
     const peaks = [l.peak_today.download_mbps != null ? `today ↓ ${mbps(l.peak_today.download_mbps)} ↑ ${mbps(l.peak_today.upload_mbps)}` : null,
                    l.peak_30d.download_mbps != null ? `30 days ↓ ${mbps(l.peak_30d.download_mbps)} ↑ ${mbps(l.peak_30d.upload_mbps)}` : null]
         .filter(Boolean).join(" · ");
     const gw = l.gateway;
-    const gwTone = { alive: "good", missed: "warn", not_responding: "bad", no_ping: null, not_detectable: "warn" }[gw.state];
+    const gwTone = off ? null : { alive: "good", missed: "warn", not_responding: "bad", no_ping: null, not_detectable: "warn" }[gw.state];
     const gwDetail = [gw.address, gw.rtt_ms_avg != null ? `${gw.rtt_ms_avg} ms avg` : null,
                       gw.rtt_ms_max != null ? `${gw.rtt_ms_max} max` : null,
                       gw.loss_pct != null ? `${gw.loss_pct}% loss` : null].filter(Boolean).join(" · ");
@@ -255,7 +292,7 @@ function renderLinks(o) {
 
 function renderTotals(o) {
     const live = o.live, sys = live.system || {};
-    const current = o.links.filter(l => l.listed).length;
+    const current = o.links.filter(l => l.listed && l.in_service !== false).length;
     $("net-uplink-sub").textContent = `${current} link${current === 1 ? "" : "s"} added together · every customer's traffic, PPPoE and hotspot`;
     $("net-down").textContent = mbps(o.total.download_mbps);
     $("net-up").textContent = mbps(o.total.upload_mbps);
