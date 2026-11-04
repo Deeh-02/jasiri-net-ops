@@ -1644,7 +1644,9 @@ Settled:
   route comment, with its gateway, distance and whether it is the active route
   (found with the `find ... && active` filter, not a property). The interface
   is taken from the route's resolved next hop (`immediate-gw`, falling back to
-  the gateway text and `gateway-status`); a VLAN is followed to its parent
+  the gateway text, `gateway-status`, and finally the gateway's ARP entry: on
+  the 2116 the inactive Veenet route has `immediate-gw=""`, and ARP still names
+  `veenet uplink`); a VLAN is followed to its parent
   port, because the switch chip's hardware-offloaded traffic shows on the
   port and not on the VLAN interface (`l3-hw-offloading=yes`). Two routes on
   one port are counted once. A new ISP link needs no change on the router or

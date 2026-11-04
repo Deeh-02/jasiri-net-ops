@@ -44,9 +44,9 @@
 # CHECKED IN THE DRY RUN on the CCR2116 (RouterOS 7.24.2): uptime_s is a plain
 # number of seconds; the SFP readings are thousandths of a dBm (Ops converts);
 # /tool flood-ping is blocked by device-mode, so the gateway check uses
-# /ping ... as-value (rtt_ms_avg arrives as a number such as 1.0). NOT yet
-# confirmed: how the default routes report their egress interface (the dry run
-# for the links rewrite shows it). See the runbook's "Dry run" checklist.
+# /ping ... as-value (rtt_ms_avg arrives as a number such as 1.0). The active
+# route (Airtel) names its interface; the standby one (Veenet) did not, so the
+# gateway's ARP entry is the fallback. See the runbook's "Dry run" checklist.
 
 # --- CONFIGURE (do not commit real values) ---------------------------------
 :local ingestUrl "https://YOUR-RENDER-APP.onrender.com/network/ingest"
@@ -217,6 +217,17 @@
         :if ([:typeof [:toip $gwAddr]] != "ip") do={
             :if ([:len $egress] = 0 && [:len [/interface find where name=$gwAddr]] > 0) do={ :set egress $gwAddr }
             :set gwAddr ""
+        }
+        # Last resort, seen on the CCR2116: a STANDBY route (Veenet) has no
+        # resolved next hop, so none of the above names its interface. The ARP
+        # entry for its gateway does; one ping fills it in if it has expired.
+        :if ([:len $egress] = 0 && [:len $gwAddr] > 0) do={
+            :local found [/ip arp find where address=[:toip $gwAddr]]
+            :if ([:len $found] = 0) do={
+                :onerror pe in={ /ping $gwAddr count=1 as-value } do={}
+                :set found [/ip arp find where address=[:toip $gwAddr]]
+            }
+            :if ([:len $found] > 0) do={ :set egress [:tostr [/ip arp get [:pick $found 0] interface]] }
         }
         # A VLAN rides on a physical port. Measure the port: it counts traffic
         # the switch chip forwarded in hardware, which the VLAN's own counters miss.
