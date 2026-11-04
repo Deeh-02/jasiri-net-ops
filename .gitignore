@@ -5,3 +5,4 @@ __pycache__/
 *.dump
 *.csv
 *.xlsx
+router-rendered/

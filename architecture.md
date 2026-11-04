@@ -1583,6 +1583,49 @@ scope that asked for a role-based DeepSeek chat. What was settled:
   of the assistant. The placeholder approach is the pattern to reuse if a
   model ever writes text that contains money again.
 
+### Network page (CCR2116) — a stateless router, Ops keeps the memory
+
+Built 2026-11-04 from the owner's scope, inside Phase 4. Two read-only
+RouterOS scripts push to `/network/ingest` (no collector machine, no router
+API, no open ports). Settled:
+
+- **The router remembers nothing.** The scope leaned on router globals (a
+  lock, "2 failed checks in a row", a local outage timer and a pending-events
+  list). On this fleet globals did not survive between scheduled runs
+  (CCR2004, 2026-09-21), so the scripts are stateless and Ops keeps the
+  memory in `network_latest`: the gateway fail streak, whether this gateway
+  has ever answered ping, last uptime. An outage is the gap between two
+  readings by Ops's own clock; the router's uptime tells the cause (still
+  counting = stayed up and lost its way out; reset = reboot/power). Router-
+  reported events are still accepted and deduplicated, for a build where
+  globals do persist. The lock is kept: harmless if globals reset.
+- **No scheduled "not reporting" job.** The app has no scheduler; the page
+  derives "not reporting" from the last receive time on every read, and the
+  event is written when readings resume (with its real duration).
+- **Gateway check uses `/tool flood-ping` (3 packets).** In a script `/ping`
+  only returns per-packet rows; flood-ping hands back sent/received/avg/max.
+  Added to the lint allow-list. "Doesn't answer ping" = never seen alive and
+  present in ARP, shown grey, not red.
+- **Bad data is a 4xx here**, unlike `/monitoring/ingest` (which quarantines
+  and answers 200 because the router never retries). The scope asked for
+  4xx; every rejection is logged with its reason. Token per router
+  (`NETWORK_INGEST_TOKEN_<SLUG>`), checked before anything about the router
+  is revealed.
+- **Customers.** The scope's `customers` table with `login_suffix` doesn't
+  exist. The match is the router's PPPoE username = `ppp_customers.username`
+  for the router linked in `network_routers.ppp_router_id`, ignoring case and
+  surrounding spaces, read through `customers.match_usernames` (no phone).
+  Joined at read time, so an expiry change shows on the next refresh. No
+  package for unmatched sessions: `/ppp active` has no profile and
+  `/ppp secret` is off limits.
+- **Storage.** Latest reading per router, 1-minute rollups as sums + maxes
+  (exact averages, 30 days), events (90 days), session parts until a batch
+  is complete (2 minutes). Purged hourly from ingest itself. All five tables
+  have RLS on (see the advisory below). Verified against a throwaway
+  PostgreSQL 16, including the migration twice and its rollback.
+- **Routes** are `/network/*`, not `/api/network/*`, like the rest of the
+  app. Reads need `sites:view_network` (Roles → Sites → Network (CCR2116)).
+
 ### Open: Supabase security advisory (2026-10-31)
 
 Supabase flagged `rls_disabled_in_public` (and, on the separate

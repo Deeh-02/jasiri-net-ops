@@ -1,0 +1,73 @@
+    <section class="view" id="view-network" hidden>
+        <div class="page-header-row">
+            <h1 class="page-title">Network <span>CCR2116</span></h1>
+            <div class="net-updated" id="net-updated">Loading&hellip;</div>
+        </div>
+
+        <!-- Header strip. "Router not reporting", "Gateway not responding" and
+             "0 clients online" must never look alike: each has its own
+             colour, glyph and wording (network.js HEADLINES). -->
+        <div class="net-hero" id="net-hero">
+            <div class="net-hero-kicker" id="net-hero-kicker">CCR2116</div>
+            <div class="net-hero-line" id="net-hero-line">&nbsp;</div>
+            <ul class="net-hero-reasons" id="net-hero-reasons"></ul>
+            <div class="net-hero-note" id="net-hero-note"></div>
+        </div>
+
+        <!-- Uplink: ALL customer traffic (2116 -> 2004 and the OLT), never
+             "PPPoE traffic". -->
+        <div class="net-card">
+            <div class="net-card-head">
+                <h2 class="net-h2">All traffic <span class="net-h2-sub" id="net-uplink-sub"></span></h2>
+            </div>
+            <div class="net-rates">
+                <div class="net-rate">
+                    <div class="net-rate-label">Download</div>
+                    <div class="net-rate-value" id="net-down">—</div>
+                    <div class="net-bar" aria-hidden="true"><div class="net-bar-fill" id="net-down-bar"></div></div>
+                    <div class="net-rate-note" id="net-down-note"></div>
+                </div>
+                <div class="net-rate">
+                    <div class="net-rate-label">Upload</div>
+                    <div class="net-rate-value" id="net-up">—</div>
+                    <div class="net-bar" aria-hidden="true"><div class="net-bar-fill" id="net-up-bar"></div></div>
+                    <div class="net-rate-note" id="net-up-note"></div>
+                </div>
+            </div>
+            <dl class="net-facts" id="net-facts"></dl>
+
+            <div class="net-chart-head">
+                <div class="fleet-range" id="net-range" role="group" aria-label="Chart range">
+                    <button type="button" data-range="1h" aria-pressed="true">1h</button>
+                    <button type="button" data-range="24h" aria-pressed="false">24h</button>
+                    <button type="button" data-range="7d" aria-pressed="false">7d</button>
+                </div>
+                <div class="net-legend"><span class="net-key down">Download</span><span class="net-key up">Upload</span><span class="net-key outage">Outage</span></div>
+            </div>
+            <div class="net-chart" id="net-chart"></div>
+        </div>
+
+        <h2 class="net-h2">Events</h2>
+        <div class="net-events" id="net-events"></div>
+
+        <h2 class="net-h2">PPPoE clients</h2>
+        <div class="net-counts" id="net-counts"></div>
+        <div class="net-stale" id="net-stale" hidden></div>
+        <div class="net-filters">
+            <input type="search" id="net-search" placeholder="Search name, username or IP" aria-label="Search PPPoE clients">
+            <div class="fleet-range" id="net-status-filter" role="group" aria-label="Status">
+                <button type="button" data-status="" aria-pressed="true">All</button>
+                <button type="button" data-status="active" aria-pressed="false">Active</button>
+                <button type="button" data-status="expired" aria-pressed="false">Expired</button>
+                <button type="button" data-status="unknown" aria-pressed="false">Unknown</button>
+            </div>
+        </div>
+        <div class="table-scroll">
+            <table class="net-table">
+                <thead>
+                    <tr><th>Name</th><th>Username</th><th>Package</th><th>Status</th><th>IP</th><th>Uptime</th></tr>
+                </thead>
+                <tbody id="net-sessions"></tbody>
+            </table>
+        </div>
+    </section>

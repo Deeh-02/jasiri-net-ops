@@ -210,6 +210,26 @@ def search_customers(query, limit=10):
         ]
 
 
+def match_usernames(router_id, username_keys):
+    """{username key: customer} for the given router's customers whose PPPoE
+    username matches (case and surrounding spaces ignored — the key is
+    lower(trim(username)), see db/network_logic.username_key). For the
+    Network page. Read-only, and no phone number in the result."""
+    if router_id is None or not username_keys:
+        return {}
+    with db_cursor() as (conn, cur):
+        cur.execute(
+            """
+            SELECT lower(trim(username)), name, plan, expiry, account_status, enabled
+            FROM ppp_customers
+            WHERE router_id = %s AND lower(trim(username)) = ANY(%s)
+            """,
+            (router_id, list(username_keys)),
+        )
+        return {r[0]: {"name": r[1], "plan": r[2], "expiry": r[3], "account_status": r[4], "enabled": r[5]}
+                for r in cur.fetchall()}
+
+
 def _audience(cur, router_ids, status_filter):
     """One row per DISTINCT phone (a person with two accounts is texted once),
     plus how many matching customers have no usable phone."""

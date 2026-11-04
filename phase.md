@@ -24,6 +24,19 @@ the MikroTik CCR2004, because the billing/RADIUS system is closed.
 
 ---
 
+### Added 2026-11-04: Network page for the CCR2116 (owner's call: part of Phase 4)
+
+Uplink/gateway/router health and the CCR2116's PPPoE clients, from two
+read-only RouterOS scripts that push to `/network/ingest`. Built, tested
+against a throwaway Postgres, NOT installed: needs migration 0022, the
+Render token, and the scripts installed per `docs/network-monitor-runbook.md`
+(no lab router — the owner judged the 2116 stable enough; every step starts
+as a dry run). Router-side facts still to confirm from the 2116 itself:
+RouterOS version (the session shows 7.24.2), uplink interface name,
+default-route gateway. Globals confirmed NOT to survive between runs on the
+2116 too (2026-11-04 test: a counter logged 1 on every run), which is what the
+stateless design assumes. Design notes in ARCHITECTURE.md "Network page".
+
 ### 4.0 — Router reconnaissance: COMPLETE
 
 Run against `JS-Core2-CCR2004` on 2026-09-18. **RouterOS 7.24.2**,

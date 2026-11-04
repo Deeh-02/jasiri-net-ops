@@ -112,6 +112,9 @@ const ROUTE_PERMISSION_MAP = {
     "alert-templates": ["sites", "edit_alert_messages"],
     customers: ["sites", "send_broadcasts"],
     broadcast: ["sites", "send_broadcasts"],
+    // The CCR2116 page: customer names and expiry, so its own switch rather
+    // than riding on view_status (which is about the hotspot sites).
+    network: ["sites", "view_network"],
 };
 
 function isRouteAllowed(name) {
@@ -685,7 +688,7 @@ function renderCmdkResults(query) {
 // ---- Fragment loader: fetches every view's HTML and injects it into its
 // mount point. Loaded eagerly, all at once, at startup — the app is small
 // enough that lazy-per-nav loading isn't worth the added state-tracking. ----
-const VIEW_NAMES = ["dashboard", "sites", "movements", "status", "site-detail", "trends", "manage-sites", "packages", "notifications", "alert-templates", "customers", "broadcast", "users", "roles", "settings", "inventory", "stock", "inventory-log", "issue-materials", "return-materials", "inventory-reports", "sms-status", "revenue", "inventory-manage"];
+const VIEW_NAMES = ["dashboard", "sites", "movements", "status", "site-detail", "trends", "manage-sites", "packages", "notifications", "alert-templates", "customers", "broadcast", "users", "roles", "settings", "inventory", "stock", "inventory-log", "issue-materials", "return-materials", "inventory-reports", "sms-status", "revenue", "inventory-manage", "network"];
 
 export async function loadViewFragments() {
     await Promise.all(VIEW_NAMES.map(async (name) => {

@@ -1,0 +1,147 @@
+/* ---- Network (CCR2116) — .net-* classes ----
+   Same language as Status: glyph + word for every state, never colour alone. */
+
+.net-updated { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-dim); }
+.net-updated.is-offline { color: var(--warn); }
+
+.net-hero {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 10px;
+    padding: 16px 20px;
+    margin-bottom: 18px;
+}
+.net-hero.red { border-left-color: var(--danger); }
+.net-hero.amber { border-left-color: var(--warn); }
+/* Not reporting is grey-red striped on purpose: it is "we stopped hearing",
+   not a measured fault, and must not look like Gateway not responding. */
+.net-hero.not-reporting {
+    border-left-color: var(--danger);
+    background: repeating-linear-gradient(135deg, var(--surface), var(--surface) 14px, var(--surface-2) 14px, var(--surface-2) 28px);
+}
+.net-hero-kicker {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-dim);
+    margin-bottom: 8px;
+}
+.net-hero-line { font-family: 'Space Grotesk', sans-serif; font-size: 26px; font-weight: 700; color: var(--accent); }
+.net-hero.red .net-hero-line { color: var(--danger); }
+.net-hero.amber .net-hero-line { color: var(--warn); }
+.net-hero-reasons { margin: 8px 0 0; padding-left: 18px; font-size: 13.5px; color: var(--text); }
+.net-hero-note { font-size: 13px; color: var(--text-dim); margin-top: 8px; line-height: 1.5; }
+
+.net-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 18px;
+    margin-bottom: 18px;
+}
+.net-card-head { display: flex; align-items: baseline; justify-content: space-between; }
+.net-h2 { font-family: 'Space Grotesk', sans-serif; font-size: 16px; margin: 22px 0 10px; color: var(--text); }
+.net-card .net-h2 { margin-top: 0; }
+.net-h2-sub { font-family: 'Inter', sans-serif; font-size: 12px; font-weight: 400; color: var(--text-dim); margin-left: 6px; }
+
+.net-rates { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+.net-rate-label { font-size: 12px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em; }
+.net-rate-value { font-family: 'Space Grotesk', sans-serif; font-size: 28px; color: var(--text); margin: 2px 0 6px; }
+.net-rate-note { font-size: 12px; color: var(--text-dim); margin-top: 4px; }
+.net-bar { height: 8px; background: var(--surface-2); border-radius: 4px; overflow: hidden; }
+.net-bar-fill { height: 100%; width: 0; background: var(--accent); transition: width 0.3s ease; }
+.net-bar-fill.busy { background: var(--warn); }
+
+.net-facts {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 10px 18px;
+    margin: 16px 0 6px;
+}
+.net-facts div { min-width: 0; }
+.net-facts dt { font-size: 11.5px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em; }
+.net-facts dd { margin: 2px 0 0; font-size: 14px; color: var(--text); overflow-wrap: anywhere; }
+.net-facts dd.bad { color: var(--danger); }
+.net-facts dd.warn { color: var(--warn); }
+.net-facts dd.good { color: var(--accent); }
+
+.net-chart-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 14px; }
+.net-legend { display: flex; gap: 14px; font-size: 12px; color: var(--text-dim); }
+.net-key::before { content: ""; display: inline-block; width: 12px; height: 3px; margin-right: 6px; vertical-align: middle; }
+.net-key.down::before { background: var(--accent); }
+.net-key.up::before { background: var(--info); }
+.net-key.outage::before { height: 10px; background: rgba(239, 91, 91, 0.25); }
+.net-chart { margin-top: 10px; }
+.net-chart svg { width: 100%; height: auto; display: block; }
+.net-chart .grid { stroke: var(--border); stroke-width: 1; }
+.net-chart text { fill: var(--text-dim); font-size: 10px; font-family: 'JetBrains Mono', monospace; }
+.net-chart .down { fill: none; stroke: var(--accent); stroke-width: 1.8; }
+.net-chart .up { fill: none; stroke: var(--info); stroke-width: 1.8; }
+.net-chart .outage { fill: rgba(239, 91, 91, 0.18); }
+.net-empty { font-size: 13.5px; color: var(--text-dim); padding: 10px 0; }
+
+.net-events { display: flex; flex-direction: column; gap: 6px; }
+.net-event {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 13.5px;
+}
+.net-event.bad { border-left-color: var(--danger); }
+.net-event.info { border-left-color: var(--info); }
+.net-event-when { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--text-dim); }
+.net-event-note { font-size: 12px; color: var(--text-dim); }
+
+.net-counts { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.net-count {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 12.5px;
+    color: var(--text-dim);
+}
+.net-count strong { display: block; font-family: 'Space Grotesk', sans-serif; font-size: 20px; color: var(--text); }
+.net-count.warn { border-color: var(--warn); }
+.net-count.warn strong { color: var(--warn); }
+.net-stale { font-size: 13px; color: var(--warn); margin-bottom: 8px; }
+
+.net-filters { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+.net-filters input {
+    flex: 1;
+    min-width: 200px;
+    min-height: 44px;
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0 12px;
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+}
+
+.net-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.net-table th { text-align: left; font-size: 11.5px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em;
+                padding: 8px 10px; border-bottom: 1px solid var(--border); }
+.net-table td { padding: 9px 10px; border-bottom: 1px solid var(--border); color: var(--text); vertical-align: top; }
+.net-table tr.is-expired td { background: rgba(245, 166, 35, 0.08); }
+.net-dim { color: var(--text-dim); font-size: 12px; }
+.net-badge { font-size: 12px; font-weight: 600; white-space: nowrap; }
+.net-badge.active { color: var(--accent); }
+.net-badge.expired { color: var(--warn); }
+.net-badge.unknown { color: var(--text-dim); }
+
+/* Below ~600px the table becomes one card per client. */
+@media (max-width: 600px) {
+    .net-table thead { display: none; }
+    .net-table, .net-table tbody, .net-table tr, .net-table td { display: block; width: 100%; }
+    .net-table tr { border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px; padding: 6px 0; }
+    .net-table td { border: none; padding: 3px 12px; }
+    .net-table td::before { content: attr(data-label); display: inline-block; min-width: 76px; color: var(--text-dim); font-size: 11.5px; }
+    .net-hero-line { font-size: 21px; }
+    .net-rate-value { font-size: 24px; }
+}

@@ -112,6 +112,13 @@ const PERM_SECTIONS = [
                     { label: "Customer Broadcasts", action: "send_broadcasts" },
                 ],
             },
+            // The Network page (CCR2116 uplink, gateway, PPPoE clients). Shows
+            // customer names, packages and expiry — never phones or payments.
+            {
+                id: "sites_view_network", key: "sites", label: "Network (CCR2116)",
+                toggleAction: "view_network",
+                actions: [],
+            },
         ]
     },
     { key: "users", label: "Users", actions: ["add", "edit", "delete"] },

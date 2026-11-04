@@ -23,6 +23,7 @@ import { initRevenue } from "./revenue.js";
 import { initCustomers } from "./customers.js";
 import { initBroadcast } from "./broadcast.js";
 import { initChat } from "./chat.js";
+import { initNetwork } from "./network.js";
 
 async function boot() {
     initShell();
@@ -53,6 +54,7 @@ async function boot() {
     initCustomers();
     initBroadcast();
     initChat();
+    initNetwork();
 
     bootAuth();
 }

@@ -114,6 +114,12 @@ at least one `admin`-role user created directly before the app is usable.
   packages and prices, and PPPoE customer lookup. It can't change
   anything, never writes SQL, and gets the same figures as the Revenue
   Report. Customer phone numbers are never sent to DeepSeek.
+- **Network** (CCR2116) — live uplink traffic ("All traffic", against the
+  350 Mbps contract), gateway and router health, outages, and every PPPoE
+  client online with name, package and Active/Expired from the customer
+  list. Fed by two read-only router scripts; see
+  [docs/network-monitor-runbook.md](docs/network-monitor-runbook.md).
+  Gated on Sites → Network (CCR2116).
 - **Users / Roles** — user management with a granular,
   section-and-action permission grid per role.
 - **Settings** — profile editing, password change with a show/hide

@@ -36,7 +36,11 @@ tests/                 # unittest, stdlib only, no DB — the revenue report's p
                         # admin assistant (DeepSeek and the DB faked);
                         # run: python -m unittest discover -s tests -t .
 routers/              # one file per domain: auth, permissions, sites, batteries, users, inventory,
-                        # monitoring, notifications, customers, chat (the admin assistant)
+                        # monitoring, notifications, customers, chat (the admin assistant),
+                        # network (CCR2116 page + its router ingest)
+router/               # RouterOS scripts — pasted by a HUMAN, never run by an agent; the
+                        # CCR2116 ones are linted by tests/test_router_scripts.py
+tools/, docs/          # render_router_script.py; network-monitor-runbook.md
 db/                    # connection.py (shared) + one file per domain — EXCEPT inventory,
                         # which is one router (routers/inventory.py) over several files
                         # (inventory_locations.py, inventory_categories.py, inventory_items.py,

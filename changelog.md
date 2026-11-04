@@ -42,6 +42,29 @@ Built outside the phase plan at the owner's request (2026-11-03/04), on
 - An AI-written analysis panel on the Revenue page (DeepSeek wrote the
   words, the server filled in every figure). Replaced by the assistant.
 
+## Network page — CCR2116 uplink, gateway and PPPoE clients (Phase 4, 2026-11-04)
+
+Added to Phase 4 at the owner's call. Not live until migration 0022 is run,
+`NETWORK_INGEST_TOKEN_CCR2116` is set on Render, and the two router scripts
+are installed (docs/network-monitor-runbook.md).
+
+- A **Network** page: router status (green / amber / red, with reasons),
+  "All traffic" download and upload against the 350 Mbps contract with
+  today's peak, gateway alive / not responding / doesn't answer ping, link,
+  errors, CPU, temperature, SFP, and a 1h / 24h / 7d chart with outages
+  marked.
+- Every PPPoE client on the CCR2116 with name, package and Active / Expired
+  from the customer list. Expired-but-connected clients are highlighted;
+  unknown usernames are kept, never dropped.
+- "Router not reporting since HH:MM:SS", "Gateway not responding" and
+  "0 clients online" each look different. When reports resume, Ops records
+  how long it was quiet and whether the router stayed up or restarted.
+- Two read-only RouterOS scripts, a render tool that fills in the token from
+  the environment, a one-step uninstall, and a lint test that fails on any
+  router command outside the read-only list.
+- Technicians need the new Roles switch Sites → Network (CCR2116). No phone
+  numbers or payment amounts on the page.
+
 ## Phase 4 — Network Monitoring (in progress, on `phase-4-network-monitoring`)
 
 Not merged yet; the entry below is filled in as pieces land. Full detail and

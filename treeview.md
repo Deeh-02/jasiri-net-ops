@@ -52,7 +52,17 @@ battery-tracker/
 │   └── 0021_revenue_site_status.sql    # revenue alerts judged per site-day, with the thresholds used
 │
 ├── router/                          # RouterOS scripts, pasted onto the CCR by a human — never run by Ops
-│   └── ops-heartbeat.rsc             # Phase 4.3: read-only 60s heartbeat POSTing to /monitoring/ingest
+│   ├── ops-heartbeat.rsc             # Phase 4.3: read-only 60s heartbeat POSTing to /monitoring/ingest
+│   ├── ops-live.rsc                  # CCR2116, every 15 s: uplink, gateway, health -> /network/ingest
+│   ├── ops-sessions.rsc              # CCR2116, every 60 s: PPPoE list in parts -> /network/ingest
+│   └── uninstall-ops-monitor.rsc     # removes both schedulers, scripts and opsNm* globals
+│
+├── tools/
+│   └── render_router_script.py       # fills URL + token into the two scripts from env vars,
+│                                     #   writes router-rendered/ (gitignored); never prints the token
+│
+├── docs/
+│   └── network-monitor-runbook.md    # install on the 2116, dry run, verify, rotate token, roll back
 │
 ├── routers/                        # FastAPI route handlers — one file per domain
 │   ├── __init__.py
@@ -67,6 +77,8 @@ battery-tracker/
 │   │                                  #   alert wording + send window, /monitoring/revenue-report/*
 │   ├── notifications.py              # the in-app bell + Alerts > Notifications inbox
 │   ├── customers.py                  # PPPoE customer list upload + manual SMS broadcasts
+│   ├── network.py                    # /network/ingest (router token, CCR2116 scripts) + the Network
+│   │                                  #   page reads, gated on sites:view_network
 │   ├── chat.py                       # POST /chat — the admin assistant: request checks, per-admin
 │   │                                  #   rate limit, the model -> tools -> model loop (admin only)
 │   └── inventory.py                  # the whole Inventory domain's routes — categories,
@@ -113,6 +125,10 @@ battery-tracker/
 │   │                                   #   find_sites / daily_history / site_window_totals for the
 │   │                                   #   assistant's history and ranking tools
 │   ├── revenue_alerts.py               # runs the alert rules per site-day, stores/reads results
+│   ├── network.py                      # Network page data: readings, session batches, rollups,
+│   │                                   #   events, purge; reads customers via match_usernames
+│   ├── network_logic.py                # Network page PURE rules — status, gateway memory, restarts,
+│   │                                   #   quiet periods, outage merge, customer status; no I/O
 │   ├── deepseek.py                     # the app's one DeepSeek client (chat + tool calls); key from
 │   │                                   #   DEEPSEEK_API_KEY, never logged or sent to the browser
 │   ├── assistant_tools.py              # the assistant's 7 read-only tools, the role check that
@@ -215,6 +231,8 @@ battery-tracker/
     │   ├── alerts.js                     # Notifications inbox + SMS Templates + the send-window card
     │   ├── customers.js
     │   ├── broadcast.js
+    │   ├── network.js                    # Network page: header, uplink card, chart, events, PPPoE table;
+    │   │                                 #   polls 15/30/60 s, textContent only (router-sourced text)
     │   ├── chat.js                       # the admin "Ask" button + chat panel on every page — not a
     │   │                                 #   view; history in sessionStorage, text via textContent
     │   ├── sms-status.js
@@ -276,6 +294,7 @@ battery-tracker/
         ├── customers.css
         ├── broadcast.css
         ├── chat.css                       # the assistant widget (.chat-* classes); full screen on phones
+        ├── network.css                    # Network page (.net-*); PPPoE table -> cards below 600px
         ├── sms-status.css
         ├── revenue.css                    # Reports > Revenue (.rev-* classes)
         ├── users.css
@@ -303,7 +322,10 @@ battery-tracker/
 red/amber/green rules), `test_revenue_config.py`, and `test_chat.py` (the
 admin assistant: role checks, prompt-injection, request caps, tool loop,
 every tool's argument checks and output, errors and rate limit — DeepSeek
-and the database are faked). Standard-library
+and the database are faked), `test_network.py` (ingest auth and validation,
+status rules, gateway/restart/outage logic, session batches, the customer
+join) and `test_router_scripts.py` (the read-only command lint for the
+CCR2116 scripts, the render tool, the uninstall). Standard-library
 `unittest`, no database needed — run from the repo root with
 `python -m unittest discover -s tests -t .`.
 
