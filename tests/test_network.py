@@ -138,6 +138,17 @@ class Ingest(unittest.TestCase):
         self.assertEqual(self.status_of(live()), 429)
 
 
+class SfpUnits(unittest.TestCase):
+    def test_milli_dbm_from_the_ccr2116_becomes_dbm(self):
+        # Real dry-run output on RouterOS 7.24.2: rx -6291, tx -5015.
+        sfp = api.Sfp.model_validate({"temp_c": "28", "rx_dbm": "-6291", "tx_dbm": "-5015"})
+        self.assertEqual((sfp.temp_c, sfp.rx_dbm, sfp.tx_dbm), (28.0, -6.291, -5.015))
+
+    def test_values_already_in_dbm_are_left_alone(self):
+        for given, want in ((-6.291, -6.291), ("-6.123dBm", -6.123), (-23, -23.0), (None, None)):
+            self.assertEqual(api.Sfp.model_validate({"rx_dbm": given}).rx_dbm, want, given)
+
+
 class BetweenReadings(unittest.TestCase):
     def test_uptime_going_down_is_a_restart(self):
         self.assertTrue(logic.is_restart(5000, 30))
@@ -161,6 +172,16 @@ class BetweenReadings(unittest.TestCase):
             streak, seen = logic.next_gateway_memory(memory, silent)
             memory = {**memory, "fail_streak": streak, "seen_alive": seen}
         self.assertEqual(logic.gateway_view(silent, streak, seen, CFG)["state"], "no_ping")
+
+    def test_the_ccr2116_gateway_state_delay_still_counts_as_seen_in_arp(self):
+        # Real dry-run output: the Airtel gateway ignored ping and showed "delay".
+        silent = {"address": "102.0.27.189", "alive": False, "arp": "delay"}
+        for state in ("delay", "stale", "probe", "reachable"):
+            view = logic.gateway_view({**silent, "arp": state}, 5, False, CFG)
+            self.assertEqual(view["state"], "no_ping", state)
+        for state in ("incomplete", "failed", None):
+            view = logic.gateway_view({**silent, "arp": state}, 5, False, CFG)
+            self.assertEqual(view["state"], "not_responding", state)
 
     def test_a_new_gateway_address_starts_over(self):
         memory = {"address": "41.90.0.1", "fail_streak": 4, "seen_alive": True}

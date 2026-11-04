@@ -105,7 +105,7 @@ source=...` in the terminal, which mangles the quotes.
 | router-rendered/ops-sessions.rsc | `ops-sessions` | `read,write,test` |
 
 **Why these policies.** `read` is for reading everything. `test` is for the 3-packet
-gateway check (`/tool flood-ping`). `write` is there because `/tool fetch` refused to
+gateway check (`/ping`; `/tool flood-ping` is blocked by the 2116's device-mode). `write` is there because `/tool fetch` refused to
 run without it on the CCR2004, even with `output=none`; the scripts still contain no
 write commands (enforced by `tests/test_router_scripts.py`). Try removing `write`; if
 fetch still works on the 2116, leave it off. Never grant `sensitive`, `ssh`,

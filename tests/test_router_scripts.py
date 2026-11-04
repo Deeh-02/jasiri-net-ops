@@ -23,7 +23,7 @@ ALLOWED = [
     ("system", "clock", "get"),
     ("ip", "route", "find"), ("ip", "route", "get"), ("ip", "route", "print"),
     ("ip", "arp", "find"), ("ip", "arp", "get"), ("ip", "arp", "print"),
-    ("ping",), ("tool", "flood-ping"), ("tool", "fetch"),
+    ("ping",), ("tool", "fetch"),   # not flood-ping: the CCR2116 device-mode blocks it
 ]
 FORBIDDEN_VERBS = re.compile(
     r"(?<![\w:$\"-])(add|set|remove|enable|disable|reset|reboot|shutdown|import|export|upgrade)(?![\w-])")
@@ -78,6 +78,13 @@ class AllowList(unittest.TestCase):
                 self.assertIn("idle-timeout=", line)
                 for banned in ("keep-result", "check-certificate=no", "dst-path", "upload=", "mode=ftp"):
                     self.assertNotIn(banned, line)
+
+    def test_gateway_check_uses_ping_as_value_not_flood_ping(self):
+        # The 2116's device-mode refuses /tool flood-ping, and the script would
+        # swallow the error and report a healthy gateway as 100% lost.
+        text = MONITOR_SCRIPTS[0].read_text()
+        self.assertNotIn("/tool flood-ping", code_only(text))
+        self.assertIn("/ping $addr count=3 interval=200ms as-value", text)
 
     def test_the_lint_itself_catches_writes(self):
         sample = ':local x 1\n:set x 2\n/ppp active remove [find]\n/system reboot\n# /user add (comment)\n:put "/file print"\n'

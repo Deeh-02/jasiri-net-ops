@@ -50,6 +50,17 @@ def _number_or_none(value):
     raise ValueError("expected a number")
 
 
+def _dbm(value):
+    """Optical power in dBm. This RouterOS (7.24.2 on the CCR2116) hands scripts
+    thousandths of a dBm (-6291 for -6.291 dBm); other builds give -6.291
+    or "-6.291dBm". No real SFP reads beyond +-100 dBm, so anything that large
+    is thousandths."""
+    number = _number_or_none(value)
+    if number is not None and abs(number) >= 100:
+        return round(number / 1000, 3)
+    return number
+
+
 class Strict(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -59,7 +70,8 @@ class Sfp(Strict):
     rx_dbm: Optional[float] = None
     tx_dbm: Optional[float] = None
 
-    _numbers = field_validator("temp_c", "rx_dbm", "tx_dbm", mode="before")(_number_or_none)
+    _temp = field_validator("temp_c", mode="before")(_number_or_none)
+    _power = field_validator("rx_dbm", "tx_dbm", mode="before")(_dbm)
 
 
 class Uplink(Strict):

@@ -1602,10 +1602,16 @@ API, no open ports). Settled:
 - **No scheduled "not reporting" job.** The app has no scheduler; the page
   derives "not reporting" from the last receive time on every read, and the
   event is written when readings resume (with its real duration).
-- **Gateway check uses `/tool flood-ping` (3 packets).** In a script `/ping`
-  only returns per-packet rows; flood-ping hands back sent/received/avg/max.
-  Added to the lint allow-list. "Doesn't answer ping" = never seen alive and
-  present in ARP, shown grey, not red.
+- **Gateway check uses `/ping ... as-value` (3 packets, 200 ms apart).** Found
+  in the CCR2116 dry run: `/tool flood-ping` is refused by the 2116's
+  device-mode and the script swallowed the error, showing a working gateway
+  as 100% lost. `/ping ... as-value` returns one row per packet; rows with a
+  `time` are replies. The RTT maths (microseconds, shown to 0.1 ms) is fenced
+  in its own `:onerror`, so a parse problem costs only the RTT. "Doesn't
+  answer ping" = never seen alive and present in ARP (reachable, stale,
+  delay, probe, complete), shown grey, not red.
+- **SFP power arrives in thousandths of a dBm** on RouterOS 7.24.2 (-6291 for
+  -6.291 dBm); the ingest model converts anything with magnitude >= 100.
 - **Bad data is a 4xx here**, unlike `/monitoring/ingest` (which quarantines
   and answers 200 because the router never retries). The scope asked for
   4xx; every rejection is logged with its reason. Token per router

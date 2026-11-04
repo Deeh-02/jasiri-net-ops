@@ -136,7 +136,10 @@ def gateway_view(gateway, fail_streak, seen_alive, cfg):
         return {"state": "alive", "label": "Alive"}
     if gateway.get("alive") is None:
         return {"state": "unknown", "label": "Not checked"}
-    if not seen_alive and (gateway.get("arp") or "").lower() in ("complete", "reachable", "true", "yes"):
+    # Any ARP state that means "the router has resolved this MAC": the CCR2116's
+    # Airtel gateway showed "delay" while ignoring ping. incomplete/failed don't count.
+    if not seen_alive and (gateway.get("arp") or "").lower() in (
+            "complete", "reachable", "stale", "delay", "probe", "true", "yes"):
         return {"state": "no_ping", "label": "Doesn't answer ping (seen in ARP)"}
     if fail_streak >= cfg["gateway_down_after_fails"]:
         return {"state": "not_responding", "label": "Not responding"}

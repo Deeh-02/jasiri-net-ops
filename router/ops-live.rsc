@@ -32,10 +32,11 @@
 # rx on the uplink = download from Airtel, tx = upload. No clock is sent:
 # Ops uses its own receive time for everything.
 #
-# TO CHECK IN THE DRY RUN (written for RouterOS 7, the 2004's 7.24.2; the
-# 2116's own version is not confirmed yet): uptime_s is a plain number of
-# seconds; rtt_ms_avg is a number; temp_c is filled; gateway address is the
-# Airtel next hop. See the runbook's "Dry run" checklist.
+# CHECKED IN THE DRY RUN on the CCR2116 (RouterOS 7.24.2): uptime_s is a plain
+# number of seconds; the SFP readings are thousandths of a dBm (Ops converts);
+# /tool flood-ping is blocked by device-mode, so the gateway check uses
+# /ping ... as-value. Still to confirm after the ping rewrite: rtt_ms_avg is a
+# number such as 1.1. See the runbook's "Dry run" checklist.
 
 # --- CONFIGURE (do not commit real values) ---------------------------------
 :local ingestUrl "https://YOUR-RENDER-APP.onrender.com/network/ingest"
@@ -67,29 +68,6 @@
 # A value as a JSON number, or null when it isn't one.
 :local num do={
     :if ([:typeof $1] = "num") do={ :return [:tostr $1] }
-    :return "null"
-}
-
-# A RouterOS time (an RTT) as whole milliseconds, or null. Accepts both the
-# "00:00:00.004" and the "4ms" forms; anything else is null, never a guess.
-:local toMs do={
-    :local t [:tostr $1]
-    :if ([:len $t] = 0) do={ :return "null" }
-    :if ([:typeof [:find $t ":"]] = "num") do={
-        :local ms (([:tonum [:pick $t 3 5]] * 60 + [:tonum [:pick $t 6 8]]) * 1000)
-        :local dot [:find $t "."]
-        :if ([:typeof $dot] = "num") do={
-            :local frac ([:pick $t ($dot + 1) [:len $t]] . "000")
-            :set ms ($ms + [:tonum [:pick $frac 0 3]])
-        }
-        :return [:tostr $ms]
-    }
-    :local msAt [:find $t "ms"]
-    :if ([:typeof $msAt] = "num") do={
-        :local v [:tonum [:pick $t 0 $msAt]]
-        :if ([:typeof $v] = "num") do={ :return [:tostr $v] }
-    }
-    :if ([:typeof [:find $t "us"]] = "num") do={ :return "0" }
     :return "null"
 }
 
@@ -170,27 +148,61 @@
         }
     }
 
-    # flood-ping, not /ping: in a script /ping only returns per-packet rows,
-    # while flood-ping hands back sent/received/avg-rtt/max-rtt. 3 packets.
+    # /ping ... as-value: one row per packet, nothing printed. A reply row has
+    # a "time" (00:00:00.001115); a lost packet has none. NOT /tool flood-ping:
+    # the CCR2116's device-mode refuses it ("not allowed by device-mode"). A plain
+    # /ping returns only the reply count and prints a table. 3 packets, 200 ms apart.
+    # Liveness comes from the row count alone; the RTT maths is fenced off in its
+    # own :onerror so a parse problem costs the RTT, never the "alive" answer.
+    # Results go out through globals (opsNm*), which the uninstall file clears.
     :local check do={
         :global opsNmPingRecv
+        :global opsNmPingTimed
+        :global opsNmPingSumUs
+        :global opsNmPingMaxUs
         :global opsNmPingAvg
         :global opsNmPingMax
         :set opsNmPingRecv 0
+        :set opsNmPingTimed 0
+        :set opsNmPingSumUs 0
+        :set opsNmPingMaxUs 0
         :set opsNmPingAvg ""
         :set opsNmPingMax ""
+        :local addr $1
         :onerror e in={
-            /tool flood-ping $1 count=3 size=64 timeout=500ms do={
+            :foreach row in=[/ping $addr count=3 interval=200ms as-value] do={
                 :global opsNmPingRecv
-                :global opsNmPingAvg
-                :global opsNmPingMax
-                :if ($sent = 3) do={
-                    :set opsNmPingRecv $received
-                    :set opsNmPingAvg $"avg-rtt"
-                    :set opsNmPingMax $"max-rtt"
+                :global opsNmPingTimed
+                :global opsNmPingSumUs
+                :global opsNmPingMaxUs
+                :local t [:tostr ($row->"time")]
+                :if ([:len $t] > 0) do={
+                    :set opsNmPingRecv ($opsNmPingRecv + 1)
+                    :onerror pe in={
+                        :global opsNmPingTimed
+                        :global opsNmPingSumUs
+                        :global opsNmPingMaxUs
+                        :if ([:typeof [:find $t ":"]] = "num") do={
+                            :local us ([:tonum [:pick $t 6 8]] * 1000000)
+                            :local dot [:find $t "."]
+                            :if ([:typeof $dot] = "num") do={
+                                :local frac ([:pick $t ($dot + 1) [:len $t]] . "000000")
+                                :set us ($us + [:tonum [:pick $frac 0 6]])
+                            }
+                            :set opsNmPingTimed ($opsNmPingTimed + 1)
+                            :set opsNmPingSumUs ($opsNmPingSumUs + $us)
+                            :if ($us > $opsNmPingMaxUs) do={ :set opsNmPingMaxUs $us }
+                        }
+                    } do={}
                 }
             }
         } do={}
+        # Microseconds -> "1.1" (milliseconds, one decimal; RouterOS has no floats).
+        :if ($opsNmPingTimed > 0) do={
+            :local avgUs ($opsNmPingSumUs / $opsNmPingTimed)
+            :set opsNmPingAvg (($avgUs / 1000) . "." . (($avgUs % 1000) / 100))
+            :set opsNmPingMax (($opsNmPingMaxUs / 1000) . "." . (($opsNmPingMaxUs % 1000) / 100))
+        }
         :return $opsNmPingRecv
     }
 
@@ -201,8 +213,10 @@
         :global opsNmPingAvg
         :global opsNmPingMax
         :local got [$check $gwAddr]
-        :local avgMs [$toMs $opsNmPingAvg]
-        :local maxMs [$toMs $opsNmPingMax]
+        :local avgMs $opsNmPingAvg
+        :local maxMs $opsNmPingMax
+        :if ([:len $avgMs] = 0) do={ :set avgMs "null" }
+        :if ([:len $maxMs] = 0) do={ :set maxMs "null" }
         :local arp ""
         :foreach a in=[/ip arp find where address=[:toip $gwAddr]] do={
             :local ar [/ip arp get $a]
@@ -219,7 +233,8 @@
     :if ([:len $internetPingTarget] > 0) do={
         :global opsNmPingAvg
         :local got [$check $internetPingTarget]
-        :local avgMs [$toMs $opsNmPingAvg]
+        :local avgMs $opsNmPingAvg
+        :if ([:len $avgMs] = 0) do={ :set avgMs "null" }
         :local alive "false"
         :if ($got > 0) do={ :set alive "true" } else={ :set avgMs "null" }
         :set inetJson (",\"internet\":{\"target\":\"" . $internetPingTarget . "\",\"alive\":" . $alive . ",\"loss_pct\":" . (((3 - $got) * 100) / 3) . ",\"rtt_ms_avg\":" . $avgMs . "}")
