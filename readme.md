@@ -37,18 +37,33 @@ Set environment variables (or rely on the local-dev fallback):
 - `SECRET_KEY` — JWT signing key. Has a hardcoded dev fallback in
   `routers/auth.py`, explicitly flagged there as "change before deploy" —
   don't rely on the fallback outside local dev.
-- `DEEPSEEK_API_KEY` — only needed if delegating a task via
-  `ask_deepseek.py` (see [delegation.md](delegation.md)); unrelated to
-  running the app itself.
+- `DEEPSEEK_API_KEY` — powers the admin assistant (the "Ask" button). The
+  app starts without it; the assistant just says it's unavailable. Also
+  used by `ask_deepseek.py` for delegation (see [delegation.md](delegation.md)).
 
-Then:
+Every variable the app reads is listed, without values, in
+[.env.example](.env.example). Nothing loads `.env` automatically — load it
+into the terminal first, then start the server:
 
 ```bash
+source venv/bin/activate
+set -a; source .env; set +a     # loads .env into this terminal without printing it
 uvicorn main:app --reload
 ```
 
-Tests (standard-library `unittest`, no database needed — they cover the
-revenue report's rules):
+Settings only last for that terminal. With `DATABASE_URL` loaded you are
+on the **production** Supabase database: pages that only read are safe,
+but anything saved changes real data. Without it, the app uses the local
+Postgres fallback, whose password must match the one in `db/connection.py`
+or login fails with `password authentication failed for user "postgres"`.
+
+Pushing to GitHub goes through the GitHub CLI's saved login (`gh auth
+login`, then `gh auth setup-git` once). If a push says "Invalid username or
+token", the terminal probably has a stale `GITHUB_TOKEN` loaded from `.env`,
+which takes priority — `unset GITHUB_TOKEN` and push again.
+
+Tests (standard-library `unittest`, no database or network needed — they
+cover the revenue report's rules and the admin assistant):
 
 ```bash
 python -m unittest discover -s tests -t .
@@ -88,7 +103,17 @@ at least one `admin`-role user created directly before the app is usable.
   need attention are flagged red/amber/green by stated rules, each showing
   the numbers that triggered it. No AI — every figure traces to stored
   sales, and a past day reads the same every time. Gated on the View
-  Revenue permission.
+  Revenue permission. While open it refreshes itself every 30 seconds
+  (paused while the tab is hidden), redraws only what changed, and shows
+  "offline, last updated HH:MM" if a refresh fails.
+- **Assistant** (the "Ask" button, bottom-right, admins only) — a chat
+  (DeepSeek) that answers questions from the app's own data through seven
+  read-only lookups: revenue headlines and period totals, revenue history
+  over a date range (network or one site), sites ranked by daily revenue
+  with totals and who's slipping, live site status, a site's contact,
+  packages and prices, and PPPoE customer lookup. It can't change
+  anything, never writes SQL, and gets the same figures as the Revenue
+  Report. Customer phone numbers are never sent to DeepSeek.
 - **Users / Roles** — user management with a granular,
   section-and-action permission grid per role.
 - **Settings** — profile editing, password change with a show/hide
@@ -142,6 +167,8 @@ Phases 0–3 are confirmed done and merged to `main` — structural split,
 mobile fixes, finish-incomplete-functionality, and Phase 3 ("Ops Inventory
 System," the Inventory domain described above). Phase 4 ("Network
 Monitoring," site status, alerting and hotspot revenue reporting) is
-active, on the `phase-4-network-monitoring` branch, not yet merged. See
+active, on the `phase-4-network-monitoring` branch, not yet merged — it
+also carries the Revenue page's live refresh and the admin assistant,
+built outside the phase plan at the owner's request. See
 [phase.md](phase.md) and [changelog.md](changelog.md) for the full
 breakdown.

@@ -153,6 +153,15 @@ Three families, loaded once via a Google Fonts `@import` in `common.css`:
   a second look on the same report screens. New *form* fields should still
   use the custom dropdown.
 
+- **The assistant widget** (`chat.css`, `.chat-*`) is the one floating
+  element: a pill "Ask" button bottom-right (accent outline on
+  `--surface`), opening a 390px panel there on desktop and the full screen
+  on phones (≤760px). The user's bubbles sit right on a faint accent tint;
+  the assistant's sit left on `--surface-2`; an error is a full-width
+  `--danger` outlined bubble with a Retry button; a three-dot typing
+  indicator shows while waiting. Text is shown as typed (`pre-wrap`), so
+  the assistant is told to answer in plain text, not markdown.
+
 ## Spacing conventions
 
 No formal scale variable, but a consistent rhythm shows up throughout:

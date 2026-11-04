@@ -15,11 +15,15 @@ changes only take effect in a fresh session.
 - **Hosting:** Render (backend), Supabase (DB).
 
 Local credentials live in `.env` (gitignored, never committed): holds
-`DEEPSEEK_API_KEY` (DELEGATION.md's `ask_deepseek.py`), `DATABASE_URL`
+`DEEPSEEK_API_KEY` (the app's admin assistant, `db/deepseek.py`, and
+DELEGATION.md's `ask_deepseek.py`), `DATABASE_URL`
 (Supabase/prod Postgres — unset falls back to local dev Postgres, see
 `db/connection.py`), and `GITHUB_TOKEN` (git push/gh auth). Never read,
 print, or otherwise surface its contents in a session; never commit it or
 its values anywhere, including in commit messages or PR text.
+`.env.example` lists every variable without values. Git pushes use the
+GitHub CLI's saved login (`gh auth setup-git`), not the `.env` token — a
+stale `GITHUB_TOKEN` loaded into a terminal overrides it and fails.
 
 See ARCHITECTURE.md for the reasoning behind these choices, including a
 note that `schema.sql` is currently stale relative to the live DB.
@@ -28,9 +32,11 @@ note that `schema.sql` is currently stale relative to the live DB.
 ```
 main.py              # creates the app, mounts /static, registers routers, serves "/"
 migrations/           # numbered .sql scripts, run by hand — no migration framework
-tests/                 # unittest, stdlib only, no DB — currently the revenue report's pure rules;
+tests/                 # unittest, stdlib only, no DB — the revenue report's pure rules and the
+                        # admin assistant (DeepSeek and the DB faked);
                         # run: python -m unittest discover -s tests -t .
-routers/              # one file per domain: auth, permissions, sites, batteries, users, inventory
+routers/              # one file per domain: auth, permissions, sites, batteries, users, inventory,
+                        # monitoring, notifications, customers, chat (the admin assistant)
 db/                    # connection.py (shared) + one file per domain — EXCEPT inventory,
                         # which is one router (routers/inventory.py) over several files
                         # (inventory_locations.py, inventory_categories.py, inventory_items.py,
@@ -42,6 +48,8 @@ static/
   js/
     common.js              # shared state, fragment loader, cmdk, app-shown registry
     app.js                  # bootstrap — the only file that imports every view module
+    chat.js                 # the admin assistant widget — not a view: builds its own DOM on
+                             # every page, imports only from common.js
     <view>.js               # one ES module per view, imports only from common.js —
                              # EXCEPT dashboard.js <-> movements.js, which import from
                              # each other directly: both are the same "batteries"
@@ -75,7 +83,10 @@ readme.md, changelog.md, treeview.md   # project-facing docs, not governance doc
 ask_deepseek.py        # DeepSeek delegation script (see DELEGATION.md)
 ```
 Domain boundary is `auth` / `permissions` / `sites` / `batteries` (includes
-movements) / `users` / `inventory`, both backend and frontend. See
+movements) / `users` / `inventory`, both backend and frontend. The admin
+assistant (`routers/chat.py`, `db/assistant_tools.py`, `db/deepseek.py`)
+owns no tables: its tools only call other domains' existing read
+functions, the same way any other cross-domain read is allowed. See
 ARCHITECTURE.md's Integration approach for how they're allowed to talk to
 each other.
 

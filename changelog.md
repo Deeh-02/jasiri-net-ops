@@ -5,22 +5,42 @@ Phase-based, not version-based — this project ships in named phases (see
 concise, user-facing summary; full technical detail lives in the git log
 and in `phase.md`'s own per-phase writeups.
 
-## Revenue Report live figures, and an admin assistant (on `feature/revenue-insights`)
+## Revenue Report live figures, and an admin assistant (on `phase-4-network-monitoring`)
 
-Built outside the phase plan at the owner's request (2026-11-03).
+Built outside the phase plan at the owner's request (2026-11-03/04), on
+`feature/revenue-insights`, then merged into the Phase 4 branch. Not on
+`main` yet.
 
-- The Revenue page refreshes itself every 30 seconds while it's open and
-  the tab is visible, and refreshes at once when you come back to the tab.
-  Only the figures that changed are redrawn: your period, date, comparison
-  and scroll position stay put. "updated HH:MM" is the last successful
-  refresh; if one fails, the old figures stay and it says "offline".
-- Admins get an "Ask" button on every page: a chat assistant (DeepSeek) that
-  can look up revenue (the same figures as the Revenue Report), site status,
-  packages and prices, and PPPoE customers. It only reads; it can't change
-  anything. Technicians and custom roles don't see it and the server refuses
-  them. Customer phone numbers are never sent to DeepSeek.
-- An AI analysis panel on the Revenue page was tried and taken out again in
-  favour of the assistant.
+**Revenue page**
+- Refreshes itself every 30 seconds while it's open and the tab is
+  visible, and at once when you come back to the tab. Only what changed is
+  redrawn: your period, date, comparison and scroll position stay put.
+  "updated HH:MM" is the last successful refresh; if one fails, the old
+  figures stay and it says "offline, last updated HH:MM".
+
+**Admin assistant (the "Ask" button on every page)**
+- A DeepSeek chat, admins only — technicians and custom roles don't see it
+  and the server refuses them. It answers from the app's own data through
+  seven read-only lookups:
+  - revenue headlines, or one day/week/month/year (optionally per site)
+  - revenue history over a date range, network or one site, per day, week
+    or month, with KSh and % change, best/worst and trend
+  - every site ranked by daily revenue, with 14-day totals, share of the
+    network, last 7 days vs the 7 before, and the Revenue Report's flag
+  - live site status: up/down, people connected, uptime, today's sales
+  - a site's contact person, phone and address (from the Sites page)
+  - packages and prices
+  - PPPoE customer lookup by username, name or phone
+- It can't change anything and never writes SQL. Money comes from the
+  Revenue Report's own figures. Customer phone numbers are never sent to
+  DeepSeek; a site contact's number is, when you ask for it.
+- Site names match loosely ("Red Soil" finds "Redsoil").
+- It looks figures up again for every answer instead of repeating earlier
+  ones, after it once put ACK 7th instead of 4th from memory (2026-11-04).
+
+**Tried and removed**
+- An AI-written analysis panel on the Revenue page (DeepSeek wrote the
+  words, the server filled in every figure). Replaced by the assistant.
 
 ## Phase 4 — Network Monitoring (in progress, on `phase-4-network-monitoring`)
 

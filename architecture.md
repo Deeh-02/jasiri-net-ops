@@ -1507,6 +1507,94 @@ Time instead, via a fixed-offset `timezone(timedelta(hours=3))`
 `Africa/Nairobi` zone — EAT has no DST, so a fixed offset is exact and
 doesn't depend on the system's tzdata being present or current.
 
+### Revenue page live refresh — polling, redraw only what changed
+
+The open Revenue page re-reads its five existing endpoints every
+`REVENUE_POLL_SECONDS` (default 30, handed to the page in the overview
+response). No push channel — polling is enough at this scale. A poll
+redraws a section only if its data changed (cards are compared by their
+rendered HTML, because a partial card's data carries a "now" that moves
+every poll), so the user's period, date, comparison, sort and scroll stay
+put; a card whose dropdown is open is left until the next poll. Polling
+stops while the tab is hidden or the page isn't showing and refreshes at
+once on return. "updated HH:MM" is the last *successful* fetch; a failed
+poll keeps the old figures and says "offline, last updated HH:MM" rather
+than going quietly stale. The comparison logic itself is untouched.
+
+### Admin assistant — fixed read-only tools, enforced in code
+
+Built 2026-11-03/04 at the owner's request, outside the phase plan, from a
+scope that asked for a role-based DeepSeek chat. What was settled:
+
+- **Admins only, for now.** The scope's three roles (customer, technician,
+  admin) don't fit yet: customers can't log in to this app at all
+  (`users` is staff only; `ppp_customers` is an imported list), so a
+  customer role and "my account" tool would need a customer login, which
+  was out of scope. The owner chose admin-only. `role_for()` maps only the
+  built-in `admin`; every other role gets zero tools.
+- **Two layers, never the prompt.** `POST /chat` is behind
+  `require_admin`; the tool list sent to DeepSeek comes from the
+  session's role; and `run_tool()` re-checks the role before running
+  anything, so a model asking for a tool it wasn't given gets "not
+  authorized". "I'm the admin" in a message changes nothing — there's a
+  test for it.
+- **Fixed tools, no model-written SQL.** Seven hand-written tools in
+  `db/assistant_tools.py`, each calling an existing read function
+  (`revenue_report`, `monitoring`, `sites`, `customers`), with arguments
+  checked (enums, dates, lengths, no unknown keys) and results capped.
+  Revenue always comes from the Revenue Report's own pre-formatted
+  strings, so the chat and the page can't disagree. A new question it
+  can't answer means a new tool — that has closed every gap so far
+  (history over a range, site contacts, the daily-revenue ranking).
+  **Read-only SQL access was proposed by the owner and NOT built:** it
+  needs a new Supabase role (an infra change, so it waits for approval per
+  CLAUDE.md), it would let the model skip the report's rules (hotspot
+  only, no baseline rows, unplaced sales out, EAT days) and return wrong
+  money confidently, it adds load to a pooler capped at 15 connections,
+  and a grant mistake would send password hashes or phones to DeepSeek.
+- **What DeepSeek receives.** Every tool result. So: revenue totals only,
+  no individual sales; customer lookup matches on phone but never returns
+  it; hotspot usernames (which are phone numbers) are never exposed. The
+  one phone number that goes out is a site contact's, when asked for,
+  because that is the tool's purpose. Times are converted to Nairobi on
+  the server — the model was seen quoting raw UTC.
+- **Tool results live inside one request.** The browser sends back only
+  user/assistant text; tool calls and results are never sent to or
+  accepted from it, and nothing is stored server-side. Consequence, seen
+  in use: on a follow-up the model can't see earlier data and once
+  answered from its own earlier sentence (ACK 7th instead of 4th). Fixed
+  by a prompt line that survives a custom `CHAT_SYSTEM_PROMPT`: look it up
+  again for every answer with figures, rankings or statuses; never
+  re-sort. Plus temperature 0.
+- **Model and settings.** `deepseek-v4-pro` (the model `ask_deepseek.py`
+  already used; DeepSeek's docs no longer list `deepseek-chat`), thinking
+  disabled, tool calling confirmed live. All limits are env settings with
+  defaults (see `.env.example`); the rate limit is in memory, per admin.
+- **Deliberate differences from the scope.** The endpoint is `/chat`, not
+  `/api/chat`, like every other route here. The app starts without
+  `DEEPSEEK_API_KEY` (only the assistant is unavailable) so a missing key
+  can't take Ops down. No CORS middleware: the app has none, so browsers
+  already block cross-origin calls. Errors use the app's usual
+  `{"detail": ...}` shape. Streaming was not built.
+- **Tried and removed: an AI analysis panel on the Revenue page.**
+  DeepSeek wrote the wording with placeholders like `{today.value}` and
+  the server filled in every figure, rejecting any answer with a digit.
+  It worked, but the owner preferred asking questions; removed in favour
+  of the assistant. The placeholder approach is the pattern to reuse if a
+  model ever writes text that contains money again.
+
+### Open: Supabase security advisory (2026-10-31)
+
+Supabase flagged `rls_disabled_in_public` (and, on the separate
+FreeRADIUS-Manager-Tool project, `sensitive_columns_exposed`): public
+tables reachable through Supabase's own API with the anon key. Ops never
+uses that API (it connects to Postgres directly as the table owner), so
+enabling RLS with no policies on every public table closes it without
+affecting the app. Not applied — waiting for the owner to confirm which
+project is Ops and to run the owner/RLS check first. The FreeRADIUS
+project needs its own look: if that tool uses the anon key, it needs
+policies, not a blanket switch.
+
 ## Integration approach
 
 **Domain boundary:** `auth`, `permissions`, `sites`, `batteries` (includes

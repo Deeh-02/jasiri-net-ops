@@ -796,7 +796,12 @@ customers table — to be CONFIRMED, not assumed, once this phase starts.
 **Phase 8 — Chat.** Deliberately deferred and flagged for reassessment.
 Most technically demanding of the set, and WhatsApp already works as a
 contact channel. Confirm this solves a real operational gap before
-building anything.
+building anything. *(2026-11-04: an admin-only, read-only data assistant
+— the "Ask" button — was built ahead of this phase at the owner's
+request and sits on the Phase 4 branch; see ARCHITECTURE.md's "Admin
+assistant". It answers the owner's questions from the app's data; it is
+NOT customer chat, which still needs a customer login and remains this
+phase's open question.)*
 
 Each phase runs in its own branch (one branch per phase — see CLAUDE.md).
 Before confirming any phase done, the owner checks it out locally

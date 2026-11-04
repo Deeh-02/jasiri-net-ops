@@ -17,6 +17,8 @@ battery-tracker/
 │                                    #   history) — not a test suite; the real tests are in tests/
 ├── ask_deepseek.py                 # DeepSeek delegation script — see DELEGATION.md
 ├── .gitignore
+├── .env.example                    # every environment variable the app reads, with no values —
+│                                    #   copy to .env (gitignored) locally; Render sets its own
 │
 ├── migrations/                      # plain numbered .sql scripts, run by hand via
 │   │                                 #   `psql "$DATABASE_URL" -f migrations/000X_....sql` —
@@ -56,7 +58,8 @@ battery-tracker/
 │   ├── __init__.py
 │   ├── auth.py                       # login, JWT issue/verify, get_current_user dependency
 │   ├── permissions.py                # user_has_permission() — THE shared permission check,
-│   │                                  #   used by every other router, lives nowhere else
+│   │                                  #   used by every other router, lives nowhere else;
+│   │                                  #   also require_admin() for built-in-admin-only features
 │   ├── sites.py                      # locations CRUD, hourly online/offline verification
 │   ├── batteries.py                  # batteries CRUD + movements (create/list/lifecycle actions)
 │   ├── users.py                      # users + roles + role_permissions CRUD
@@ -64,6 +67,8 @@ battery-tracker/
 │   │                                  #   alert wording + send window, /monitoring/revenue-report/*
 │   ├── notifications.py              # the in-app bell + Alerts > Notifications inbox
 │   ├── customers.py                  # PPPoE customer list upload + manual SMS broadcasts
+│   ├── chat.py                       # POST /chat — the admin assistant: request checks, per-admin
+│   │                                  #   rate limit, the model -> tools -> model loop (admin only)
 │   └── inventory.py                  # the whole Inventory domain's routes — categories,
 │                                      #   locations, items/products, issue/return carts,
 │                                      #   transaction log, reconciliation, reports/summaries.
@@ -96,15 +101,22 @@ battery-tracker/
 │   ├── alert_settings.py               # the global alert send window (fails open)
 │   ├── notifications.py                # notifications table access (the bell)
 │   ├── sms_log.py                      # alert_deliveries reads for Reports > SMS Status
-│   ├── customers.py                    # PPPoE customers + broadcast history
+│   ├── customers.py                    # PPPoE customers + broadcast history; search_customers
+│   │                                   #   for the assistant (matches phone, never returns it)
 │   ├── customer_import.py              # parses the uploaded customer spreadsheet
 │   ├── revenue_daily.py                # revenue reporting: builds/freezes daily + hourly tables from
 │   │                                   #   revenue_events; CLI backfill/refresh/refreeze
 │   ├── revenue_logic.py                # revenue reporting's PURE rules — period resolver, compare,
 │   │                                   #   contributions, rankings, trend, alert rules; no I/O
 │   ├── revenue_config.py               # report thresholds: code defaults + editable overrides
-│   ├── revenue_report.py               # Level 1/2 report assembly (cards, trend, site table, metrics)
+│   ├── revenue_report.py               # Level 1/2 report assembly (cards, trend, site table, metrics);
+│   │                                   #   find_sites / daily_history / site_window_totals for the
+│   │                                   #   assistant's history and ranking tools
 │   ├── revenue_alerts.py               # runs the alert rules per site-day, stores/reads results
+│   ├── deepseek.py                     # the app's one DeepSeek client (chat + tool calls); key from
+│   │                                   #   DEEPSEEK_API_KEY, never logged or sent to the browser
+│   ├── assistant_tools.py              # the assistant's 7 read-only tools, the role check that
+│   │                                   #   gates them, argument checks, audit log — no model SQL
 │   ├── inventory_locations.py          # inventory_locations CRUD + get_or_create_location_by_name
 │   │                                   #   (Issue/Return's free-typed Site field, Add/Edit Unit's
 │   │                                   #   Location field) + get_default_store_location (Return's
@@ -203,9 +215,13 @@ battery-tracker/
     │   ├── alerts.js                     # Notifications inbox + SMS Templates + the send-window card
     │   ├── customers.js
     │   ├── broadcast.js
+    │   ├── chat.js                       # the admin "Ask" button + chat panel on every page — not a
+    │   │                                 #   view; history in sessionStorage, text via textContent
     │   ├── sms-status.js
     │   ├── revenue.js                    # Reports > Revenue: renders the API's pre-formatted
-    │   │                                 #   figures, sorts the site table client-side, SVG trend
+    │   │                                 #   figures, sorts the site table client-side, SVG trend;
+    │   │                                 #   polls every REVENUE_POLL_SECONDS and redraws only
+    │   │                                 #   what changed (pauses while the tab is hidden)
     │   ├── users.js
     │   ├── roles.js                      # permission-grid rendering — flat + nested checkbox
     │   │                                 #   sections (incl. Inventory's Items/Stock/Categories/
@@ -259,6 +275,7 @@ battery-tracker/
         ├── alerts.css                     # Notifications, SMS Templates, send-window card
         ├── customers.css
         ├── broadcast.css
+        ├── chat.css                       # the assistant widget (.chat-* classes); full screen on phones
         ├── sms-status.css
         ├── revenue.css                    # Reports > Revenue (.rev-* classes)
         ├── users.css
@@ -283,7 +300,10 @@ battery-tracker/
 `test_revenue_logic.py` (period resolver, compare), `test_revenue_trend.py`
 (split, rolling mean, MAD band, slope, summary), `test_revenue_sites.py`
 (contributions, rankings, per-site series), `test_revenue_alerts.py` (the
-red/amber/green rules) and `test_revenue_config.py`. Standard-library
+red/amber/green rules), `test_revenue_config.py`, and `test_chat.py` (the
+admin assistant: role checks, prompt-injection, request caps, tool loop,
+every tool's argument checks and output, errors and rate limit — DeepSeek
+and the database are faked). Standard-library
 `unittest`, no database needed — run from the repo root with
 `python -m unittest discover -s tests -t .`.
 
