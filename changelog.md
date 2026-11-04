@@ -55,6 +55,10 @@ two default routes (Airtel, Veenet) and the page now knows about both.
 - A failure of the primary link is red even when customers are online via the
   backup; a dead backup is amber. Events name the link.
 - The chart has a link picker, and a cursor readout (time, download, upload).
+- "Peak today" now says when it happened and what it is (the single highest
+  15-second reading). The chart's solid lines are averages, so the peak could
+  never be found on them: the chart now draws a faint "peak" line above each
+  average, and the cursor readout adds "Highest reading".
 - Chart: a **6h** range (1h, 6h, 24h, 7d); round axis numbers (0, 100, 200,
   300) that still follow the traffic; and the total chart is only shaded for
   router-wide silences and the PRIMARY link's outages, so an unpaid or dead

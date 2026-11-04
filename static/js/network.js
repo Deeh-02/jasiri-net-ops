@@ -44,6 +44,7 @@ async function api(path) {
 const timeOptions = { timeZone: "Africa/Nairobi", hour: "2-digit", minute: "2-digit", second: "2-digit" };
 const nairobiTime = date => date.toLocaleTimeString("en-GB", timeOptions);
 const nairobiWhen = iso => new Date(iso).toLocaleString("en-GB", { ...timeOptions, weekday: "short", day: "2-digit", month: "2-digit" });
+const nairobiHM = iso => new Date(iso).toLocaleTimeString("en-GB", { timeZone: "Africa/Nairobi", hour: "2-digit", minute: "2-digit" });
 const nairobiDate = iso => new Date(iso).toLocaleDateString("en-GB", { timeZone: "Africa/Nairobi", day: "2-digit", month: "short", year: "numeric" });
 
 function duration(seconds) {
@@ -252,7 +253,8 @@ function linkCard(l, o) {
     card.append(rates, capacityLine(l, o.can_edit_capacity));
     if (o.can_edit_capacity) card.append(serviceLine(l));
 
-    const peaks = [l.peak_today.download_mbps != null ? `today ↓ ${mbps(l.peak_today.download_mbps)} ↑ ${mbps(l.peak_today.upload_mbps)}` : null,
+    const peaks = [l.peak_today.download_mbps != null
+                       ? `today ↓ ${mbps(l.peak_today.download_mbps)}${l.peak_today.download_at ? ` (${nairobiHM(l.peak_today.download_at)})` : ""} ↑ ${mbps(l.peak_today.upload_mbps)}` : null,
                    l.peak_30d.download_mbps != null ? `30 days ↓ ${mbps(l.peak_30d.download_mbps)} ↑ ${mbps(l.peak_30d.upload_mbps)}` : null]
         .filter(Boolean).join(" · ");
     const gw = l.gateway;
@@ -296,8 +298,12 @@ function renderTotals(o) {
     $("net-uplink-sub").textContent = `${current} link${current === 1 ? "" : "s"} added together · every customer's traffic, PPPoE and hotspot`;
     $("net-down").textContent = mbps(o.total.download_mbps);
     $("net-up").textContent = mbps(o.total.upload_mbps);
-    $("net-down-note").textContent = o.total.peak_today_download_mbps == null ? "" : `peak today ${mbps(o.total.peak_today_download_mbps)}`;
-    $("net-up-note").textContent = o.total.peak_today_upload_mbps == null ? "" : `peak today ${mbps(o.total.peak_today_upload_mbps)}`;
+    // The peak is the single highest 15-second reading; the chart's solid lines are
+    // averages, so the peak sits on its faint "peak" line, not on the average.
+    const peakNote = (mbpsValue, at) => mbpsValue == null ? "" :
+        `peak today ${mbps(mbpsValue)}${at ? ` at ${nairobiHM(at)}` : ""} (highest single reading)`;
+    $("net-down-note").textContent = peakNote(o.total.peak_today_download_mbps, o.total.peak_today_download_at);
+    $("net-up-note").textContent = peakNote(o.total.peak_today_upload_mbps, o.total.peak_today_upload_at);
 
     const facts = [];
     if (live.internet) {
@@ -367,7 +373,8 @@ function renderHistory(h) {
     const W = 720, H = 230, L = 46, R = 10, T = 22, B = 24;   // T leaves room for the "Mbps" label
     const t0 = new Date(h.from).getTime(), t1 = new Date(h.to).getTime();
     const x = t => L + ((t - t0) / (t1 - t0)) * (W - L - R);
-    const axis = niceAxis(Math.max(0, ...pts.map(p => Math.max(p.download_mbps_avg, p.upload_mbps_avg || 0))));
+    const axis = niceAxis(Math.max(0, ...pts.map(p => Math.max(p.download_mbps_max ?? 0, p.upload_mbps_max ?? 0,
+                                                                p.download_mbps_avg, p.upload_mbps_avg || 0))));
     const top = axis.top;
     const y = v => T + (1 - v / top) * (H - T - B);
     const chart = svg("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": "Uplink traffic" });
@@ -384,7 +391,11 @@ function renderHistory(h) {
     chart.append(svg("text", { x: 4, y: 10 }, "Mbps"));
     const line = (key, cls) => svg("polyline", { class: cls,
         points: pts.filter(p => p[key] != null).map(p => `${x(new Date(p.t).getTime())},${y(p[key])}`).join(" ") });
-    chart.append(line("download_mbps_avg", "down"), line("upload_mbps_avg", "up"));
+    // Peaks first (faint, underneath): the highest single reading in each slice.
+    // The averages on top smooth spikes away, which is why "peak today" can be
+    // higher than anything the solid lines reach.
+    chart.append(line("download_mbps_max", "peak-down"), line("upload_mbps_max", "peak-up"),
+                 line("download_mbps_avg", "down"), line("upload_mbps_avg", "up"));
     const fmt = t => new Date(t).toLocaleString("en-GB", h.range === "7d"
         ? { timeZone: "Africa/Nairobi", weekday: "short", day: "2-digit" }
         : { timeZone: "Africa/Nairobi", hour: "2-digit", minute: "2-digit" });
@@ -441,8 +452,10 @@ function addHover(box, chart, pts, h, g) {
         marks.forEach(n => { n.style.display = ""; });
         if (p.upload_mbps_avg == null) dotUp.style.display = "none";
 
+        const peakRow = el("div", "net-tip-peak", p.download_mbps_max == null ? "" :
+            `Highest reading: ↓ ${p.download_mbps_max.toFixed(1)} · ↑ ${(p.upload_mbps_max ?? 0).toFixed(1)} Mbps`);
         tip.replaceChildren(el("div", "net-tip-time", when(times[i])),
-                            row("down", "Download", p.download_mbps_avg), row("up", "Upload", p.upload_mbps_avg));
+                            row("down", "Download", p.download_mbps_avg), row("up", "Upload", p.upload_mbps_avg), peakRow);
         if (outageAt(times[i])) tip.append(el("div", "net-tip-out", "Router not reporting"));
         tip.hidden = false;
         tip.style.left = `${(cx / g.W) * rect.width}px`;

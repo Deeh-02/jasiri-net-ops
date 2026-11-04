@@ -13,7 +13,7 @@ from psycopg2.extras import Json
 
 from db import customers
 from db import network_logic as logic
-from db.connection import db_cursor, now_eat, utc_iso
+from db.connection import db_cursor, utc_iso
 
 log = logging.getLogger(__name__)
 
@@ -403,6 +403,12 @@ def _link_entries(cur, slug, live, now, this_minute, eat_midnight_utc):
         "max(rx_bps_max), max(tx_bps_max) FROM network_uplink_minutes WHERE router = %s GROUP BY interface",
         (eat_midnight_utc, eat_midnight_utc, slug))
     peaks = {r[0]: r[1:] for r in cur.fetchall()}
+    # When each link's download peak today happened (its single highest 15-second reading).
+    cur.execute(
+        "SELECT DISTINCT ON (interface) interface, minute FROM network_uplink_minutes "
+        "WHERE router = %s AND minute >= %s ORDER BY interface, rx_bps_max DESC, minute DESC",
+        (slug, eat_midnight_utc))
+    peak_at = {r[0]: r[1] for r in cur.fetchall()}
 
     listed = {l["interface"] for l in logic.links_of(live)}
     off = {r[0] for r in rows if not r[11]}
@@ -421,7 +427,8 @@ def _link_entries(cur, slug, live, now, this_minute, eat_midnight_utc):
             "active": active, "reading_received_at": received,
             "gateway_fail_streak": streak, "gateway_seen_alive": seen, "counters_rose_at": rose,
             "recent_minutes": recent.get(interface, [])[:2], "primary": interface == primary,
-            "peaks": {"today_rx": peak[0], "today_tx": peak[1], "all_rx": peak[2], "all_tx": peak[3]},
+            "peaks": {"today_rx": peak[0], "today_tx": peak[1], "all_rx": peak[2], "all_tx": peak[3],
+                      "today_rx_at": peak_at.get(interface)},
         })
     return entries
 
@@ -440,7 +447,8 @@ def _link_view(e, cfg):
         "capacity": {"mbps": capacity, "source": e["capacity_source"], "estimated": e["capacity_source"] != "admin"},
         "download_utilization_pct": logic.utilization_pct(reading.get("rx_bps"), capacity),
         "upload_utilization_pct": logic.utilization_pct(reading.get("tx_bps"), capacity),
-        "peak_today": {"download_mbps": _mbps(e["peaks"]["today_rx"]), "upload_mbps": _mbps(e["peaks"]["today_tx"])},
+        "peak_today": {"download_mbps": _mbps(e["peaks"]["today_rx"]), "upload_mbps": _mbps(e["peaks"]["today_tx"]),
+                       "download_at": utc_iso(e["peaks"]["today_rx_at"])},
         "peak_30d": {"download_mbps": _mbps(e["peaks"]["all_rx"]), "upload_mbps": _mbps(e["peaks"]["all_tx"])},
         "gateway": {**gateway, "address": gw.get("address"), "rtt_ms_avg": gw.get("rtt_ms_avg"),
                     "rtt_ms_max": gw.get("rtt_ms_max"), "loss_pct": gw.get("loss_pct")},
@@ -458,14 +466,18 @@ def overview(slug, now=None):
         return None
     this_minute = now.replace(second=0, microsecond=0)
     # EAT midnight as UTC: "today's peak" is a Nairobi day.
-    eat_midnight_utc = datetime.combine(now_eat().date(), datetime.min.time()) - timedelta(hours=3)
+    eat_midnight_utc = datetime.combine((now + timedelta(hours=3)).date(), datetime.min.time()) - timedelta(hours=3)
     with db_cursor() as (conn, cur):
         latest = _latest(cur, slug)
         live = (latest or {}).get("live") or {}
         entries = _link_entries(cur, slug, live, now, this_minute, eat_midnight_utc)
-        cur.execute("SELECT max(rx_bps_max), max(tx_bps_max) FROM network_minutes WHERE router = %s AND minute >= %s",
-                    (slug, eat_midnight_utc))
-        peak_rx, peak_tx = cur.fetchone()
+        # Today's highest single reading in each direction, and the minute it happened in.
+        peaks = {}
+        for column in ("rx_bps_max", "tx_bps_max"):
+            cur.execute(f"SELECT {column}, minute FROM network_minutes WHERE router = %s AND minute >= %s "
+                        f"ORDER BY {column} DESC, minute DESC LIMIT 1", (slug, eat_midnight_utc))
+            peaks[column] = cur.fetchone() or (None, None)
+        (peak_rx, peak_rx_at), (peak_tx, peak_tx_at) = peaks["rx_bps_max"], peaks["tx_bps_max"]
         recent_events = _events(cur, slug, since=now - timedelta(days=7), limit=50)
 
     current = [e for e in entries if e["listed"] and e["in_service"]]
@@ -480,7 +492,8 @@ def overview(slug, now=None):
         "live": live,
         "links": [_link_view(e, cfg) for e in entries],
         "total": {"download_mbps": _mbps(rx) if links else None, "upload_mbps": _mbps(tx) if links else None,
-                  "peak_today_download_mbps": _mbps(peak_rx), "peak_today_upload_mbps": _mbps(peak_tx)},
+                  "peak_today_download_mbps": _mbps(peak_rx), "peak_today_upload_mbps": _mbps(peak_tx),
+                  "peak_today_download_at": utc_iso(peak_rx_at), "peak_today_upload_at": utc_iso(peak_tx_at)},
         "last_outage": serialise_event(outages[0], now) if outages else None,
         "thresholds": cfg,
     }
