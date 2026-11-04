@@ -61,9 +61,13 @@ battery-tracker/
 │   ├── ops-sessions.rsc              # CCR2116, every 60 s: PPPoE list in parts -> /network/ingest
 │   └── uninstall-ops-monitor.rsc     # removes both schedulers, scripts and opsNm* globals
 │
+├── prompts/
+│   └── assistant.md                  # the admin assistant's instructions, read on every question
 ├── tools/
-│   └── render_router_script.py       # fills URL + token into the two scripts from env vars,
-│                                     #   writes router-rendered/ (gitignored); never prints the token
+│   ├── render_router_script.py       # fills URL + token into the two scripts from env vars,
+│   │                                 #   writes router-rendered/ (gitignored); never prints the token
+│   └── assistant_eval.py             # 33 real questions: does the assistant pick the right lookup?
+│                                     #   (sends questions only, never runs a tool)
 │
 ├── docs/
 │   └── network-monitor-runbook.md    # install on the 2116, dry run, verify, rotate token, roll back
@@ -135,7 +139,7 @@ battery-tracker/
 │   │                                   #   quiet periods, outage merge, customer status; no I/O
 │   ├── deepseek.py                     # the app's one DeepSeek client (chat + tool calls); key from
 │   │                                   #   DEEPSEEK_API_KEY, never logged or sent to the browser
-│   ├── assistant_tools.py              # the assistant's 7 read-only tools, the role check that
+│   ├── assistant_tools.py              # the assistant's 18 read-only tools (one per page/report), the role check that
 │   │                                   #   gates them, argument checks, audit log — no model SQL
 │   ├── inventory_locations.py          # inventory_locations CRUD + get_or_create_location_by_name
 │   │                                   #   (Issue/Return's free-typed Site field, Add/Edit Unit's

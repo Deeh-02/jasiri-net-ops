@@ -42,6 +42,22 @@ Built outside the phase plan at the owner's request (2026-11-03/04), on
 - An AI-written analysis panel on the Revenue page (DeepSeek wrote the
   words, the server filled in every figure). Replaced by the assistant.
 
+## Admin assistant: every page, and no answers from nowhere (2026-11-04)
+
+- 11 new lookups (18 in all), one per page or report: the Network page
+  (status, PPPoE clients online, outages), site uptime reports and a site's
+  history, the alert log, batteries and a battery's history, stock levels,
+  the inventory log and cable stock.
+- It can't give figures it didn't look up: if it tries, the server makes it
+  check, and if it still has nothing it says "I couldn't look that up".
+- Each answer shows what it checked ("Checked: network status").
+- Its instructions are now a file you can read and edit:
+  `prompts/assistant.md`.
+- Before 21 Sep 2026 there are no sales records: it now says so instead of
+  "KSh 0".
+- `tools/assistant_eval.py` checks it picks the right lookup for 33 real
+  questions (33/33).
+
 ## Network page: several internet links (Phase 4, 2026-11-04)
 
 Migration 0023 (two new tables) and a new `ops-live` script. The router has

@@ -72,10 +72,19 @@ function buildWidget() {
     };
 }
 
-function bubble(className, text) {
+// `checked`: the lookups the server says gave this answer its data. Shown
+// under the answer so the admin can tell a looked-up answer from a reply that
+// used no data at all.
+function bubble(className, text, checked) {
     const div = document.createElement("div");
     div.className = `chat-bubble ${className}`;
     div.textContent = text;
+    if (checked && checked.length) {
+        const line = document.createElement("div");
+        line.className = "chat-checked";
+        line.textContent = `Checked: ${checked.join(", ")}`;
+        div.appendChild(line);
+    }
     return div;
 }
 
@@ -90,7 +99,7 @@ function renderFeed() {
             "Try: \"How much did we make yesterday?\", \"Which sites are down?\", " +
             "\"What does the monthly package cost?\" or \"Look up customer 0712345678\"."));
     }
-    history.forEach(t => els.feed.appendChild(bubble(t.role === "user" ? "chat-user" : "chat-assistant", t.content)));
+    history.forEach(t => els.feed.appendChild(bubble(t.role === "user" ? "chat-user" : "chat-assistant", t.content, t.checked)));
     scrollToNewest();
 }
 
@@ -126,7 +135,8 @@ function showError(message) {
 function trimmedHistory() {
     let turns = history.slice(-MAX_TURNS);
     while (turns.length && turns[0].role !== "user") turns = turns.slice(1);
-    return turns;
+    // Only role + text go back to the server (it rejects anything else).
+    return turns.map(t => ({ role: t.role, content: t.content }));
 }
 
 async function askAssistant() {
@@ -146,10 +156,11 @@ async function askAssistant() {
         }
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(typeof data.detail === "string" ? data.detail : "The assistant couldn't answer. Try again.");
-        history.push({ role: "assistant", content: data.reply });
+        const checked = Array.isArray(data.checked) ? data.checked.filter(c => typeof c === "string") : [];
+        history.push({ role: "assistant", content: data.reply, checked });
         saveHistory();
         typing.remove();
-        els.feed.appendChild(bubble("chat-assistant", data.reply));
+        els.feed.appendChild(bubble("chat-assistant", data.reply, checked));
         scrollToNewest();
     } catch (e) {
         typing.remove();

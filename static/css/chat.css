@@ -91,6 +91,7 @@
     color: var(--text);
     border-bottom-left-radius: 3px;
 }
+.chat-checked { margin-top: 6px; padding-top: 5px; border-top: 1px solid var(--border); font-size: 11.5px; color: var(--text-dim); }
 .chat-hint { align-self: stretch; max-width: none; color: var(--text-dim); font-size: 13px; border: 1px dashed var(--border); }
 .chat-error {
     align-self: stretch;

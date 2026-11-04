@@ -1,8 +1,10 @@
 """The admin assistant's tools — the ONLY way the model can see data.
 
-Each tool is one fixed, read-only lookup that calls the app's existing
-functions (the Revenue Report, the Site Status page, Packages, the customer
-list). The model picks a tool and fills in a few checked arguments; it never
+Each tool is one fixed, read-only lookup that calls the same function a page
+of the app uses (the Revenue Report, Site Status, Trends, the Network page,
+Batteries, Stock, Inventory Log, the SMS log, Packages, the customer list),
+so the assistant sees the same numbers the page shows. One tool per page or
+report, not per question. The model picks a tool and fills in a few checked arguments; it never
 writes SQL, never names a table, and cannot change anything.
 
 WHO GETS WHAT is decided here in code, never by the prompt. Every tool lists
@@ -12,7 +14,9 @@ anything, so a mistake in one layer is caught by the other.
 
 WHAT LEAVES. DeepSeek receives every tool result, so results are trimmed to
 what an answer needs: revenue is totals only (no individual sales), and the
-customer lookup returns plan/status/expiry but not phone numbers. The one
+customer lookup returns plan/status/expiry but not phone numbers, the alert
+log leaves out who an SMS went to, and the PPPoE list leaves out customers'
+IP addresses and device IDs. The one
 phone number that does go out is a SITE's contact (get_site_contact): giving
 it is that tool's whole purpose.
 
@@ -25,8 +29,9 @@ import re
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
-from db import customers, monitoring, revenue_config, revenue_report, sites
-from db.connection import EAT, now_eat
+from db import batteries, customers, inventory_reports, inventory_transactions, monitoring, network
+from db import revenue_config, revenue_daily, revenue_report, sites, sms_log
+from db.connection import EAT, db_cursor, now_eat
 from db.revenue_logic import MODES, compare, format_kes, slope_pct_of_mean, trend_label
 
 log = logging.getLogger(__name__)
@@ -100,6 +105,35 @@ def _money_fields(display):
             "change": display["abs_change"], "change_pct": display["pct_change"]}
 
 
+UNRECORDED = ("sales records start on {start}: anything before that day is unrecorded, not zero. "
+              "Never report a figure or a change for days before it.")
+
+
+def _period_end(period, anchor):
+    """Last day of the day/week/month/year containing `anchor`."""
+    if period == "day":
+        return anchor
+    if period == "week":
+        return anchor + timedelta(days=6 - anchor.weekday())
+    if period == "month":
+        nxt = date(anchor.year + (anchor.month == 12), anchor.month % 12 + 1, 1)
+        return nxt - timedelta(days=1)
+    return date(anchor.year, 12, 31)
+
+
+def _records_start():
+    """The first day with any recorded hotspot sale (EAT), or None."""
+    with db_cursor() as (conn, cur):
+        return revenue_daily.first_sale_date(cur)
+
+
+def _no_records_before(start, first_day):
+    """A result saying the period predates the records, instead of a false KSh 0."""
+    return {"no_records": f"There are no sales records for that period: records start on "
+                          f"{start.strftime('%a %d %b %Y')}, so {first_day.strftime('%d %b %Y')} is before them. "
+                          "It is not KSh 0, it simply wasn't recorded."}
+
+
 def get_revenue_summary(args):
     """Headline revenue, or one period's totals (optionally per site)."""
     _no_extra_keys(args, ("period", "date", "compare", "by_site"))
@@ -116,6 +150,9 @@ def get_revenue_summary(args):
     if not isinstance(by_site, bool):
         raise ToolArgumentError("by_site must be true or false")
     anchor = _optional_date(args, "date") or now_eat().date()
+    records_start = _records_start()
+    if records_start and anchor < records_start and _period_end(period, anchor) < records_start:
+        return _no_records_before(records_start, anchor)
 
     report = revenue_report.sites_report(period, anchor, mode=compare)
     p = report["period"]
@@ -125,6 +162,9 @@ def get_revenue_summary(args):
         "in_progress": p["is_partial"], "notes": p["notes"],
         **_money_fields(report["network"]["display"]),
     }
+    if records_start:
+        result["records_start"] = records_start.isoformat()
+        result["about_records"] = UNRECORDED.format(start=records_start.isoformat())
     if by_site:
         rows = sorted(report["sites"], key=lambda r: -r["current"])[:MAX_ROWS]
         result["sites"] = [{"site": r["name"], **_money_fields(r["display"])} for r in rows]
@@ -208,6 +248,14 @@ def get_revenue_history(args):
         raise ToolArgumentError("start_date must be on or before end_date (and not in the future)")
     if (end - start).days + 1 > MAX_HISTORY_DAYS:
         raise ToolArgumentError(f"the range can be at most {MAX_HISTORY_DAYS} days")
+    records_start = _records_start()
+    if records_start and end < records_start:
+        return _no_records_before(records_start, start)
+    clipped_from = None
+    if records_start and start < records_start:
+        # Days before the records would show as KSh 0 and drag every average
+        # and trend down: start where the records start, and say so.
+        clipped_from, start = start, records_start
     group_by = args.get("group_by", "day")
     if group_by not in ("day", "week", "month"):
         raise ToolArgumentError("group_by must be day, week or month")
@@ -265,6 +313,10 @@ def get_revenue_history(args):
         "note": ("periods marked in_progress are incomplete (today, or cut off by the range) and are "
                  "left out of the trend, best/worst and first-to-last figures"),
         "points": points, "summary": summary,
+        **({"records_start": records_start.isoformat(),
+            "about_records": UNRECORDED.format(start=records_start.isoformat())} if records_start else {}),
+        **({"range_clipped": f"you asked from {clipped_from.isoformat()}, but records only start on "
+                             f"{records_start.isoformat()}, so the figures start there"} if clipped_from else {}),
     }
 
 
@@ -382,6 +434,383 @@ def lookup_customer(args):
             "note": "at most 10 matches are returned; ask for something more specific if needed"}
 
 
+# ---- Shared helpers for the page-mapped tools ----
+
+PERIODS = ("today", "yesterday", "this_week", "last_week", "this_month", "last_month")
+NETWORK_ROUTER = "ccr2116"     # the one router the Network page watches
+
+
+def _window(args, default="this_week"):
+    """A named period -> the day/week/month the monitoring reports take.
+    `day` (YYYY-MM-DD) overrides `period`."""
+    today = now_eat().date()
+    day = _optional_date(args, "day")
+    if day is not None:
+        if day > today:
+            raise ToolArgumentError("day can't be in the future")
+        return {"day": day.isoformat()}, day.isoformat()
+    period = args.get("period") or default
+    if period not in PERIODS:
+        raise ToolArgumentError(f"period must be one of {', '.join(PERIODS)}")
+    monday = today - timedelta(days=today.weekday())
+    first_of_month = today.replace(day=1)
+    window = {
+        "today": {"day": today.isoformat()},
+        "yesterday": {"day": (today - timedelta(days=1)).isoformat()},
+        "this_week": {"week": monday.isoformat()},
+        "last_week": {"week": (monday - timedelta(days=7)).isoformat()},
+        "this_month": {"month": first_of_month.strftime("%Y-%m")},
+        "last_month": {"month": (first_of_month - timedelta(days=1)).strftime("%Y-%m")},
+    }[period]
+    return window, period
+
+
+def _duration(seconds):
+    """3725 -> '1h 2m'. Done here so the model never does time arithmetic."""
+    if seconds is None:
+        return None
+    seconds = int(seconds)
+    days, rest = divmod(seconds, 86400)
+    hours, rest = divmod(rest, 3600)
+    minutes = rest // 60
+    if days:
+        return f"{days}d {hours}h"
+    if hours:
+        return f"{hours}h {minutes}m"
+    return f"{minutes}m" if minutes else f"{seconds}s"
+
+
+def _optional_choice(args, key, choices):
+    value = args.get(key)
+    if value is None:
+        return None
+    if value not in choices:
+        raise ToolArgumentError(f"{key} must be one of {', '.join(choices)}")
+    return value
+
+
+def _optional_bool(args, key):
+    value = args.get(key)
+    if value is None:
+        return False
+    if not isinstance(value, bool):
+        raise ToolArgumentError(f"{key} must be true or false")
+    return value
+
+
+def _optional_int(args, key, low, high, default):
+    value = args.get(key, default)
+    if not isinstance(value, int) or isinstance(value, bool) or not low <= value <= high:
+        raise ToolArgumentError(f"{key} must be a whole number from {low} to {high}")
+    return value
+
+
+def _matches(text, *fields):
+    key = _name_key(text)
+    return any(key in _name_key(f) for f in fields if f)
+
+
+# ---- Network page ----
+
+def get_network_status(args):
+    """The Network page's header and link cards: every internet link (Airtel,
+    Veenet), its traffic and gateway, the overall status with reasons."""
+    _no_extra_keys(args, ())
+    o = network.overview(NETWORK_ROUTER)
+    if o is None:
+        return {"error": "the network router isn't set up"}
+    live, sysinfo = o["live"] or {}, (o["live"] or {}).get("system") or {}
+    total = o["total"]
+    return {
+        "status": o["status"]["level"],
+        "reasons": [r["text"] for r in o["status"]["reasons"]],
+        "last_reading_at": _nairobi(o["received_at"]),
+        "all_traffic_now": {"download_mbps": total["download_mbps"], "upload_mbps": total["upload_mbps"]},
+        "peak_today": {"download_mbps": total["peak_today_download_mbps"],
+                       "download_at": _nairobi(total.get("peak_today_download_at")),
+                       "upload_mbps": total["peak_today_upload_mbps"],
+                       "note": "the single highest 15-second reading today; averages are lower"},
+        "links": [{
+            "link": l["name"], "interface": l["interface"],
+            "role": "primary" if l["primary"] else "backup",
+            "carrying_traffic": l["active"], "in_service": l["in_service"],
+            "still_reported_by_router": l["listed"],
+            "up": l["running"], "port_speed": l["link_rate"],
+            "download_mbps": l["download_mbps"], "upload_mbps": l["upload_mbps"],
+            "capacity_mbps": l["capacity"]["mbps"],
+            "capacity_is_estimate": l["capacity"]["estimated"],
+            "download_pct_of_capacity": l["download_utilization_pct"],
+            "gateway": l["gateway"]["label"], "gateway_address": l["gateway"]["address"],
+            "gateway_ping_ms": l["gateway"]["rtt_ms_avg"], "gateway_loss_pct": l["gateway"]["loss_pct"],
+            "peak_today_download_mbps": l["peak_today"]["download_mbps"],
+            "peak_30_days_download_mbps": l["peak_30d"]["download_mbps"],
+        } for l in o["links"]],
+        "router": {"cpu_pct": sysinfo.get("cpu_pct"), "temperature_c": sysinfo.get("temp_c"),
+                   "uptime": _duration(live.get("uptime_s")), "pppoe_online": live.get("pppoe_online"),
+                   "routeros": sysinfo.get("routeros")},
+        "last_outage": None if not o["last_outage"] else {
+            "what": o["last_outage"]["type"], "link": o["last_outage"].get("link"),
+            "started": _nairobi(o["last_outage"]["started_at"]),
+            "lasted": _duration(o["last_outage"]["duration_s"]), "ongoing": o["last_outage"]["ongoing"]},
+    }
+
+
+def get_pppoe_clients(args):
+    """The PPPoE clients connected to the CCR2116 right now, matched to the
+    customer list: Active, Expired-but-connected, or not in the list."""
+    _no_extra_keys(args, ("status", "search"))
+    status = _optional_choice(args, "status", ("active", "expired", "unknown"))
+    search = _optional_text(args, "search", 60)
+    data = network.pppoe(NETWORK_ROUTER)
+    if data is None:
+        return {"error": "the network router isn't set up"}
+    rows = [r for r in data["sessions"]
+            if (not status or r["status"] == status)
+            and (not search or _matches(search, r["display_name"], r["username"], r["package"]))]
+    # Expired-but-connected first: that's the list someone acts on.
+    order = {"expired": 0, "unknown": 1, "active": 2}
+    rows.sort(key=lambda r: (order.get(r["status"], 3), (r["display_name"] or r["username"] or "").lower()))
+    return {
+        "list_received_at": _nairobi(data["received_at"]), "list_is_stale": data["is_stale"],
+        "counts": data["counts"],
+        "matching": len(rows),
+        "clients": [{"name": r["display_name"], "username": r["username"], "package": r["package"],
+                     "status": r["status"], "why": r["status_reason"], "expiry": _nairobi(r["expiry"]),
+                     "connected_for": _duration(r["uptime_s"])} for r in rows[:MAX_ROWS * 2]],
+        "note": "status 'unknown' means the username isn't in the customer list",
+    }
+
+
+EVENT_WORDS = {"not_reporting": "router not reporting", "gateway_down": "gateway not responding",
+               "uplink_down": "link down", "router_restarted": "router restarted"}
+
+
+def get_network_events(args):
+    """Outages and restarts on the Network page, newest first."""
+    _no_extra_keys(args, ("limit",))
+    limit = _optional_int(args, "limit", 1, 30, 15)
+    found = network.events(NETWORK_ROUTER, limit=limit)
+    return {"events": [{
+        "what": EVENT_WORDS.get(e["type"], e["type"]), "link": e.get("link"),
+        "started": _nairobi(e["started_at"]), "ended": _nairobi(e["ended_at"]),
+        "lasted": _duration(e["duration_s"]), "ongoing": e["ongoing"],
+        "cause": {"restart": "the router restarted or lost power",
+                  "connectivity": "the router stayed up but lost its way out (upstream or gateway)"}.get(e.get("cause")),
+    } for e in found]}
+
+
+# ---- Site monitoring (Status / Trends) ----
+
+def get_fleet_report(args):
+    """Every monitored site over a period (the Trends tab): uptime, outages,
+    longest outage, flapping, people connected. Worst uptime first."""
+    _no_extra_keys(args, ("period", "day"))
+    window, label = _window(args)
+    f = monitoring.get_fleet(False, **window)
+    rows = sorted(f["sites"], key=lambda r: (r["uptime_pct"] is None, r["uptime_pct"] if r["uptime_pct"] is not None else 0))
+    return {
+        "period": label, "from": _nairobi(f["since"]), "to": _nairobi(f["until"]),
+        "network": {"uptime_pct": f["totals"].get("uptime_pct"), "sites_with_an_outage": f["totals"].get("sites_with_outage"),
+                    "sites_measured": f["totals"].get("measured_sites")},
+        "sites": [{"site": r["name"], "state_now": r["state"], "uptime_pct": r["uptime_pct"],
+                   "outages": r["outages"], "longest_outage": _duration(r["longest_outage_seconds"]),
+                   "flaps": r["flap_count"], "avg_people": r["avg_people"], "peak_people": r["peak_people"]}
+                  for r in rows[:MAX_ROWS * 2]],
+        "how_to_read": "sorted by uptime, worst first; flaps are quick down-up bounces",
+    }
+
+
+def _monitored_site(name):
+    """The one monitored site a name points to, or an error dict."""
+    if not name or not _name_key(name):
+        raise ToolArgumentError("site is required")
+    all_sites = monitoring.get_site_statuses(False)
+    key = _name_key(name)
+    matches = [s for s in all_sites if key in _name_key(s["name"])]
+    exact = [s for s in matches if _name_key(s["name"]) == key]
+    if exact:
+        matches = exact
+    if not matches:
+        return None, {"error": f"no monitored site matches '{name}'",
+                      "known_sites": [s["name"] for s in all_sites][:MAX_ROWS * 2]}
+    if len(matches) > 1:
+        return None, {"error": "more than one site matches; ask which one", "candidates": [s["name"] for s in matches]}
+    return matches[0], None
+
+
+def get_site_history(args):
+    """One site's outages, uptime and people connected over a period (the
+    site's own page). Contact details are left out: get_site_contact has them."""
+    _no_extra_keys(args, ("site", "period", "day"))
+    site, error = _monitored_site(_optional_text(args, "site", 60))
+    if error:
+        return error
+    window, label = _window(args)
+    d = monitoring.get_site_detail(site["id"], False, **window)
+    if d is None:
+        return {"error": "that site has no monitoring history"}
+    busiest = sorted(d.get("busiest_hours") or [], key=lambda h: -(h["avg"] or 0))[:3]
+    return {
+        "site": d["name"], "period": label, "from": _nairobi(d["since"]), "to": _nairobi(d["until"]),
+        "state_now": d["state"], "state_since": _nairobi(d["state_since"]),
+        "uptime_pct": d["uptime_pct"], "downtime": _duration(d["downtime_seconds"]),
+        "outages": [{"start": _nairobi(o["start"]), "end": _nairobi(o["end"]),
+                     "lasted": _duration(o["duration_seconds"]), "ongoing": o["ongoing"]}
+                    for o in (d["outages"] or [])[:15]],
+        "outage_count": len(d["outages"] or []), "longest_outage": _duration(d["longest_outage_seconds"]),
+        "flaps": d["flap_count"], "avg_people": d["avg_people"], "peak_people": d["peak_people"],
+        "unique_people": d.get("unique_people"),
+        "busiest_hours": [f"{h['hour']:02d}:00" if isinstance(h["hour"], int) else str(h["hour"]) for h in busiest],
+    }
+
+
+def get_alert_log(args):
+    """Site-down / recovered alerts the app sent (SMS, WhatsApp, in-app):
+    counts by delivery status and the most recent ones. Never who they went to."""
+    _no_extra_keys(args, ("days", "status", "site"))
+    days = _optional_int(args, "days", 1, 90, 7)
+    status = _optional_text(args, "status", 30)
+    site = _optional_text(args, "site", 60)
+    until = datetime.utcnow()
+    data = sms_log.list_deliveries(until - timedelta(days=days), until, None, status)
+    rows = [r for r in data["rows"] if not site or _matches(site, r.get("site_name"))]
+    return {
+        "days": days, "counts_by_status": data["counts"],
+        "recent": [{"sent": _nairobi(r["sent_at"].isoformat() + "Z" if isinstance(r["sent_at"], datetime) else r["sent_at"]),
+                    "site": r.get("site_name"), "alert": r["kind"], "channel": r["channel"], "status": r["status"]}
+                   for r in rows[:MAX_ROWS * 2]],
+        "note": "'not_configured' means that channel isn't set up, so nothing was delivered on it",
+    }
+
+
+# ---- Batteries ----
+
+def get_batteries(args):
+    """Every battery (the Batteries page): where it is, its status and charge,
+    who moved it last; plus the movements still in progress."""
+    _no_extra_keys(args, ("search",))
+    search = _optional_text(args, "search", 60)
+    rows = batteries.get_all_batteries()
+    if search:
+        rows = [b for b in rows if _matches(search, b["battery_number"], b["model"], b["current_location"])]
+    counts = {}
+    for b in rows:
+        counts[b["status"]] = counts.get(b["status"], 0) + 1
+    moving = batteries.get_active_movements()
+    return {
+        "counts_by_status": counts,
+        "batteries": [{"battery": b["battery_number"], "model": b["model"], "capacity": b["capacity"],
+                       "status": b["status"], "location": b["current_location"],
+                       "site_online": b["site_online"], "charge": b["charge_status"],
+                       "last_moved_by": b["moved_by"], "last_moved_at": _nairobi(b["moved_at"])}
+                      for b in rows[:MAX_ROWS * 2]],
+        "movements_in_progress": [{"battery": m["battery_number"], "from": m["from_location"], "to": m["to_location"],
+                                   "status": m["status"], "reason": m["reason"], "started": _nairobi(m["created_at"])}
+                                  for m in moving[:MAX_ROWS]],
+    }
+
+
+def get_battery_history(args):
+    """Where one battery has been: every movement, newest first."""
+    _no_extra_keys(args, ("battery",))
+    wanted = _optional_text(args, "battery", 40)
+    if not wanted:
+        raise ToolArgumentError("battery is required (its number, e.g. BAT-001)")
+    every = batteries.get_all_batteries()
+    found = [b for b in every if _name_key(b["battery_number"]) == _name_key(wanted)] or \
+            [b for b in every if _name_key(wanted) in _name_key(b["battery_number"])]
+    if not found:
+        return {"error": f"no battery matches '{wanted}'", "known": [b["battery_number"] for b in every][:MAX_ROWS * 2]}
+    if len(found) > 1:
+        return {"error": "more than one battery matches; ask which one", "candidates": [b["battery_number"] for b in found]}
+    b = found[0]
+    history = batteries.get_movement_history(b["id"])
+    return {
+        "battery": b["battery_number"], "now_at": b["current_location"], "status": b["status"],
+        "movements": [{"when": _nairobi(h[0].isoformat() + "Z" if isinstance(h[0], datetime) else h[0]),
+                       "from": h[1], "to": h[2], "reason": h[3], "moved_by": h[4]} for h in history[:MAX_ROWS]],
+        "movement_count": len(history),
+    }
+
+
+# ---- Inventory ----
+
+def _unit(tracking_type):
+    return "metres" if tracking_type == "inventory_length" else "units"
+
+
+def get_stock(args):
+    """Stock levels (the Stock page and its reorder report): on hand,
+    deployed, reorder level, where it is, value."""
+    _no_extra_keys(args, ("search", "below_reorder_only"))
+    search = _optional_text(args, "search", 60)
+    low_only = _optional_bool(args, "below_reorder_only")
+    summary = {(r["category_id"], r["sku_or_spec"]): r for r in inventory_reports.get_items_summary(None)}
+    rows = inventory_reports.get_sku_summary(None)
+    if search:
+        rows = [r for r in rows if _matches(search, r["name"], r["sku_or_spec"], r["category_name"])]
+    if low_only:
+        rows = [r for r in rows if r["below_threshold"]]
+    out = []
+    for r in rows[:MAX_ROWS * 2]:
+        extra = summary.get((r["category_id"], r["sku_or_spec"]), {})
+        out.append({
+            "item": r["name"], "sku_or_spec": r["sku_or_spec"], "category": r["category_name"],
+            "unit": _unit(r["tracking_type"]),
+            "on_hand": r["total_on_hand"], "deployed": extra.get("deployed_qty"),
+            "reorder_level": r["reorder_level"], "below_reorder_level": r["below_threshold"],
+            "where": extra.get("location_names"),
+            "value": None if r["total_value"] is None else format_kes(r["total_value"]),
+        })
+    return {"items": out, "matching": len(rows),
+            "below_reorder_level_count": sum(1 for r in rows if r["below_threshold"])}
+
+
+def get_stock_movements(args):
+    """The Inventory Log: stock received, issued, returned or moved, newest
+    first, optionally for one item, site or person."""
+    _no_extra_keys(args, ("search", "days"))
+    search = _optional_text(args, "search", 60)
+    days = _optional_int(args, "days", 1, 180, 30)
+    since = datetime.utcnow() - timedelta(days=days)
+    rows = []
+    log_rows = inventory_transactions.get_transaction_log(None, None, None, 500)
+    for t in log_rows:
+        when = t["created_at"]
+        moment = datetime.fromisoformat(when.replace("Z", "")) if isinstance(when, str) else when
+        if moment is not None and moment < since:
+            continue
+        if search and not _matches(search, t["category_name"], t["sku_or_spec"], t["site_location_name"],
+                                   t["issued_to_name"], t["to_location_name"], t["from_location_name"]):
+            continue
+        rows.append(t)
+    newest = log_rows[0]["created_at"] if log_rows else None
+    return {
+        "days": days, "matching": len(rows),
+        # So "nothing in the last 30 days" isn't read as "nothing ever".
+        "newest_movement_ever": _nairobi(newest if isinstance(newest, str) or newest is None else newest.isoformat() + "Z"),
+        "movements": [{
+            "when": _nairobi(t["created_at"] if isinstance(t["created_at"], str) else t["created_at"].isoformat() + "Z"),
+            "action": t["action"], "item": t["category_name"], "sku_or_spec": t["sku_or_spec"],
+            "quantity_or_length": t["qty_or_length"], "from": t["from_location_name"], "to": t["to_location_name"],
+            "site": t["site_location_name"], "issued_to": t["issued_to_name"], "logged_by": t["logged_by_name"],
+            "status": t["status"], "length_used": t["length_used"], "length_returned": t["length_returned"],
+            "notes": (t["notes"] or "")[:120] or None,
+        } for t in rows[:MAX_ROWS * 2]],
+    }
+
+
+def get_cable_stock(args):
+    """Cable reels in stock by spec, and offcuts (the Reports page)."""
+    _no_extra_keys(args, ())
+    return {
+        "reels_by_spec": [{"spec": c["spec"], "reels_in_stock": c["reels_in_stock"],
+                           "metres_remaining": c["total_length_remaining"]}
+                          for c in inventory_reports.get_cable_type_summary(None)],
+        "offcuts_by_spec": inventory_reports.get_offcut_summary_by_spec(None)[:MAX_ROWS],
+    }
+
+
 def _schema(name, description, properties=None, required=()):
     return {"type": "function", "function": {
         "name": name, "description": description,
@@ -428,8 +857,9 @@ TOOLS = {
         "most', 'which are doing badly', 'top earners that are slipping', comparing all sites.")),
     "get_site_status": (get_site_status, {"admin"}, _schema(
         "get_site_status",
-        "Live status of the monitored hotspot sites: online/offline, people connected, 30-day uptime, "
-        "today's revenue per site. Optionally filter by part of a site name.",
+        "Live status of the monitored hotspot SITES (locations such as ACK, Red Soil): online/offline, "
+        "people connected, 30-day uptime, today's revenue per site. Not for individual PPPoE customers "
+        "(usernames like JS32): use get_pppoe_clients for those. Optionally filter by part of a site name.",
         {"site": {"type": "string", "description": "part of a site name"}})),
     "get_site_contact": (get_site_contact, {"admin"}, _schema(
         "get_site_contact",
@@ -445,7 +875,102 @@ TOOLS = {
         "account status, enabled, expiry. Phone numbers are not returned.",
         {"query": {"type": "string", "description": "username, name or phone (2-60 characters)"}},
         required=("query",))),
+
+    # ---- Network page (CCR2116) ----
+    "get_network_status": (get_network_status, {"admin"}, _schema(
+        "get_network_status",
+        "The Network page right now: overall status with reasons, all traffic (download/upload Mbps) and "
+        "today's peak, and each internet link (Airtel, Veenet, ...): primary or backup, carrying traffic or "
+        "standby, in service, up/down, traffic vs capacity, gateway alive/ping/loss, peaks. Also the core "
+        "router's CPU, temperature, uptime, PPPoE count and the last outage. Use for bandwidth, 'is the "
+        "internet ok', Airtel/Veenet, failover, gateway questions.")),
+    "get_pppoe_clients": (get_pppoe_clients, {"admin"}, _schema(
+        "get_pppoe_clients",
+        "PPPoE clients connected to the core router RIGHT NOW, matched to the customer list: name, "
+        "username, package, active / expired-but-connected / not in the list, expiry, how long connected. "
+        "Usernames look like JS01, JS32. Use for 'who is online', 'who is expired but still connected', "
+        "'is JS32 online / connected'.",
+        {"status": {"type": "string", "enum": ["active", "expired", "unknown"]},
+         "search": {"type": "string", "description": "part of a name, username or package"}})),
+    "get_network_events": (get_network_events, {"admin"}, _schema(
+        "get_network_events",
+        "Network outages and restarts, newest first: router not reporting (with the likely cause), "
+        "gateway not responding or link down (with which link), router restarted.",
+        {"limit": {"type": "integer", "description": "how many, 1-30 (default 15)"}})),
+
+    # ---- Site monitoring ----
+    "get_fleet_report": (get_fleet_report, {"admin"}, _schema(
+        "get_fleet_report",
+        "Every monitored hotspot site over a period: uptime %, number of outages, longest outage, flaps, "
+        "average and peak people connected, plus the network-wide uptime. Sorted worst uptime first. Use "
+        "for 'which sites had the most downtime', 'uptime this week', 'most reliable sites'.",
+        {"period": {"type": "string", "enum": list(PERIODS), "description": "default this_week"},
+         "day": {"type": "string", "description": "YYYY-MM-DD, one specific day instead of a period"}})),
+    "get_site_history": (get_site_history, {"admin"}, _schema(
+        "get_site_history",
+        "One site's monitoring over a period: state now and since when, uptime %, total downtime, each "
+        "outage with start/end/length, flaps, people connected (average, peak, unique) and busiest hours.",
+        {"site": {"type": "string", "description": "the site name, or part of it"},
+         "period": {"type": "string", "enum": list(PERIODS), "description": "default this_week"},
+         "day": {"type": "string", "description": "YYYY-MM-DD, one specific day instead of a period"}},
+        required=("site",))),
+    "get_alert_log": (get_alert_log, {"admin"}, _schema(
+        "get_alert_log",
+        "Site down / recovered alerts the app sent by SMS, WhatsApp or in-app: counts by delivery status "
+        "and the recent ones (when, site, kind, channel, status). Does not show who they were sent to.",
+        {"days": {"type": "integer", "description": "how far back, 1-90 (default 7)"},
+         "status": {"type": "string", "description": "e.g. sent, failed, not_configured"},
+         "site": {"type": "string", "description": "part of a site name"}})),
+
+    # ---- Batteries ----
+    "get_batteries": (get_batteries, {"admin"}, _schema(
+        "get_batteries",
+        "Every battery: number, model, capacity, status (At Base / Deployed / In Transit / Pending), "
+        "current location and whether that site is online, charge status, who moved it last and when; "
+        "plus battery movements still in progress.",
+        {"search": {"type": "string", "description": "part of a battery number, model or location"}})),
+    "get_battery_history": (get_battery_history, {"admin"}, _schema(
+        "get_battery_history",
+        "Where one battery has been: every movement (when, from, to, reason, who), newest first.",
+        {"battery": {"type": "string", "description": "the battery number, e.g. BAT-001"}},
+        required=("battery",))),
+
+    # ---- Inventory ----
+    "get_stock": (get_stock, {"admin"}, _schema(
+        "get_stock",
+        "Stock levels: each item's on-hand and deployed quantity (cable in metres), reorder level and "
+        "whether it is below it, where it is stored, and value. Use for 'how many X do we have', 'what "
+        "needs reordering', 'stock value'.",
+        {"search": {"type": "string", "description": "part of an item name, SKU/spec or category"},
+         "below_reorder_only": {"type": "boolean", "description": "only items below their reorder level"}})),
+    "get_stock_movements": (get_stock_movements, {"admin"}, _schema(
+        "get_stock_movements",
+        "The inventory log: stock received, issued, returned, transferred or installed, newest first, with "
+        "quantity/length, from/to, site, who it was issued to and who logged it. Use for 'what was issued "
+        "to X', 'what went to site Y', 'what came in this week'.",
+        {"search": {"type": "string", "description": "part of an item, SKU, site, location or person's name"},
+         "days": {"type": "integer", "description": "how far back, 1-180 (default 30)"}})),
+    "get_cable_stock": (get_cable_stock, {"admin"}, _schema(
+        "get_cable_stock",
+        "Cable reels in stock per cable spec with metres remaining, and offcuts per spec.")),
 }
+
+
+# How each lookup is named in the "Checked:" line under an answer.
+LABELS = {
+    "get_revenue_summary": "revenue summary", "get_revenue_history": "revenue history",
+    "get_site_performance": "site revenue ranking", "get_site_status": "site status",
+    "get_site_contact": "site contacts", "get_packages": "packages", "lookup_customer": "customer list",
+    "get_network_status": "network status", "get_pppoe_clients": "PPPoE clients online",
+    "get_network_events": "network events", "get_fleet_report": "site uptime report",
+    "get_site_history": "site history", "get_alert_log": "alert log", "get_batteries": "batteries",
+    "get_battery_history": "battery history", "get_stock": "stock levels",
+    "get_stock_movements": "inventory log", "get_cable_stock": "cable stock",
+}
+
+
+def label_for(name):
+    return LABELS.get(name) or (name or "lookup").replace("_", " ")
 
 
 def tools_for(role):

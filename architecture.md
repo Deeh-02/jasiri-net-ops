@@ -1523,6 +1523,37 @@ than going quietly stale. The comparison logic itself is untouched.
 
 ### Admin assistant — fixed read-only tools, enforced in code
 
+**Update 2026-11-04: one tool per page, grounding enforced, instructions in a file.**
+- **18 tools, one per page or report** (not one per question): the original
+  seven plus the Network page (status, PPPoE clients, events), monitoring
+  (fleet uptime report, one site's history, the alert log), batteries (list
+  with movements in progress, one battery's history) and inventory (stock
+  levels, the inventory log, cable). Each calls the same function the page
+  uses. Left out of what DeepSeek receives: alert recipients and provider
+  responses, PPPoE customers' IPs and device IDs, a site's phone in site
+  history (get_site_contact still gives it on purpose).
+- **Grounding is enforced in code** (`routers/chat.py`): an answer with
+  figures when no lookup succeeded for that question goes back once with an
+  automatic "look it up or say you can't"; if it still has none, the admin
+  gets "I couldn't look that up" instead. Numbers the admin typed and
+  today's date are allowed. A lookup that returned `{"error"}` doesn't count.
+- **"Checked:" line.** `/chat` returns `{"reply", "checked"}`; the chat window
+  shows the lookups under each answer, so an answer with no line used no data.
+- **Instructions are `prompts/assistant.md`**, read on every question
+  (`<!-- -->` notes stripped; `CHAT_SYSTEM_PROMPT` still overrides). The
+  date, plain-text and look-it-up-again lines stay in code so an edit can't
+  drop them; a built-in fallback is used if the file is missing.
+- **No false zeros before the records.** Hotspot sales records start on
+  21 Sep 2026 (`revenue_daily.first_sale_date`). A period wholly before that
+  returns "no records", never KSh 0; a history range that starts earlier is
+  clipped to the start and says so. Found by asking it "last Christmas".
+- **`tools/assistant_eval.py`**: 33 real questions; each is sent once with
+  the real prompt and tools, and the script checks which tool the model asks
+  for. Tools are never run, so no data leaves. 33/33 after one fix (it took
+  "JS32" for a site; the prompt and two descriptions now say JS-names are
+  PPPoE usernames). Run it before and after any prompt or tool change.
+
+
 Built 2026-11-03/04 at the owner's request, outside the phase plan, from a
 scope that asked for a role-based DeepSeek chat. What was settled:
 
