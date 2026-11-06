@@ -31,8 +31,15 @@ before or after the code is deployed)
   types, and change what each type asks, without a code change.
 - **Duplicate warning:** if the same type, location and date has already been reported, the
   form shows that reference and asks "Submit anyway?". It never blocks.
+- **Matched to the WhatsApp reports (migration 0028):** installations ask for client name,
+  account, package, contact, address/landmark, signal and a materials list; support asks for
+  client name, account, finding at site and solution; hotspot chain restoration asks for the
+  chain and routers restored; fibre/FAT jobs ask for signal before and after splitting; most
+  types have "Materials used". The materials box is a **list only: nothing is deducted from
+  Inventory** (it is replaced when Materials is built). New type: Cable re-tensioning.
 - **Repeat visits** on the Overview: customers and areas with Customer Support visits on more
-  than one day in the 30 days up to the end of the chosen period.
+  than one day in the 30 days up to the end of the chosen period. A customer is recognised by
+  the account typed in (a new customer isn't in the customer list yet) or the one picked.
 
 ## Revenue Report live figures, and an admin assistant (on `phase-4-network-monitoring`)
 

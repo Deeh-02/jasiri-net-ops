@@ -7,7 +7,7 @@ import { api, esc, setError } from "./activity-common.js";
 // unsaved edits, and any other change closes it.
 
 const $ = (id) => document.getElementById(id);
-const KIND_LABELS = { text: "Short text", number: "Number", customer: "Customer (search)" };
+const KIND_LABELS = { text: "Short text", longtext: "Long text (a few lines)", number: "Number", customer: "Customer (search)" };
 
 let catalog = [];
 let editor = null;      // {typeId, fields: [...], applyAll} while a type's fields are open

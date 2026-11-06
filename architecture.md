@@ -1777,6 +1777,13 @@ repeat-visit metric. Materials and Photos are deferred and NOT built.
   the server copies the rest from `ppp_customers` (the picker returns name, username and plan
   only, never phone numbers, which sit behind the broadcast permission). Hotspot customers
   are not records, so only PPPoE customers are searchable.
+- **Field sets from real reports (migration 0028).** Data only, plus a `longtext` kind
+  (a few lines, 1,000 characters). A type's questions are replaced only while unset or still
+  exactly the 0027 seed, so the Manage screen's edits are never overwritten; the migration is a
+  single transaction. "Materials used" is a free-text LIST, never a quantity: it does not touch
+  Inventory (owner's call, 2026-11-06; the deferred Materials table supersedes it). The keys
+  `account` and `client_name` are a convention: repeat visits match a customer by the picked
+  customer's username or the typed account, ignoring case and spaces.
 - **Manage screen** (admin only, `require_admin`, not grantable to a custom role): add,
   rename, reorder, deactivate categories and types, edit a type's fields, optionally copying
   them to every type in the category. Names are unique ignoring case. Every change answers

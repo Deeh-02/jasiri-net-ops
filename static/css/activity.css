@@ -130,7 +130,7 @@ textarea.act-input { resize: vertical; min-height: 64px; }
 .act-detail-row { display: grid; grid-template-columns: 150px 1fr; gap: 12px; padding: 13px 18px; border-bottom: 1px solid var(--border); }
 .act-detail-row:last-child { border-bottom: none; }
 .act-detail dt { color: var(--text-dim); font-size: 13px; }
-.act-detail dd { margin: 0; word-break: break-word; }
+.act-detail dd { margin: 0; word-break: break-word; white-space: pre-line; }   /* a materials list keeps its lines */
 
 /* ---- Overview ---- */
 .act-period { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: center; margin-bottom: 14px; }
@@ -189,7 +189,7 @@ textarea.act-input { resize: vertical; min-height: 64px; }
 
 /* ---- Phase 2: extra fields, duplicate warning, repeat visits ---- */
 .act-details { display: flex; flex-direction: column; gap: 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
-.act-sublabel { display: block; font-size: 13.5px; margin-bottom: 6px; }
+.act-sublabel { display: block; font-size: 13.5px; margin-bottom: 8px; }
 .act-hint { color: var(--text-dim); font-size: 12.5px; margin: 6px 0 0; }
 .act-results { display: flex; flex-direction: column; margin-top: 6px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
 .act-result {

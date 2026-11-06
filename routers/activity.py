@@ -156,7 +156,7 @@ def export_reports(
             r["reference"], r["activity_date"], r["category"], r["type"], r["area"],
             ", ".join(t["name"] for t in r["technicians"]), r["outcome_label"],
             r["time_spent_label"], r["description"], r["remarks"],
-            "; ".join(f"{d['label']}: {d['text']}" for d in r["details_view"]),
+            "; ".join(f"{d['label']}: {d['text'].replace(chr(10), ' / ')}" for d in r["details_view"]),
             r["submitted_by_name"], submitted)])
     filename = f"activity-reports-{now_eat().date().isoformat()}.csv"
     return Response(out.getvalue(), media_type="text/csv",

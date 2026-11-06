@@ -224,15 +224,16 @@ def check_overview_range(start, end, bucket):
 # ---- Phase 2: extra fields per activity type -----------------------------
 #
 # A type's extra fields are DATA (activity_types.details_schema), a list of
-#   {"key", "label", "kind": text|number|customer, "required"[, "min", "max"]}
+#   {"key", "label", "kind": text|longtext|number|customer, "required"[, "min", "max"]}
 # so a new field is an admin edit, not code. The answers go to
 # activity_reports.details as {key: value}; a customer is stored as
 # {"id", "name", "username"} (the name is copied so the report still reads
 # right if the customer is later removed).
 
-FIELD_KINDS = ("text", "number", "customer")
+FIELD_KINDS = ("text", "longtext", "number", "customer")
 MAX_FIELDS_PER_TYPE = 12
-FIELD_TEXT_MAX = 200
+FIELD_TEXT_MAX = 200          # text: one line
+FIELD_LONGTEXT_MAX = 1000     # longtext: a few lines, e.g. a materials list
 NAME_MAX = 80
 _KEY_OK = set("abcdefghijklmnopqrstuvwxyz0123456789_")
 
@@ -317,11 +318,12 @@ def check_details(schema, details):
             if f.get("required"):
                 errors.append(f"{f['label']} is required")
             continue
-        if f["kind"] == "text":
+        if f["kind"] in ("text", "longtext"):
+            limit = FIELD_LONGTEXT_MAX if f["kind"] == "longtext" else FIELD_TEXT_MAX
             if not isinstance(value, str):
                 errors.append(f"{f['label']} must be text")
-            elif len(value) > FIELD_TEXT_MAX:
-                errors.append(f"{f['label']} is too long (max {FIELD_TEXT_MAX} characters)")
+            elif len(value) > limit:
+                errors.append(f"{f['label']} is too long (max {limit} characters)")
             else:
                 cleaned[f["key"]] = value
         elif f["kind"] == "number":
@@ -345,12 +347,29 @@ def check_details(schema, details):
     return cleaned or None, []
 
 
-def customer_of(details):
-    """The customer a report names, if any: the one answer shaped like a
-    customer. A type has at most one Customer field (check_schema)."""
-    for value in (details or {}).values():
-        if isinstance(value, dict) and isinstance(value.get("id"), int):
-            return value
+# By convention a type that wants repeat visits by customer names its text
+# fields "account" and "client_name" (the Manage screen's labels "Account" and
+# "Client name" make those keys). A new customer isn't in the customer list yet,
+# so their account code (JS16, Kamutini_Hotspot) is what identifies them.
+ACCOUNT_KEY = "account"
+CLIENT_NAME_KEY = "client_name"
+
+
+def customer_identity(details):
+    """Who a report is about, as (key, display name), or None. A customer picked
+    from the list is identified by their username; otherwise by the typed
+    account. Both are compared ignoring case and spaces, so a picked "JS16" and
+    a typed " js16 " are the same customer."""
+    details = details or {}
+    picked = next((v for v in details.values() if isinstance(v, dict) and isinstance(v.get("id"), int)), None)
+    if picked:
+        username = (picked.get("username") or "").strip().lower()
+        key = username or f"id:{picked['id']}"
+        return key, picked.get("name") or picked.get("username") or "Customer"
+    account = details.get(ACCOUNT_KEY)
+    if isinstance(account, str) and account.strip():
+        name = details.get(CLIENT_NAME_KEY)
+        return account.strip().lower(), (name.strip() if isinstance(name, str) and name.strip() else account.strip())
     return None
 
 
@@ -391,7 +410,8 @@ def repeat_groups(rows):
     day, so two technicians reporting the same job on the same day are one
     visit, not a repeat. An area is a site, or the typed "Other" text matched
     case-insensitively. A customer is only known where the report carries
-    one. A report counts toward its customer AND its area, each in its own list."""
+    one (picked, or an account typed in). A report counts toward its customer
+    AND its area, each in its own list."""
     customers, areas = {}, {}
 
     def add(groups, key, name, row):
@@ -400,9 +420,9 @@ def repeat_groups(rows):
         group["references"].append(row["reference"])
 
     for row in rows:
-        customer = customer_of(row.get("details"))
-        if customer:
-            add(customers, customer["id"], customer.get("name") or customer.get("username") or "Customer", row)
+        who = customer_identity(row.get("details"))
+        if who:
+            add(customers, who[0], who[1], row)
         if row.get("location_id"):
             add(areas, ("site", row["location_id"]), row["area"], row)
         elif row.get("area"):

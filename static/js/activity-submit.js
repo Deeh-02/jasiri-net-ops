@@ -103,6 +103,9 @@ function detailInput(f) {
             <div class="act-results" data-customer-results="${esc(f.key)}" hidden></div>
             ${picked ? "" : `<p class="act-hint">Not found? Leave it blank and name them in the description.</p>`}</div>`;
     }
+    if (f.kind === "longtext") {
+        return `<div class="act-detail-field">${label}<textarea id="${id}" class="act-input" rows="3" maxlength="1000" data-detail="${esc(f.key)}">${esc(value ?? "")}</textarea></div>`;
+    }
     const attrs = f.kind === "number" ? `type="number" step="any"${f.min != null ? ` min="${f.min}"` : ""}${f.max != null ? ` max="${f.max}"` : ""}` : `type="text" maxlength="200"`;
     return `<div class="act-detail-field">${label}<input ${attrs} id="${id}" class="act-input" data-detail="${esc(f.key)}" value="${esc(value ?? "")}"></div>`;
 }
@@ -149,8 +152,11 @@ function onDetailsClick(e) {
         const { customerPick: key, id, name, username, plan } = pick.dataset;
         state.details[key] = { id: Number(id), name, username };
         // The package is nearly always the customer's own plan: save a typing.
-        const packageField = currentFields().find(f => f.key === "package" && f.kind === "text");
-        if (plan && packageField && !state.details.package) state.details.package = plan;
+        const asksFor = (key) => currentFields().some(f => f.key === key && f.kind === "text");
+        if (plan && asksFor("package") && !state.details.package) state.details.package = plan;
+        // Same for the name and account fields, when the type has them.
+        if (asksFor("client_name") && !state.details.client_name) state.details.client_name = name;
+        if (asksFor("account") && !state.details.account) state.details.account = username;
         drawDetails();
         saveDraft();
         return;

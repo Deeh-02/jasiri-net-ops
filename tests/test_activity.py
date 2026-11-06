@@ -305,6 +305,13 @@ class ExtraFields(unittest.TestCase):
     def test_long_text_refused(self):
         self.assertTrue(logic.check_details(INSTALL_FIELDS, {"package": "x" * 201})[1])
 
+    def test_a_materials_list_is_a_few_lines_of_text_and_nothing_is_deducted(self):
+        schema = [{"key": "materials", "label": "Materials used", "kind": "longtext", "required": False}]
+        listing = "67 m drop cable\n1 xpon router\n1 patchcord"
+        self.assertEqual(logic.check_details(schema, {"materials": f"  {listing} "}), ({"materials": listing}, []))
+        self.assertTrue(logic.check_details(schema, {"materials": "x" * 1001})[1])
+        self.assertEqual(logic.check_schema(schema)[1], [])
+
     def test_details_read_back_in_the_schemas_order_and_keep_orphans(self):
         rows = logic.describe_details(INSTALL_FIELDS, {"signal_dbm": -18.0, "customer": {"id": 1, "name": "Jane", "username": "jane01"},
                                                        "old_field": "kept"})
@@ -369,6 +376,22 @@ class RepeatVisits(unittest.TestCase):
     def test_two_reports_of_the_same_job_on_one_day_are_one_visit(self):
         out = logic.repeat_groups([self.row("A", "2026-11-05"), self.row("B", "2026-11-05")])
         self.assertEqual(out, {"customers": [], "areas": []})
+
+    def test_an_account_typed_in_identifies_a_customer_who_is_not_in_the_list_yet(self):
+        esther = lambda: {"client_name": "Esther", "account": "JS16"}
+        out = logic.repeat_groups([self.row("A", "2026-10-13", 1, "ACK Road", esther()),
+                                   self.row("B", "2026-10-17", 1, "ACK Road", {"account": " js16 "}),
+                                   self.row("C", "2026-10-19", 2, "Catholic Rd", {"account": "JS99"})])
+        self.assertEqual([(g["name"], g["count"]) for g in out["customers"]], [("Esther", 2)])
+
+    def test_a_picked_customer_and_a_typed_account_are_the_same_customer(self):
+        picked = {"customer": {"id": 7, "name": "Esther W", "username": "JS16"}}
+        out = logic.repeat_groups([self.row("A", "2026-10-13", 1, "ACK", picked), self.row("B", "2026-10-17", 2, "Sunton", {"account": "js16"})])
+        self.assertEqual([g["count"] for g in out["customers"]], [2])
+
+    def test_a_report_with_no_account_or_customer_names_nobody(self):
+        self.assertIsNone(logic.customer_identity({"package": "10 Mbps"}))
+        self.assertIsNone(logic.customer_identity({"account": "  "}))
 
     def test_most_repeated_first(self):
         rows = [self.row(f"A{i}", f"2026-11-0{i + 1}", 1, "Mwiki") for i in range(3)] + [self.row(f"B{i}", f"2026-11-0{i + 1}", 2, "Sunton") for i in range(2)]
