@@ -21,6 +21,7 @@ run once; until then only these pages error.
 - **Editing:** the submitter for 48 hours, an admin any time. Only an admin deletes, and a
   deleted report is hidden from the lists and every total, never erased.
 - **Roles page:** new "Technical Activity Log" section.
+- **Where it lives in the sidebar:** Activity Overview and Activity Reports sit in the **Reports** group (with Inventory, SMS Status and Revenue). Submit Activity Report and Manage Activity Types stay in the Technical Activity Log group.
 
 **Phase 2** (needs `migrations/0027_activity_log_phase2.sql`; it is additive, so it can run
 before or after the code is deployed)
