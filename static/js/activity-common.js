@@ -26,7 +26,7 @@ export async function api(path, { method = "GET", body } = {}) {
     if (!res.ok) {
         let error = typeof data?.detail === "string" ? data.detail : "Something went wrong. Please try again.";
         if (res.status === 401) error = "Your session has expired. Sign in again, then retry.";
-        return { ok: false, status: res.status, error };
+        return { ok: false, status: res.status, error, detail: data?.detail };
     }
     return { ok: true, status: res.status, data };
 }

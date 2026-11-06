@@ -187,8 +187,51 @@ textarea.act-input { resize: vertical; min-height: 64px; }
 }
 .act-tip strong { color: var(--text); font-size: 14px; font-family: 'Space Grotesk', sans-serif; }
 
+/* ---- Phase 2: extra fields, duplicate warning, repeat visits ---- */
+.act-details { display: flex; flex-direction: column; gap: 14px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+.act-sublabel { display: block; font-size: 13.5px; margin-bottom: 6px; }
+.act-hint { color: var(--text-dim); font-size: 12.5px; margin: 6px 0 0; }
+.act-results { display: flex; flex-direction: column; margin-top: 6px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.act-result {
+    background: var(--surface-2); color: var(--text); border: none; border-bottom: 1px solid var(--border);
+    text-align: left; padding: 12px 14px; min-height: 44px; font-size: 15px; font-family: 'Inter', sans-serif; cursor: pointer;
+}
+.act-result:last-child { border-bottom: none; }
+.act-result:hover, .act-result:focus-visible { background: var(--border); outline: none; }
+.act-results .act-hint { padding: 10px 14px; margin: 0; }
+
+.act-warn { background: rgba(245, 166, 35, 0.1); border: 1px solid var(--warn); border-radius: 10px; padding: 14px 16px; margin-bottom: 16px; }
+.act-warn p { margin: 0 0 12px; font-size: 14.5px; }
+.act-warn .act-actions { margin-top: 0; }
+
+.act-repeat { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.act-repeat-col h3 { font-size: 13px; color: var(--text-dim); font-weight: 600; margin: 0 0 8px; }
+.act-note-top { margin: -6px 0 14px; }
+
+/* ---- Manage Activity Types ---- */
+.act-intro { max-width: 720px; color: var(--text-dim); font-size: 13.5px; margin: 0 0 16px; }
+.act-mcat { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; margin-bottom: 16px; max-width: 900px; }
+.act-mcat-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 6px; }
+.act-mcat-head h2 { margin: 0; font-size: 17px; }
+.act-mbtns { display: flex; gap: 6px; flex-wrap: wrap; }
+.act-btn-small { padding: 6px 12px; min-height: 36px; font-size: 13px; }
+.act-check { display: flex; align-items: center; gap: 8px; font-size: 13.5px; color: var(--text-dim); margin: 8px 0; cursor: pointer; }
+.act-check input { width: 18px; height: 18px; accent-color: var(--accent); }
+.act-mtypes { list-style: none; margin: 8px 0 4px; padding: 0; }
+.act-mtype { border-top: 1px solid var(--border); padding: 10px 0; }
+.act-mtype-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.act-mtype-name { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.act-badge { font-size: 11px; font-family: 'JetBrains Mono', monospace; color: var(--text-dim); border: 1px solid var(--border); border-radius: 999px; padding: 1px 8px; margin-left: 6px; font-weight: 400; }
+.act-inactive > .act-mcat-head h2, .act-inactive > .act-mtype-row .act-mtype-name { opacity: 0.55; }
+.act-editor { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 14px; margin-top: 10px; }
+.act-fieldrow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.act-fieldrow .act-input { flex: 1 1 180px; min-height: 40px; padding: 8px 10px; font-size: 14px; width: auto; }
+.act-fieldrow .act-narrow { flex: 0 1 84px; }
+.act-fieldrow .act-check { margin: 0; }
+
 @media (max-width: 760px) {
     .act-overview { grid-template-columns: minmax(0, 1fr); }
+    .act-repeat { grid-template-columns: minmax(0, 1fr); }
     .act-detail-row { grid-template-columns: 1fr; gap: 2px; }
     .act-input-date { width: 100%; }
     .act-form .act-btn-primary { width: 100%; }

@@ -27,6 +27,7 @@ import { initNetwork } from "./network.js";
 import { initActivitySubmit } from "./activity-submit.js";
 import { initActivityReports } from "./activity-reports.js";
 import { initActivityOverview } from "./activity-overview.js";
+import { initActivityManage } from "./activity-manage.js";
 
 async function boot() {
     initShell();
@@ -61,6 +62,7 @@ async function boot() {
     initActivitySubmit();
     initActivityReports();
     initActivityOverview();
+    initActivityManage();
 
     bootAuth();
 }

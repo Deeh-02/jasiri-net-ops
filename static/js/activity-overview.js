@@ -69,7 +69,8 @@ function render() {
         <div class="act-card"><h2>By area</h2>${barsHtml(d.by_area.map(a => ({ name: a.area, value: a.count })), "reports")}</div>
         <div class="act-card"><h2>By technician</h2>${barsHtml(d.by_technician.map(t => ({ name: t.name, value: t.count })), "reports")}<p class="act-note">Counts every report a person is listed on.</p></div>
         <div class="act-card"><h2>Outcome mix</h2>${outcomesHtml(d.outcomes)}</div>
-        <div class="act-card"><h2>Time spent</h2>${timeHtml(d.time_spent)}</div>`;
+        <div class="act-card"><h2>Time spent</h2>${timeHtml(d.time_spent)}</div>
+        ${d.repeat_visits.enabled ? `<div class="act-card act-card-wide"><h2>Repeat visits</h2>${repeatHtml(d.repeat_visits)}</div>` : ""}`;
     drawTrend();
 }
 
@@ -185,6 +186,19 @@ function timeHtml(rows) {
         tip: `${hours(r.hours)} from ${r.reports_with_time} of ${r.reports} reports`,
     }));
     return `${barsHtml(items, "h")}<p class="act-note">Only reports that gave a time count: ${withTime} of ${all}. Chips are counted as 30 min, 1 h, 4 h and 8 h.</p>`;
+}
+
+// Customers and areas visited on more than one day. The window is always the
+// 30 days up to the end of the chosen period, whatever the period's own length.
+function repeatHtml(rv) {
+    const list = (title, groups, empty) => `<div class="act-repeat-col"><h3>${title}</h3>${groups.length
+        ? barsHtml(groups.map(g => ({ name: g.name, value: g.count, display: `${g.count}×`, tip: `${g.count} visits, last ${formatDay(g.last, { year: false })}` })), "visits")
+        : `<p class="act-none">${empty}</p>`}</div>`;
+    return `<p class="act-note act-note-top">${esc(rv.categories.join(", "))} reports on more than one day, ${esc(formatDay(rv.window_start, { year: false }))} – ${esc(formatDay(rv.window_end))}.</p>
+        <div class="act-repeat">
+            ${list("Customers", rv.customers, "None. Customers show here when a report names one.")}
+            ${list("Areas", rv.areas, "No area was visited more than once.")}
+        </div>`;
 }
 
 // ---- Tooltip (one shared element; names are inserted as text, never HTML) ---

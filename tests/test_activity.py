@@ -254,12 +254,187 @@ class Endpoints(unittest.TestCase):
             "reference": "TAL-2026-00001", "activity_date": "2026-11-06", "category": "Customer Support",
             "type": "No internet", "area": "Mwiki", "technicians": [{"id": 2, "name": "Tech"}],
             "outcome_label": "Completed", "time_spent_label": None, "description": "=HYPERLINK(\"x\")",
-            "remarks": None, "submitted_by_name": "Tech", "submitted_at_dt": NOW}]
+            "remarks": None, "details_view": [{"label": "Package", "text": "10 Mbps"}],
+            "submitted_by_name": "Tech", "submitted_at_dt": NOW}]
         response = api.export_reports(current_user=MANAGER)
         text = response.body.decode()
         self.assertIn("'=HYPERLINK", text)
         self.assertIn("2026-11-06 12:00", text)  # 09:00 UTC is 12:00 in Nairobi
+        self.assertIn("Package: 10 Mbps", text)
         self.assertIn("text/csv", response.media_type)
+
+
+# ---- Phase 2 --------------------------------------------------------------
+
+INSTALL_FIELDS = [
+    {"key": "customer", "label": "Customer", "kind": "customer", "required": False},
+    {"key": "package", "label": "Package", "kind": "text", "required": False},
+    {"key": "signal_dbm", "label": "Optical signal reading (dBm)", "kind": "number", "required": False, "min": -60, "max": 10},
+]
+
+
+class ExtraFields(unittest.TestCase):
+    def test_valid_answers_are_kept_and_blanks_dropped(self):
+        cleaned, errors = logic.check_details(INSTALL_FIELDS, {"package": " 10 Mbps ", "signal_dbm": "-18.5", "customer": None})
+        self.assertEqual(errors, [])
+        self.assertEqual(cleaned, {"package": "10 Mbps", "signal_dbm": -18.5})
+
+    def test_nothing_answered_stores_nothing(self):
+        self.assertEqual(logic.check_details(INSTALL_FIELDS, {}), (None, []))
+        self.assertEqual(logic.check_details(INSTALL_FIELDS, None), (None, []))
+
+    def test_answers_for_fields_the_type_does_not_have_are_dropped(self):
+        cleaned, _ = logic.check_details(INSTALL_FIELDS, {"package": "x", "cable_length": 300})
+        self.assertEqual(cleaned, {"package": "x"})
+
+    def test_signal_reading_must_be_a_sane_number(self):
+        for bad in ("abc", "-200", 99, float("nan"), True):
+            self.assertTrue(logic.check_details(INSTALL_FIELDS, {"signal_dbm": bad})[1], bad)
+
+    def test_required_field_is_enforced(self):
+        schema = [{"key": "fault", "label": "Fault encountered", "kind": "text", "required": True}]
+        self.assertEqual(logic.check_details(schema, {"fault": "  "})[1], ["Fault encountered is required"])
+        self.assertEqual(logic.check_details(schema, {"fault": "Cut cable"})[1], [])
+
+    def test_customer_answer_needs_an_id_and_is_filled_in_by_the_database(self):
+        self.assertEqual(logic.check_details(INSTALL_FIELDS, {"customer": {"id": 5, "name": "forged"}})[0],
+                         {"customer": {"id": 5}})
+        self.assertTrue(logic.check_details(INSTALL_FIELDS, {"customer": {"id": "5"}})[1])
+        self.assertTrue(logic.check_details(INSTALL_FIELDS, {"customer": "Jane"})[1])
+
+    def test_long_text_refused(self):
+        self.assertTrue(logic.check_details(INSTALL_FIELDS, {"package": "x" * 201})[1])
+
+    def test_details_read_back_in_the_schemas_order_and_keep_orphans(self):
+        rows = logic.describe_details(INSTALL_FIELDS, {"signal_dbm": -18.0, "customer": {"id": 1, "name": "Jane", "username": "jane01"},
+                                                       "old_field": "kept"})
+        self.assertEqual(rows, [("Customer", "Jane (jane01)"), ("Optical signal reading (dBm)", "-18"), ("old_field", "kept")])
+
+
+class FieldDefinitions(unittest.TestCase):
+    def test_a_good_list_is_accepted(self):
+        clean, errors = logic.check_schema(INSTALL_FIELDS)
+        self.assertEqual(errors, [])
+        self.assertEqual([f["key"] for f in clean], ["customer", "package", "signal_dbm"])
+
+    def test_no_fields_is_fine(self):
+        self.assertEqual(logic.check_schema([]), ([], []))
+        self.assertEqual(logic.check_schema(None), ([], []))
+
+    def test_bad_definitions_refused(self):
+        ok = {"key": "a", "label": "A", "kind": "text"}
+        for bad in (
+            [{**ok, "kind": "photo"}],                     # unknown kind
+            [{**ok, "key": "Bad Key"}],                    # not a slug
+            [{**ok, "key": "1a"}],                         # starts with a digit
+            [{**ok, "label": "  "}],                       # no label
+            [ok, ok],                                      # duplicate key
+            [{**ok, "kind": "number", "min": 5, "max": 1}],
+            [{**ok, "kind": "number", "min": "x"}],
+            [{"key": "c1", "label": "C1", "kind": "customer"}, {"key": "c2", "label": "C2", "kind": "customer"}],
+            [ok] * (logic.MAX_FIELDS_PER_TYPE + 1),
+            "not a list",
+        ):
+            self.assertTrue(logic.check_schema(bad)[1], bad)
+
+    def test_names(self):
+        self.assertEqual(logic.check_name("  Fibre   repair ", "type"), ("Fibre repair", None))
+        self.assertIsNotNone(logic.check_name("   ", "type")[1])
+        self.assertIsNotNone(logic.check_name("x" * 81, "type")[1])
+
+
+class RepeatVisits(unittest.TestCase):
+    def row(self, ref, day, location_id=1, area="Mwiki", details=None):
+        return {"reference": ref, "activity_date": day, "location_id": location_id, "area": area, "details": details}
+
+    def test_area_with_two_reports_is_a_repeat(self):
+        out = logic.repeat_groups([self.row("A", "2026-11-01"), self.row("B", "2026-11-05"), self.row("C", "2026-11-05", 2, "Sunton")])
+        self.assertEqual([(g["name"], g["count"], g["last"]) for g in out["areas"]], [("Mwiki", 2, "2026-11-05")])
+        self.assertEqual(out["customers"], [])
+
+    def test_a_single_visit_is_not_a_repeat(self):
+        self.assertEqual(logic.repeat_groups([self.row("A", "2026-11-01")]), {"customers": [], "areas": []})
+
+    def test_customers_counted_where_reports_name_one(self):
+        jane = {"customer": {"id": 7, "name": "Jane", "username": "jane01"}}
+        out = logic.repeat_groups([self.row("A", "2026-11-01", 1, "Mwiki", jane), self.row("B", "2026-11-02", 2, "Sunton", jane),
+                                   self.row("C", "2026-11-03", 3, "Stima")])
+        self.assertEqual([(g["name"], g["count"]) for g in out["customers"]], [("Jane", 2)])
+        self.assertEqual(out["areas"], [])      # different sites: no repeated area
+
+    def test_other_locations_match_ignoring_case_and_spaces(self):
+        out = logic.repeat_groups([self.row("A", "2026-11-01", None, "Behind Stima"), self.row("B", "2026-11-02", None, " behind stima ")])
+        self.assertEqual([g["count"] for g in out["areas"]], [2])
+
+    def test_two_reports_of_the_same_job_on_one_day_are_one_visit(self):
+        out = logic.repeat_groups([self.row("A", "2026-11-05"), self.row("B", "2026-11-05")])
+        self.assertEqual(out, {"customers": [], "areas": []})
+
+    def test_most_repeated_first(self):
+        rows = [self.row(f"A{i}", f"2026-11-0{i + 1}", 1, "Mwiki") for i in range(3)] + [self.row(f"B{i}", f"2026-11-0{i + 1}", 2, "Sunton") for i in range(2)]
+        self.assertEqual([g["name"] for g in logic.repeat_groups(rows)["areas"]], ["Mwiki", "Sunton"])
+
+
+class Phase2Endpoints(unittest.TestCase):
+    def setUp(self):
+        self.db = mock.patch.object(api, "db").start()
+        self.db.ActivityInvalid = type("ActivityInvalid", (Exception,), {})
+        self.catalog = mock.patch.object(api, "catalog").start()
+        self.addCleanup(mock.patch.stopall)
+
+    def create(self, **kw):
+        return api.ReportCreate(activity_date=date.today(), type_id=7, location_id=3, **kw)
+
+    def test_a_possible_duplicate_comes_back_as_409_with_the_existing_reference(self):
+        self.db.prepare_details.return_value = None
+        self.db.create_report.return_value = {"possible_duplicates": [{"id": 4, "reference": "TAL-2026-00004", "submitted_by_name": "Other"}]}
+        with self.assertRaises(HTTPException) as caught:
+            api.submit_report(self.create(), current_user=TECH)
+        self.assertEqual(caught.exception.status_code, 409)
+        self.assertEqual(caught.exception.detail["possible_duplicates"][0]["reference"], "TAL-2026-00004")
+
+    def test_submit_anyway_is_passed_through_and_saves(self):
+        self.db.prepare_details.return_value = None
+        self.db.create_report.return_value = {"id": 9, "reference": "TAL-2026-00009", "duplicate": False}
+        result = api.submit_report(self.create(confirm_duplicate=True), current_user=TECH)
+        self.assertEqual(result["reference"], "TAL-2026-00009")
+        self.assertTrue(self.db.create_report.call_args.args[5])
+
+    def test_extra_field_problems_are_a_400_with_the_reason(self):
+        self.db.prepare_details.side_effect = self.db.ActivityInvalid("Fault encountered is required")
+        with self.assertRaises(HTTPException) as caught:
+            api.submit_report(self.create(), current_user=TECH)
+        self.assertEqual((caught.exception.status_code, caught.exception.detail), (400, "Fault encountered is required"))
+        self.db.create_report.assert_not_called()
+
+    def test_manage_endpoints_are_admin_only(self):
+        with self.assertRaises(HTTPException) as caught:
+            api.require_admin(MANAGER)
+        self.assertEqual(caught.exception.status_code, 403)
+        routes = {r.path: r for r in api.router.routes}
+        for path in ("/activity/admin/catalog", "/activity/admin/categories", "/activity/admin/types/{type_id}/fields",
+                     "/activity/admin/categories/order"):
+            deps = [d.call for d in routes[path].dependant.dependencies]
+            self.assertIn(api.require_admin, deps, path)
+
+    def test_manage_change_returns_the_fresh_catalog_and_maps_errors(self):
+        self.catalog.get_catalog.return_value = ["fresh"]
+        self.catalog.add_category.return_value = 8
+        self.assertEqual(api.add_category(api.NameBody(name="Wireless"), current_user=ADMIN), {"catalog": ["fresh"]})
+        self.catalog.add_type.side_effect = self.db.ActivityInvalid("already has a type with that name")
+        with self.assertRaises(HTTPException) as caught:
+            api.add_type(api.NewType(category_id=1, name="Splicing"), current_user=ADMIN)
+        self.assertEqual(caught.exception.status_code, 400)
+        self.catalog.update_type.return_value = False
+        with self.assertRaises(HTTPException) as caught:
+            api.change_type(99, api.TypeChanges(name="x"), current_user=ADMIN)
+        self.assertEqual(caught.exception.status_code, 404)
+
+    def test_customer_search_needs_the_submit_permission(self):
+        routes = {r.path: r for r in api.router.routes}
+        self.assertEqual(len(routes["/activity/customers"].dependant.dependencies), 1)
+        self.db.search_customers.return_value = [{"id": 1, "name": "Jane", "username": "j", "plan": "10M"}]
+        self.assertEqual(api.search_customers(q="jan", current_user=TECH)[0]["name"], "Jane")
 
 
 if __name__ == "__main__":

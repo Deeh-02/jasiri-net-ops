@@ -24,6 +24,11 @@
                 <div class="act-chips" id="act-types" role="radiogroup" aria-labelledby="act-type-label"></div>
             </div>
 
+            <div class="act-field" id="act-details-field" hidden>
+                <span class="act-label">More about this job</span>
+                <div class="act-details" id="act-details"></div>
+            </div>
+
             <div class="act-field">
                 <label class="act-label" for="act-location">Location</label>
                 <select id="act-location" class="act-input"></select>
@@ -60,6 +65,14 @@
             </div>
 
             <p class="act-error" id="act-form-error" role="alert" hidden></p>
+
+            <div class="act-warn" id="act-dup" role="alert" hidden>
+                <p id="act-dup-text"></p>
+                <div class="act-actions">
+                    <button type="button" class="act-btn act-btn-primary" id="act-dup-go">Submit anyway</button>
+                    <button type="button" class="act-btn" id="act-dup-back">Go back</button>
+                </div>
+            </div>
 
             <div class="act-actions">
                 <button type="submit" class="act-btn act-btn-primary" id="act-submit-btn">Submit report</button>

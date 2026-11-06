@@ -29,11 +29,13 @@ function blankState() {
         activity_date: options.today, category_id: null, type_id: null,
         location, other_location: other, outcome: options.default_outcome,
         technician_ids: [], time_spent: null, description: "", remarks: "",
+        details: {},
         client_token: newToken(),
     };
 }
 
 function saveDraft() {
+    hideDuplicate();    // any change means the warning no longer describes what's on screen
     if (editing) return;
     try { localStorage.setItem(DRAFT_KEY, JSON.stringify(state)); } catch { /* private mode or full: the form still works */ }
 }
@@ -64,6 +66,7 @@ function restoredDraft() {
         description: typeof draft.description === "string" ? draft.description : "",
         remarks: typeof draft.remarks === "string" ? draft.remarks : "",
         client_token: typeof draft.client_token === "string" && draft.client_token ? draft.client_token : base.client_token,
+        details: draft.details && typeof draft.details === "object" ? draft.details : {},
     };
 }
 
@@ -78,6 +81,82 @@ function drawCategories() {
     const category = options.categories.find(c => c.id === state.category_id);
     $("act-type-field").hidden = !category;
     $("act-types").innerHTML = category ? category.types.map(t => chipHtml("type", t.id, t.name, t.id === state.type_id)).join("") : "";
+}
+
+// ---- Extra fields. Which ones appear comes from the chosen type's own
+// configuration (options.categories[].types[].fields), never from code here.
+
+function currentFields() {
+    const category = options.categories.find(c => c.id === state.category_id);
+    return category?.types.find(t => t.id === state.type_id)?.fields || [];
+}
+
+function detailInput(f) {
+    const value = state.details[f.key];
+    const id = `act-d-${f.key}`;
+    const label = `<label class="act-sublabel" for="${id}">${esc(f.label)}${f.required ? "" : ` <span class="act-optional">optional</span>`}</label>`;
+    if (f.kind === "customer") {
+        const picked = value && typeof value === "object"
+            ? `<span class="act-chip selected removable" data-customer-clear="${esc(f.key)}">${esc(value.name)} · ${esc(value.username)} <span aria-hidden="true">×</span></span>` : "";
+        return `<div class="act-detail-field" data-customer-field="${esc(f.key)}">${label}
+            ${picked || `<input type="search" id="${id}" class="act-input" data-customer-search="${esc(f.key)}" placeholder="Search by name or username" autocomplete="off">`}
+            <div class="act-results" data-customer-results="${esc(f.key)}" hidden></div>
+            ${picked ? "" : `<p class="act-hint">Not found? Leave it blank and name them in the description.</p>`}</div>`;
+    }
+    const attrs = f.kind === "number" ? `type="number" step="any"${f.min != null ? ` min="${f.min}"` : ""}${f.max != null ? ` max="${f.max}"` : ""}` : `type="text" maxlength="200"`;
+    return `<div class="act-detail-field">${label}<input ${attrs} id="${id}" class="act-input" data-detail="${esc(f.key)}" value="${esc(value ?? "")}"></div>`;
+}
+
+function drawDetails() {
+    const fields = currentFields();
+    $("act-details-field").hidden = !fields.length;
+    $("act-details").innerHTML = fields.map(detailInput).join("");
+}
+
+// Changing the type keeps the answers the new type also asks for.
+function keepMatchingDetails() {
+    const fields = currentFields();
+    state.details = Object.fromEntries(Object.entries(state.details).filter(([key, value]) => {
+        const f = fields.find(x => x.key === key);
+        return f && ((f.kind === "customer") === (typeof value === "object"));
+    }));
+}
+
+let customerTimer = null;
+async function searchCustomers(input) {
+    const results = document.querySelector(`[data-customer-results="${input.dataset.customerSearch}"]`);
+    const text = input.value.trim();
+    if (text.length < 2) { results.hidden = true; return; }
+    const res = await api(`/activity/customers?q=${encodeURIComponent(text)}`);
+    if (input.value.trim() !== text) return;          // typed on since: a newer search is coming
+    results.hidden = false;
+    if (!res.ok) { results.innerHTML = `<p class="act-hint">${esc(res.error)}</p>`; return; }
+    results.innerHTML = res.data.length
+        ? res.data.map(c => `<button type="button" class="act-result" data-customer-pick="${esc(input.dataset.customerSearch)}" data-id="${c.id}" data-name="${esc(c.name)}" data-username="${esc(c.username)}" data-plan="${esc(c.plan || "")}">${esc(c.name)} <span class="act-sub">${esc(c.username)}${c.plan ? " · " + esc(c.plan) : ""}</span></button>`).join("")
+        : `<p class="act-hint">No customer found. Leave it blank and name them in the description.</p>`;
+}
+
+function onDetailsEvent(e) {
+    const input = e.target.closest("[data-detail]");
+    if (input) { state.details[input.dataset.detail] = input.value; saveDraft(); return; }
+    const search = e.target.closest("[data-customer-search]");
+    if (search) { clearTimeout(customerTimer); customerTimer = setTimeout(() => searchCustomers(search), 250); }
+}
+
+function onDetailsClick(e) {
+    const pick = e.target.closest("[data-customer-pick]");
+    if (pick) {
+        const { customerPick: key, id, name, username, plan } = pick.dataset;
+        state.details[key] = { id: Number(id), name, username };
+        // The package is nearly always the customer's own plan: save a typing.
+        const packageField = currentFields().find(f => f.key === "package" && f.kind === "text");
+        if (plan && packageField && !state.details.package) state.details.package = plan;
+        drawDetails();
+        saveDraft();
+        return;
+    }
+    const clear = e.target.closest("[data-customer-clear]");
+    if (clear) { delete state.details[clear.dataset.customerClear]; drawDetails(); saveDraft(); }
 }
 
 function drawLocation() {
@@ -126,7 +205,7 @@ function drawText() {
 }
 
 function drawAll() {
-    drawCategories(); drawLocation(); drawOutcomes(); drawTechnicians(); drawTime(); drawText();
+    drawCategories(); drawDetails(); drawLocation(); drawOutcomes(); drawTechnicians(); drawTime(); drawText();
     setError($("act-form-error"), "");
 }
 
@@ -138,11 +217,14 @@ function onChip(e) {
     const { chip: kind, value } = chip.dataset;
     if (kind === "category") {
         const id = Number(value);
-        if (state.category_id !== id) { state.category_id = id; state.type_id = null; }
+        if (state.category_id !== id) { state.category_id = id; state.type_id = null; keepMatchingDetails(); }
         drawCategories();
+        drawDetails();
     } else if (kind === "type") {
         state.type_id = Number(value);
+        keepMatchingDetails();
         drawCategories();
+        drawDetails();
     } else if (kind === "outcome") {
         state.outcome = value;
         drawOutcomes();
@@ -167,12 +249,47 @@ function problems() {
     else if (state.location === "other" && !state.other_location.trim()) out.push("Say where it was (a few words)");
     if (options.explanation_outcomes.includes(state.outcome) && !state.description.trim()) out.push("Add a one-line explanation for this outcome");
     if (!state.activity_date) out.push("Pick the date");
+    for (const f of currentFields()) {
+        const v = state.details[f.key];
+        if (f.required && (v === undefined || v === null || String(typeof v === "object" ? v.id : v).trim() === "")) out.push(`${f.label} is required`);
+    }
     return out;
 }
 
-async function onSubmit(e) {
+function detailsForSending() {
+    const out = {};
+    for (const f of currentFields()) {
+        const v = state.details[f.key];
+        if (v === undefined || v === null) continue;
+        if (typeof v === "object") out[f.key] = { id: v.id };    // the server fills in the rest
+        else if (String(v).trim() !== "") out[f.key] = String(v).trim();
+    }
+    return out;
+}
+
+function hideDuplicate() {
+    const box = document.getElementById("act-dup");
+    if (box) box.hidden = true;
+}
+
+function showDuplicate(found) {
+    const one = found[0];
+    const text = found.length === 1
+        ? `${one.reference} (by ${one.submitted_by_name}) was already filed for this activity type, location and date.`
+        : `${found.map(f => f.reference).join(", ")} were already filed for this activity type, location and date.`;
+    $("act-dup-text").textContent = `${text} Is yours a different job?`;
+    $("act-dup").hidden = false;
+    $("act-dup").scrollIntoView({ block: "center", behavior: "smooth" });
+}
+
+function onSubmit(e) {
     e.preventDefault();
+    submit(false);
+}
+
+async function submit(confirmDuplicate) {
     if (sending) return;
+    hideDuplicate();
     const found = problems();
     if (found.length) { setError($("act-form-error"), found[0]); return; }
 
@@ -186,8 +303,12 @@ async function onSubmit(e) {
         time_spent: state.time_spent,
         remarks: state.remarks.trim() || null,
         technician_ids: state.technician_ids,
+        details: detailsForSending(),
     };
-    if (!editing) body.client_token = state.client_token;
+    if (!editing) {
+        body.client_token = state.client_token;
+        if (confirmDuplicate) body.confirm_duplicate = true;
+    }
 
     sending = true;
     const button = $("act-submit-btn");
@@ -202,6 +323,10 @@ async function onSubmit(e) {
 
     if (!res.ok) {
         // Nothing is cleared: the same form, the same token, ready to retry.
+        if (res.status === 409 && res.detail?.possible_duplicates) {
+            showDuplicate(res.detail.possible_duplicates);    // a question, not an error
+            return;
+        }
         setError($("act-form-error"), res.error);
         return;
     }
@@ -272,7 +397,7 @@ async function openEdit(id) {
     // been deactivated.
     let category = options.categories.find(c => c.id === report.category_id);
     if (!category) { category = { id: report.category_id, name: report.category, types: [] }; options.categories.push(category); }
-    if (!category.types.some(t => t.id === report.type_id)) category.types.push({ id: report.type_id, name: report.type });
+    if (!category.types.some(t => t.id === report.type_id)) category.types.push({ id: report.type_id, name: report.type, fields: report.type_fields });
     if (report.location_id && !options.locations.some(l => l.id === report.location_id)) {
         options.locations.push({ id: report.location_id, name: report.location });
     }
@@ -285,6 +410,7 @@ async function openEdit(id) {
         other_location: report.other_location || "", outcome: report.outcome,
         technician_ids: report.technicians.map(t => t.id).filter(tid => tid !== report.submitted_by),
         time_spent: report.time_spent, description: report.description || "", remarks: report.remarks || "",
+        details: report.details || {},
         client_token: "",
     };
     showForm(`Edit ${report.reference}`);
@@ -295,6 +421,10 @@ export function initActivitySubmit() {
     const form = $("act-form");
     form.addEventListener("click", onChip);
     form.addEventListener("submit", onSubmit);
+    $("act-details").addEventListener("input", onDetailsEvent);
+    $("act-details").addEventListener("click", onDetailsClick);
+    $("act-dup-go").addEventListener("click", () => submit(true));
+    $("act-dup-back").addEventListener("click", hideDuplicate);
 
     $("act-date").addEventListener("change", (e) => { state.activity_date = e.target.value; saveDraft(); });
     $("act-location").addEventListener("change", (e) => {

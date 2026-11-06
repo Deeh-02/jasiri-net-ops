@@ -1740,9 +1740,9 @@ policies, not a blanket switch.
 ### Technical Activity Log — reports, not tickets; rules in one pure module
 
 Added 2026-11-06 on `phase-4-network-monitoring` (owner's call; scope document
-"Technical Activity Log & Reporting"). Phase 1 only: submit, reports, overview.
-Phase 2 (per-type extra fields, admin screen for categories/types, duplicate
-warning, repeat-visit metric) and Materials/Photos are NOT built.
+"Technical Activity Log & Reporting"). Phases 1 and 2: submit, reports, overview,
+per-type extra fields, the admin Manage screen, the duplicate warning and the
+repeat-visit metric. Materials and Photos are deferred and NOT built.
 - **Tables (migration 0026):** `activity_categories`, `activity_types`,
   `activity_reports`, `activity_report_technicians`, `activity_reference_counters`.
   Categories/types are seeded by the migration and are data, not code; deactivate,
@@ -1766,6 +1766,29 @@ warning, repeat-visit metric) and Materials/Photos are NOT built.
 - **Form** keeps its state in one object; a failed submit changes nothing, and a draft is
   kept in `localStorage` so a reload doesn't lose it. The date defaults to today in Nairobi,
   the location to the person's last report.
+- **Phase 2 (migration 0027).** `activity_types.details_schema` (jsonb list of
+  `{key,label,kind,required[,min,max]}`; kind text|number|customer) is the config for a
+  type's extra fields; answers go in `activity_reports.details`. The form, validation and
+  display all read the schema, so a new field is an admin edit, not code. Seeded: Customer
+  Installation (customer, package, signal dBm) and Network Maintenance (fault, repair);
+  no cable fields, that is Materials. The seed runs only on the first run and only fills
+  types with a NULL schema; "no fields" is saved as `[]`, so a re-run never undoes an
+  admin's edit. A customer answer is `{id,name,username}`; the browser sends only the id and
+  the server copies the rest from `ppp_customers` (the picker returns name, username and plan
+  only, never phone numbers, which sit behind the broadcast permission). Hotspot customers
+  are not records, so only PPPoE customers are searchable.
+- **Manage screen** (admin only, `require_admin`, not grantable to a custom role): add,
+  rename, reorder, deactivate categories and types, edit a type's fields, optionally copying
+  them to every type in the category. Names are unique ignoring case. Every change answers
+  with the whole catalog and the screen redraws from it.
+- **Duplicate warning:** same type + location + date as a live report returns 409 with the
+  existing reference(s) and saves nothing; resending with `confirm_duplicate` saves. It never
+  blocks. The retry token is checked first, so resending the same form is not a "duplicate".
+- **Repeat visits:** categories carry a `repeat_visit_tracking` flag (seeded for Customer
+  Support) so no code names a category. The window is the 30 days ending on the Overview's
+  end date. A visit is a *day*: two technicians reporting one job on the same day are one
+  visit. Areas are always known; customers appear only where a report names one, so Customer
+  Support shows customers only once that type is given a Customer field on the Manage screen.
 - Tested against a throwaway Postgres (migration twice, concurrent references, scoping,
   soft delete) and driven in headless Chromium at phone width. `tests/test_activity.py`.
 

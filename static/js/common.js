@@ -121,6 +121,9 @@ const ROUTE_PERMISSION_MAP = {
     "activity-reports": ["activity_log", "view"],
     "activity-submit": ["activity_log", "submit"],
     "activity-overview": ["activity_log", "view_overview"],
+    // Admin only: no role can be given this (the Roles page doesn't offer it and
+    // the server uses require_admin), so only the built-in admin ever passes can().
+    "activity-manage": ["activity_log", "manage"],
 };
 
 function isRouteAllowed(name) {
@@ -375,7 +378,7 @@ const NAV_GROUP_ROUTES = {
     inventory: ["inventory", "stock", "inventory-log", "inventory-manage"],
     alerts: ["notifications", "alert-templates", "customers", "broadcast"],
     reports: ["inventory-reports", "sms-status", "revenue"],
-    activity: ["activity-overview", "activity-reports", "activity-submit"],
+    activity: ["activity-overview", "activity-reports", "activity-submit", "activity-manage"],
 };
 
 function setActiveNav(name) {
@@ -695,7 +698,7 @@ function renderCmdkResults(query) {
 // ---- Fragment loader: fetches every view's HTML and injects it into its
 // mount point. Loaded eagerly, all at once, at startup — the app is small
 // enough that lazy-per-nav loading isn't worth the added state-tracking. ----
-const VIEW_NAMES = ["dashboard", "sites", "movements", "status", "site-detail", "trends", "manage-sites", "packages", "notifications", "alert-templates", "customers", "broadcast", "users", "roles", "settings", "inventory", "stock", "inventory-log", "issue-materials", "return-materials", "inventory-reports", "sms-status", "revenue", "inventory-manage", "network", "activity-overview", "activity-reports", "activity-submit"];
+const VIEW_NAMES = ["dashboard", "sites", "movements", "status", "site-detail", "trends", "manage-sites", "packages", "notifications", "alert-templates", "customers", "broadcast", "users", "roles", "settings", "inventory", "stock", "inventory-log", "issue-materials", "return-materials", "inventory-reports", "sms-status", "revenue", "inventory-manage", "network", "activity-overview", "activity-reports", "activity-submit", "activity-manage"];
 
 export async function loadViewFragments() {
     await Promise.all(VIEW_NAMES.map(async (name) => {

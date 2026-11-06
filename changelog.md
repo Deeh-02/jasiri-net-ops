@@ -22,6 +22,18 @@ run once; until then only these pages error.
   deleted report is hidden from the lists and every total, never erased.
 - **Roles page:** new "Technical Activity Log" section.
 
+**Phase 2** (needs `migrations/0027_activity_log_phase2.sql`; it is additive, so it can run
+before or after the code is deployed)
+- **Extra questions per activity type:** Customer Installation asks for the customer (search
+  by name or username, and the package fills in from their plan), package and optical signal
+  (dBm); Network Maintenance asks for the fault and the repair. They show only for those types.
+- **Manage Activity Types (admin only):** add, rename, reorder and deactivate categories and
+  types, and change what each type asks, without a code change.
+- **Duplicate warning:** if the same type, location and date has already been reported, the
+  form shows that reference and asks "Submit anyway?". It never blocks.
+- **Repeat visits** on the Overview: customers and areas with Customer Support visits on more
+  than one day in the 30 days up to the end of the chosen period.
+
 ## Revenue Report live figures, and an admin assistant (on `phase-4-network-monitoring`)
 
 Built outside the phase plan at the owner's request (2026-11-03/04), on

@@ -127,6 +127,7 @@ async function openDetail(id) {
         row("Outcome", outcomePill(r.outcome, r.outcome_label)),
         row("Technicians", esc(r.technicians.map(t => t.name).join(", "))),
         row("Time spent", r.time_spent_label ? esc(r.time_spent_label) : `<span class="act-none">Not given</span>`),
+        ...r.details_view.map(d => row(d.label, esc(d.text))),
         row("Description", text(r.description)),
         row("Remarks", text(r.remarks)),
         row("Submitted", `${esc(r.submitted_by_name)} · ${esc(formatDate(r.submitted_at))}`),

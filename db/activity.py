@@ -1,12 +1,16 @@
 """Technical Activity Log: queries. Rules that need no database (validation,
 the edit window, the reference format, Overview bucketing) are in
-db/activity_logic.py. Tables are in migration 0026.
+db/activity_logic.py. Tables are in migrations 0026 and 0027; the admin screen's
+queries are in db/activity_catalog.py.
 
-Reads users and locations through their own tables, the same cross-domain
-read the other domains do; nothing here writes to either.
+Reads users, locations and ppp_customers (the customer picker) through their
+own tables, the same cross-domain read the other domains do; nothing here
+writes to any of them.
 """
+from datetime import timedelta
+
 from psycopg2 import errors
-from psycopg2.extras import execute_values
+from psycopg2.extras import Json, execute_values
 
 from db import activity_logic as logic
 from db import sites as db_sites
@@ -36,6 +40,7 @@ _REPORT_COLUMNS = [
     ("description", "r.description"),
     ("remarks", "r.remarks"),
     ("details", "r.details"),
+    ("type_fields", "t.details_schema"),
     ("submitted_by", "r.submitted_by"),
     ("submitted_by_name", "sb.name"),
     ("submitted_at", "r.submitted_at"),
@@ -67,6 +72,9 @@ def _report(row):
     r["area"] = r["location"] or r["other_location"]
     r["outcome_label"] = logic.OUTCOME_LABELS.get(r["outcome"], r["outcome"])
     r["time_spent_label"] = logic.TIME_SPENT_LABELS.get(r["time_spent"])
+    r["type_fields"] = r["type_fields"] or []
+    r["details_view"] = [{"label": label, "text": text}
+                         for label, text in logic.describe_details(r["type_fields"], r["details"])]
     return r
 
 
@@ -78,11 +86,11 @@ def get_options(user_id):
         cur.execute("SELECT id, name FROM activity_categories WHERE is_active ORDER BY sort_order, name")
         categories = [{"id": r[0], "name": r[1], "types": []} for r in cur.fetchall()]
         by_id = {c["id"]: c for c in categories}
-        cur.execute("""SELECT id, category_id, name FROM activity_types
+        cur.execute("""SELECT id, category_id, name, details_schema FROM activity_types
                        WHERE is_active ORDER BY sort_order, name""")
-        for type_id, category_id, name in cur.fetchall():
+        for type_id, category_id, name, schema in cur.fetchall():
             if category_id in by_id:
-                by_id[category_id]["types"].append({"id": type_id, "name": name})
+                by_id[category_id]["types"].append({"id": type_id, "name": name, "fields": schema or []})
 
         cur.execute("SELECT id, name FROM users WHERE status = 'active' ORDER BY name")
         technicians = [{"id": r[0], "name": r[1]} for r in cur.fetchall()]
@@ -128,6 +136,69 @@ def get_filter_options():
     }
 
 
+# ---- Extra fields, customers, duplicates ----------------------------------
+
+def get_type_schema(type_id):
+    """The extra fields of one activity type ([] if none). None if there is no such type."""
+    with db_cursor() as (conn, cur):
+        cur.execute("SELECT details_schema FROM activity_types WHERE id = %s", (type_id,))
+        row = cur.fetchone()
+    return None if row is None else (row[0] or [])
+
+
+def prepare_details(type_id, raw):
+    """Checks a report's extra-field answers against its type's fields and
+    fills in each customer's name and username from the customer record (the
+    browser only says which one — it is never trusted for the rest).
+    Returns the dict to store, or None. Raises ActivityInvalid with a message."""
+    schema = get_type_schema(type_id)
+    if schema is None:
+        raise ActivityInvalid("That activity type isn't available. Pick another")
+    cleaned, problems = logic.check_details(schema, raw)
+    if problems:
+        raise ActivityInvalid(problems[0])
+    if not cleaned:
+        return None
+    for key, value in cleaned.items():
+        if isinstance(value, dict):
+            with db_cursor() as (conn, cur):
+                cur.execute("SELECT id, name, username FROM ppp_customers WHERE id = %s", (value["id"],))
+                row = cur.fetchone()
+            if row is None:
+                raise ActivityInvalid("That customer wasn't found. Clear it and name them in the description")
+            cleaned[key] = {"id": row[0], "name": row[1] or row[2], "username": row[2]}
+    return cleaned
+
+
+def search_customers(text, limit=10):
+    """For the customer picker. Name, username and package only: no phone numbers,
+    which are behind the broadcast permission."""
+    text = (text or "").strip()
+    if len(text) < 2:
+        return []
+    pattern = logic.like_pattern(text)
+    with db_cursor() as (conn, cur):
+        cur.execute("""SELECT id, name, username, plan FROM ppp_customers
+                       WHERE name ILIKE %s OR username ILIKE %s
+                       ORDER BY name NULLS LAST, username LIMIT %s""", (pattern, pattern, limit))
+        return [{"id": r[0], "name": r[1] or r[2], "username": r[2], "plan": r[3]} for r in cur.fetchall()]
+
+
+def _possible_duplicates(cur, cleaned):
+    """Reports already filed for the same type, location and date. A site
+    matches by id; "Other" matches by its text, ignoring case."""
+    if cleaned["location_id"]:
+        where, where_params = "r.location_id = %s", [cleaned["location_id"]]
+    else:
+        where, where_params = "r.location_id IS NULL AND lower(trim(r.other_location)) = %s", [(cleaned["other_location"] or "").strip().lower()]
+    cur.execute(f"""SELECT r.id, r.reference, u.name FROM activity_reports r
+                    JOIN users u ON u.id = r.submitted_by
+                    WHERE NOT r.is_deleted AND r.type_id = %s AND r.activity_date = %s AND {where}
+                    ORDER BY r.submitted_at LIMIT 5""",
+                [cleaned["type_id"], cleaned["activity_date"]] + where_params)
+    return [{"id": r[0], "reference": r[1], "submitted_by_name": r[2]} for r in cur.fetchall()]
+
+
 # ---- Writing --------------------------------------------------------------
 
 def _check_references(cur, cleaned, technician_ids, existing=None):
@@ -163,12 +234,17 @@ def _by_token(cur, token, user_id):
     return {"id": row[0], "reference": row[1], "duplicate": True} if row else None
 
 
-def create_report(user_id, cleaned, technician_ids, client_token=None):
+def create_report(user_id, cleaned, technician_ids, client_token=None, details=None, confirm_duplicate=False):
     """Saves a report and returns its id and reference. The reference comes
     from a per-year counter inside the same transaction, so two people
     submitting at once can't share one and a failed save doesn't burn a
     number. Re-sending the same client_token returns the report already
-    saved (duplicate=True) instead of making a second."""
+    saved (duplicate=True) instead of making a second.
+
+    The same type, location and date as a report already filed is only a
+    warning: without confirm_duplicate nothing is saved and
+    {"possible_duplicates": [...]} comes back so the person can choose to
+    submit anyway. It never blocks."""
     people = logic.technicians_with_submitter(user_id, technician_ids)
     with db_cursor() as (conn, cur):
         if client_token:
@@ -176,6 +252,10 @@ def create_report(user_id, cleaned, technician_ids, client_token=None):
             if existing:
                 return existing
         _check_references(cur, cleaned, people)
+        if not confirm_duplicate:
+            found = _possible_duplicates(cur, cleaned)
+            if found:
+                return {"possible_duplicates": found}
 
         year = now_eat().year
         cur.execute("""INSERT INTO activity_reference_counters (year, last_number) VALUES (%s, 1)
@@ -187,12 +267,13 @@ def create_report(user_id, cleaned, technician_ids, client_token=None):
             cur.execute("""
                 INSERT INTO activity_reports
                     (reference, client_token, activity_date, type_id, location_id, other_location,
-                     outcome, description, time_spent, remarks, submitted_by)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                     outcome, description, time_spent, remarks, details, submitted_by)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id""",
                 (reference, client_token, cleaned["activity_date"], cleaned["type_id"],
                  cleaned["location_id"], cleaned["other_location"], cleaned["outcome"],
-                 cleaned["description"], cleaned["time_spent"], cleaned["remarks"], user_id))
+                 cleaned["description"], cleaned["time_spent"], cleaned["remarks"],
+                 Json(details) if details else None, user_id))
         except errors.UniqueViolation:
             # Two sends of the same form arrived together; the other one won.
             conn.rollback()
@@ -207,7 +288,7 @@ def create_report(user_id, cleaned, technician_ids, client_token=None):
     return {"id": report_id, "reference": reference, "duplicate": False}
 
 
-def update_report(report_id, editor_id, cleaned, technician_ids):
+def update_report(report_id, editor_id, cleaned, technician_ids, details=None):
     """Replaces a report's editable fields and stamps who edited it and when.
     The submitter stays on the report whoever edits it."""
     with db_cursor() as (conn, cur):
@@ -227,12 +308,13 @@ def update_report(report_id, editor_id, cleaned, technician_ids):
         cur.execute("""
             UPDATE activity_reports
             SET activity_date = %s, type_id = %s, location_id = %s, other_location = %s,
-                outcome = %s, description = %s, time_spent = %s, remarks = %s,
+                outcome = %s, description = %s, time_spent = %s, remarks = %s, details = %s,
                 last_edited_by = %s, last_edited_at = now()
             WHERE id = %s""",
             (cleaned["activity_date"], cleaned["type_id"], cleaned["location_id"],
              cleaned["other_location"], cleaned["outcome"], cleaned["description"],
-             cleaned["time_spent"], cleaned["remarks"], editor_id, report_id))
+             cleaned["time_spent"], cleaned["remarks"], Json(details) if details else None,
+             editor_id, report_id))
         cur.execute("DELETE FROM activity_report_technicians WHERE report_id = %s", (report_id,))
         execute_values(cur, "INSERT INTO activity_report_technicians (report_id, user_id) VALUES %s",
                        [(report_id, u) for u in people])
@@ -398,6 +480,7 @@ def get_overview(start, end, bucket):
         "start": start.isoformat(),
         "end": end.isoformat(),
         "bucket": bucket,
+        "repeat_visits": get_repeat_visits(end),
         "total": outcomes["total"],
         "over_time": over_time,
         "by_category": by_category,
@@ -406,3 +489,31 @@ def get_overview(start, end, bucket):
         "outcomes": outcomes,
         "time_spent": time_spent,
     }
+
+
+def get_repeat_visits(end):
+    """Customers and areas with more than one report in a tracked category
+    (Customer Support, as seeded; the Manage screen decides) in the 30 days
+    ending on `end`. The window follows the Overview's end date, not its start,
+    because "within 30 days" is the question whatever period is on screen.
+    enabled is False when no category is tracked, so the page can hide the card;
+    categories names the tracked ones so the card can say what it counts."""
+    window_start = end - timedelta(days=logic.REPEAT_WINDOW_DAYS - 1)
+    with db_cursor() as (conn, cur):
+        cur.execute("SELECT name FROM activity_categories WHERE repeat_visit_tracking AND is_active ORDER BY sort_order, name")
+        tracked = [r[0] for r in cur.fetchall()]
+        rows = []
+        if tracked:
+            cur.execute("""SELECT r.reference, r.activity_date, r.location_id,
+                                  COALESCE(l.name, r.other_location), r.details
+                           FROM activity_reports r
+                           JOIN activity_types t ON t.id = r.type_id
+                           JOIN activity_categories c ON c.id = t.category_id
+                           LEFT JOIN locations l ON l.id = r.location_id
+                           WHERE NOT r.is_deleted AND c.repeat_visit_tracking
+                                 AND r.activity_date BETWEEN %s AND %s""", (window_start, end))
+            rows = [{"reference": r[0], "activity_date": r[1].isoformat(), "location_id": r[2],
+                     "area": r[3], "details": r[4]} for r in cur.fetchall()]
+    groups = logic.repeat_groups(rows)
+    return {"enabled": bool(tracked), "categories": tracked, "window_start": window_start.isoformat(),
+            "window_end": end.isoformat(), **groups}
