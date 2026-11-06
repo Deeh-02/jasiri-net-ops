@@ -234,7 +234,8 @@ def _by_token(cur, token, user_id):
     return {"id": row[0], "reference": row[1], "duplicate": True} if row else None
 
 
-def create_report(user_id, cleaned, technician_ids, client_token=None, details=None, confirm_duplicate=False):
+def create_report(user_id, cleaned, technician_ids, client_token=None, details=None, confirm_duplicate=False,
+                  submitted_at=None):
     """Saves a report and returns its id and reference. The reference comes
     from a per-year counter inside the same transaction, so two people
     submitting at once can't share one and a failed save doesn't burn a
@@ -244,7 +245,10 @@ def create_report(user_id, cleaned, technician_ids, client_token=None, details=N
     The same type, location and date as a report already filed is only a
     warning: without confirm_duplicate nothing is saved and
     {"possible_duplicates": [...]} comes back so the person can choose to
-    submit anyway. It never blocks."""
+    submit anyway. It never blocks.
+
+    submitted_at (a naive UTC datetime) is for loading old reports, so they read
+    as filed back then; the form never sets it (the database's now() is used)."""
     people = logic.technicians_with_submitter(user_id, technician_ids)
     with db_cursor() as (conn, cur):
         if client_token:
@@ -267,13 +271,13 @@ def create_report(user_id, cleaned, technician_ids, client_token=None, details=N
             cur.execute("""
                 INSERT INTO activity_reports
                     (reference, client_token, activity_date, type_id, location_id, other_location,
-                     outcome, description, time_spent, remarks, details, submitted_by)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                     outcome, description, time_spent, remarks, details, submitted_by, submitted_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, COALESCE(%s, now()))
                 RETURNING id""",
                 (reference, client_token, cleaned["activity_date"], cleaned["type_id"],
                  cleaned["location_id"], cleaned["other_location"], cleaned["outcome"],
                  cleaned["description"], cleaned["time_spent"], cleaned["remarks"],
-                 Json(details) if details else None, user_id))
+                 Json(details) if details else None, user_id, submitted_at))
         except errors.UniqueViolation:
             # Two sends of the same form arrived together; the other one won.
             conn.rollback()
@@ -377,9 +381,11 @@ def _where(filters, only_user_id):
         clauses.append("r.outcome = %s")
         params.append(filters["outcome"])
     if filters.get("q"):
-        clauses.append("(r.reference ILIKE %s OR r.description ILIKE %s)")
+        # The extra answers (client name, account, materials...) are searched too:
+        # that is how a report about "JS16" or "Esther" is found.
+        clauses.append("(r.reference ILIKE %s OR r.description ILIKE %s OR r.details::text ILIKE %s)")
         pattern = logic.like_pattern(filters["q"])
-        params += [pattern, pattern]
+        params += [pattern, pattern, pattern]
     return " AND ".join(clauses), params
 
 
