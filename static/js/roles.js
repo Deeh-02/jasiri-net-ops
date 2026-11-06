@@ -123,6 +123,19 @@ const PERM_SECTIONS = [
     },
     { key: "users", label: "Users", actions: ["add", "edit", "delete"] },
     { key: "roles", label: "Roles", actions: ["add", "edit", "delete"] },
+    // Technical Activity Log. The master toggle (activity_log:view) is Activity
+    // Reports: a person sees their own reports and ones they're listed on.
+    // The built-in admin always has everything, and alone can delete a
+    // report or edit anyone's; a Technician role is View + Submit, a Manager
+    // role adds See all reports + See Overview.
+    {
+        key: "activity_log", label: "Technical Activity Log",
+        actions: [
+            { label: "Submit reports (and edit your own for 48 hours)", action: "submit" },
+            { label: "See every report, not just your own", action: "view_all" },
+            { label: "See Activity Overview", action: "view_overview" },
+        ],
+    },
     // A plain master toggle, same shape as Users/Roles above — no flat
     // actions or children, since "view" is the only capability the Reports
     // page needs (every panel on it, SKU Summary/Cable Summary/Offcuts, is
@@ -203,6 +216,7 @@ const ACTION_NOUN = {
     users: "user", roles: "role", inventory_items: "item",
     inventory_categories: "category",
     inventory_transactions: "transaction",
+    activity_log: "report",
 };
 
 function renderPermGrid(permissions) {

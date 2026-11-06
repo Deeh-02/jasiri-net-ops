@@ -1,0 +1,57 @@
+    <section class="view" id="view-activity-reports" hidden>
+        <div class="page-header-row">
+            <h1 class="page-title">Activity Reports</h1>
+            <div class="act-header-actions">
+                <button type="button" class="act-btn" id="act-export-btn">Export CSV</button>
+                <button type="button" class="btn-add-site" id="act-reports-new-btn">+ Submit report</button>
+            </div>
+        </div>
+
+        <div class="act-filters">
+            <input type="search" id="act-f-q" class="act-input act-f-search" placeholder="Search reference or description" aria-label="Search reference or description">
+            <label class="act-f">From <input type="date" id="act-f-from" class="act-input"></label>
+            <label class="act-f">To <input type="date" id="act-f-to" class="act-input"></label>
+            <label class="act-f">Category <select id="act-f-category" class="act-input"></select></label>
+            <label class="act-f">Type <select id="act-f-type" class="act-input"></select></label>
+            <label class="act-f">Area <select id="act-f-location" class="act-input"></select></label>
+            <label class="act-f" id="act-f-tech-wrap">Technician <select id="act-f-tech" class="act-input"></select></label>
+            <label class="act-f">Outcome <select id="act-f-outcome" class="act-input"></select></label>
+            <button type="button" class="act-link-btn" id="act-f-clear">Clear filters</button>
+        </div>
+
+        <p class="act-error" id="act-reports-error" role="alert" hidden></p>
+
+        <div class="table-scroll">
+            <table id="act-reports-table">
+                <thead>
+                    <tr>
+                        <th>Reference</th>
+                        <th>Date</th>
+                        <th>Category and type</th>
+                        <th>Area</th>
+                        <th>Technicians</th>
+                        <th>Outcome</th>
+                    </tr>
+                </thead>
+                <tbody id="act-reports-rows"></tbody>
+            </table>
+        </div>
+        <div class="act-pager">
+            <span id="act-pager-text"></span>
+            <button type="button" class="act-btn" id="act-prev-btn">Previous</button>
+            <button type="button" class="act-btn" id="act-next-btn">Next</button>
+        </div>
+    </section>
+
+    <section class="view" id="view-activity-report-detail" hidden>
+        <div class="page-header-row">
+            <h1 class="page-title" id="act-detail-title">Report</h1>
+            <div class="act-header-actions">
+                <button type="button" class="act-btn" id="act-detail-back">Back to reports</button>
+                <button type="button" class="act-btn" id="act-detail-edit" hidden>Edit</button>
+                <button type="button" class="act-btn act-btn-danger" id="act-detail-delete" hidden>Delete</button>
+            </div>
+        </div>
+        <p class="act-error" id="act-detail-error" role="alert" hidden></p>
+        <dl class="act-detail" id="act-detail-body"></dl>
+    </section>

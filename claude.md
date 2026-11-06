@@ -37,7 +37,8 @@ tests/                 # unittest, stdlib only, no DB — the revenue report's p
                         # run: python -m unittest discover -s tests -t .
 routers/              # one file per domain: auth, permissions, sites, batteries, users, inventory,
                         # monitoring, notifications, customers, chat (the admin assistant),
-                        # network (CCR2116 page + its router ingest)
+                        # network (CCR2116 page + its router ingest),
+                        # activity (Technical Activity Log: submit, reports, overview)
 router/               # RouterOS scripts — pasted by a HUMAN, never run by an agent; the
                         # CCR2116 ones are linted by tests/test_router_scripts.py
 tools/, docs/          # render_router_script.py; network-monitor-runbook.md

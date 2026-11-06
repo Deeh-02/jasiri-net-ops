@@ -1,0 +1,79 @@
+    <section class="view" id="view-activity-submit" hidden>
+        <div class="page-header-row">
+            <h1 class="page-title" id="act-submit-title">Submit Activity Report</h1>
+        </div>
+
+        <div class="act-panel" id="act-submit-error" hidden>
+            <p class="act-error" id="act-submit-error-text"></p>
+            <button type="button" class="act-btn" id="act-submit-retry">Try again</button>
+        </div>
+
+        <form class="act-form" id="act-form" novalidate hidden>
+            <div class="act-field">
+                <label class="act-label" for="act-date">Date</label>
+                <input type="date" id="act-date" class="act-input act-input-date" required>
+            </div>
+
+            <div class="act-field">
+                <span class="act-label" id="act-category-label">Category</span>
+                <div class="act-chips" id="act-categories" role="radiogroup" aria-labelledby="act-category-label"></div>
+            </div>
+
+            <div class="act-field" id="act-type-field" hidden>
+                <span class="act-label" id="act-type-label">Activity type</span>
+                <div class="act-chips" id="act-types" role="radiogroup" aria-labelledby="act-type-label"></div>
+            </div>
+
+            <div class="act-field">
+                <label class="act-label" for="act-location">Location</label>
+                <select id="act-location" class="act-input"></select>
+                <input type="text" id="act-other-location" class="act-input act-other" maxlength="120" placeholder="Where was it? (a few words)" aria-label="Other location" hidden>
+            </div>
+
+            <div class="act-field">
+                <span class="act-label" id="act-outcome-label">Outcome</span>
+                <div class="act-chips" id="act-outcomes" role="radiogroup" aria-labelledby="act-outcome-label"></div>
+            </div>
+
+            <div class="act-field">
+                <span class="act-label" id="act-tech-label">Technicians</span>
+                <div class="act-chips" id="act-technicians" aria-labelledby="act-tech-label"></div>
+                <select id="act-tech-picker" class="act-input act-tech-picker" aria-label="Add a technician" hidden></select>
+            </div>
+
+            <div class="act-field">
+                <span class="act-label" id="act-time-label">Time spent <span class="act-optional">optional</span></span>
+                <div class="act-chips" id="act-time" role="group" aria-labelledby="act-time-label"></div>
+            </div>
+
+            <div class="act-field">
+                <label class="act-label" for="act-description" id="act-description-label">What was done <span class="act-optional">optional</span></label>
+                <textarea id="act-description" class="act-input" rows="2" maxlength="1000" placeholder="One line is enough"></textarea>
+            </div>
+
+            <div class="act-field">
+                <button type="button" class="act-link-btn" id="act-remarks-open">+ Add remarks</button>
+                <div id="act-remarks-wrap" hidden>
+                    <label class="act-label" for="act-remarks">Additional remarks <span class="act-optional">optional</span></label>
+                    <textarea id="act-remarks" class="act-input" rows="2" maxlength="2000"></textarea>
+                </div>
+            </div>
+
+            <p class="act-error" id="act-form-error" role="alert" hidden></p>
+
+            <div class="act-actions">
+                <button type="submit" class="act-btn act-btn-primary" id="act-submit-btn">Submit report</button>
+                <button type="button" class="act-btn" id="act-cancel-btn" hidden>Cancel</button>
+            </div>
+        </form>
+
+        <div class="act-panel act-success" id="act-success" hidden>
+            <div class="act-success-mark" aria-hidden="true">✓</div>
+            <h2>Report submitted</h2>
+            <p class="act-success-ref" id="act-success-ref"></p>
+            <div class="act-actions">
+                <button type="button" class="act-btn act-btn-primary" id="act-another-btn">Submit another</button>
+                <button type="button" class="act-btn" id="act-view-btn">View report</button>
+            </div>
+        </div>
+    </section>

@@ -1,0 +1,21 @@
+    <section class="view" id="view-activity-overview" hidden>
+        <div class="page-header-row">
+            <h1 class="page-title">Activity Overview</h1>
+        </div>
+
+        <div class="act-period">
+            <div class="act-chips" id="act-period-chips" role="radiogroup" aria-label="Period"></div>
+            <div class="act-custom" id="act-custom" hidden>
+                <label class="act-f">From <input type="date" id="act-o-from" class="act-input"></label>
+                <label class="act-f">To <input type="date" id="act-o-to" class="act-input"></label>
+                <button type="button" class="act-btn" id="act-o-apply">Apply</button>
+            </div>
+            <div class="act-chips act-bucket" id="act-bucket-chips" role="radiogroup" aria-label="Group the trend by"></div>
+        </div>
+
+        <p class="act-error" id="act-overview-error" role="alert" hidden></p>
+        <p class="act-summary" id="act-overview-summary"></p>
+
+        <div class="act-overview" id="act-overview-body"></div>
+        <div class="act-tip" id="act-tip" role="tooltip" hidden></div>
+    </section>

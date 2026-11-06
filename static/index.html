@@ -48,6 +48,7 @@
     <link rel="stylesheet" href="/static/css/inventory-reports.css">
     <link rel="stylesheet" href="/static/css/chat.css">
     <link rel="stylesheet" href="/static/css/network.css">
+    <link rel="stylesheet" href="/static/css/activity.css">
 </head>
 <body>
 
@@ -205,6 +206,26 @@
                 </button>
             </div>
 
+            <div class="nav-category" data-nav-group="activity">
+                <button class="nav-heading collapsed" id="activity-nav-toggle" data-view="activity-submit" data-label="Technical Activity Log">
+                    <span class="nav-heading-label">
+                        <svg class="nav-icon" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <rect x="2.5" y="2" width="11" height="12.5" rx="1.5" stroke="currentColor" stroke-width="1.3"/>
+                            <path d="M5.5 6H10.5M5.5 8.5H10.5M5.5 11H8.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+                        </svg>
+                        Technical Activity Log
+                    </span>
+                    <span class="chevron">▾</span>
+                </button>
+                <div class="nav-subitems collapsed" id="activity-nav-subitems">
+                    <div class="nav-subitems-inner">
+                        <button class="nav-link sub" data-view="activity-overview" data-label="Activity Overview">Activity Overview</button>
+                        <button class="nav-link sub" data-view="activity-reports" data-label="Activity Reports">Activity Reports</button>
+                        <button class="nav-link sub" data-view="activity-submit" data-label="Submit Activity Report">Submit Activity Report</button>
+                    </div>
+                </div>
+            </div>
+
             <div class="nav-category" data-nav-group="inventory">
                 <button class="nav-heading collapsed" id="inventory-nav-toggle" data-view="inventory" data-label="Inventory">
                     <span class="nav-heading-label">
@@ -317,6 +338,9 @@
             <div data-view-mount="sms-status"></div>
             <div data-view-mount="revenue"></div>
             <div data-view-mount="network"></div>
+            <div data-view-mount="activity-overview"></div>
+            <div data-view-mount="activity-reports"></div>
+            <div data-view-mount="activity-submit"></div>
             <div data-view-mount="users"></div>
             <div data-view-mount="roles"></div>
             <div data-view-mount="settings"></div>

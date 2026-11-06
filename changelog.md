@@ -5,6 +5,23 @@ Phase-based, not version-based — this project ships in named phases (see
 concise, user-facing summary; full technical detail lives in the git log
 and in `phase.md`'s own per-phase writeups.
 
+## Technical Activity Log (on `phase-4-network-monitoring`)
+
+Added at the owner's request (2026-11-06). Needs `migrations/0026_technical_activity_log.sql`
+run once; until then only these pages error.
+- **Submit Activity Report:** pick a category and a type and tap Submit (3 taps; date, location,
+  outcome and "just me" are pre-filled). Optional time spent, extra technicians and remarks.
+  A failed send keeps everything so you can retry; the success screen shows the reference
+  (TAL-2026-00001) and "Submit another".
+- **Activity Reports:** search by reference or description; filter by date, category, type,
+  area, technician and outcome; detail view; CSV export. Technicians see their own reports and
+  ones they're listed on; roles with "See every report" see all.
+- **Activity Overview** (managers): activities over time, by category and type, by area, by
+  technician, outcome mix (with the "Unable to resolve" rate) and time spent.
+- **Editing:** the submitter for 48 hours, an admin any time. Only an admin deletes, and a
+  deleted report is hidden from the lists and every total, never erased.
+- **Roles page:** new "Technical Activity Log" section.
+
 ## Revenue Report live figures, and an admin assistant (on `phase-4-network-monitoring`)
 
 Built outside the phase plan at the owner's request (2026-11-03/04), on

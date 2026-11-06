@@ -1737,6 +1737,38 @@ project is Ops and to run the owner/RLS check first. The FreeRADIUS
 project needs its own look: if that tool uses the anon key, it needs
 policies, not a blanket switch.
 
+### Technical Activity Log — reports, not tickets; rules in one pure module
+
+Added 2026-11-06 on `phase-4-network-monitoring` (owner's call; scope document
+"Technical Activity Log & Reporting"). Phase 1 only: submit, reports, overview.
+Phase 2 (per-type extra fields, admin screen for categories/types, duplicate
+warning, repeat-visit metric) and Materials/Photos are NOT built.
+- **Tables (migration 0026):** `activity_categories`, `activity_types`,
+  `activity_reports`, `activity_report_technicians`, `activity_reference_counters`.
+  Categories/types are seeded by the migration and are data, not code; deactivate,
+  never delete. A report stores its type; the category is derived by join.
+  Materials/attachments tables can later point at `activity_reports(id)` with no
+  change here. `details jsonb` is reserved for Phase 2 and stays NULL.
+- **Reuses** `users` (submitter, technicians) and `locations` (site/area, with a free
+  text "Other" fallback). The Overview and Reports read both through their tables.
+- **Permissions:** one new section, `activity_log`: `view` (Reports: your own and ones you
+  are listed on), `submit` (and edit your own for 48 hours), `view_all`, `view_overview`.
+  The built-in admin passes all, edits any report at any time, and alone deletes (soft
+  delete: a flag, hidden from lists and every total). A "Technician" or "Manager" is just a
+  custom role with those boxes ticked; there is no built-in Manager role.
+- **References** (`TAL-2026-00001`) come from a per-year counter row updated in the same
+  transaction as the insert, so concurrent submits can't share one and a failed save
+  burns no number. The browser's `client_token` makes a retry after a lost answer return the
+  report already saved instead of a duplicate.
+- **Rules without a database** live in `db/activity_logic.py` (validation, the edit window,
+  reference format, bucketing, outcome shares). Time chips count as 0.5 / 1 / 4 / 8 hours
+  in the Overview's effort totals (owner-approved) and only reports that gave a time count.
+- **Form** keeps its state in one object; a failed submit changes nothing, and a draft is
+  kept in `localStorage` so a reload doesn't lose it. The date defaults to today in Nairobi,
+  the location to the person's last report.
+- Tested against a throwaway Postgres (migration twice, concurrent references, scoping,
+  soft delete) and driven in headless Chromium at phone width. `tests/test_activity.py`.
+
 ## Integration approach
 
 **Domain boundary:** `auth`, `permissions`, `sites`, `batteries` (includes
