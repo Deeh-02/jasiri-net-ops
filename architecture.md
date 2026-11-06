@@ -1784,6 +1784,15 @@ repeat-visit metric. Materials and Photos are deferred and NOT built.
   Inventory (owner's call, 2026-11-06; the deferred Materials table supersedes it). The keys
   `account` and `client_name` are a convention: repeat visits match a customer by the picked
   customer's username or the typed account, ignoring case and spaces.
+- **Follow-ups (migration 0029).** `activity_reports.follows_up_report_id` is set on the LATER
+  report and points at the unfinished one it finishes; a unique partial index allows one live
+  follow-up per report (a soft-deleted follow-up re-opens the job). Rules in
+  `logic.check_follow_up`: target must exist, be live, be partially completed or unable to
+  resolve, be dated the same day or before, not be the report itself, not already be followed up.
+  "Still open" = unfinished with no live follow-up; it is a Reports filter value (`outcome=open`),
+  not an outcome. The earlier visit's outcome is never changed: the trip count stays honest.
+  Candidates for the pick are the last 90 days, same site first (a hotspot chain is often finished
+  from a neighbouring site), returning references, dates and types only.
 - **Manage screen** (admin only, `require_admin`, not grantable to a custom role): add,
   rename, reorder, deactivate categories and types, edit a type's fields, optionally copying
   them to every type in the category. Names are unique ignoring case. Every change answers

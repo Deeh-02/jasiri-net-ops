@@ -255,12 +255,14 @@ class Endpoints(unittest.TestCase):
             "type": "No internet", "area": "Mwiki", "technicians": [{"id": 2, "name": "Tech"}],
             "outcome_label": "Completed", "time_spent_label": None, "description": "=HYPERLINK(\"x\")",
             "remarks": None, "details_view": [{"label": "Package", "text": "10 Mbps"}],
+            "follows_up": None, "followed_up_by": {"reference": "TAL-2026-00009"},
             "submitted_by_name": "Tech", "submitted_at_dt": NOW}]
         response = api.export_reports(current_user=MANAGER)
         text = response.body.decode()
         self.assertIn("'=HYPERLINK", text)
         self.assertIn("2026-11-06 12:00", text)  # 09:00 UTC is 12:00 in Nairobi
         self.assertIn("Package: 10 Mbps", text)
+        self.assertIn("TAL-2026-00009", text)
         self.assertIn("text/csv", response.media_type)
 
 
@@ -458,6 +460,59 @@ class Phase2Endpoints(unittest.TestCase):
         self.assertEqual(len(routes["/activity/customers"].dependant.dependencies), 1)
         self.db.search_customers.return_value = [{"id": 1, "name": "Jane", "username": "j", "plan": "10M"}]
         self.assertEqual(api.search_customers(q="jan", current_user=TECH)[0]["name"], "Jane")
+
+
+class FollowUps(unittest.TestCase):
+    def target(self, **kw):
+        base = {"id": 5, "outcome": "partially_completed", "activity_date": date(2026, 10, 23), "is_deleted": False,
+                "follows_up_report_id": None, "followed_up_by": None}
+        base.update(kw)
+        return base
+
+    def test_a_later_visit_can_finish_an_unfinished_job(self):
+        self.assertIsNone(logic.check_follow_up(self.target(), None, date(2026, 10, 26)))
+        self.assertIsNone(logic.check_follow_up(self.target(outcome="unable_to_resolve"), None, date(2026, 10, 26)))
+        self.assertIsNone(logic.check_follow_up(self.target(), None, date(2026, 10, 23)))   # same day is fine
+
+    def test_what_cannot_be_followed_up(self):
+        cases = (
+            (None, None, "wasn't found"),
+            (self.target(is_deleted=True), None, "wasn't found"),
+            (self.target(outcome="completed"), None, "Only a partially completed"),
+            (self.target(activity_date=date(2026, 10, 30)), None, "same day or before"),
+            (self.target(followed_up_by=8), None, "already been followed up"),
+            (self.target(), 5, "can't follow up itself"),
+            (self.target(follows_up_report_id=9), 9, "already follows up this one"),
+        )
+        for target, report_id, expected in cases:
+            self.assertIn(expected, logic.check_follow_up(target, report_id, date(2026, 10, 26)) or "", expected)
+
+    def test_editing_the_report_that_already_follows_it_up_is_allowed(self):
+        self.assertIsNone(logic.check_follow_up(self.target(followed_up_by=9), 9, date(2026, 10, 26)))
+
+    def test_overview_splits_unfinished_into_finished_later_and_still_open(self):
+        mix = logic.outcome_mix({"completed": 47, "partially_completed": 12, "inspection_only": 1},
+                                {"partially_completed": 3})
+        partial = next(r for r in mix["outcomes"] if r["outcome"] == "partially_completed")
+        self.assertEqual((partial["followed_up"], partial["still_open"]), (3, 9))
+        self.assertEqual(mix["still_open"], 9)
+        self.assertNotIn("still_open", next(r for r in mix["outcomes"] if r["outcome"] == "completed"))
+
+    def test_still_open_is_a_filter_not_an_outcome(self):
+        with mock.patch.object(api, "db") as fake, mock.patch.object(api, "user_has_permission", has_permissions("view", "view_all")):
+            fake.list_reports.return_value = {"total": 0, "reports": []}
+            api.list_reports(outcome="open", current_user=MANAGER)
+            self.assertEqual(fake.list_reports.call_args.args[0]["outcome"], "open")
+            with self.assertRaises(HTTPException):
+                api.list_reports(outcome="nearly", current_user=MANAGER)
+
+    def test_the_follow_up_link_is_passed_through_on_submit(self):
+        with mock.patch.object(api, "db") as fake:
+            fake.ActivityInvalid = type("ActivityInvalid", (Exception,), {})
+            fake.prepare_details.return_value = None
+            fake.create_report.return_value = {"id": 9, "reference": "TAL-2026-00061", "duplicate": False}
+            api.submit_report(api.ReportCreate(activity_date=date.today(), type_id=7, location_id=3, follows_up_report_id=52), current_user=TECH)
+            self.assertEqual(fake.create_report.call_args.kwargs["follows_up_report_id"], 52)
 
 
 if __name__ == "__main__":

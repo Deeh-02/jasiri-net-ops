@@ -35,7 +35,8 @@ function fillFilters() {
     fillTypeFilter();
     fillSelect("act-f-location", "All", o.locations.map(l => ({ value: l.id, label: l.name })), $("act-f-location").value);
     fillSelect("act-f-tech", "All", o.technicians.map(t => ({ value: t.id, label: t.name })), $("act-f-tech").value);
-    fillSelect("act-f-outcome", "All", o.outcomes.map(x => ({ value: x.key, label: x.label })), $("act-f-outcome").value);
+    fillSelect("act-f-outcome", "All", [...o.outcomes.map(x => ({ value: x.key, label: x.label })), { value: "open", label: "Still open (not followed up)" }],
+        $("act-f-outcome").value);
     // Someone who can only see their own reports gains nothing from this one.
     $("act-f-tech-wrap").hidden = !can("activity_log", "view_all");
 }
@@ -44,6 +45,16 @@ function fillTypeFilter() {
     const categoryId = $("act-f-category").value;
     const categories = filterOptions.categories.filter(c => !categoryId || String(c.id) === categoryId);
     fillSelect("act-f-type", "All", categories.flatMap(c => c.types.map(t => ({ value: t.id, label: categoryId ? t.name : `${c.name}: ${t.name}` }))), $("act-f-type").value);
+}
+
+// Under an unfinished outcome: whether a later visit has finished it.
+function followUpNote(r) {
+    if (r.followed_up_by) return `<div class="act-sub">Followed up: ${esc(r.followed_up_by.reference)}</div>`;
+    return r.still_open ? `<div class="act-sub act-open">Still open</div>` : "";
+}
+
+function reportLink(item, text) {
+    return `<button type="button" class="act-link-btn act-inline" data-goto="${item.id}">${esc(item.reference)}</button> ${esc(text)}`;
 }
 
 async function loadReports() {
@@ -61,7 +72,7 @@ async function loadReports() {
             <td>${esc(r.category)}<div class="act-sub">${esc(r.type)}</div></td>
             <td>${esc(r.area)}</td>
             <td>${esc(r.technicians.map(t => t.name).join(", "))}</td>
-            <td>${outcomePill(r.outcome, r.outcome_label)}</td>
+            <td>${outcomePill(r.outcome, r.outcome_label)}${followUpNote(r)}</td>
         </tr>`).join("")
         : `<tr><td colspan="6" class="act-empty">No reports match.</td></tr>`;
 
@@ -125,6 +136,9 @@ async function openDetail(id) {
         row("Activity type", esc(r.type)),
         row("Location", r.location ? esc(r.location) : `${esc(r.other_location)} <span class="act-none">(other)</span>`),
         row("Outcome", outcomePill(r.outcome, r.outcome_label)),
+        ...(r.follows_up ? [row("Finishes", reportLink(r.follows_up, `· ${formatDay(r.follows_up.activity_date, { year: false })} · ${r.follows_up.type}`))] : []),
+        ...(r.followed_up_by ? [row("Finished by", reportLink(r.followed_up_by, `· ${formatDay(r.followed_up_by.activity_date, { year: false })} · ${r.followed_up_by.outcome_label}`))]
+            : r.still_open ? [row("Finished by", `<span class="act-open">Not yet: still open</span>`)] : []),
         row("Technicians", esc(r.technicians.map(t => t.name).join(", "))),
         row("Time spent", r.time_spent_label ? esc(r.time_spent_label) : `<span class="act-none">Not given</span>`),
         ...r.details_view.map(d => row(d.label, esc(d.text))),
@@ -145,11 +159,17 @@ async function deleteCurrent() {
 
 // ---- Setup -----------------------------------------------------------------
 
-async function openList() {
+async function openList(preset, from, to) {
     showView("view-activity-reports");
     $("act-reports-new-btn").hidden = !can("activity_log", "submit");
     const res = await api("/activity/filter-options");
     if (res.ok) { filterOptions = res.data; fillFilters(); }
+    if (preset === "open") {
+        $("act-f-outcome").value = "open";
+        $("act-f-from").value = from || "";
+        $("act-f-to").value = to || "";
+        offset = 0;
+    }
     loadReports();
 }
 
@@ -181,5 +201,12 @@ export function initActivityReports() {
     $("act-detail-edit").addEventListener("click", () => currentDetail && navigate(`activity-submit/${currentDetail.id}/edit`));
     $("act-detail-delete").addEventListener("click", deleteCurrent);
 
-    registerRoute("activity-reports", (params) => (params[0] ? openDetail(params[0]) : openList()));
+    $("act-detail-body").addEventListener("click", (e) => {
+        const link = e.target.closest("[data-goto]");
+        if (link) navigate(`activity-reports/${link.dataset.goto}`);
+    });
+
+    // activity-reports/open[/from/to] is the list filtered to unfinished jobs
+    // (the Overview links here with its period); any other parameter is a report id.
+    registerRoute("activity-reports", (params) => (params[0] && params[0] !== "open" ? openDetail(params[0]) : openList(...params)));
 }

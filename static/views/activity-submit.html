@@ -41,6 +41,15 @@
             </div>
 
             <div class="act-field">
+                <button type="button" class="act-link-btn" id="act-followup-open">+ This finishes an earlier report</button>
+                <div id="act-followup-wrap" hidden>
+                    <span class="act-label">Finishes an earlier report <span class="act-optional">optional</span></span>
+                    <div id="act-followup-picked"></div>
+                    <div class="act-results" id="act-followup-list" hidden></div>
+                </div>
+            </div>
+
+            <div class="act-field">
                 <span class="act-label" id="act-tech-label">Technicians</span>
                 <div class="act-chips" id="act-technicians" aria-labelledby="act-tech-label"></div>
                 <select id="act-tech-picker" class="act-input act-tech-picker" aria-label="Add a technician" hidden></select>

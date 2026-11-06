@@ -16,6 +16,8 @@ DEFAULT_OUTCOME = "completed"
 OUTCOME_LABELS = dict(OUTCOMES)
 # These two need a one-line explanation in the description.
 EXPLANATION_OUTCOMES = ("partially_completed", "unable_to_resolve")
+# The visits that left the job unfinished: a later report can follow them up.
+UNFINISHED_OUTCOMES = EXPLANATION_OUTCOMES
 
 # Hours each chip counts as in the Overview's effort totals (owner-approved
 # 2026-11-06). "Under 30 min" counts as half an hour: a round-up, since the
@@ -184,21 +186,45 @@ def fill_buckets(start, end, bucket, counts):
     return points
 
 
-def outcome_mix(counts):
-    """counts: outcome key -> reports. Every outcome appears, in the scope's
-    order, with its share of the total (0 when there are no reports)."""
+def outcome_mix(counts, followed_up=None):
+    """counts: outcome key -> reports. followed_up: outcome key -> how many of
+    those reports a later report has since followed up. Every outcome appears,
+    in the scope's order, with its share of the total (0 when there are no
+    reports); the unfinished ones also say how many were finished later and
+    how many are still open."""
+    followed_up = followed_up or {}
     total = sum(counts.get(key, 0) for key, _ in OUTCOMES)
-    rows = [
-        {
-            "outcome": key,
-            "label": label,
-            "count": counts.get(key, 0),
-            "share": round(counts.get(key, 0) / total, 4) if total else 0,
-        }
-        for key, label in OUTCOMES
-    ]
+    rows = []
+    for key, label in OUTCOMES:
+        n = counts.get(key, 0)
+        row = {"outcome": key, "label": label, "count": n, "share": round(n / total, 4) if total else 0}
+        if key in UNFINISHED_OUTCOMES:
+            row["followed_up"] = min(followed_up.get(key, 0), n)
+            row["still_open"] = n - row["followed_up"]
+        rows.append(row)
     return {"total": total, "outcomes": rows,
+            "still_open": sum(r.get("still_open", 0) for r in rows),
             "unable_rate": next(r["share"] for r in rows if r["outcome"] == "unable_to_resolve")}
+
+
+def check_follow_up(target, report_id, activity_date):
+    """Can a report (report_id, None while new, dated activity_date) follow up
+    `target`? target: {id, outcome, activity_date (date), is_deleted,
+    follows_up_report_id, followed_up_by (id of a live report already following
+    it up, or None)}, or None if it doesn't exist. Returns an error or None."""
+    if target is None or target["is_deleted"]:
+        return "That earlier report wasn't found"
+    if report_id is not None and target["id"] == report_id:
+        return "A report can't follow up itself"
+    if target["outcome"] not in UNFINISHED_OUTCOMES:
+        return "Only a partially completed or unresolved report can be followed up"
+    if target["activity_date"] > activity_date:
+        return "The earlier report must be from the same day or before"
+    if target["followed_up_by"] is not None and target["followed_up_by"] != report_id:
+        return "That report has already been followed up"
+    if report_id is not None and target["follows_up_report_id"] == report_id:
+        return "That report already follows up this one"
+    return None
 
 
 def hours_for(time_spent_counts):

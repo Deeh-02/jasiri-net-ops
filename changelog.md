@@ -38,6 +38,11 @@ before or after the code is deployed)
   chain and routers restored; fibre/FAT jobs ask for signal before and after splitting; most
   types have "Materials used". The materials box is a **list only: nothing is deducted from
   Inventory** (it is replaced when Materials is built). New type: Cable re-tensioning.
+- **Follow-ups (migration 0029):** a partial or unresolved visit stays true about that day.
+  The visit that finishes the job can say so ("This finishes an earlier report", optional, same
+  place first). The earlier report then shows "Finished by TAL-…", the list marks unfinished jobs
+  "Still open" or "Followed up", Reports has a "Still open" filter, and the Overview splits
+  partials into finished later and still open, with a link to that list.
 - **Repeat visits** on the Overview: customers and areas with Customer Support visits on more
   than one day in the 30 days up to the end of the chosen period. A customer is recognised by
   the account typed in (a new customer isn't in the customer list yet) or the one picked.

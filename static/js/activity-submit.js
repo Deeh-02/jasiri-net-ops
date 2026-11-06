@@ -1,5 +1,5 @@
 import { showView, registerRoute, navigate, getCurrentUser, can } from "./common.js";
-import { api, esc, setError } from "./activity-common.js";
+import { api, esc, setError, formatDay } from "./activity-common.js";
 
 // The form's values live in `state`; the chips are drawn from it. A failed
 // submit changes nothing here, so the technician just taps Submit again. For a
@@ -30,6 +30,7 @@ function blankState() {
         location, other_location: other, outcome: options.default_outcome,
         technician_ids: [], time_spent: null, description: "", remarks: "",
         details: {},
+        follows_up: null,          // {id, reference, text} of the earlier report this visit finishes
         client_token: newToken(),
     };
 }
@@ -67,6 +68,7 @@ function restoredDraft() {
         remarks: typeof draft.remarks === "string" ? draft.remarks : "",
         client_token: typeof draft.client_token === "string" && draft.client_token ? draft.client_token : base.client_token,
         details: draft.details && typeof draft.details === "object" ? draft.details : {},
+        follows_up: draft.follows_up && Number.isInteger(draft.follows_up.id) ? draft.follows_up : null,
     };
 }
 
@@ -165,6 +167,57 @@ function onDetailsClick(e) {
     if (clear) { delete state.details[clear.dataset.customerClear]; drawDetails(); saveDraft(); }
 }
 
+// ---- "This finishes an earlier report". Optional; the list shows unfinished
+// reports nobody has followed up yet, the same site first.
+
+function followUpText(c) {
+    return `${c.reference} · ${formatDay(c.activity_date, { year: false })} · ${c.type} · ${c.area}`;
+}
+
+function drawFollowUp() {
+    const picked = state.follows_up;
+    const open = !!picked || !$("act-followup-wrap").hidden;
+    $("act-followup-wrap").hidden = !open;
+    $("act-followup-open").hidden = open;
+    $("act-followup-picked").innerHTML = picked
+        ? `<span class="act-chip selected removable" data-followup-clear>${esc(picked.text)} <span aria-hidden="true">×</span></span>` : "";
+    if (picked) $("act-followup-list").hidden = true;
+}
+
+async function loadFollowUps() {
+    const list = $("act-followup-list");
+    if (state.follows_up || $("act-followup-wrap").hidden) return;
+    const query = new URLSearchParams({ activity_date: state.activity_date });
+    if (state.location === "other") query.set("other_location", state.other_location || "");
+    else if (state.location) query.set("location_id", state.location);
+    if (editing) query.set("exclude_id", editing.id);
+    list.hidden = false;
+    list.innerHTML = `<p class="act-hint">Loading…</p>`;
+    const res = await api(`/activity/unfinished?${query}`);
+    if (state.follows_up) return;
+    if (!res.ok) { list.innerHTML = `<p class="act-hint">${esc(res.error)}</p>`; return; }
+    list.innerHTML = res.data.length
+        ? res.data.map(c => `<button type="button" class="act-result" data-followup-pick="${c.id}" data-text="${esc(followUpText(c))}">${esc(followUpText(c))}
+              <span class="act-sub">${esc(c.outcome_label)}${c.same_site ? " · same place" : ""}</span></button>`).join("")
+        : `<p class="act-hint">No unfinished reports from the last 90 days.</p>`;
+}
+
+function onFollowUpClick(e) {
+    const pick = e.target.closest("[data-followup-pick]");
+    if (pick) {
+        state.follows_up = { id: Number(pick.dataset.followupPick), text: pick.dataset.text };
+        drawFollowUp();
+        saveDraft();
+        return;
+    }
+    if (e.target.closest("[data-followup-clear]")) {
+        state.follows_up = null;
+        drawFollowUp();
+        loadFollowUps();
+        saveDraft();
+    }
+}
+
 function drawLocation() {
     const select = $("act-location");
     select.innerHTML = `<option value="">Choose a location…</option>`
@@ -211,7 +264,8 @@ function drawText() {
 }
 
 function drawAll() {
-    drawCategories(); drawDetails(); drawLocation(); drawOutcomes(); drawTechnicians(); drawTime(); drawText();
+    if (!state.follows_up) $("act-followup-wrap").hidden = true;
+    drawCategories(); drawDetails(); drawFollowUp(); drawLocation(); drawOutcomes(); drawTechnicians(); drawTime(); drawText();
     setError($("act-form-error"), "");
 }
 
@@ -310,6 +364,7 @@ async function submit(confirmDuplicate) {
         remarks: state.remarks.trim() || null,
         technician_ids: state.technician_ids,
         details: detailsForSending(),
+        follows_up_report_id: state.follows_up ? state.follows_up.id : null,
     };
     if (!editing) {
         body.client_token = state.client_token;
@@ -417,6 +472,9 @@ async function openEdit(id) {
         technician_ids: report.technicians.map(t => t.id).filter(tid => tid !== report.submitted_by),
         time_spent: report.time_spent, description: report.description || "", remarks: report.remarks || "",
         details: report.details || {},
+        follows_up: report.follows_up
+            ? { id: report.follows_up.id, text: `${report.follows_up.reference} · ${formatDay(report.follows_up.activity_date, { year: false })} · ${report.follows_up.type}` }
+            : null,
         client_token: "",
     };
     showForm(`Edit ${report.reference}`);
@@ -430,14 +488,17 @@ export function initActivitySubmit() {
     $("act-details").addEventListener("input", onDetailsEvent);
     $("act-details").addEventListener("click", onDetailsClick);
     $("act-dup-go").addEventListener("click", () => submit(true));
+    $("act-followup-open").addEventListener("click", () => { $("act-followup-wrap").hidden = false; drawFollowUp(); loadFollowUps(); });
+    $("act-followup-wrap").addEventListener("click", onFollowUpClick);
     $("act-dup-back").addEventListener("click", hideDuplicate);
 
-    $("act-date").addEventListener("change", (e) => { state.activity_date = e.target.value; saveDraft(); });
+    $("act-date").addEventListener("change", (e) => { state.activity_date = e.target.value; saveDraft(); loadFollowUps(); });
     $("act-location").addEventListener("change", (e) => {
         state.location = e.target.value;
         $("act-other-location").hidden = state.location !== "other";
         if (state.location === "other") $("act-other-location").focus();
         saveDraft();
+        loadFollowUps();
     });
     $("act-other-location").addEventListener("input", (e) => { state.other_location = e.target.value; saveDraft(); });
     $("act-description").addEventListener("input", (e) => { state.description = e.target.value; saveDraft(); });

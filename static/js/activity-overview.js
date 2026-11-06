@@ -1,4 +1,4 @@
-import { showView, registerRoute } from "./common.js";
+import { showView, registerRoute, navigate } from "./common.js";
 import { api, esc, formatDay, todayEat, addDays, OUTCOME_COLOR, setError } from "./activity-common.js";
 
 const $ = (id) => document.getElementById(id);
@@ -169,7 +169,18 @@ function outcomesHtml(mix) {
     return `
         <div class="act-segbar" role="img" aria-label="${esc(label)}">${segments}</div>
         <ul class="act-legend">${mix.outcomes.map(o => `<li><span class="act-dot" style="background:${OUTCOME_COLOR[o.outcome]}"></span>${esc(o.label)} <span class="act-legend-count">${o.count} · ${pct(o.share)}</span></li>`).join("")}</ul>
-        <p class="act-note">Unable to resolve: <strong>${pct(mix.unable_rate)}</strong> of ${mix.total} ${mix.total === 1 ? "report" : "reports"}.</p>`;
+        <p class="act-note">Unable to resolve: <strong>${pct(mix.unable_rate)}</strong> of ${mix.total} ${mix.total === 1 ? "report" : "reports"}.</p>
+        ${unfinishedHtml(mix)}`;
+}
+
+// A partial or unresolved visit stays true about that day; whether the job was
+// finished afterwards is a separate question, answered by a later report.
+function unfinishedHtml(mix) {
+    const rows = mix.outcomes.filter(o => o.still_open !== undefined && o.count);
+    if (!rows.length) return "";
+    const lines = rows.map(o => `<li>${esc(o.label)}: ${o.count} · <strong>${o.followed_up}</strong> finished later, <strong>${o.still_open}</strong> still open</li>`).join("");
+    return `<ul class="act-unfinished">${lines}</ul>
+        ${mix.still_open ? `<button type="button" class="act-link-btn" data-goto-open>See what's still open (${mix.still_open})</button>` : ""}`;
 }
 
 function hours(h) {
@@ -264,6 +275,8 @@ export function initActivityOverview() {
     });
 
     const body = $("act-overview-body");
+    // Same period as the card, so the list holds exactly the jobs it counted.
+    body.addEventListener("click", (e) => { if (e.target.closest("[data-goto-open]") && data) navigate(`activity-reports/open/${data.start}/${data.end}`); });
     body.addEventListener("pointermove", (e) => {
         const target = e.target.closest("[data-tip]");
         if (!target) { $("act-tip").hidden = true; setHover(null); return; }

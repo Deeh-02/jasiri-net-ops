@@ -208,6 +208,11 @@ textarea.act-input { resize: vertical; min-height: 64px; }
 .act-repeat-col h3 { font-size: 13px; color: var(--text-dim); font-weight: 600; margin: 0 0 8px; }
 .act-note-top { margin: -6px 0 14px; }
 
+.act-open { color: var(--warn); }
+.act-inline { min-height: 0; padding: 0; font-family: 'JetBrains Mono', monospace; font-size: 13.5px; }
+.act-unfinished { list-style: none; margin: 10px 0 0; padding: 0; font-size: 13px; color: var(--text-dim); display: flex; flex-direction: column; gap: 4px; }
+.act-unfinished strong { color: var(--text); font-weight: 600; }
+
 /* ---- Manage Activity Types ---- */
 .act-intro { max-width: 720px; color: var(--text-dim); font-size: 13.5px; margin: 0 0 16px; }
 .act-mcat { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; margin-bottom: 16px; max-width: 900px; }

@@ -47,6 +47,12 @@ _REPORT_COLUMNS = [
     ("last_edited_by", "r.last_edited_by"),
     ("last_edited_by_name", "eb.name"),
     ("last_edited_at", "r.last_edited_at"),
+    # The earlier report this one finishes, and the later one that finished this.
+    ("follows_up", """(SELECT json_build_object('id', p.id, 'reference', p.reference, 'activity_date', p.activity_date, 'type', pt.name)
+                       FROM activity_reports p JOIN activity_types pt ON pt.id = p.type_id
+                       WHERE p.id = r.follows_up_report_id AND NOT p.is_deleted)"""),
+    ("followed_up_by", """(SELECT json_build_object('id', f.id, 'reference', f.reference, 'activity_date', f.activity_date, 'outcome', f.outcome)
+                           FROM activity_reports f WHERE f.follows_up_report_id = r.id AND NOT f.is_deleted LIMIT 1)"""),
     ("technicians", """(SELECT COALESCE(json_agg(json_build_object('id', u.id, 'name', u.name)
                                               ORDER BY u.name), '[]'::json)
                          FROM activity_report_technicians x JOIN users u ON u.id = x.user_id
@@ -72,6 +78,9 @@ def _report(row):
     r["area"] = r["location"] or r["other_location"]
     r["outcome_label"] = logic.OUTCOME_LABELS.get(r["outcome"], r["outcome"])
     r["time_spent_label"] = logic.TIME_SPENT_LABELS.get(r["time_spent"])
+    if r["followed_up_by"]:
+        r["followed_up_by"]["outcome_label"] = logic.OUTCOME_LABELS.get(r["followed_up_by"]["outcome"], r["followed_up_by"]["outcome"])
+    r["still_open"] = r["outcome"] in logic.UNFINISHED_OUTCOMES and not r["followed_up_by"]
     r["type_fields"] = r["type_fields"] or []
     r["details_view"] = [{"label": label, "text": text}
                          for label, text in logic.describe_details(r["type_fields"], r["details"])]
@@ -199,6 +208,48 @@ def _possible_duplicates(cur, cleaned):
     return [{"id": r[0], "reference": r[1], "submitted_by_name": r[2]} for r in cur.fetchall()]
 
 
+FOLLOW_UP_INDEX = "activity_reports_one_follow_up"
+_LIVE_FOLLOW_UP = "SELECT 1 FROM activity_reports f WHERE f.follows_up_report_id = r.id AND NOT f.is_deleted"
+
+
+def _check_follow_up(cur, target_id, report_id, activity_date):
+    cur.execute(f"""SELECT r.id, r.outcome, r.activity_date, r.is_deleted, r.follows_up_report_id,
+                           (SELECT f.id FROM activity_reports f WHERE f.follows_up_report_id = r.id AND NOT f.is_deleted LIMIT 1)
+                    FROM activity_reports r WHERE r.id = %s""", (target_id,))
+    row = cur.fetchone()
+    target = dict(zip(("id", "outcome", "activity_date", "is_deleted", "follows_up_report_id", "followed_up_by"), row)) if row else None
+    problem = logic.check_follow_up(target, report_id, activity_date)
+    if problem:
+        raise ActivityInvalid(problem)
+
+
+def list_unfinished(location_id, other_location, activity_date, exclude_id=None, days=90, limit=20):
+    """For the form's "Finishes an earlier report" pick: unfinished reports from
+    the last `days` days up to the report's date that nothing has followed up
+    yet. The same site (or the same "Other" text) comes first, because a job is
+    usually finished where it was started; others follow, because a hotspot
+    chain can be finished from a neighbouring site. Only what is needed to
+    recognise the job is returned."""
+    same = "r.location_id = %s" if location_id else "r.location_id IS NULL AND lower(trim(r.other_location)) = %s"
+    same_value = location_id if location_id else (other_location or "").strip().lower()
+    with db_cursor() as (conn, cur):
+        cur.execute(f"""SELECT r.id, r.reference, r.activity_date, t.name, COALESCE(l.name, r.other_location), r.outcome,
+                               ({same}) AS same_site
+                        FROM activity_reports r
+                        JOIN activity_types t ON t.id = r.type_id
+                        LEFT JOIN locations l ON l.id = r.location_id
+                        WHERE NOT r.is_deleted AND r.outcome = ANY(%s)
+                              AND r.activity_date BETWEEN %s AND %s
+                              AND (%s::int IS NULL OR r.id <> %s::int)
+                              AND NOT EXISTS ({_LIVE_FOLLOW_UP} AND (%s::int IS NULL OR f.id <> %s::int))
+                        ORDER BY same_site DESC, r.activity_date DESC, r.id DESC
+                        LIMIT %s""",
+                    (same_value, list(logic.UNFINISHED_OUTCOMES), activity_date - timedelta(days=days), activity_date,
+                     exclude_id, exclude_id, exclude_id, exclude_id, limit))
+        return [{"id": r[0], "reference": r[1], "activity_date": r[2].isoformat(), "type": r[3], "area": r[4],
+                 "outcome_label": logic.OUTCOME_LABELS.get(r[5], r[5]), "same_site": r[6]} for r in cur.fetchall()]
+
+
 # ---- Writing --------------------------------------------------------------
 
 def _check_references(cur, cleaned, technician_ids, existing=None):
@@ -235,7 +286,7 @@ def _by_token(cur, token, user_id):
 
 
 def create_report(user_id, cleaned, technician_ids, client_token=None, details=None, confirm_duplicate=False,
-                  submitted_at=None):
+                  submitted_at=None, follows_up_report_id=None):
     """Saves a report and returns its id and reference. The reference comes
     from a per-year counter inside the same transaction, so two people
     submitting at once can't share one and a failed save doesn't burn a
@@ -256,6 +307,8 @@ def create_report(user_id, cleaned, technician_ids, client_token=None, details=N
             if existing:
                 return existing
         _check_references(cur, cleaned, people)
+        if follows_up_report_id:
+            _check_follow_up(cur, follows_up_report_id, None, cleaned["activity_date"])
         if not confirm_duplicate:
             found = _possible_duplicates(cur, cleaned)
             if found:
@@ -271,16 +324,18 @@ def create_report(user_id, cleaned, technician_ids, client_token=None, details=N
             cur.execute("""
                 INSERT INTO activity_reports
                     (reference, client_token, activity_date, type_id, location_id, other_location,
-                     outcome, description, time_spent, remarks, details, submitted_by, submitted_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, COALESCE(%s, now()))
+                     outcome, description, time_spent, remarks, details, submitted_by, submitted_at, follows_up_report_id)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, COALESCE(%s, now()), %s)
                 RETURNING id""",
                 (reference, client_token, cleaned["activity_date"], cleaned["type_id"],
                  cleaned["location_id"], cleaned["other_location"], cleaned["outcome"],
                  cleaned["description"], cleaned["time_spent"], cleaned["remarks"],
-                 Json(details) if details else None, user_id, submitted_at))
-        except errors.UniqueViolation:
-            # Two sends of the same form arrived together; the other one won.
+                 Json(details) if details else None, user_id, submitted_at, follows_up_report_id))
+        except errors.UniqueViolation as e:
             conn.rollback()
+            if e.diag.constraint_name == FOLLOW_UP_INDEX:
+                raise ActivityInvalid("That report has already been followed up")
+            # Two sends of the same form arrived together; the other one won.
             existing = _by_token(cur, client_token, user_id) if client_token else None
             if existing:
                 return existing
@@ -292,7 +347,7 @@ def create_report(user_id, cleaned, technician_ids, client_token=None, details=N
     return {"id": report_id, "reference": reference, "duplicate": False}
 
 
-def update_report(report_id, editor_id, cleaned, technician_ids, details=None):
+def update_report(report_id, editor_id, cleaned, technician_ids, details=None, follows_up_report_id=None):
     """Replaces a report's editable fields and stamps who edited it and when.
     The submitter stays on the report whoever edits it."""
     with db_cursor() as (conn, cur):
@@ -309,16 +364,21 @@ def update_report(report_id, editor_id, cleaned, technician_ids, details=None):
         _check_references(cur, cleaned, people,
                           existing={"type_id": old_type, "location_id": old_location,
                                     "technician_ids": old_people})
-        cur.execute("""
+        if follows_up_report_id:
+            _check_follow_up(cur, follows_up_report_id, report_id, cleaned["activity_date"])
+        try:
+            cur.execute("""
             UPDATE activity_reports
             SET activity_date = %s, type_id = %s, location_id = %s, other_location = %s,
                 outcome = %s, description = %s, time_spent = %s, remarks = %s, details = %s,
-                last_edited_by = %s, last_edited_at = now()
+                follows_up_report_id = %s, last_edited_by = %s, last_edited_at = now()
             WHERE id = %s""",
             (cleaned["activity_date"], cleaned["type_id"], cleaned["location_id"],
              cleaned["other_location"], cleaned["outcome"], cleaned["description"],
              cleaned["time_spent"], cleaned["remarks"], Json(details) if details else None,
-             editor_id, report_id))
+             follows_up_report_id, editor_id, report_id))
+        except errors.UniqueViolation:
+            raise ActivityInvalid("That report has already been followed up")
         cur.execute("DELETE FROM activity_report_technicians WHERE report_id = %s", (report_id,))
         execute_values(cur, "INSERT INTO activity_report_technicians (report_id, user_id) VALUES %s",
                        [(report_id, u) for u in people])
@@ -377,7 +437,11 @@ def _where(filters, only_user_id):
         clauses.append("""EXISTS (SELECT 1 FROM activity_report_technicians ft
                            WHERE ft.report_id = r.id AND ft.user_id = %s)""")
         params.append(filters["technician_id"])
-    if filters.get("outcome"):
+    if filters.get("outcome") == "open":
+        # Unfinished, and no later report has followed it up yet.
+        clauses.append(f"r.outcome = ANY(%s) AND NOT EXISTS ({_LIVE_FOLLOW_UP})")
+        params.append(list(logic.UNFINISHED_OUTCOMES))
+    elif filters.get("outcome"):
         clauses.append("r.outcome = %s")
         params.append(filters["outcome"])
     if filters.get("q"):
@@ -455,7 +519,10 @@ def get_overview(start, end, bucket):
         by_technician = [{"user_id": r[0], "name": r[1], "count": r[2]} for r in cur.fetchall()]
 
         cur.execute(f"SELECT r.outcome, count(*) {base} GROUP BY r.outcome", period)
-        outcomes = logic.outcome_mix({r[0]: r[1] for r in cur.fetchall()})
+        outcome_counts = {r[0]: r[1] for r in cur.fetchall()}
+        # Followed up at any time since, even after the period: "finished later".
+        cur.execute(f"SELECT r.outcome, count(*) {base} AND EXISTS ({_LIVE_FOLLOW_UP}) GROUP BY r.outcome", period)
+        outcomes = logic.outcome_mix(outcome_counts, {r[0]: r[1] for r in cur.fetchall()})
 
         cur.execute(f"""SELECT c.id, r.time_spent, count(*)
                         FROM activity_reports r

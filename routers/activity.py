@@ -58,6 +58,8 @@ class ReportFields(BaseModel):
     technician_ids: list[int] = Field(default_factory=list, max_length=logic.MAX_TECHNICIANS)
     # Answers to the type's extra fields, {key: value}; checked against the type.
     details: dict | None = None
+    # The earlier unfinished report this visit finishes, if any.
+    follows_up_report_id: int | None = None
 
 
 class ReportCreate(ReportFields):
@@ -89,13 +91,22 @@ def search_customers(q: str = "", current_user: dict = Depends(require_activity(
     return db.search_customers(q)
 
 
+@router.get("/activity/unfinished")
+def list_unfinished(activity_date: date, location_id: int | None = None, other_location: str | None = None,
+                    exclude_id: int | None = None, current_user: dict = Depends(require_activity("submit"))):
+    """Candidates for "This finishes an earlier report": references, dates and
+    types only, like the duplicate warning, so nothing beyond what a
+    technician needs to recognise the job."""
+    return db.list_unfinished(location_id, other_location, activity_date, exclude_id)
+
+
 @router.post("/activity/reports")
 def submit_report(body: ReportCreate, current_user: dict = Depends(require_activity("submit"))):
     cleaned = _clean_or_400(body)
     try:
         details = db.prepare_details(cleaned["type_id"], body.details)
         result = db.create_report(current_user["id"], cleaned, body.technician_ids, body.client_token,
-                                  details, body.confirm_duplicate)
+                                  details, body.confirm_duplicate, follows_up_report_id=body.follows_up_report_id)
     except db.ActivityInvalid as e:
         raise HTTPException(status_code=400, detail=str(e))
     if "possible_duplicates" in result:
@@ -107,7 +118,8 @@ def submit_report(body: ReportCreate, current_user: dict = Depends(require_activ
 
 
 def _filters(date_from, date_to, category_id, type_id, location_id, technician_id, outcome, q):
-    if outcome and outcome not in logic.OUTCOME_LABELS:
+    # "open" is not an outcome but a view: unfinished and not yet followed up.
+    if outcome and outcome != "open" and outcome not in logic.OUTCOME_LABELS:
         raise HTTPException(status_code=400, detail="Unknown outcome")
     return {
         "date_from": date_from, "date_to": date_to, "category_id": category_id, "type_id": type_id,
@@ -135,7 +147,8 @@ def list_reports(
 
 
 _CSV_HEADER = ["Reference", "Activity date", "Category", "Activity type", "Area", "Technicians",
-               "Outcome", "Time spent", "Description", "Remarks", "Extra details", "Submitted by", "Submitted at (EAT)"]
+               "Outcome", "Time spent", "Description", "Remarks", "Extra details", "Follows up", "Followed up by",
+               "Submitted by", "Submitted at (EAT)"]
 
 
 @router.get("/activity/reports/export")
@@ -157,6 +170,7 @@ def export_reports(
             ", ".join(t["name"] for t in r["technicians"]), r["outcome_label"],
             r["time_spent_label"], r["description"], r["remarks"],
             "; ".join(f"{d['label']}: {d['text'].replace(chr(10), ' / ')}" for d in r["details_view"]),
+            (r.get("follows_up") or {}).get("reference"), (r.get("followed_up_by") or {}).get("reference"),
             r["submitted_by_name"], submitted)])
     filename = f"activity-reports-{now_eat().date().isoformat()}.csv"
     return Response(out.getvalue(), media_type="text/csv",
@@ -193,7 +207,7 @@ def edit_report(report_id: int, body: ReportFields, current_user: dict = Depends
     cleaned = _clean_or_400(body)
     try:
         details = db.prepare_details(cleaned["type_id"], body.details)
-        db.update_report(report_id, current_user["id"], cleaned, body.technician_ids, details)
+        db.update_report(report_id, current_user["id"], cleaned, body.technician_ids, details, body.follows_up_report_id)
     except db.ActivityInvalid as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"id": report_id, "reference": report["reference"]}
