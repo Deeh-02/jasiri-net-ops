@@ -1793,6 +1793,17 @@ repeat-visit metric. Materials and Photos are deferred and NOT built.
   not an outcome. The earlier visit's outcome is never changed: the trip count stays honest.
   Candidates for the pick are the last 90 days, same site first (a hotspot chain is often finished
   from a neighbouring site), returning references, dates and types only.
+- **Location picker (submit form).** A type-ahead over `options.locations`, filtered in the
+  browser (starts-with, then word-start, then anywhere; 8 matches), not a `<select>`. Only an id
+  from the list or the explicit "Other" (with `other_location` text) ever reaches `state.location`;
+  free text never does, and an exact name typed in any case is accepted on blur. The API is
+  unchanged (`location_id` or `other_location`), so the server's checks still apply. The Reports
+  filter keeps its plain dropdown.
+- **Route (migration 0030).** Data only: an optional `text` field with key `route`, first
+  question on Fibre repair, Splicing, Cable re-tensioning, New fibre deployment and Cable
+  installation, for work that runs W - X - Y - Z. Location stays the single area the Overview
+  counts; the stops are typed text (found by search through `details::text`), not location ids.
+  Added only where a type has no `route` question yet, so admin edits survive a re-run.
 - **Manage screen** (admin only, `require_admin`, not grantable to a custom role): add,
   rename, reorder, deactivate categories and types, edit a type's fields, optionally copying
   them to every type in the category. Names are unique ignoring case. Every change answers

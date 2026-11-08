@@ -31,7 +31,11 @@
 
             <div class="act-field">
                 <label class="act-label" for="act-location">Location</label>
-                <select id="act-location" class="act-input"></select>
+                <div id="act-location-picked" hidden></div>
+                <input type="search" id="act-location" class="act-input" placeholder="Start typing the area…" autocomplete="off"
+                       role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="act-location-results">
+                <div class="act-results" id="act-location-results" role="listbox" hidden></div>
+                <p class="act-hint" id="act-location-hint" hidden></p>
                 <input type="text" id="act-other-location" class="act-input act-other" maxlength="120" placeholder="Where was it? (a few words)" aria-label="Other location" hidden>
             </div>
 

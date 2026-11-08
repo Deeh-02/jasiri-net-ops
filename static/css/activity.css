@@ -199,6 +199,8 @@ textarea.act-input { resize: vertical; min-height: 64px; }
 .act-result:last-child { border-bottom: none; }
 .act-result:hover, .act-result:focus-visible { background: var(--border); outline: none; }
 .act-results .act-hint { padding: 10px 14px; margin: 0; }
+.act-result.active { background: var(--border); box-shadow: inset 3px 0 0 var(--accent); }
+.act-result-other { color: var(--text-dim); font-size: 14px; }
 
 .act-warn { background: rgba(245, 166, 35, 0.1); border: 1px solid var(--warn); border-radius: 10px; padding: 14px 16px; margin-bottom: 16px; }
 .act-warn p { margin: 0 0 12px; font-size: 14.5px; }

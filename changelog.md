@@ -43,6 +43,14 @@ before or after the code is deployed)
   place first). The earlier report then shows "Finished by TAL-…", the list marks unfinished jobs
   "Still open" or "Followed up", Reports has a "Still open" filter, and the Overview splits
   partials into finished later and still open, with a link to that list.
+- **Location is typed, not scrolled:** start typing the area and pick from the matches (tap,
+  or arrows and Enter). Only a location on the list is accepted, or a deliberate "Other" with a
+  few words; typed text that matches nothing is refused with a hint. Tap the picked area to
+  change it.
+- **Route (migration 0030):** Fibre repair, Splicing, Cable re-tensioning, New fibre deployment
+  and Cable installation ask an optional "Route (if more than one place)", e.g.
+  "Kamutini - Sunton - Stage". Location stays the main area or starting point, and that is what
+  the Overview counts; search finds any stop on a route.
 - **Repeat visits** on the Overview: customers and areas with Customer Support visits on more
   than one day in the 30 days up to the end of the chosen period. A customer is recognised by
   the account typed in (a new customer isn't in the customer list yet) or the one picked.

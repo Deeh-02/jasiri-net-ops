@@ -218,15 +218,113 @@ function onFollowUpClick(e) {
     }
 }
 
+// Location: type a few letters and pick from the matches. Only a location on
+// the list (or a deliberate "Other") is ever accepted; typed text alone never is.
+const LOCATION_MATCHES = 8;
+let locationActive = 0;       // the highlighted match, for the arrow keys and Enter
+
+function locationName(value) {
+    if (value === "other") return "Other (not on the list)";
+    return options.locations.find(l => String(l.id) === value)?.name || "";
+}
+
 function drawLocation() {
-    const select = $("act-location");
-    select.innerHTML = `<option value="">Choose a location…</option>`
-        + options.locations.map(l => `<option value="${l.id}">${esc(l.name)}</option>`).join("")
-        + `<option value="other">Other…</option>`;
-    select.value = state.location;
+    const name = locationName(state.location);
+    const picked = $("act-location-picked"), input = $("act-location");
+    picked.innerHTML = name
+        ? `<button type="button" class="act-chip selected removable" id="act-location-clear" aria-label="Location: ${esc(name)}. Tap to change">${esc(name)} <span aria-hidden="true">×</span></button>`
+        : "";
+    picked.hidden = !name;
+    input.hidden = !!name;
+    input.value = "";
+    closeLocationResults();
+    $("act-location-hint").hidden = true;
     const other = $("act-other-location");
     other.hidden = state.location !== "other";
     other.value = state.other_location;
+}
+
+// Starts-with first, then a word starting with it, then anywhere in the name.
+function matchLocations(text) {
+    const q = text.trim().toLowerCase();
+    if (!q) return [];
+    const rank = (name) => {
+        const n = name.toLowerCase();
+        if (n.startsWith(q)) return 0;
+        if (n.split(/[\s\-\/(),.]+/).some(w => w.startsWith(q))) return 1;
+        return n.includes(q) ? 2 : -1;
+    };
+    return options.locations
+        .map(l => ({ ...l, rank: rank(l.name) }))
+        .filter(l => l.rank >= 0)
+        .sort((a, b) => a.rank - b.rank || a.name.localeCompare(b.name))
+        .slice(0, LOCATION_MATCHES);
+}
+
+function closeLocationResults() {
+    $("act-location-results").hidden = true;
+    $("act-location").setAttribute("aria-expanded", "false");
+}
+
+function drawLocationResults() {
+    const input = $("act-location"), box = $("act-location-results");
+    const text = input.value;
+    if (!text.trim()) { closeLocationResults(); return; }
+    const found = matchLocations(text);
+    locationActive = Math.min(locationActive, Math.max(found.length - 1, 0));
+    const items = found.map((l, i) => `<button type="button" class="act-result${i === locationActive ? " active" : ""}" role="option" aria-selected="${i === locationActive}" data-location-pick="${l.id}" tabindex="-1">${esc(l.name)}</button>`);
+    if (!found.length) items.push(`<p class="act-hint">No location matches “${esc(text.trim())}”.</p>`);
+    items.push(`<button type="button" class="act-result act-result-other" role="option" data-location-pick="other" tabindex="-1">Not on the list: choose Other and describe it</button>`);
+    box.innerHTML = items.join("");
+    box.hidden = false;
+    input.setAttribute("aria-expanded", "true");
+}
+
+function pickLocation(value) {
+    state.location = value;
+    drawLocation();
+    if (value === "other") $("act-other-location").focus();
+    saveDraft();
+    loadFollowUps();
+}
+
+function clearLocation() {
+    state.location = "";
+    drawLocation();
+    $("act-location").focus();
+    saveDraft();
+    loadFollowUps();
+}
+
+function onLocationKey(e) {
+    const box = $("act-location-results");
+    const matches = box.querySelectorAll("[data-location-pick]:not([data-location-pick='other'])");
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        if (box.hidden) { drawLocationResults(); return; }
+        e.preventDefault();
+        if (!matches.length) return;
+        locationActive = (locationActive + (e.key === "ArrowDown" ? 1 : -1) + matches.length) % matches.length;
+        drawLocationResults();
+    } else if (e.key === "Enter") {
+        e.preventDefault();               // never submits the form from here
+        if (!box.hidden && matches[locationActive]) pickLocation(matches[locationActive].dataset.locationPick);
+    } else if (e.key === "Escape") {
+        closeLocationResults();
+    }
+}
+
+// Leaving the box: an exact name (any case) counts as picked; anything else is
+// not accepted, and the hint says so.
+function onLocationBlur() {
+    const input = $("act-location");
+    const text = input.value.trim();
+    closeLocationResults();
+    if (!text || state.location) return;
+    const exact = options.locations.find(l => l.name.toLowerCase() === text.toLowerCase());
+    if (exact) { pickLocation(String(exact.id)); return; }
+    const hint = $("act-location-hint");
+    hint.textContent = `“${text}” is not on the list. Pick one of the matches, or choose Other.`;
+    hint.hidden = false;
 }
 
 function drawOutcomes() {
@@ -305,7 +403,7 @@ function onChip(e) {
 function problems() {
     const out = [];
     if (!state.type_id) out.push("Pick a category and an activity type");
-    if (!state.location) out.push("Pick a location");
+    if (!state.location) out.push("Pick a location from the list (start typing the area), or choose Other");
     else if (state.location === "other" && !state.other_location.trim()) out.push("Say where it was (a few words)");
     if (options.explanation_outcomes.includes(state.outcome) && !state.description.trim()) out.push("Add a one-line explanation for this outcome");
     if (!state.activity_date) out.push("Pick the date");
@@ -493,13 +591,16 @@ export function initActivitySubmit() {
     $("act-dup-back").addEventListener("click", hideDuplicate);
 
     $("act-date").addEventListener("change", (e) => { state.activity_date = e.target.value; saveDraft(); loadFollowUps(); });
-    $("act-location").addEventListener("change", (e) => {
-        state.location = e.target.value;
-        $("act-other-location").hidden = state.location !== "other";
-        if (state.location === "other") $("act-other-location").focus();
-        saveDraft();
-        loadFollowUps();
+    $("act-location").addEventListener("input", () => { locationActive = 0; $("act-location-hint").hidden = true; drawLocationResults(); });
+    $("act-location").addEventListener("keydown", onLocationKey);
+    $("act-location").addEventListener("blur", onLocationBlur);
+    // Keeps the box focused while a match is tapped, so the tap lands.
+    $("act-location-results").addEventListener("pointerdown", (e) => e.preventDefault());
+    $("act-location-results").addEventListener("click", (e) => {
+        const pick = e.target.closest("[data-location-pick]");
+        if (pick) pickLocation(pick.dataset.locationPick);
     });
+    $("act-location-picked").addEventListener("click", (e) => { if (e.target.closest("#act-location-clear")) clearLocation(); });
     $("act-other-location").addEventListener("input", (e) => { state.other_location = e.target.value; saveDraft(); });
     $("act-description").addEventListener("input", (e) => { state.description = e.target.value; saveDraft(); });
     $("act-remarks").addEventListener("input", (e) => { state.remarks = e.target.value; saveDraft(); });
