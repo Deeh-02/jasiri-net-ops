@@ -312,6 +312,9 @@ function drawSites() {
     document.querySelectorAll("#rev-sites-table th[data-col]").forEach(th => {
         th.classList.toggle("is-sorted", th.dataset.col === col);
         th.classList.toggle("asc", th.dataset.col === col && dir === 1);
+        // The shared sorted-column arrow (common.css th[aria-sort]).
+        if (th.dataset.col === col) th.setAttribute("aria-sort", dir === 1 ? "ascending" : "descending");
+        else th.removeAttribute("aria-sort");
     });
     body.innerHTML = sortedSites().map(r => {
         const d = r.display;

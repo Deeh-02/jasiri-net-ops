@@ -35,6 +35,21 @@ Presentation only: no database, API or permission changes, no migration.
   before the table.
 - **Reduced motion:** with the phone or computer set to reduce motion,
   nothing slides, fades or lifts.
+- **Softer tables (second pass):** every table sits in a rounded panel with
+  softer lines, a faint stripe on every other row and a clear hover; rows
+  have a little more room (the Inventory Log and SMS Status stay compact);
+  numbers line up on the right; dates and categories are quieter so names
+  stand out; the column a list is ordered by shows an arrow; Inventory Log
+  shows how many transactions the filters leave.
+- **Smoother loading:** tables show grey placeholder rows shaped like the
+  table while they first load (and the battery cards on the dashboard);
+  changing a filter keeps the old rows on screen, slightly dimmed, until the
+  new ones arrive instead of flashing; a new page opens at its top.
+- **Phones:** every table now keeps one line per row with its first column
+  pinned (Batteries, Reports and Alerts included); the pinned column shows a
+  shadow once you swipe sideways.
+- **Revenue and Network:** more space above each section; the dropdowns and
+  sort arrows match the rest of the app.
 
 ## Technical Activity Log (on `phase-4-network-monitoring`)
 

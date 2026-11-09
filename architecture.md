@@ -1844,6 +1844,13 @@ live in DESIGN.md; the parts with behaviour live at the bottom of
   button, the wrapper leaves it alone. Anything else that monkey-patches
   `fetch` (tests) should wrap the wrapper, not replace it, or the busy
   state won't be seen.
+- `showView()` fills any empty `tbody[data-skeleton]` in the arriving view
+  with skeleton rows (replaced by an error state after 20s if nothing draws
+  over them), and only scrolls to the top / replays the entrance when the
+  view actually changes. `markRefreshing()` uses a one-shot
+  MutationObserver on the tbody to undim when the new rows land. A single
+  capture-phase `scroll` listener marks swiped `.table-scroll` boxes
+  (`.is-scrolled-x`) for the pinned-column shadow.
 - `setActiveNav` folds every sidebar group except the current page's and
   keeps `aria-expanded` in step; a group opened by hand stays open until
   the next navigation outside it.

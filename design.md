@@ -91,6 +91,31 @@ what is truly its own.
   person edits that form. While the request a submit starts is in flight,
   its submit button is disabled with a spinner (`aria-busy`) — automatic,
   see ARCHITECTURE.md; a form that disables its own button is left alone.
+- **Tables (visual pass):** a table inside `.table-scroll` sits in one
+  rounded panel (the wrapper has the surface, border and radius; the table
+  drops its own frame). Dividers are soft (`--rule-soft`), even rows get a
+  faint tint (`--row-alt`) and hover a clear one (`--row-hover`); both are
+  opaque so the phone's pinned first column covers what slides under it.
+  Rows have 14px vertical padding; logs use `.table-dense` (Inventory Log,
+  SMS Status). Numbers: `th.num`/`td.num` (right-aligned, tabular figures —
+  every table uses tabular figures). Quieter secondary cells: `td.muted`
+  (dates, categories, ids) or a `.cell-sub` line under a name. The column a
+  table is ordered by carries `aria-sort` and shows an accent ↓/↑. A
+  toolbar can end with `.toolbar-count` ("45 transactions").
+- **Every table is compact on phones** (`.table-compact` on every
+  `.table-scroll`): one line per row, the page scrolls, the first column is
+  pinned and casts a soft shadow once swiped (`.is-scrolled-x`).
+- **Loading without flashing:** a main table's `<tbody data-skeleton="N">`
+  shows N-column skeleton rows on first visit; `stateRow(n, "loading")`
+  draws skeletons too; `skeletonCards(n)` for a stat grid. Reloading a table
+  that already shows data: `markRefreshing(tbody, n)` keeps it on screen,
+  slightly dimmed, until the new rows replace it. Live refreshes redraw only
+  what changed. Going to another page starts at its top; staying on a page
+  (a filter in the URL) doesn't replay its entrance.
+- **Motion:** menus, pop-overs, dialogs and form messages appear with a
+  ~150ms fade and 4px drop; buttons, summary filters and cards have a
+  pressed state. Nothing moves that isn't changing; reduced motion turns
+  all of it off.
 - **Sidebar:** the open section's heading is bright text with an accent
   icon; only the current page carries the accent bar/tint; sub-pages hang
   off a guide line; only the current page's group stays expanded.

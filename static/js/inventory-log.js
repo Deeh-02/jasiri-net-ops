@@ -125,6 +125,12 @@ function renderLogTable(rows) {
 
     const visibleRows = visibleLogRows();
     const total = visibleRows.length;
+    const countEl = document.getElementById("inventory-log-count");
+    if (countEl) {
+        countEl.textContent = total === logRowsCache.length
+            ? `${total} transaction${total === 1 ? "" : "s"}`
+            : `${total} of ${logRowsCache.length} transactions`;
+    }
     if (total === 0) {
         const emptyMsg = logRowsCache.length === 0 ? "No transactions yet." : "No matching transactions.";
         tbody.innerHTML = stateRow(6, "empty", emptyMsg);
@@ -148,7 +154,7 @@ function renderLogTable(rows) {
             <td>${formatDateTime(row.created_at)}</td>
             <td>${displayAction(row)}</td>
             <td>${row.sku_or_spec}</td>
-            <td>${row.qty_or_length ?? "—"}</td>
+            <td class="num">${row.qty_or_length ?? "—"}</td>
             <td>${movementCell(row)}</td>
             <td>${row.logged_by_name}</td>
         </tr>

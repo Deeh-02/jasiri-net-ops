@@ -188,6 +188,8 @@ button:disabled, .btn-primary[aria-disabled="true"], .btn-secondary[aria-disable
     color: var(--text-dim);
 }
 .toolbar-end { margin-left: auto; display: flex; gap: 10px; align-items: center; }
+/* How many rows the filters leave, at the toolbar's right end. */
+.toolbar-count { color: var(--text-dim); font-size: 13px; align-self: center; }
 /* The one look for a filter/search control: same height, border and focus
    as every form field in the app. */
 .control {
@@ -304,6 +306,26 @@ button.summary-item[aria-pressed="true"] { border-color: var(--accent); }
 .confirm-box .modal-actions { justify-content: flex-end; }
 .confirm-box .modal-actions button { flex: 0 1 auto; min-width: 110px; }
 .confirm-box .modal-actions .btn-danger { background: var(--danger); color: #10141a; border-color: var(--danger); }
+
+/* ---- Light motion for things that appear: menus, pop-overs, messages.
+   Opacity plus a few pixels of travel, ~150ms; never on data itself. Runs
+   each time the element is un-hidden (display none -> block restarts it).
+   prefers-reduced-motion (above) turns it off. ---- */
+@keyframes appear-down { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+@keyframes appear { from { opacity: 0; } to { opacity: 1; } }
+.topbar-avatar-menu, .notifications-panel, .charge-menu, .move-reason-menu,
+.move-by-suggestions, .perm-menu, .act-results {
+    animation: appear-down 0.14s var(--ease);
+}
+.cmdk-box, .modal-box { animation: appear-down 0.16s var(--ease); }
+.modal-overlay:not([hidden]) { animation: appear 0.16s ease; }
+.form-msg:not(:empty) { animation: appear 0.18s ease; }
+.summary-item, .stat-card, .tab, .btn-primary, .btn-secondary, .btn-danger {
+    -webkit-tap-highlight-color: transparent;
+}
+/* Pressed state for cards and summary filters, like buttons. */
+button.summary-item:active:not(:disabled) { transform: scale(0.98); }
+.stat-card:active { transform: translateY(0) scale(0.99); }
 
 /* Section heading inside a page: one size everywhere. */
 .section-title {
@@ -714,7 +736,10 @@ button.summary-item[aria-pressed="true"] { border-color: var(--accent); }
     }
 }
 
-.content h2 {
+/* Zero-specificity default (:where), so a view's own heading class (.rev-h2,
+   .net-h2 …) sets its spacing; as `.content h2` this used to override them
+   and squeezed section headings against the cards above. */
+:where(.content) h2 {
     font-family: 'Space Grotesk', sans-serif;
     font-size: 20px;
     margin: 0 0 20px;
@@ -1008,7 +1033,8 @@ button.summary-item[aria-pressed="true"] { border-color: var(--accent); }
    - drop the 55vh inner scroll box and let the page scroll, so the whole
      screen is used for rows;
    - pin the first column (the row's name) while the rest swipes sideways.
-   Batteries, Reports and Alerts deliberately don't opt in. ---- */
+   Phase 5: every table opts in now (the owner asked for the same deliberate
+   phone behaviour on every table), Batteries, Reports and Alerts included. ---- */
 @media (max-width: 760px) {
     .table-scroll.table-compact {
         max-height: none;
@@ -1054,7 +1080,18 @@ button.summary-item[aria-pressed="true"] { border-color: var(--accent); }
 
     .table-compact td:first-child { background: var(--surface); }
     .table-compact thead th:first-child { background: var(--surface-2); }
-    .table-compact tr:hover td:first-child { background: var(--surface-2); }
+    .table-compact tbody tr:nth-child(even) td:first-child { background: var(--row-alt); }
+    .table-compact tbody tr:hover td:first-child { background: var(--row-hover); }
+
+    /* Once the table has been swiped sideways, the pinned column casts a
+       soft shadow over the cells sliding under it, so it reads as pinned on
+       purpose (common.js toggles .is-scrolled-x). */
+    .table-scroll.is-scrolled-x .table-compact td:first-child,
+    .table-scroll.is-scrolled-x .table-compact th:first-child,
+    .table-scroll.is-scrolled-x.table-compact td:first-child,
+    .table-scroll.is-scrolled-x.table-compact th:first-child {
+        box-shadow: 1px 0 0 var(--border), 8px 0 10px -6px rgba(0, 0, 0, 0.9);
+    }
 
     /* Row action buttons sit side by side instead of stacking. */
     .table-compact .actions-cell {
@@ -1117,31 +1154,45 @@ button.summary-item[aria-pressed="true"] { border-color: var(--accent); }
     }
 }
 
-/* ---- Base table styling — every view's table sits on this ---- */
+/* ---- Base table styling — every view's table sits on this ----
+   Phase 5 visual pass: soft dividers, a faint alternating row tint and a
+   clear hover so a wide row is easy to follow; a little more room per row
+   (.table-dense keeps logs tight); numbers in tabular figures. Row colours
+   are opaque (not rgba) because a phone's pinned first column must cover the
+   cells sliding under it. */
+:root {
+    --row-alt: #0d0d0d;
+    --row-hover: #151718;
+    --rule-soft: rgba(255, 255, 255, 0.055);
+}
+
 table {
     width: 100%;
     border-collapse: collapse;
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 10px;
+    border-radius: var(--radius);
     overflow: visible;
+    font-variant-numeric: tabular-nums;
 }
 
 th {
     text-align: left;
     font-family: 'JetBrains Mono', monospace;
     font-size: 11px;
+    font-weight: 500;
     text-transform: uppercase;
     letter-spacing: 0.06em;
     color: var(--text-dim);
     background: var(--surface-2);
     padding: 12px 16px;
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid var(--rule-soft);
+    white-space: nowrap;
 }
 
 td {
-    padding: 12px 16px;
-    border-bottom: 1px solid var(--border);
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--rule-soft);
     font-size: 14px;
     vertical-align: middle;
 }
@@ -1152,7 +1203,76 @@ tr {
     transition: background 0.12s ease;
 }
 
-tr:hover td { background: var(--surface-2); }
+tbody tr:nth-child(even) td { background: var(--row-alt); }
+tbody tr:hover td { background: var(--row-hover); }
+
+/* Dense tables (logs): one line per row, tighter padding. */
+.table-dense td { padding: 9px 16px; font-size: 13.5px; }
+.table-dense th { padding: 10px 16px; }
+
+/* Numbers line up on the right; the header follows its column. */
+th.num, td.num { text-align: right; }
+
+/* Quieter secondary text in a cell (dates, locations, ids). */
+.cell-muted, td.muted { color: var(--text-dim); font-size: 13px; }
+td.nowrap, .nowrap { white-space: nowrap; }
+.cell-sub { display: block; color: var(--text-dim); font-size: 12.5px; margin-top: 2px; }
+
+/* The column a table is ordered by: an accent arrow beside its label. */
+th[aria-sort="descending"]::after,
+th[aria-sort="ascending"]::after {
+    color: var(--accent);
+    font-family: 'Inter', sans-serif;
+    margin-left: 6px;
+}
+th[aria-sort="descending"]::after { content: "↓"; }
+th[aria-sort="ascending"]::after { content: "↑"; }
+th[aria-sort="descending"], th[aria-sort="ascending"] { color: var(--text); }
+
+/* ---- Table panel: a table inside .table-scroll sits in one rounded
+   surface; the table itself drops its own frame. ---- */
+.table-scroll {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+}
+.table-scroll > table {
+    border: none;
+    border-radius: 0;
+    background: transparent;
+}
+/* Refreshing with data already on screen: keep it, dim it slightly, no
+   flash (common.js markRefreshing). */
+.table-scroll.is-refreshing { opacity: 0.6; transition: opacity 0.15s ease; }
+.table-scroll { transition: opacity 0.15s ease; }
+
+/* Skeleton rows while a table first loads (common.js stateRow "loading"). */
+tr.skeleton-row td { background: none !important; }
+tr.skeleton-row td { min-width: 64px; border-bottom-color: transparent; }
+.skeleton {
+    display: block;
+    height: 10px;
+    border-radius: 5px;
+    background: linear-gradient(90deg, #161616 0%, #1f1f1f 50%, #161616 100%);
+    background-size: 200% 100%;
+    animation: skeleton-sweep 1.4s ease-in-out infinite;
+}
+@keyframes skeleton-sweep { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+.skeleton-card {
+    height: 86px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    background: var(--surface);
+    padding: 18px 20px;
+}
+.skeleton-card .skeleton + .skeleton { margin-top: 14px; height: 18px; width: 40%; }
+/* Visually hidden, still read by screen readers. !important because table
+   cell rules (e.g. the phone's compact table) would otherwise undo it. */
+.sr-only {
+    position: absolute !important; width: 1px !important; height: 1px !important;
+    padding: 0 !important; margin: -1px !important; overflow: hidden !important;
+    clip: rect(0 0 0 0) !important; white-space: nowrap !important; border: 0 !important;
+}
 
 /* Shared by dashboard's battery table and the movements table */
 .battery-number {

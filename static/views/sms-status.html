@@ -28,8 +28,8 @@
 
         <div class="summary-strip" id="sms-status-summary" aria-label="Totals for this period"></div>
 
-        <div class="table-scroll">
-            <table id="sms-status-table">
+        <div class="table-scroll table-compact">
+            <table id="sms-status-table" class="table-dense">
                 <thead>
                     <tr>
                         <th>Id</th>
@@ -40,10 +40,10 @@
                         <th>Site</th>
                         <th>Status</th>
                         <th>Provider response</th>
-                        <th>Sent</th>
+                        <th aria-sort="descending">Sent</th>
                     </tr>
                 </thead>
-                <tbody id="sms-status-rows"></tbody>
+                <tbody id="sms-status-rows" data-skeleton="9"></tbody>
             </table>
         </div>
     </section>

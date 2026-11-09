@@ -1,4 +1,4 @@
-import { authHeaders, showView, registerRoute, formatDate, stateRow } from "./common.js";
+import { authHeaders, showView, registerRoute, formatDate, stateRow, markRefreshing } from "./common.js";
 
 function esc(s) {
     return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -31,7 +31,7 @@ async function loadSmsStatus() {
 
     const rows = document.getElementById("sms-status-rows");
     const summary = document.getElementById("sms-status-summary");
-    rows.innerHTML = stateRow(9, "loading", "Loading the SMS log…");
+    markRefreshing(rows, 9, "Loading the SMS log…");
     const res = await fetch(`/monitoring/sms-log?${params}`, { headers: authHeaders() }).catch(() => null);
     if (!res || !res.ok) {
         summary.innerHTML = "";
@@ -53,7 +53,7 @@ async function loadSmsStatus() {
     }
     rows.innerHTML = data.rows.map(r => `
         <tr>
-            <td>${r.id}</td>
+            <td class="muted">${r.id}</td>
             <td>${esc(KIND_LABEL[r.kind] || r.kind)}</td>
             <td>${esc(CHANNEL_LABEL[r.channel] || r.channel)}</td>
             <td>${esc(r.user_name || "—")}</td>
@@ -61,7 +61,7 @@ async function loadSmsStatus() {
             <td>${esc(r.site_name || "—")}</td>
             <td><span class="status-pill sms-status-pill ${r.status === "sent" ? "sent" : r.status === "failed" ? "failed" : "other"}">${esc(STATUS_LABEL[r.status] || r.status)}</span></td>
             <td class="sms-status-response" title="${esc(responseText(r))}">${esc(responseText(r))}</td>
-            <td>${esc(formatDate(r.sent_at))}</td>
+            <td class="muted">${esc(formatDate(r.sent_at))}</td>
         </tr>
     `).join("");
 }

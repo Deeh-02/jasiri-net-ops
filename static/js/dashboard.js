@@ -3,7 +3,7 @@ import {
     batteryIconSvg, moveIconSvg, editIconSvg, viewIconSvg, deleteIconSvg,
     registerAppShownHandler, registerCmdkProvider, refreshBadges,
     showView, navigate, registerRoute, registerRouteResetter,
-    registerLogoutHandler, confirmDialog, stateRow, showEmptyIfNone
+    registerLogoutHandler, confirmDialog, stateRow, showEmptyIfNone, skeletonCards
 } from "./common.js";
 import { MOVEMENT_STATUS_META } from "./movements.js";
 
@@ -36,8 +36,8 @@ function buildStats(batteries) {
 
 // ---- Initial load: shows loading text once ----
 async function loadDashboard() {
-    document.getElementById("stat-grid").innerHTML = '<div class="loading-text">Loading...</div>';
-    document.getElementById("battery-rows").innerHTML = stateRow(9, "loading", "Loading batteries…");
+    document.getElementById("stat-grid").innerHTML = skeletonCards(5);
+    document.getElementById("battery-rows").innerHTML = stateRow(8, "loading", "Loading batteries…");
     // The placeholder just replaced whatever was rendered, so nothing on
     // screen matches batteriesCache any more. Without this, logging out and
     // back in left the previous session's list in batteriesCache, the fresh
@@ -302,7 +302,7 @@ function renderTable(batteries) {
             </td>
             <td>${battery.current_location}</td>
             <td>${battery.moved_by || "—"}</td>
-            <td>${formatDate(battery.moved_at)}</td>
+            <td class="muted nowrap">${formatDate(battery.moved_at)}</td>
             <td>
     <div class="actions-cell">
         ${can("movements", "create") ? `

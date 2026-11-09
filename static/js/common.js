@@ -387,8 +387,31 @@ export function deleteIconSvg() {
 }
 
 export function showView(viewId) {
-    document.querySelectorAll(".view").forEach(v => v.hidden = true);
-    document.getElementById(viewId).hidden = false;
+    const view = document.getElementById(viewId);
+    const arriving = view.hidden;
+    document.querySelectorAll(".view").forEach(v => { if (v !== view) v.hidden = true; });
+    view.hidden = false;
+    // A different page starts at its top (on a phone the whole window
+    // scrolls, on desktop the content pane does); staying on the same page
+    // (a filter in the URL changing) keeps its place.
+    if (arriving) {
+        window.scrollTo(0, 0);
+        document.querySelector(".content")?.scrollTo(0, 0);
+    }
+    // First visit: a main table that has nothing in it yet shows skeleton
+    // rows until its page script draws the real rows (or its empty state).
+    // Opt-in per table with data-skeleton="<columns>" on the <tbody>.
+    view.querySelectorAll("tbody[data-skeleton]").forEach(tbody => {
+        if (tbody.rows.length) return;
+        tbody.innerHTML = skeletonRows(Number(tbody.dataset.skeleton) || 4, 5);
+        // If nothing ever replaces them (the request failed without the page
+        // saying so), don't pretend to load forever.
+        setTimeout(() => {
+            if (tbody.querySelector(".skeleton-row")) {
+                tbody.innerHTML = stateRow(Number(tbody.dataset.skeleton) || 4, "error", "This is taking too long. Check your connection and reload the page.");
+            }
+        }, 20000);
+    });
 }
 
 // ---- Router: reflects the current section (and, for a couple of views, a
@@ -1056,9 +1079,59 @@ export function stateHtml(kind, text, title = "") {
     return `<div class="state state-${kind}"${role}>${title ? `<span class="state-title">${escText(title)}</span>` : ""}${escText(text)}</div>`;
 }
 
+// While a table first loads it shows skeleton rows shaped like its columns
+// (the text is still there for screen readers), not a "Loading…" line.
+const SKELETON_WIDTHS = [72, 48, 60, 36, 54, 66, 42, 58];
 export function stateRow(colspan, kind, text, title = "") {
+    if (kind === "loading") return skeletonRows(colspan, 5, text);
     return `<tr class="state-row"><td colspan="${colspan}">${stateHtml(kind, text, title)}</td></tr>`;
 }
+
+export function skeletonRows(colspan, rows = 5, label = "Loading…") {
+    let html = "";
+    for (let r = 0; r < rows; r++) {
+        let cells = "";
+        for (let c = 0; c < colspan; c++) {
+            const w = SKELETON_WIDTHS[(r + c * 3) % SKELETON_WIDTHS.length];
+            cells += `<td><span class="skeleton" style="width:${w}%"></span></td>`;
+        }
+        html += `<tr class="skeleton-row state-row" aria-hidden="true">${cells}</tr>`;
+    }
+    return `<tr class="state-row"><td colspan="${colspan}" class="sr-only" role="status">${escText(label)}</td></tr>` + html;
+}
+
+// Skeleton stat cards, for a summary grid that is still loading.
+export function skeletonCards(count = 4) {
+    return Array.from({ length: count }, () =>
+        `<div class="skeleton-card" aria-hidden="true"><span class="skeleton" style="width:55%"></span><span class="skeleton"></span></div>`).join("");
+}
+
+// Before reloading a table: if it already shows data, keep that data on
+// screen (slightly dimmed) until the new rows replace it, instead of
+// flashing skeletons; only an empty table gets the skeleton rows.
+export function markRefreshing(tbody, colspan, label = "Loading…") {
+    const hasData = [...tbody.rows].some(r => !r.classList.contains("state-row"));
+    if (!hasData) { tbody.innerHTML = stateRow(colspan, "loading", label); return; }
+    const panel = tbody.closest(".table-scroll");
+    if (!panel) return;
+    panel.classList.add("is-refreshing");
+    tbody.closest("table").setAttribute("aria-busy", "true");
+    const done = new MutationObserver(() => {
+        panel.classList.remove("is-refreshing");
+        tbody.closest("table")?.removeAttribute("aria-busy");
+        done.disconnect();
+    });
+    done.observe(tbody, { childList: true });
+}
+
+// Phones: a table swiped sideways gets .is-scrolled-x so its pinned first
+// column shows a shadow (CSS). One listener for every table.
+document.addEventListener("scroll", (e) => {
+    const el = e.target;
+    if (el instanceof Element && el.classList.contains("table-scroll")) {
+        el.classList.toggle("is-scrolled-x", el.scrollLeft > 2);
+    }
+}, { capture: true, passive: true });
 
 // The in-app confirmation dialog, in place of the browser's confirm().
 //   const ok = await confirmDialog({ title, message, confirmLabel, danger });

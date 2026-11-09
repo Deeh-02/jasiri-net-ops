@@ -1,4 +1,4 @@
-import { authHeaders, showView, registerRoute } from "./common.js";
+import { authHeaders, showView, registerRoute, stateRow } from "./common.js";
 
 // Network (CCR2116): uplink, gateway and router health, events, and the
 // PPPoE clients online right now. Every figure comes from the server; every
@@ -538,11 +538,10 @@ function renderSessions() {
     rows.sort((a, b) => order[a.status] - order[b.status] || (a.display_name || a.username).localeCompare(b.display_name || b.username));
     const body = $("net-sessions");
     if (!rows.length) {
-        const tr = el("tr");
-        const td = el("td", "net-empty", p.sessions.length ? "No client matches the filter." : "No PPPoE clients online.");
-        td.colSpan = 6;
-        tr.append(td);
-        body.replaceChildren(tr);
+        // The shared empty state (escaped text only).
+        body.innerHTML = p.sessions.length
+            ? stateRow(6, "empty", "Try another name, or show all statuses.", "No client matches the filter")
+            : stateRow(6, "empty", "No PPPoE clients online.");
         return;
     }
     body.replaceChildren(...rows.map(s => {
@@ -591,7 +590,7 @@ async function loadSessions() {
         renderCounts(state.sessions);
         renderSessions();
     } catch (e) {
-        if (!state.sessions) $("net-sessions").replaceChildren(el("tr", null, e.message));
+        if (!state.sessions) $("net-sessions").innerHTML = stateRow(6, "error", e.message);
     }
 }
 

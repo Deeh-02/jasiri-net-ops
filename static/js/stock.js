@@ -211,7 +211,7 @@ function renderStockTable() {
     const tbody = document.getElementById("stock-rows");
     if (!thead || !tbody) return;
 
-    thead.innerHTML = `<tr><th>Name</th><th>SKU</th><th>Category</th><th>Qty</th><th>Unit Cost</th><th>Total Value</th><th>Reorder Level</th><th>Actions</th></tr>`;
+    thead.innerHTML = `<tr><th>Name</th><th>SKU</th><th>Category</th><th class="num">Qty</th><th class="num">Unit Cost</th><th class="num">Total Value</th><th class="num">Reorder Level</th><th>Actions</th></tr>`;
 
     const canViewHistory = can("inventory_items", "view_history");
     renderStockSummary();
@@ -223,11 +223,11 @@ function renderStockTable() {
             <tr>
                 <td>${row.name || "—"}</td>
                 <td>${row.sku_or_spec}</td>
-                <td>${row.category_name}</td>
-                <td>${qtyCell(row, qty)}</td>
-                <td>${unitCostCell(row)}</td>
-                <td>${money(value)}</td>
-                <td>${reorderLevelCell(row, qty)}</td>
+                <td class="muted">${row.category_name}</td>
+                <td class="num">${qtyCell(row, qty)}</td>
+                <td class="num">${unitCostCell(row)}</td>
+                <td class="num">${money(value)}</td>
+                <td class="num">${reorderLevelCell(row, qty)}</td>
                 <td>
                     ${canViewHistory ? `
                     <button type="button" class="inventory-icon-btn view view-item-btn"
