@@ -1,6 +1,6 @@
 import {
     can, authHeaders, showMessage, editIconSvg, deleteIconSvg,
-    registerAppShownHandler, registerCmdkProvider, showView, registerRoute, confirmDialog, showEmptyIfNone
+    registerAppShownHandler, registerCmdkProvider, showView, registerRoute, confirmDialog, showEmptyIfNone, identCell
 } from "./common.js";
 
 let locationsCache = [];
@@ -22,13 +22,9 @@ function renderSiteList(locations) {
     if (showEmptyIfNone(tbody, locations.length, "Add a site to start tracking where batteries are.", "No sites yet")) return;
     tbody.innerHTML = locations.map(loc => `
         <tr>
-            <td>
-                ${loc.name}
-                ${loc.is_home_base ? `<span class="hb-tag">HB</span>` : ""}
-            </td>
+            <td>${identCell(loc.name, loc.address || "", { extraHtml: loc.is_home_base ? `<span class="hb-tag">HB</span>` : "" })}</td>
             <td>${loc.contact_name || "—"}</td>
             <td>${loc.contact_phone || "—"}</td>
-            <td>${loc.address || "—"}</td>
             ${hasActions ? `
             <td>
                 ${can("sites", "edit") ? `

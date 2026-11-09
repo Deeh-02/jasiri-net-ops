@@ -2394,3 +2394,239 @@ button[aria-busy="true"]::after {
         flex-shrink: 0;
     }
 }
+
+/* =========================================================================
+   Phase 5 — THE NEW LOOK (2026-11-09, owner: "make it like this", a modern
+   comparison-table dashboard). Charcoal instead of pure black, no dotted
+   texture, soft dark panels, title-case labels in Inter instead of uppercase
+   mono, tall airy rows with avatars and a quiet second line, one bold pale
+   action per row, sortable column headings, square pagination.
+   Placed last so it wins over the earlier rules it restyles.
+   ========================================================================= */
+:root {
+    --bg: #111214;
+    --surface: #17181b;
+    --surface-2: #1e2023;
+    --border: #2a2c30;
+    --text: #eceef1;
+    --text-dim: #959ca6;
+
+    --table-bg: var(--surface);
+    --table-head: var(--surface);
+    --row-hover: #1c1e21;
+    --rule-soft: rgba(255, 255, 255, 0.065);
+    --rule-head: rgba(255, 255, 255, 0.08);
+    --cell-text: #e3e6ea;
+    --action-bg: #c6f3df;          /* the row's main action: pale mint */
+    --action-fg: #0e2a1e;
+}
+
+body {
+    background-color: var(--bg);
+    background-image: none;
+}
+
+/* ---- Labels everywhere: Inter, sentence/title case, no letter-spacing ---- */
+.nav-heading {
+    font-family: 'Inter', sans-serif;
+    font-size: 13.5px;
+    white-space: nowrap;
+    font-weight: 500;
+    text-transform: none;
+    letter-spacing: 0;
+}
+.stat-label, .toolbar-field > span, .toolbar-label {
+    font-family: 'Inter', sans-serif;
+    font-size: 12.5px;
+    font-weight: 500;
+    text-transform: none;
+    letter-spacing: 0;
+}
+.header-sub-link { font-family: 'Inter', sans-serif; font-size: 13px; letter-spacing: 0; }
+.battery-number { font-family: 'Inter', sans-serif; font-weight: 600; }
+
+/* ---- Stat cards: soft panels, a coloured dot instead of a coloured edge ---- */
+.stat-card {
+    border: 1px solid var(--border);
+    border-left: 1px solid var(--border);
+    border-radius: 14px;
+    background: var(--surface);
+    padding: 18px 20px;
+}
+.stat-card:hover { transform: none; box-shadow: none; border-color: #34373c; }
+.stat-label { display: flex; align-items: center; gap: 8px; color: var(--text-dim); }
+.stat-label::before {
+    content: "";
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--dot, var(--text-dim));
+}
+/* The old coloured left edge goes; the dot carries the colour now. */
+.stat-card:is(.deployed, .charged, .charging, .low, .unknown) { border-left-color: var(--border); }
+.stat-card.deployed { --dot: var(--warn); }
+.stat-card.charged { --dot: var(--accent); }
+.stat-card.charging { --dot: var(--info); }
+.stat-card.low { --dot: var(--danger); }
+.stat-card.unknown { --dot: var(--text-dim); }
+.stat-card .stat-value { color: var(--text) !important; font-size: 30px; }
+
+/* ---- Tables ---- */
+.table-scroll {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: none;
+}
+table { background: var(--surface); }
+th {
+    font-family: 'Inter', sans-serif;
+    font-size: 12.5px;
+    font-weight: 500;
+    text-transform: none;
+    letter-spacing: 0;
+    color: #a1a7b0;
+    background: var(--surface);
+    padding: 15px 16px;
+    border-bottom: 1px solid var(--rule-head);
+    white-space: normal;
+    line-height: 1.3;
+    vertical-align: middle;
+}
+td {
+    padding: 18px 16px;
+    font-size: 14px;
+    color: var(--cell-text);
+    border-bottom: 1px solid var(--rule-soft);
+}
+tbody td:first-child { font-weight: 400; }
+tbody tr:hover td { background: var(--row-hover); }
+@media (hover: hover) {
+    tbody tr:not(.state-row):hover td:first-child { box-shadow: none; }
+}
+.table-dense td { padding: 12px 16px; }
+.table-dense th { padding: 13px 16px; }
+
+/* Sortable headings: a quiet up/down mark, the active one in the accent. */
+th.sortable { cursor: pointer; user-select: none; }
+th.sortable:hover { color: var(--text); }
+th.sortable::after {
+    content: "";
+    display: inline-block;
+    width: 8px;
+    height: 12px;
+    margin-left: 7px;
+    vertical-align: -1px;
+    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 12'%3E%3Cpath d='M1 4.5 4 1.5l3 3M1 7.5l3 3 3-3' fill='none' stroke='%23727a84' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat center / contain;
+}
+th.sortable[aria-sort="ascending"]::after {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 12'%3E%3Cpath d='M1 4.5 4 1.5l3 3' fill='none' stroke='%233ddc97' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M1 7.5l3 3 3-3' fill='none' stroke='%23727a84' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    content: "";
+}
+th.sortable[aria-sort="descending"]::after {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 12'%3E%3Cpath d='M1 4.5 4 1.5l3 3' fill='none' stroke='%23727a84' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M1 7.5l3 3 3-3' fill='none' stroke='%233ddc97' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    content: "";
+}
+/* A heading that only states the server's order (no click) keeps the text arrow. */
+th:not(.sortable)[aria-sort]::after { margin-left: 6px; }
+
+/* ---- Row identity: avatar + name + quiet second line ---- */
+.ident { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.ident-text { display: flex; flex-direction: column; min-width: 0; }
+.ident-name { color: var(--text); font-weight: 500; line-height: 1.35; }
+.ident .cell-sub { font-family: 'Inter', sans-serif; font-weight: 400; margin-top: 2px; }
+/* Battery numbers and models never break mid-word. */
+.battery-number .ident-name, .battery-number .cell-sub { white-space: nowrap; }
+.avatar {
+    --avatar-h: 160;
+    flex-shrink: 0;
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Inter', sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: hsl(var(--avatar-h) 70% 82%);
+    background: hsl(var(--avatar-h) 28% 20%);
+    box-shadow: inset 0 0 0 1px hsl(var(--avatar-h) 35% 32%);
+}
+.avatar svg { width: 17px; height: 17px; }
+.avatar-good { color: #7fe8b9; background: #163226; box-shadow: inset 0 0 0 1px #24533f; }
+.avatar-warn { color: #f7c56f; background: #33280f; box-shadow: inset 0 0 0 1px #57441b; }
+.avatar-info { color: #8cc6ff; background: #142638; box-shadow: inset 0 0 0 1px #224060; }
+.avatar-bad  { color: #f59a9a; background: #361717; box-shadow: inset 0 0 0 1px #5a2626; }
+
+/* ---- Row actions: the first is the row's main action (a bold pale
+   square, like the reference's "Buy"); the rest stay quiet icons. ---- */
+table td button:has(> svg:only-child):first-of-type:not([class*="delete"], [class*="remove"], [class*="cancel"]) {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    background: var(--action-bg);
+    color: var(--action-fg);
+    opacity: 1 !important;
+}
+table td button:has(> svg:only-child):first-of-type:not([class*="delete"], [class*="remove"], [class*="cancel"]):hover {
+    background: #e0fbef;
+    color: var(--action-fg);
+}
+table td button:has(> svg:only-child):first-of-type:not([class*="delete"], [class*="remove"], [class*="cancel"]) svg { width: 17px; height: 17px; }
+table td .actions-cell { gap: 4px; }
+
+/* Text actions in a row (Movements) follow the same idea: the first one is
+   the pale main action. */
+table td .movement-action-btn {
+    background: var(--action-bg);
+    color: var(--action-fg);
+    border-color: transparent;
+    font-weight: 600;
+}
+table td .movement-action-btn:hover { background: #e0fbef; color: var(--action-fg); border-color: transparent; }
+
+/* ---- Pagination: "Page 1 of 5" and square buttons ---- */
+.dashboard-logs-pagination-row { margin-top: 16px; font-size: 13.5px; }
+.dashboard-logs-page-nav { gap: 10px; }
+.dashboard-logs-page-nav span { color: var(--text-dim); margin-right: 4px; }
+.dashboard-logs-page-nav button,
+.act-pager button {
+    min-width: 40px;
+    height: 40px;
+    padding: 0 14px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 9px;
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    font-size: 13.5px;
+    cursor: pointer;
+    transition: border-color 0.14s ease, background-color 0.14s ease;
+}
+.dashboard-logs-page-nav button:not(:disabled):hover,
+.act-pager button:not(:disabled):hover { border-color: #4a4e55; background: var(--surface-2); color: var(--text); }
+.dashboard-logs-page-size select {
+    height: 40px;
+    padding: 0 10px;
+    border-radius: 9px;
+    background: transparent;
+    font-size: 13.5px;
+}
+
+/* ---- Skeleton colours for the new palette ---- */
+.skeleton { background: linear-gradient(90deg, #202226 0%, #2a2d31 50%, #202226 100%); background-size: 200% 100%; }
+
+/* ---- Phones: pinned column and header follow the new surface ---- */
+@media (max-width: 760px) {
+    .table-compact td:first-child { background: var(--surface); }
+    .table-compact thead th:first-child { background: var(--surface); }
+    td { padding: 14px 14px; }
+    .avatar { width: 30px; height: 30px; font-size: 11px; }
+    .ident { gap: 10px; }
+}
+
+/* A little wider sidebar so "Technical Activity Log" fits on one line in
+   the new title-case labels. */
+@media (min-width: 761px) {
+    .sidebar { width: 240px; }
+}

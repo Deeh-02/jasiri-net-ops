@@ -1202,3 +1202,161 @@ export function showEmptyIfNone(tbody, count, text, title = "") {
     tbody.innerHTML = stateRow(cols, "empty", text, title);
     return true;
 }
+
+// ---- Row identity: avatar + name + a quieter second line (Phase 5 look) ----
+// avatarHtml("Said Thabit") -> a round badge with "ST" in a colour that is
+// always the same for that name. Pass { icon } to show an icon instead of
+// initials, and { tone } ("good" | "warn" | "info" | "bad") to colour it by
+// status rather than by name.
+export function avatarHtml(label, { icon = "", tone = "" } = {}) {
+    const text = String(label ?? "").trim();
+    let hue = 0;
+    for (const ch of text) hue = (hue * 31 + ch.charCodeAt(0)) % 360;
+    const words = text.replace(/[^\p{L}\p{N} ]/gu, " ").split(/\s+/).filter(Boolean);
+    const initials = (words.length > 1 ? words[0][0] + words[1][0] : (words[0] || "?").slice(0, 2)).toUpperCase();
+    const style = tone ? "" : ` style="--avatar-h:${hue}"`;
+    return `<span class="avatar${tone ? " avatar-" + tone : ""}"${style} aria-hidden="true">${icon || escText(initials)}</span>`;
+}
+
+// One cell: avatar, the name, and an optional quiet line under it. `name` and
+// `sub` are plain text (escaped here); `extraHtml` (a tag like "HB") is
+// trusted markup placed after the name.
+export function identCell(name, sub = "", { avatar = null, extraHtml = "" } = {}) {
+    return `<div class="ident">${avatar ?? avatarHtml(name)}<div class="ident-text">`
+        + `<span class="ident-name">${escText(name)}${extraHtml ? " " + extraHtml : ""}</span>`
+        + (sub ? `<span class="cell-sub">${escText(sub)}</span>` : "")
+        + `</div></div>`;
+}
+
+// A small battery glyph for avatars.
+export function batteryGlyphSvg() {
+    return `<svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="2" y="4.5" width="10.5" height="7" rx="1.5" stroke="currentColor" stroke-width="1.3"/><path d="M14 7v2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M7.5 6.2 6 8.2h2l-1.5 2" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+}
+
+// ---- Sortable tables: click a column heading to sort, again to reverse ----
+// Every table in a .table-scroll gets it, except tables that sort themselves
+// (Trends, Revenue: th[data-col] or a .fleet-sort button), paged tables (the
+// sort would only reorder one page) marked data-sort="off", and the actions
+// column. The order survives a redraw: after the page script replaces the
+// rows, the chosen sort is applied again.
+const sortState = new WeakMap();      // table -> { col, dir }
+
+function sortKey(cell) {
+    const raw = (cell?.dataset.sort ?? cell?.innerText ?? "").trim();
+    if (!raw || raw === "—" || raw === "-") return { empty: true };
+    const num = raw.replace(/[,\s]|KES|KSh|kes|%|dBm|m$/g, "");
+    if (/^[-+]?\d*\.?\d+$/.test(num)) return { n: parseFloat(num) };
+    if (/\d{4}/.test(raw) && /[a-z]/i.test(raw)) {
+        const t = Date.parse(raw.replace(/\n/g, " ").replace(/, (\d{1,2}:\d{2})/, " $1"));
+        if (!Number.isNaN(t)) return { n: t };
+    }
+    return { s: raw.toLowerCase() };
+}
+
+function compareKeys(a, b) {
+    if (a.empty || b.empty) return a.empty && b.empty ? 0 : a.empty ? 1 : -1;   // blanks last
+    if ("n" in a && "n" in b) return a.n - b.n;
+    return String(a.s ?? a.n).localeCompare(String(b.s ?? b.n), undefined, { numeric: true });
+}
+
+function applySort(table) {
+    const st = sortState.get(table);
+    const tbody = table.tBodies[0];
+    if (!st || !tbody) return;
+    const rows = [...tbody.rows];
+    if (rows.some(r => r.classList.contains("state-row") || r.cells.length !== table.tHead.rows[0].cells.length)) return;
+    const keyed = rows.map((r, i) => ({ r, i, k: sortKey(r.cells[st.col]) }));
+    keyed.sort((x, y) => {
+        const c = compareKeys(x.k, y.k);
+        if (x.k.empty || y.k.empty) return c || x.i - y.i;
+        return (c * st.dir) || x.i - y.i;
+    });
+    st.applying = true;
+    keyed.forEach(({ r }) => tbody.appendChild(r));
+    queueMicrotask(() => { st.applying = false; });
+}
+
+const NOT_SORTABLE = ["actions", "action", "manage", "buy", "on"];
+
+// (Re)decorate a table's headings: which are sortable, and the current arrow.
+// Runs again whenever a page script redraws the header row (Stock does).
+function markHeaders(table) {
+    const st = sortState.get(table);
+    const head = table.tHead?.rows[0];
+    if (!head) return;
+    [...head.cells].forEach((th, i) => {
+        const label = th.textContent.trim().toLowerCase();
+        if (!label || NOT_SORTABLE.includes(label)) return;
+        if (!th.classList.contains("sortable")) {
+            th.classList.add("sortable");
+            th.tabIndex = 0;
+            // A heading the page already marks (server order) starts as the sort.
+            if (!st && th.hasAttribute("aria-sort")) {
+                sortState.set(table, { col: i, dir: th.getAttribute("aria-sort") === "ascending" ? 1 : -1, initial: true });
+            }
+        }
+        const now = sortState.get(table);
+        if (now && now.col === i) th.setAttribute("aria-sort", now.dir === 1 ? "ascending" : "descending");
+        else th.removeAttribute("aria-sort");
+    });
+}
+
+function makeSortable(table) {
+    if (table.dataset.sortReady || table.dataset.sort === "off") return;
+    const head = table.tHead?.rows[0];
+    if (!head || head.querySelector("[data-col], .fleet-sort")) return;
+    table.dataset.sortReady = "1";
+    markHeaders(table);
+    // One delegated listener per table, so a redrawn header keeps working.
+    const go = (th) => {
+        const i = th.cellIndex;
+        const st = sortState.get(table);
+        const dir = st && st.col === i ? -st.dir : 1;
+        sortState.set(table, { col: i, dir });
+        markHeaders(table);
+        applySort(table);
+    };
+    table.addEventListener("click", (e) => {
+        const th = e.target.closest("thead th.sortable");
+        if (th && table.contains(th)) go(th);
+    });
+    table.addEventListener("keydown", (e) => {
+        const th = e.target.closest?.("thead th.sortable");
+        if (th && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); go(th); }
+    });
+    // Re-apply the chosen order whenever the page redraws the rows (an order
+    // that only describes the server's own order needs no work), and
+    // re-decorate the headings whenever the page redraws them.
+    new MutationObserver(() => {
+        const st = sortState.get(table);
+        if (st && !st.initial && !st.applying) applySort(table);
+    }).observe(table.tBodies[0], { childList: true });
+    new MutationObserver(() => markHeaders(table)).observe(table.tHead, { childList: true, subtree: true, characterData: true });
+}
+
+// Tables whose header is drawn by a script (Stock) appear later; check again
+// whenever a view is shown and whenever a thead changes.
+function wireSortableTables(root = document) {
+    root.querySelectorAll(".table-scroll > table").forEach(t => { if (t.tHead?.rows.length) makeSortable(t); });
+}
+document.addEventListener("DOMContentLoaded", () => wireSortableTables());
+new MutationObserver((records) => {
+    for (const r of records) for (const n of r.addedNodes) {
+        if (n.nodeType === 1 && (n.matches?.("tr, thead, table") || n.querySelector?.("table"))) {
+            const t = n.closest?.(".table-scroll > table") || null;
+            if (t) { if (t.tHead?.rows.length) makeSortable(t); }
+            else if (n.querySelectorAll) wireSortableTables(n);
+        }
+    }
+}).observe(document.documentElement, { childList: true, subtree: true });
+
+// "Nov 1, 2026" with the time quietly under it, so a narrow column holds two
+// tidy lines instead of wrapping word by word.
+export function dateTwoLines(iso) {
+    const text = formatDate(iso);
+    const cut = text.lastIndexOf(", ");
+    if (!iso || cut < 0) return text;
+    return `<span class="nowrap">${text.slice(0, cut)}</span><span class="cell-sub nowrap">${text.slice(cut + 2)}</span>`;
+}
+
+

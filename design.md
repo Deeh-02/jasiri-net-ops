@@ -44,6 +44,44 @@ Three families, loaded once via a Google Fonts `@import` in `common.css`:
 
 ### Phase 5 shared foundation (`common.css` top + `common.js` bottom)
 
+**Current look (Phase 5 "new look", 2026-11-09).** The owner asked for a
+dramatic change modelled on a modern comparison-table dashboard. What
+replaced the original console look (the final block of `common.css`, which
+wins over the earlier rules):
+- **Palette:** charcoal, not pure black: `--bg #111214`, `--surface
+  #17181b`, `--surface-2 #1e2023`, `--border #2a2c30`; the dotted page
+  texture is gone. The green accent and the four status colours are
+  unchanged.
+- **Labels:** Inter in title case everywhere (sidebar, stat cards, table
+  headings, toolbar labels) instead of uppercase JetBrains Mono. Mono stays
+  only for code-like values (pills elsewhere, references). The sidebar is
+  240px so "Technical Activity Log" fits on one line.
+- **Stat cards:** soft panels with a coloured dot before the label (no
+  coloured left edge); the number in plain text colour.
+- **Tables:** one soft panel (12px radius), heading row in the panel colour
+  with title-case Inter labels and a sort mark on every sortable column;
+  18px row padding; hairline dividers; no stripes.
+- **Row identity:** `identCell(name, sub, { avatar, extraHtml })` draws an
+  avatar (`avatarHtml`: initials in a colour fixed per name, or an icon and a
+  status tone), the name, and a quiet second line. Used for Batteries
+  (number over model, avatar coloured by where it is), Users (name over
+  email), Sites (name over address), Stock (product over SKU), Movements.
+  The merged columns (Model, Email, Address, SKU) were removed.
+- **Row actions:** the first icon button in a row is the row's main action:
+  a 36px pale-mint square (`--action-bg`) with a dark icon; the rest are
+  quiet icons. Delete/remove/cancel are never the main action. Movements'
+  first text button ("Mark Arrived") is pale mint too.
+- **Sorting:** every table in a `.table-scroll` sorts by clicking a heading
+  (again to reverse; Enter/Space on a focused heading), numbers, dates and
+  text each compared properly, blanks last. The order survives redraws.
+  Not on: paged tables (`data-sort="off"`: Inventory Log, Activity Reports),
+  tables that sort themselves (Trends, Revenue), the Actions column.
+- **Dates in tables:** `dateTwoLines(iso)` — date with the time quietly
+  under it (Batteries, Movements, SMS Status).
+- **Pagination:** "Page 1 of N" with 40px rounded square buttons.
+
+The sections below describe the foundation this sits on.
+
 Use these before inventing a view-specific version; a view's CSS only adds
 what is truly its own.
 

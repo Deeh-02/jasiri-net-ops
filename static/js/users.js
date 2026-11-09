@@ -1,6 +1,6 @@
 import {
     can, authHeaders, showMessage, capitalize, editIconSvg, deleteIconSvg,
-    showView, navigate, registerRoute, registerCmdkProvider, confirmDialog, showEmptyIfNone
+    showView, navigate, registerRoute, registerCmdkProvider, confirmDialog, showEmptyIfNone, identCell
 } from "./common.js";
 
 let usersCache = [];
@@ -26,9 +26,8 @@ function renderUsersList(users) {
     if (showEmptyIfNone(tbody, activeUsers.length, "Add a user to give someone access.", "No users yet")) return;
     tbody.innerHTML = activeUsers.map(u => `
         <tr>
-            <td>${u.name}</td>
+            <td>${identCell(u.name, u.email)}</td>
             <td>${u.phone || "—"}</td>
-            <td>${u.email}</td>
             <td>${capitalize(u.role)}</td>
             ${hasManage ? `
             <td>

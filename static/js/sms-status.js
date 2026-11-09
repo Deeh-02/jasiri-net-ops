@@ -1,4 +1,4 @@
-import { authHeaders, showView, registerRoute, formatDate, stateRow, markRefreshing } from "./common.js";
+import { authHeaders, showView, registerRoute, formatDate, stateRow, markRefreshing, dateTwoLines } from "./common.js";
 
 function esc(s) {
     return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -61,7 +61,7 @@ async function loadSmsStatus() {
             <td>${esc(r.site_name || "—")}</td>
             <td><span class="status-pill sms-status-pill ${r.status === "sent" ? "sent" : r.status === "failed" ? "failed" : "other"}">${esc(STATUS_LABEL[r.status] || r.status)}</span></td>
             <td class="sms-status-response" title="${esc(responseText(r))}">${esc(responseText(r))}</td>
-            <td class="muted">${esc(formatDate(r.sent_at))}</td>
+            <td class="muted">${dateTwoLines(r.sent_at)}</td>
         </tr>
     `).join("");
 }
