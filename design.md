@@ -121,8 +121,10 @@ what is truly its own.
   Alerts, System (Users, Roles). Section titles are 10px uppercase
   JetBrains Mono, dim, with a fold chevron; a hairline separates visible
   sections. Every page is its own row: a 16px outline icon and a title-case
-  JetBrains Mono 13px label. Only the current page carries the accent bar
-  and tint. Sections start open; folding one is remembered per browser
+  JetBrains Mono 13px label, hanging off a thin guide line down the left
+  of the section. The current page carries the accent tint and its stretch
+  of the guide line turns green; its section's title turns white
+  (`.nav-section-title.current`). Sections start open; folding one is remembered per browser
   (`localStorage.navCollapsedGroups`) and landing on a page inside a folded
   section opens it. Short labels in the sidebar (Overview, Submit Report,
   Activity Types, Inventory Report); the full names stay in `data-label` for

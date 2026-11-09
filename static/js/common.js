@@ -454,9 +454,11 @@ const NAV_GROUP_ROUTES = {
 function setActiveNav(name) {
     document.querySelectorAll("[data-view]").forEach(l => l.classList.toggle("active", l.dataset.view === name));
 
-    // Open the section holding the current page; never fold any shut.
+    // The current page's section title turns white, and the section opens if
+    // it was folded; no section is ever folded shut from here.
     Object.entries(NAV_GROUP_ROUTES).forEach(([group, routes]) => {
         const toggle = document.getElementById(`${group}-nav-toggle`);
+        toggle?.classList.toggle("current", routes.includes(name));
         if (toggle && routes.includes(name) && toggle.classList.contains("collapsed")) {
             setNavGroupOpen(toggle, true);
             saveCollapsedNavGroups();

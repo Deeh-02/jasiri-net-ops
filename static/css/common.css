@@ -733,6 +733,8 @@ button.summary-item:active:not(:disabled) { transform: scale(0.98); }
     gap: 8px;
 }
 .nav-heading.nav-section-title:hover { background: none; color: var(--text); }
+/* The section you're in: its title turns white. */
+.nav-heading.nav-section-title.current { color: var(--text); }
 .nav-section-title .chevron {
     width: 12px;
     height: 12px;
@@ -743,17 +745,19 @@ button.summary-item:active:not(:disabled) { transform: scale(0.98); }
 }
 .nav-section-title.collapsed .chevron { transform: rotate(-90deg); }
 
+/* A guide line runs down the left of each section's pages; the open page's
+   own stretch of it turns green (its 2px left border sits over the line). */
 .nav-section .nav-subitems-inner {
-    margin-left: 0;
-    border-left: none;
+    margin-left: 11px;
+    border-left: 1px solid var(--border);
     padding-top: 0;
     gap: 1px;
 }
 .nav-section .nav-link.sub {
-    gap: 12px;
-    margin-left: 0;
-    padding: 8px 10px;
-    border-radius: 6px;
+    gap: 11px;
+    margin-left: -1px;
+    padding: 8px 8px 8px 11px;
+    border-radius: 0 6px 6px 0;
     border-left: 2px solid transparent;
     color: #b4bcc7;
     font-family: 'JetBrains Mono', monospace;
@@ -782,7 +786,7 @@ button.summary-item:active:not(:disabled) { transform: scale(0.98); }
 
 @media (max-width: 760px) {
     .nav-heading.nav-section-title { padding: 8px 10px 10px; }
-    .nav-section .nav-link.sub { padding: 12px 10px; font-size: 14px; }
+    .nav-section .nav-link.sub { padding: 12px 8px 12px 11px; font-size: 14px; }
 }
 
 /* ---- Page content shell — shared layout every view sits inside ---- */
