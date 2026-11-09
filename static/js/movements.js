@@ -1,4 +1,4 @@
-import { can, authHeaders, formatDate, capitalize, deleteIconSvg, showView, navigate, registerRoute, refreshBadges, registerAppShownHandler, registerLogoutHandler, confirmDialog, stateRow, markRefreshing, identCell, avatarHtml, batteryGlyphSvg, dateTwoLines } from "./common.js";
+import { can, authHeaders, formatDate, capitalize, deleteIconSvg, showView, navigate, registerRoute, refreshBadges, registerAppShownHandler, registerLogoutHandler, confirmDialog, stateRow, markRefreshing } from "./common.js";
 import { refreshData as refreshDashboardData } from "./dashboard.js";
 
 // null (not []) whenever nothing currently on screen can be trusted as
@@ -175,11 +175,11 @@ function renderMovementsList(movements) {
         const meta = MOVEMENT_STATUS_META[m.status] || { label: capitalize(m.status), cls: "" };
         return `
             <tr>
-                <td class="battery-number">${identCell(m.battery_number, "", { avatar: avatarHtml(m.battery_number, { icon: batteryGlyphSvg() }) })}</td>
+                <td class="battery-number">${m.battery_number}</td>
                 <td>${m.from_location || "—"} &rarr; ${m.to_location}</td>
                 <td>${MOVEMENT_REASON_LABELS[m.reason] || "—"}</td>
                 <td><span class="status-pill movement-${meta.cls}">${meta.label}</span></td>
-                <td class="muted">${dateTwoLines(m.created_at)}</td>
+                <td class="muted">${formatDate(m.created_at)}</td>
                 <td>${canMove ? renderMovementActions(m) : "—"}</td>
             </tr>
         `;

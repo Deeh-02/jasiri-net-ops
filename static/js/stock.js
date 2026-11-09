@@ -1,6 +1,6 @@
 import {
     can, authHeaders, viewIconSvg,
-    registerAppShownHandler, showView, registerRoute, navigate, showEmptyIfNone, identCell
+    registerAppShownHandler, showView, registerRoute, navigate, showEmptyIfNone
 } from "./common.js";
 import {
     loadInventoryCategories, getInventoryCategories,
@@ -211,7 +211,7 @@ function renderStockTable() {
     const tbody = document.getElementById("stock-rows");
     if (!thead || !tbody) return;
 
-    thead.innerHTML = `<tr><th>Product</th><th>Category</th><th class="num">Qty</th><th class="num">Unit Cost</th><th class="num">Total Value</th><th class="num">Reorder Level</th><th>Actions</th></tr>`;
+    thead.innerHTML = `<tr><th>Name</th><th>SKU</th><th>Category</th><th class="num">Qty</th><th class="num">Unit Cost</th><th class="num">Total Value</th><th class="num">Reorder Level</th><th>Actions</th></tr>`;
 
     const canViewHistory = can("inventory_items", "view_history");
     renderStockSummary();
@@ -221,7 +221,8 @@ function renderStockTable() {
         const { qty, value } = qtyAndValueFor(row);
         return `
             <tr>
-                <td>${identCell(row.name || row.sku_or_spec, row.sku_or_spec)}</td>
+                <td>${row.name || "—"}</td>
+                <td>${row.sku_or_spec}</td>
                 <td class="muted">${row.category_name}</td>
                 <td class="num">${qtyCell(row, qty)}</td>
                 <td class="num">${unitCostCell(row)}</td>

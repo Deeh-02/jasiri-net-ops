@@ -3,7 +3,7 @@ import {
     batteryIconSvg, moveIconSvg, editIconSvg, viewIconSvg, deleteIconSvg,
     registerAppShownHandler, registerCmdkProvider, refreshBadges,
     showView, navigate, registerRoute, registerRouteResetter,
-    registerLogoutHandler, confirmDialog, stateRow, showEmptyIfNone, skeletonCards, identCell, avatarHtml, batteryGlyphSvg, dateTwoLines
+    registerLogoutHandler, confirmDialog, stateRow, showEmptyIfNone, skeletonCards
 } from "./common.js";
 import { MOVEMENT_STATUS_META } from "./movements.js";
 
@@ -37,7 +37,7 @@ function buildStats(batteries) {
 // ---- Initial load: shows loading text once ----
 async function loadDashboard() {
     document.getElementById("stat-grid").innerHTML = skeletonCards(5);
-    document.getElementById("battery-rows").innerHTML = stateRow(7, "loading", "Loading batteries…");
+    document.getElementById("battery-rows").innerHTML = stateRow(8, "loading", "Loading batteries…");
     // The placeholder just replaced whatever was rendered, so nothing on
     // screen matches batteriesCache any more. Without this, logging out and
     // back in left the previous session's list in batteriesCache, the fresh
@@ -282,9 +282,6 @@ function bindChargeDropdown(dropdown) {
     });
 }
 
-// The battery avatar takes the colour of where the battery is.
-const AVATAR_TONE = { "at-base": "good", deployed: "warn", "deployed-flagged": "bad", "in-transit": "info" };
-
 function renderTable(batteries) {
     const tbody = document.getElementById("battery-rows");
     tbody.innerHTML = "";
@@ -297,16 +294,15 @@ function renderTable(batteries) {
 
         const row = document.createElement("tr");
         row.innerHTML = `
-            <td class="battery-number col-frozen">${identCell(battery.battery_number, battery.model || "", {
-                avatar: avatarHtml(battery.battery_number, { icon: batteryGlyphSvg(), tone: AVATAR_TONE[statusClass] || "" }),
-            })}</td>
+            <td class="battery-number col-frozen">${battery.battery_number}</td>
+            <td>${battery.model || "-"}</td>
             <td><span class="status-pill ${statusClass}">${battery.status}</span></td>
             <td>
                 <div class="charge-dropdown" data-id="${battery.id}">${chargeCellHtml(battery)}</div>
             </td>
             <td>${battery.current_location}</td>
             <td>${battery.moved_by || "—"}</td>
-            <td class="muted">${dateTwoLines(battery.moved_at)}</td>
+            <td class="muted nowrap">${formatDate(battery.moved_at)}</td>
             <td>
     <div class="actions-cell">
         ${can("movements", "create") ? `

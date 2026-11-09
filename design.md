@@ -44,43 +44,6 @@ Three families, loaded once via a Google Fonts `@import` in `common.css`:
 
 ### Phase 5 shared foundation (`common.css` top + `common.js` bottom)
 
-**Current look (Phase 5 "new look", 2026-11-09).** The owner asked for a
-dramatic change modelled on a modern comparison-table dashboard. What
-replaced the original console look (the final block of `common.css`, which
-wins over the earlier rules):
-- **Palette and fonts: unchanged from the original console look.** Pure
-  black (`--bg #000`) with the dotted page texture, uppercase JetBrains Mono
-  labels (sidebar, stat cards, toolbar labels), uppercase Inter table
-  headings. The new look briefly moved to charcoal (`#111214`) and title-case
-  Inter labels; the owner asked for the black and the original fonts back the
-  same day, so those overrides were removed. Only the layout below stays.
-- **Stat cards:** soft panels with a coloured dot before the label (no
-  coloured left edge); the number in plain text colour.
-- **Tables:** one soft panel (12px radius), heading row in the table-head
-  colour with the original uppercase labels and a sort mark on every
-  sortable column;
-  18px row padding; hairline dividers; no stripes.
-- **Row identity:** `identCell(name, sub, { avatar, extraHtml })` draws an
-  avatar (`avatarHtml`: initials in a colour fixed per name, or an icon and a
-  status tone), the name, and a quiet second line. Used for Batteries
-  (number over model, avatar coloured by where it is), Users (name over
-  email), Sites (name over address), Stock (product over SKU), Movements.
-  The merged columns (Model, Email, Address, SKU) were removed.
-- **Row actions:** the first icon button in a row is the row's main action:
-  a 36px pale-mint square (`--action-bg`) with a dark icon; the rest are
-  quiet icons. Delete/remove/cancel are never the main action. Movements'
-  first text button ("Mark Arrived") is pale mint too.
-- **Sorting:** every table in a `.table-scroll` sorts by clicking a heading
-  (again to reverse; Enter/Space on a focused heading), numbers, dates and
-  text each compared properly, blanks last. The order survives redraws.
-  Not on: paged tables (`data-sort="off"`: Inventory Log, Activity Reports),
-  tables that sort themselves (Trends, Revenue), the Actions column.
-- **Dates in tables:** `dateTwoLines(iso)` — date with the time quietly
-  under it (Batteries, Movements, SMS Status).
-- **Pagination:** "Page 1 of N" with 40px rounded square buttons.
-
-The sections below describe the foundation this sits on.
-
 Use these before inventing a view-specific version; a view's CSS only adds
 what is truly its own.
 
@@ -128,27 +91,17 @@ what is truly its own.
   person edits that form. While the request a submit starts is in flight,
   its submit button is disabled with a spinner (`aria-busy`) — automatic,
   see ARCHITECTURE.md; a form that disables its own button is left alone.
-- **Tables ("premium" pass):** quiet by default so the data is what you
-  see. A table inside `.table-scroll` sits in one lit panel (14px radius,
-  hairline border, faint top highlight and soft drop shadow); the table drops
-  its own frame. No stripes. Header: Inter 11.5px uppercase, dim, on a
-  barely-raised band (`--table-head`) with a hairline under it. Rows: 16px
-  tall padding, hairline dividers (`--rule-soft`), body text `--cell-text`
-  with the first column (the row's name) brighter and 500 weight; hover lifts
-  the row (`--row-hover`) and, on a mouse, draws a 2px accent edge on its
-  first cell. Colours are opaque so the phone's pinned column covers what
-  slides under it. Logs use `.table-dense`. Numbers `th.num`/`td.num`
-  (right-aligned; every table uses tabular figures). Secondary cells
-  `td.muted`; a second quiet line `.cell-sub` (Batteries' "Since" is date
-  over time). The column a table is ordered by carries `aria-sort` (accent
-  ↓/↑). A toolbar can end with `.toolbar-count`.
-- **Row actions:** any icon-only button in a table cell, whatever its page
-  calls it, is a borderless 30px icon that gets a soft square on hover (red
-  for delete/cancel/remove). On a mouse, a row's icons sit at half strength
-  until the row is hovered or focused; on touch they're always full.
-  Text actions in a row (Movements' "Mark Arrived") are soft Inter capsules.
-- **Status pills:** rounded capsules, Inter 12px, a 6px dot in the status
-  colour before the label; each view still supplies the colours.
+- **Tables (visual pass):** a table inside `.table-scroll` sits in one
+  rounded panel (the wrapper has the surface, border and radius; the table
+  drops its own frame). Dividers are soft (`--rule-soft`), even rows get a
+  faint tint (`--row-alt`) and hover a clear one (`--row-hover`); both are
+  opaque so the phone's pinned first column covers what slides under it.
+  Rows have 14px vertical padding; logs use `.table-dense` (Inventory Log,
+  SMS Status). Numbers: `th.num`/`td.num` (right-aligned, tabular figures —
+  every table uses tabular figures). Quieter secondary cells: `td.muted`
+  (dates, categories, ids) or a `.cell-sub` line under a name. The column a
+  table is ordered by carries `aria-sort` and shows an accent ↓/↑. A
+  toolbar can end with `.toolbar-count` ("45 transactions").
 - **Every table is compact on phones** (`.table-compact` on every
   `.table-scroll`): one line per row, the page scrolls, the first column is
   pinned and casts a soft shadow once swiped (`.is-scrolled-x`).

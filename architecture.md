@@ -1851,14 +1851,6 @@ live in DESIGN.md; the parts with behaviour live at the bottom of
   MutationObserver on the tbody to undim when the new rows land. A single
   capture-phase `scroll` listener marks swiped `.table-scroll` boxes
   (`.is-scrolled-x`) for the pinned-column shadow.
-- **Click-to-sort tables** (`makeSortable`): one delegated click/keydown
-  listener per table, so a header the page redraws (Stock) keeps working;
-  a MutationObserver per thead re-marks the headings, one per tbody
-  re-applies the chosen order after the page replaces the rows (skipped
-  while state/skeleton rows are showing or a row's cell count differs). A
-  document-level MutationObserver wires tables as views and headers appear.
-  Sorting is client-side over the rows on screen, which is why paged tables
-  opt out with `data-sort="off"`.
 - `setActiveNav` folds every sidebar group except the current page's and
   keeps `aria-expanded` in step; a group opened by hand stays open until
   the next navigation outside it.
