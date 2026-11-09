@@ -144,8 +144,25 @@ async function loadMovements() {
     await refreshMovements();
 }
 
+// What is in progress, at a glance, before the list: "arrived" is the one
+// that needs someone (a site check), so it reads in the attention colour.
+function renderMovementsSummary(movements) {
+    const box = document.getElementById("movements-summary");
+    if (!box) return;
+    const n = (status) => movements.filter(m => m.status === status).length;
+    const items = [
+        [n("pending"), "waiting to leave", ""],
+        [n("in_transit"), "on the way", ""],
+        [n("arrived"), "arrived, need a site check", "warn"],
+    ];
+    box.innerHTML = items.some(([count]) => count)
+        ? items.map(([count, label, tone]) => `<span class="summary-item ${count ? tone : ""}"><strong>${count}</strong> ${label}</span>`).join("")
+        : "";
+}
+
 function renderMovementsList(movements) {
     const tbody = document.getElementById("movements-rows");
+    renderMovementsSummary(movements);
 
     if (movements.length === 0) {
         tbody.innerHTML = stateRow(6, "empty", `No movements${showMovementHistory ? "" : " in progress"}.`);

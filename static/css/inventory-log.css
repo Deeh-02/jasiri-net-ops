@@ -84,37 +84,17 @@
 }
 
 
-/* ---- Phones: the header's filters and buttons were stacked in a
-   right-aligned column beside the title, each a different width. On a
-   phone the title gets its own line and the controls wrap full-width
-   under it: search, then both dropdowns side by side, then the buttons. ---- */
+/* ---- Filters sit in the shared .toolbar under the page header. On a phone
+   the search takes a full row and the two dropdowns share the next. ---- */
 @media (max-width: 760px) {
-    #view-inventory-log .page-header-row {
-        flex-direction: column;
-        align-items: stretch;
-    }
-
-    #view-inventory-log .header-action-group {
-        flex-direction: row;
-        flex-wrap: wrap;
-        align-items: center;
-        gap: 8px;
-    }
-
-    #view-inventory-log .inventory-filter-search {
+    .inventory-log-toolbar .inventory-filter-search {
         flex: 1 1 100%;
         width: auto;
         font-size: 16px; /* under 16px, iOS zooms the page on focus */
     }
 
-    #view-inventory-log .inventory-filter-select {
-        /* 28% basis: up to three dropdowns share a row, and the buttons
-           wrap to the next row instead of squeezing them to "Al". */
-        flex: 1 1 28%;
+    .inventory-log-toolbar .inventory-filter-select {
+        flex: 1 1 40%;
         min-width: 0;
-    }
-
-    #view-inventory-log .header-sub-link {
-        padding: 6px 12px 6px 0;
     }
 }

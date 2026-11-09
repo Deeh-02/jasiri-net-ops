@@ -13,8 +13,20 @@
     width: 100%;
     min-height: 44px;
 }
-.act-input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.act-input:focus { outline: none; border-color: var(--accent); }
 textarea.act-input { resize: vertical; min-height: 64px; }
+/* Same drawn chevron as the app's other dropdowns (.control), not the
+   browser's own; dark calendar popups for the date fields. */
+select.act-input {
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5 11 1.5' fill='none' stroke='%238b96a5' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    background-size: 11px 8px;
+    padding-right: 34px;
+}
+.act-input { color-scheme: dark; }
 
 .act-btn {
     background: var(--surface-2);
@@ -117,6 +129,7 @@ textarea.act-input { resize: vertical; min-height: 64px; }
 .act-filters { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end; margin-bottom: 16px; }
 .act-f { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-dim); min-width: 130px; }
 .act-f .act-input { min-height: 40px; padding: 8px 10px; font-size: 14px; }
+.act-f select.act-input { padding-right: 34px; }
 .act-f-search { flex: 1 1 260px; min-height: 40px; padding: 8px 10px; font-size: 14px; }
 .act-row { cursor: pointer; }
 .act-row:hover td { background: var(--surface-2); }

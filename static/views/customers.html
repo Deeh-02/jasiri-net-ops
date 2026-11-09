@@ -4,28 +4,31 @@
             <button type="button" id="customer-add-open-btn" class="btn-add-site">+ Add Customer</button>
         </div>
 
-        <div class="customers-intro">
-            <p>PPPoE customers from the billing export. Choose the router the file belongs to, check it, then import. Importing again refreshes each existing customer's plan, valid-until date and account status only &mdash; names and phone numbers you've entered here are never overwritten, and nobody is ever deleted.</p>
-        </div>
+        <!-- Importing is the occasional job, the list is the everyday one:
+             the import lives in its own card above, the list's filter and
+             totals sit in the shared toolbar right over the table. -->
+        <section class="customers-import-card" aria-labelledby="customers-import-title">
+            <h2 class="section-title" id="customers-import-title">Import from the billing export</h2>
+            <p class="customers-intro">Choose the router the file belongs to, check it, then import. Importing again refreshes each existing customer's plan, valid-until date and account status only &mdash; names and phone numbers you've entered here are never overwritten, and nobody is ever deleted.</p>
+            <div class="toolbar customers-import">
+                <label class="toolbar-field"><span>Router</span>
+                    <select class="control" id="customers-import-router"></select>
+                </label>
+                <label class="toolbar-field customers-file-field"><span>Customer export (.xlsx or .csv)</span>
+                    <input type="file" class="control" id="customers-import-file" accept=".xlsx,.csv">
+                </label>
+                <button type="button" class="btn-secondary" id="customers-import-check">Check file</button>
+                <button type="button" class="btn-primary" id="customers-import-commit" hidden>Import</button>
+            </div>
+            <div class="customers-import-result" id="customers-import-result"></div>
+        </section>
 
-        <div class="customers-import">
-            <label>Router
-                <select id="customers-import-router"></select>
+        <div class="toolbar customers-filters">
+            <label class="toolbar-field"><span>Show</span>
+                <select class="control" id="customers-filter-router"></select>
             </label>
-            <label>Customer export (.xlsx or .csv)
-                <input type="file" id="customers-import-file" accept=".xlsx,.csv">
-            </label>
-            <button type="button" id="customers-import-check">Check file</button>
-            <button type="button" id="customers-import-commit" hidden>Import</button>
         </div>
-        <div class="customers-import-result" id="customers-import-result"></div>
-
-        <div class="customers-filters">
-            <label>Show
-                <select id="customers-filter-router"></select>
-            </label>
-            <div class="customers-summary" id="customers-summary"></div>
-        </div>
+        <div class="summary-strip" id="customers-summary" aria-label="Customers at a glance"></div>
 
         <div class="table-scroll">
             <table id="customers-table">

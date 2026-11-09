@@ -266,12 +266,61 @@ export function updateCurrentUser(patch) {
     renderTopbarUser();
 }
 
+// A form's feedback line, the same on every form. Success fades after a few
+// seconds; an error stays until the person changes something in that form
+// (or the next message replaces it), so a validation message can't vanish
+// before it's read. Screen readers announce both.
+const messageTimers = new WeakMap();
 export function showMessage(elementId, text, isError) {
     const el = document.getElementById(elementId);
+    if (!el) return;
+    clearTimeout(messageTimers.get(el));
     el.textContent = text;
     el.className = "form-msg " + (isError ? "error" : "success");
-    setTimeout(() => { el.textContent = ""; el.className = "form-msg"; }, 3000);
+    el.setAttribute("role", isError ? "alert" : "status");
+    const clear = () => { el.textContent = ""; el.className = "form-msg"; };
+    if (!isError) {
+        messageTimers.set(el, setTimeout(clear, 4000));
+        return;
+    }
+    const scope = el.closest(".modal-box") || el.parentElement;
+    scope?.addEventListener("input", () => { if (el.classList.contains("error")) clear(); }, { once: true });
 }
+
+// Submit feedback for every form, without each form wiring it: while the
+// request a submit starts is in flight, its submit button is disabled and
+// marked busy (a spinner, via CSS), so it can't be sent twice. A submit that
+// starts no request (it failed a check first) leaves the button as it was.
+(function trackFormSubmits() {
+    let pending = null;     // {button, requests: []} for the submit being dispatched
+    const realFetch = window.fetch.bind(window);
+    window.fetch = (...args) => {
+        const p = realFetch(...args);
+        if (pending) pending.requests.push(p.catch(() => {}));
+        return p;
+    };
+    document.addEventListener("submit", (e) => {
+        const form = e.target;
+        const button = e.submitter || form.querySelector('button[type="submit"], button:not([type])');
+        if (!button || button.disabled) return;
+        const entry = { button, requests: [] };
+        pending = entry;
+        // Requests started synchronously by the form's own handler (or before
+        // its first await) are attached; anything later isn't waited for.
+        setTimeout(() => {
+            if (pending === entry) pending = null;
+            // A form that manages its own button (it already disabled it)
+            // is left to do so.
+            if (!entry.requests.length || button.disabled) return;
+            button.disabled = true;
+            button.setAttribute("aria-busy", "true");
+            Promise.all(entry.requests).finally(() => {
+                button.disabled = false;
+                button.removeAttribute("aria-busy");
+            });
+        }, 0);
+    }, true);
+})();
 
 // Every timestamp in the app displays in East Africa Time regardless of the
 // viewer's own device/browser timezone — EAT has no DST, so this offset

@@ -24,6 +24,7 @@ let stockCategoryFilter = "";
 let stockStatusFilter = "";
 let stockCustodyFilter = "";
 let stockSearchQuery = "";
+let stockLowOnly = false;      // the summary's "Low on stock" filter
 
 function populateCategoryFilter() {
     const categories = getInventoryCategories();
@@ -47,12 +48,37 @@ async function refreshStock() {
 // Status/Custody narrow the already-fetched rows client-side and just
 // switch which of on_hand/deployed/total is displayed — no re-fetch, since
 // get_items_summary already returns both halves of the split per row.
-function filteredStockForDisplay() {
+function filteredStockForDisplay({ lowFilter = true } = {}) {
     return stockSummaryCache.filter(row => {
         if (stockCustodyFilter && row.custody_type !== stockCustodyFilter) return false;
         if (!inventorySummaryRowMatchesQuery(row, stockSearchQuery)) return false;
+        if (lowFilter && stockLowOnly && !isLowRow(row)) return false;
         return true;
     });
+}
+
+// Same rule as the row's Low badge (qtyCell): at or under its reorder level.
+function isLowRow(row) {
+    const { qty } = qtyAndValueFor(row);
+    return row.reorder_level != null && qty <= row.reorder_level;
+}
+
+// A few numbers before the table, for what the search/filters currently
+// cover: how many products, how many are low (tap to show only those — the
+// thing someone needs to act on), and what it is all worth.
+function renderStockSummary() {
+    const box = document.getElementById("stock-summary");
+    if (!box) return;
+    const rows = filteredStockForDisplay({ lowFilter: false });
+    const low = rows.filter(isLowRow).length;
+    const value = rows.reduce((sum, r) => sum + Number(qtyAndValueFor(r).value || 0), 0);
+    if (!low) stockLowOnly = false;
+    box.innerHTML = `
+        <span class="summary-item"><strong>${rows.length}</strong> products</span>
+        <button type="button" class="summary-item ${low ? "bad" : "good"}" id="stock-low-toggle" aria-pressed="${stockLowOnly}"
+            ${low ? "" : "disabled"} title="${low ? "Show only products at or under their reorder level" : "Nothing is under its reorder level"}">
+            <strong>${low}</strong> low on stock</button>
+        <span class="summary-item"><strong>${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}</strong> total value</span>`;
 }
 
 function qtyAndValueFor(row) {
@@ -188,6 +214,7 @@ function renderStockTable() {
     thead.innerHTML = `<tr><th>Name</th><th>SKU</th><th>Category</th><th>Qty</th><th>Unit Cost</th><th>Total Value</th><th>Reorder Level</th><th>Actions</th></tr>`;
 
     const canViewHistory = can("inventory_items", "view_history");
+    renderStockSummary();
     const rows = filteredStockForDisplay();
     if (showEmptyIfNone(tbody, rows.length, "Try another search, category or status.", "Nothing in stock matches")) return;
     tbody.innerHTML = rows.map(row => {
@@ -238,6 +265,12 @@ function initFilters() {
     document.getElementById("stock-category-filter").addEventListener("change", async (e) => {
         stockCategoryFilter = e.target.value;
         await refreshStock();
+    });
+
+    document.getElementById("stock-summary").addEventListener("click", (e) => {
+        if (!e.target.closest("#stock-low-toggle")) return;
+        stockLowOnly = !stockLowOnly;
+        renderStockTable();
     });
 
     document.getElementById("stock-status-filter").addEventListener("change", (e) => {

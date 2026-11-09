@@ -91,12 +91,18 @@
     <section class="view" id="view-inventory-log" hidden>
         <div class="page-header-row">
             <h1 class="page-title">Inventory Log</h1>
-            <div class="header-action-group">
-                <input type="text" id="inventory-log-search" class="inventory-filter-search" placeholder="Search name, SKU, serial...">
-                <select id="inventory-log-category-filter" class="inventory-filter-select">
+            <div class="page-header-actions">
+                <button type="button" id="export-inventory-log-csv-btn" class="btn-secondary">Export CSV</button>
+                <button type="button" id="add-inventory-transaction-open-btn" class="btn-primary">+ Log Transaction</button>
+            </div>
+        </div>
+
+        <div class="toolbar inventory-log-toolbar">
+                <input type="text" id="inventory-log-search" class="inventory-filter-search" placeholder="Search name, SKU, serial..." aria-label="Search the log">
+                <select id="inventory-log-category-filter" class="inventory-filter-select" aria-label="Category">
                     <option value="">All Categories</option>
                 </select>
-                <select id="inventory-log-action-filter" class="inventory-filter-select">
+                <select id="inventory-log-action-filter" class="inventory-filter-select" aria-label="Action">
                     <option value="">All Actions</option>
                     <option value="In">In</option>
                     <option value="Transfer">Transfer</option>
@@ -106,9 +112,6 @@
                     <option value="Out">Issue</option>
                     <option value="Reconciled">Reconciled</option>
                 </select>
-                <button type="button" id="export-inventory-log-csv-btn" class="header-sub-link">Export CSV</button>
-                <button type="button" id="add-inventory-transaction-open-btn" class="header-sub-link">+ Log Transaction</button>
-            </div>
         </div>
 
         <div class="table-scroll table-compact">

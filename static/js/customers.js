@@ -91,9 +91,10 @@ async function loadCustomers() {
     customersCache = customers;
     const counts = {};
     customers.forEach(c => { counts[c.account_status] = (counts[c.account_status] || 0) + 1; });
+    const tone = (s) => (s.toLowerCase() === "active" ? "good" : s.toLowerCase() === "expired" ? "bad" : "");
     document.getElementById("customers-summary").innerHTML =
-        `<span class="customers-chip">Total: ${customers.length}</span>` +
-        Object.entries(counts).map(([s, n]) => `<span class="customers-chip ${esc(s.toLowerCase())}">${esc(s)}: ${n}</span>`).join("");
+        `<span class="summary-item"><strong>${customers.length}</strong> customers</span>` +
+        Object.entries(counts).map(([s, n]) => `<span class="summary-item ${tone(s)}"><strong>${n}</strong> ${esc(s)}</span>`).join("");
     if (!customers.length) {
         rows.innerHTML = stateRow(8, "empty", "Import an export above to fill this list.", "No customers yet");
         return;
