@@ -377,8 +377,8 @@ function parseRoute(hash) {
 const NAV_GROUP_ROUTES = {
     inventory: ["inventory", "stock", "inventory-log", "inventory-manage"],
     alerts: ["notifications", "alert-templates", "customers", "broadcast"],
-    reports: ["inventory-reports", "sms-status", "revenue", "activity-overview", "activity-reports"],
-    activity: ["activity-submit", "activity-manage"],
+    reports: ["inventory-reports", "sms-status", "revenue"],
+    activity: ["activity-overview", "activity-reports", "activity-submit", "activity-manage"],
 };
 
 function setActiveNav(name) {
