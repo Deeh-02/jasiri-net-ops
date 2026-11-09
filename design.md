@@ -48,18 +48,17 @@ Three families, loaded once via a Google Fonts `@import` in `common.css`:
 dramatic change modelled on a modern comparison-table dashboard. What
 replaced the original console look (the final block of `common.css`, which
 wins over the earlier rules):
-- **Palette:** charcoal, not pure black: `--bg #111214`, `--surface
-  #17181b`, `--surface-2 #1e2023`, `--border #2a2c30`; the dotted page
-  texture is gone. The green accent and the four status colours are
-  unchanged.
-- **Labels:** Inter in title case everywhere (sidebar, stat cards, table
-  headings, toolbar labels) instead of uppercase JetBrains Mono. Mono stays
-  only for code-like values (pills elsewhere, references). The sidebar is
-  240px so "Technical Activity Log" fits on one line.
+- **Palette and fonts: unchanged from the original console look.** Pure
+  black (`--bg #000`) with the dotted page texture, uppercase JetBrains Mono
+  labels (sidebar, stat cards, toolbar labels), uppercase Inter table
+  headings. The new look briefly moved to charcoal (`#111214`) and title-case
+  Inter labels; the owner asked for the black and the original fonts back the
+  same day, so those overrides were removed. Only the layout below stays.
 - **Stat cards:** soft panels with a coloured dot before the label (no
   coloured left edge); the number in plain text colour.
-- **Tables:** one soft panel (12px radius), heading row in the panel colour
-  with title-case Inter labels and a sort mark on every sortable column;
+- **Tables:** one soft panel (12px radius), heading row in the table-head
+  colour with the original uppercase labels and a sort mark on every
+  sortable column;
   18px row padding; hairline dividers; no stripes.
 - **Row identity:** `identCell(name, sub, { avatar, extraHtml })` draws an
   avatar (`avatarHtml`: initials in a colour fixed per name, or an icon and a

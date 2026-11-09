@@ -41,16 +41,16 @@ Presentation only: no database, API or permission changes, no migration.
   numbers line up on the right; dates and categories are quieter so names
   stand out; the column a list is ordered by shows an arrow; Inventory Log
   shows how many transactions the filters leave.
-- **The new look (fourth pass, the big one):** the whole app moves from
-  pure black with a dotted texture to a charcoal theme with soft panels.
-  Labels everywhere (sidebar, cards, table headings) are in normal title
-  case instead of uppercase "code" lettering. Tables: every column heading
+- **The new look (fourth pass, the big one):** soft panels. Tables: every column heading
   can be clicked to sort; rows are taller; batteries, users, sites and stock
   show a round avatar with the name and a second line under it (model,
   email, address, SKU), so those tables lose a column; each row's main
   action (move a battery, edit a user or site, view stock) is a pale green
   button; dates show the time under the date; page buttons are rounded
   squares. Battery cards show a coloured dot instead of a coloured edge.
+  (This pass first also switched to a charcoal background and title-case
+  labels; at the owner's request the black background with its dots and the
+  original uppercase lettering came back, and only the changes above stay.)
 - **Premium tables (third pass):** no more stripes; quieter headers in the
   app's body font; taller rows with hairline lines; the first column (the
   battery, site or person) stands out; hovering a row lifts it with a thin
