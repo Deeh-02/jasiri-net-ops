@@ -91,17 +91,27 @@ what is truly its own.
   person edits that form. While the request a submit starts is in flight,
   its submit button is disabled with a spinner (`aria-busy`) — automatic,
   see ARCHITECTURE.md; a form that disables its own button is left alone.
-- **Tables (visual pass):** a table inside `.table-scroll` sits in one
-  rounded panel (the wrapper has the surface, border and radius; the table
-  drops its own frame). Dividers are soft (`--rule-soft`), even rows get a
-  faint tint (`--row-alt`) and hover a clear one (`--row-hover`); both are
-  opaque so the phone's pinned first column covers what slides under it.
-  Rows have 14px vertical padding; logs use `.table-dense` (Inventory Log,
-  SMS Status). Numbers: `th.num`/`td.num` (right-aligned, tabular figures —
-  every table uses tabular figures). Quieter secondary cells: `td.muted`
-  (dates, categories, ids) or a `.cell-sub` line under a name. The column a
-  table is ordered by carries `aria-sort` and shows an accent ↓/↑. A
-  toolbar can end with `.toolbar-count` ("45 transactions").
+- **Tables ("premium" pass):** quiet by default so the data is what you
+  see. A table inside `.table-scroll` sits in one lit panel (14px radius,
+  hairline border, faint top highlight and soft drop shadow); the table drops
+  its own frame. No stripes. Header: Inter 11.5px uppercase, dim, on a
+  barely-raised band (`--table-head`) with a hairline under it. Rows: 16px
+  tall padding, hairline dividers (`--rule-soft`), body text `--cell-text`
+  with the first column (the row's name) brighter and 500 weight; hover lifts
+  the row (`--row-hover`) and, on a mouse, draws a 2px accent edge on its
+  first cell. Colours are opaque so the phone's pinned column covers what
+  slides under it. Logs use `.table-dense`. Numbers `th.num`/`td.num`
+  (right-aligned; every table uses tabular figures). Secondary cells
+  `td.muted`; a second quiet line `.cell-sub` (Batteries' "Since" is date
+  over time). The column a table is ordered by carries `aria-sort` (accent
+  ↓/↑). A toolbar can end with `.toolbar-count`.
+- **Row actions:** any icon-only button in a table cell, whatever its page
+  calls it, is a borderless 30px icon that gets a soft square on hover (red
+  for delete/cancel/remove). On a mouse, a row's icons sit at half strength
+  until the row is hovered or focused; on touch they're always full.
+  Text actions in a row (Movements' "Mark Arrived") are soft Inter capsules.
+- **Status pills:** rounded capsules, Inter 12px, a 6px dot in the status
+  colour before the label; each view still supplies the colours.
 - **Every table is compact on phones** (`.table-compact` on every
   `.table-scroll`): one line per row, the page scrolls, the first column is
   pinned and casts a soft shadow once swiped (`.is-scrolled-x`).

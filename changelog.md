@@ -41,6 +41,13 @@ Presentation only: no database, API or permission changes, no migration.
   numbers line up on the right; dates and categories are quieter so names
   stand out; the column a list is ordered by shows an arrow; Inventory Log
   shows how many transactions the filters leave.
+- **Premium tables (third pass):** no more stripes; quieter headers in the
+  app's body font; taller rows with hairline lines; the first column (the
+  battery, site or person) stands out; hovering a row lifts it with a thin
+  green edge; edit/view/delete icons are quiet until you hover the row (and
+  turn red for delete); status labels are soft rounded pills with a coloured
+  dot; Movements' buttons match; Batteries shows the date with the time
+  under it instead of wrapping.
 - **Smoother loading:** tables show grey placeholder rows shaped like the
   table while they first load (and the battery cards on the dashboard);
   changing a filter keeps the old rows on screen, slightly dimmed, until the

@@ -282,6 +282,15 @@ function bindChargeDropdown(dropdown) {
     });
 }
 
+// "Nov 1, 2026" with the time quietly under it, so a narrow column holds two
+// tidy lines instead of wrapping word by word.
+function dateTwoLines(iso) {
+    const text = formatDate(iso);
+    const cut = text.lastIndexOf(", ");
+    if (!iso || cut < 0) return text;
+    return `<span class="nowrap">${text.slice(0, cut)}</span><span class="cell-sub nowrap">${text.slice(cut + 2)}</span>`;
+}
+
 function renderTable(batteries) {
     const tbody = document.getElementById("battery-rows");
     tbody.innerHTML = "";
@@ -302,7 +311,7 @@ function renderTable(batteries) {
             </td>
             <td>${battery.current_location}</td>
             <td>${battery.moved_by || "—"}</td>
-            <td class="muted nowrap">${formatDate(battery.moved_at)}</td>
+            <td class="muted">${dateTwoLines(battery.moved_at)}</td>
             <td>
     <div class="actions-cell">
         ${can("movements", "create") ? `
