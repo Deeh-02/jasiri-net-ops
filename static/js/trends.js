@@ -1,4 +1,4 @@
-import { authHeaders, showView, navigate, registerRoute } from "./common.js";
+import { authHeaders, showView, navigate, registerRoute, stateRow } from "./common.js";
 
 /* Sites → Trends: every site over one window, ranked against each other.
    Same honesty rules as the site report — unwatched time is never downtime,
@@ -377,7 +377,7 @@ function renderTable(d, canRevenue) {
     </tr>`;
 
     const tbody = document.getElementById("fleet-rows");
-    tbody.innerHTML = d.sites.length ? html : `<tr><td colspan="${span}" class="loading-text">No monitored sites yet.</td></tr>`;
+    tbody.innerHTML = d.sites.length ? html : stateRow(span, "empty", "No monitored sites yet.");
 }
 
 function renderFootnote(d) {

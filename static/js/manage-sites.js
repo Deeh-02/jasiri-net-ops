@@ -1,6 +1,6 @@
 import {
     authHeaders, editIconSvg, viewIconSvg,
-    showView, navigate, registerRoute,
+    showView, navigate, registerRoute, confirmDialog, stateRow
 } from "./common.js";
 
 let sitesCache = [];
@@ -24,7 +24,7 @@ async function loadManageSites() {
     ]);
     if (!sitesRes.ok) {
         document.getElementById("manage-sites-rows").innerHTML =
-            `<tr><td colspan="7" class="loading-text">Could not load sites.</td></tr>`;
+            stateRow(7, "error", "Could not load sites. Try again in a moment.");
         return;
     }
     const payload = await sitesRes.json();
@@ -105,7 +105,7 @@ async function restoreItem(id) {
 }
 
 async function dismissItem(id, label) {
-    if (!confirm(`Mark "${label}" as not a site?\n\nA home customer's PPPoE login is the usual reason. It moves to Ignored at the bottom of this list, where you can restore it.`)) return;
+    if (!(await confirmDialog({ title: `Mark "${label}" as not a site?`, message: "A home customer's PPPoE login is the usual reason. It moves to Ignored at the bottom of this list, where you can restore it.", confirmLabel: "Not a site" }))) return;
     const res = await fetch(`/monitoring/inbox/${id}/dismiss`, { method: "POST", headers: authHeaders() });
     if (res.ok) {
         await loadManageSites();
@@ -135,7 +135,7 @@ function renderSites() {
     const tbody = document.getElementById("manage-sites-rows");
 
     if (sitesCache.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="7" class="loading-text">No sites yet.</td></tr>`;
+        tbody.innerHTML = stateRow(7, "empty", "No sites yet.");
         return;
     }
 

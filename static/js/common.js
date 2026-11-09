@@ -384,13 +384,17 @@ const NAV_GROUP_ROUTES = {
 function setActiveNav(name) {
     document.querySelectorAll("[data-view]").forEach(l => l.classList.toggle("active", l.dataset.view === name));
 
+    // Only the current page's group stays open: the others fold shut, so the
+    // sidebar stays short and the open section is the one you're in. A group
+    // opened by hand stays open until you go to a page outside it.
     Object.entries(NAV_GROUP_ROUTES).forEach(([group, routes]) => {
         const toggle = document.getElementById(`${group}-nav-toggle`);
+        const items = document.getElementById(`${group}-nav-subitems`);
         const inGroup = routes.includes(name);
         toggle?.classList.toggle("active", inGroup);
-        if (!inGroup) return;
-        toggle?.classList.remove("collapsed");
-        document.getElementById(`${group}-nav-subitems`)?.classList.remove("collapsed");
+        toggle?.classList.toggle("collapsed", !inGroup);
+        items?.classList.toggle("collapsed", !inGroup);
+        toggle?.setAttribute("aria-expanded", String(inGroup));
     });
 }
 
@@ -885,14 +889,16 @@ export function initShell() {
     document.querySelectorAll(".nav-heading").forEach(toggle => {
         const subitems = toggle.nextElementSibling;
         if (!subitems || !subitems.classList.contains("nav-subitems")) return;
-        toggle.addEventListener("click", () => {
-            toggle.classList.toggle("collapsed");
-            subitems.classList.toggle("collapsed");
-        });
+        const flip = () => {
+            const open = toggle.classList.toggle("collapsed") === false;
+            subitems.classList.toggle("collapsed", !open);
+            toggle.setAttribute("aria-expanded", String(open));
+        };
+        toggle.setAttribute("aria-expanded", String(!toggle.classList.contains("collapsed")));
+        toggle.addEventListener("click", flip);
         toggle.querySelector(".chevron")?.addEventListener("click", (e) => {
             e.stopPropagation();
-            toggle.classList.toggle("collapsed");
-            subitems.classList.toggle("collapsed");
+            flip();
         });
     });
 
@@ -985,4 +991,92 @@ export function bootAuth() {
     if (authToken) {
         showApp();
     }
+}
+
+// ---- Shared UI pieces (Phase 5) ----
+
+function escText(s) {
+    return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+// Loading / empty / error state, the same everywhere. stateHtml() for a box
+// on its own; stateRow() for inside a table's <tbody> (spans every column).
+//   kind: "loading" | "empty" | "error"
+export function stateHtml(kind, text, title = "") {
+    const role = kind === "error" ? ' role="alert"' : (kind === "loading" ? ' role="status"' : "");
+    return `<div class="state state-${kind}"${role}>${title ? `<span class="state-title">${escText(title)}</span>` : ""}${escText(text)}</div>`;
+}
+
+export function stateRow(colspan, kind, text, title = "") {
+    return `<tr class="state-row"><td colspan="${colspan}">${stateHtml(kind, text, title)}</td></tr>`;
+}
+
+// The in-app confirmation dialog, in place of the browser's confirm().
+//   const ok = await confirmDialog({ title, message, confirmLabel, danger });
+// Enter confirms, Escape or a click outside cancels, and focus goes back to
+// whatever had it before. `message` is plain text (line breaks kept).
+let confirmEl = null;
+export function confirmDialog({ title = "Are you sure?", message = "", confirmLabel = "Confirm", cancelLabel = "Cancel", danger = false } = {}) {
+    if (!confirmEl) {
+        confirmEl = document.createElement("div");
+        confirmEl.className = "modal-overlay";
+        confirmEl.hidden = true;
+        confirmEl.innerHTML = `
+            <div class="modal-box confirm-box" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-message">
+                <h3 id="confirm-title"></h3>
+                <p class="confirm-message" id="confirm-message"></p>
+                <div class="modal-actions">
+                    <button type="button" class="btn-secondary" data-confirm="no"></button>
+                    <button type="button" data-confirm="yes"></button>
+                </div>
+            </div>`;
+        document.body.appendChild(confirmEl);
+    }
+    const before = document.activeElement;
+    const yes = confirmEl.querySelector('[data-confirm="yes"]');
+    const no = confirmEl.querySelector('[data-confirm="no"]');
+    confirmEl.querySelector("#confirm-title").textContent = title;
+    const msg = confirmEl.querySelector("#confirm-message");
+    msg.textContent = message;
+    msg.hidden = !message;
+    yes.textContent = confirmLabel;
+    yes.className = danger ? "btn-danger" : "btn-primary";
+    no.textContent = cancelLabel;
+    confirmEl.hidden = false;
+    yes.focus();
+
+    return new Promise(resolve => {
+        const close = (answer) => {
+            confirmEl.hidden = true;
+            confirmEl.removeEventListener("click", onClick);
+            document.removeEventListener("keydown", onKey, true);
+            if (before && typeof before.focus === "function" && document.contains(before)) before.focus();
+            resolve(answer);
+        };
+        const onClick = (e) => {
+            if (e.target === confirmEl) return close(false);
+            const b = e.target.closest("[data-confirm]");
+            if (b) close(b.dataset.confirm === "yes");
+        };
+        const onKey = (e) => {
+            if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); close(false); }
+            else if (e.key === "Enter" && document.activeElement !== no) { e.preventDefault(); e.stopPropagation(); close(true); }
+            else if (e.key === "Tab") {         // keep focus inside the two buttons
+                e.preventDefault();
+                (document.activeElement === yes ? no : yes).focus();
+            }
+        };
+        confirmEl.addEventListener("click", onClick);
+        document.addEventListener("keydown", onKey, true);
+    });
+}
+
+// For a table renderer: when there is nothing to show, put the shared empty
+// state in the <tbody> (spanning every header column) and return true, so the
+// caller can `if (showEmptyIfNone(...)) return;` before building rows.
+export function showEmptyIfNone(tbody, count, text, title = "") {
+    if (count) return false;
+    const cols = tbody.closest("table")?.querySelectorAll("thead tr:first-child > *").length || 1;
+    tbody.innerHTML = stateRow(cols, "empty", text, title);
+    return true;
 }

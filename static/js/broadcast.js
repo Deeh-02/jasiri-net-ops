@@ -1,4 +1,4 @@
-import { authHeaders, showView, registerRoute, formatDate } from "./common.js";
+import { authHeaders, showView, registerRoute, formatDate, confirmDialog, stateRow } from "./common.js";
 
 function esc(s) {
     return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -144,7 +144,7 @@ async function sendBroadcast() {
     const who = people.length <= 5
         ? people.map(r => r.name || r.username).join(", ")
         : `${people.length} people on ${routers.filter(r => checked.router_ids.includes(r.id)).map(r => r.name).join(" + ")}`;
-    if (!confirm(`Send this SMS to ${who}?\n\n${message}\n\nIt cannot be recalled.`)) return;
+    if (!(await confirmDialog({ title: `Send this SMS to ${who}?`, message: `${message}\n\nIt cannot be recalled.`, confirmLabel: "Send SMS" }))) return;
 
     const btn = document.getElementById("broadcast-send-btn");
     btn.disabled = true;
@@ -172,7 +172,7 @@ async function loadHistory() {
     const rows = document.getElementById("broadcast-rows");
     const res = await fetch("/customers/broadcasts", { headers: authHeaders() });
     if (!res.ok) {
-        rows.innerHTML = `<tr><td colspan="7">Couldn't load sent broadcasts.</td></tr>`;
+        rows.innerHTML = stateRow(7, "error", "Couldn't load sent broadcasts. Try again in a moment.");
         return;
     }
     const list = await res.json();
@@ -186,7 +186,7 @@ async function loadHistory() {
             <td>${b.sent_count} / ${b.recipient_count}</td>
             <td>${b.failed_count}</td>
             <td>${esc(STATE_LABEL[b.state] || b.state)}</td>
-        </tr>`).join("") : `<tr><td colspan="7">Nothing sent yet.</td></tr>`;
+        </tr>`).join("") : stateRow(7, "empty", "Messages you send appear here.", "Nothing sent yet");
     // Keep refreshing only while a send is running and the page is open.
     if (list.some(b => b.state === "sending") && !document.getElementById("view-broadcast").hidden) {
         pollTimer = setTimeout(loadHistory, 3000);

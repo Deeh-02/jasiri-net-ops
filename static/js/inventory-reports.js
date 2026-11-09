@@ -1,5 +1,5 @@
 import {
-    authHeaders, formatDate, showView, registerRoute,
+    authHeaders, formatDate, showView, registerRoute, showEmptyIfNone
 } from "./common.js";
 import { openUnitDetailModal, loadInventoryCategories, getInventoryCategories, exportRowsToCsv } from "./inventory-common.js";
 
@@ -20,6 +20,7 @@ function renderSkuSummaryTable(rows) {
     const tbody = document.getElementById("sku-summary-rows");
     if (!tbody) return;
 
+    if (showEmptyIfNone(tbody, rows.length, "Nothing to report yet.")) return;
     tbody.innerHTML = rows.map(row => `
         <tr>
             <td>${row.name || "—"}</td>
@@ -50,6 +51,7 @@ function renderCableSummaryTable(rows) {
     const tbody = document.getElementById("cable-summary-rows");
     if (!tbody) return;
 
+    if (showEmptyIfNone(tbody, rows.length, "Nothing to report yet.")) return;
     tbody.innerHTML = rows.map(row => `
         <tr>
             <td>${row.spec}</td>
@@ -105,6 +107,7 @@ function renderOffcutSummaryTable(rows) {
     const tbody = document.getElementById("offcut-summary-rows");
     if (!tbody) return;
 
+    if (showEmptyIfNone(tbody, rows.length, "Nothing to report yet.")) return;
     tbody.innerHTML = rows.map(row => `
         <tr>
             <td>${row.spec}</td>

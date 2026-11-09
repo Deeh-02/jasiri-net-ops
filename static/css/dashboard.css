@@ -349,41 +349,6 @@
     color: var(--text);
 }
 
-.dashboard-tab-slant-row {
-    display: flex;
-    gap: 2px;
-    margin-bottom: 18px;
-    border-bottom: 1px solid var(--border);
-}
-
-.dashboard-tab-slant {
-    background: var(--surface-2);
-    border: 1px solid var(--border);
-    border-bottom: none;
-    color: var(--text-dim);
-    font-family: 'Space Grotesk', sans-serif;
-    font-size: 13px;
-    font-weight: 700;
-    padding: 9px 22px;
-    cursor: pointer;
-    clip-path: polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%);
-    margin-right: -8px;
-    transition: color 0.15s ease, background 0.15s ease;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-}
-
-.dashboard-tab-slant:hover {
-    color: var(--text);
-}
-
-.dashboard-tab-slant.active {
-    background: var(--surface);
-    color: var(--accent);
-    position: relative;
-    z-index: 2;
-}
-
 .dashboard-tab-panel {
     font-size: 14px;
 }

@@ -1,6 +1,6 @@
 import {
     can, authHeaders, viewIconSvg,
-    registerAppShownHandler, showView, registerRoute, navigate,
+    registerAppShownHandler, showView, registerRoute, navigate, showEmptyIfNone
 } from "./common.js";
 import {
     loadInventoryCategories, getInventoryCategories,
@@ -189,6 +189,7 @@ function renderStockTable() {
 
     const canViewHistory = can("inventory_items", "view_history");
     const rows = filteredStockForDisplay();
+    if (showEmptyIfNone(tbody, rows.length, "Try another search, category or status.", "Nothing in stock matches")) return;
     tbody.innerHTML = rows.map(row => {
         const { qty, value } = qtyAndValueFor(row);
         return `

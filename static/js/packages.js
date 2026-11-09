@@ -1,6 +1,6 @@
 import {
     authHeaders, editIconSvg,
-    showView, navigate, registerRoute,
+    showView, navigate, registerRoute, stateRow
 } from "./common.js";
 
 let packagesCache = [];
@@ -44,7 +44,7 @@ async function loadPackages() {
     const res = await fetch("/monitoring/packages", { headers: authHeaders() });
     if (!res.ok) {
         document.getElementById("pkg-rows").innerHTML =
-            `<tr><td colspan="7" class="loading-text">Could not load packages.</td></tr>`;
+            stateRow(7, "error", "Could not load packages. Try again in a moment.");
         return;
     }
     const payload = await res.json();
@@ -128,7 +128,7 @@ function renderPackages() {
     const tbody = document.getElementById("pkg-rows");
 
     if (packagesCache.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="7" class="loading-text">No packages yet.</td></tr>`;
+        tbody.innerHTML = stateRow(7, "empty", "No packages yet.");
         return;
     }
 

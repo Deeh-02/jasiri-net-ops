@@ -1,4 +1,4 @@
-import { authHeaders, showView, registerRoute, navigate } from "./common.js";
+import { authHeaders, showView, registerRoute, navigate, stateRow } from "./common.js";
 
 function esc(s) {
     return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -304,7 +304,7 @@ function drawSites() {
     const report = state.report;
     const body = $("rev-sites-body");
     if (!report.sites.length) {
-        body.innerHTML = `<tr><td colspan="8">No site data for this period.</td></tr>`;
+        body.innerHTML = stateRow(8, "empty", "No site data for this period.");
         return;
     }
     const { col, dir } = activeSort();
@@ -508,7 +508,7 @@ async function loadReport() {
     } catch (e) {
         noteFailure();
         fail("rev-findings", e);
-        $("rev-sites-body").innerHTML = `<tr><td colspan="8">${esc(e.message)}</td></tr>`;
+        $("rev-sites-body").innerHTML = stateRow(8, "error", e.message);
     } finally {
         await Promise.allSettled([overview, alerts, trend]);
         if (token === loadToken) {

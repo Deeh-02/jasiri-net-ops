@@ -1,6 +1,6 @@
 import {
     can, authHeaders, showMessage, editIconSvg, deleteIconSvg, viewIconSvg,
-    registerAppShownHandler, showView, registerRoute, registerCmdkProvider, navigate,
+    registerAppShownHandler, showView, registerRoute, registerCmdkProvider, navigate, showEmptyIfNone
 } from "./common.js";
 import {
     loadInventoryCategories, getInventoryCategories,
@@ -72,6 +72,7 @@ function renderItemsTable() {
     const canEdit = can("inventory_items", "edit");
     const canDelete = can("inventory_items", "delete");
     const canViewHistory = can("inventory_items", "view_history");
+    if (showEmptyIfNone(tbody, visibleItemsRows().length, "Try another search or category, or add an item.", "No items match")) return;
     tbody.innerHTML = visibleItemsRows().map(row => `
         <tr>
             <td>${row.name || "—"}</td>

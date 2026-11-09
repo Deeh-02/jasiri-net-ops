@@ -1,47 +1,6 @@
 /* ---- Settings view ---- */
 
-.settings-subtitle {
-    color: var(--text-dim);
-    font-size: 14px;
-    margin: -18px 0 24px;
-}
-
-/* Mirrors .dashboard-tab-slant (View Battery modal's Details/Logs tabs) —
-   same slant-tab pattern, kept as its own settings-scoped class rather than
-   a shared one so this file's tab click-handler and the modal's stay on
-   separate class names with no cross-wiring risk. */
-.settings-tabs {
-    display: flex;
-    gap: 2px;
-    margin-bottom: 18px;
-    border-bottom: 1px solid var(--border);
-}
-
-.settings-tab {
-    background: var(--surface-2);
-    border: 1px solid var(--border);
-    border-bottom: none;
-    color: var(--text-dim);
-    font-family: 'Space Grotesk', sans-serif;
-    font-size: 13px;
-    font-weight: 700;
-    padding: 9px 22px;
-    cursor: pointer;
-    clip-path: polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%);
-    margin-right: -8px;
-    transition: color 0.15s ease, background 0.15s ease;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-}
-
-.settings-tab:hover { color: var(--text); }
-
-.settings-tab.active {
-    background: var(--surface);
-    color: var(--accent);
-    position: relative;
-    z-index: 2;
-}
+/* .settings-tab stays as the JS hook; the look is the shared .tabs/.tab. */
 
 .settings-panel { max-width: 420px; }
 .settings-form { max-width: 100%; }
@@ -59,4 +18,12 @@
 .settings-save-btn {
     align-self: flex-start;
     padding: 10px 22px;
+}
+
+/* The one-paragraph explanation at the top of the Notifications tab. */
+.settings-panel-intro {
+    color: var(--text-dim);
+    font-size: 14px;
+    line-height: 1.5;
+    margin: 0 0 16px;
 }

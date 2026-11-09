@@ -1,6 +1,6 @@
 import {
     can, authHeaders, showMessage, registerAppShownHandler, showView, registerRoute,
-    registerCmdkProvider, navigate,
+    registerCmdkProvider, navigate, stateRow
 } from "./common.js";
 import {
     loadInventoryCategories, getInventoryCategories,
@@ -127,7 +127,7 @@ function renderLogTable(rows) {
     const total = visibleRows.length;
     if (total === 0) {
         const emptyMsg = logRowsCache.length === 0 ? "No transactions yet." : "No matching transactions.";
-        tbody.innerHTML = `<tr><td colspan="6" class="dashboard-log-empty">${emptyMsg}</td></tr>`;
+        tbody.innerHTML = stateRow(6, "empty", emptyMsg);
         paginationEl.innerHTML = "";
         return;
     }

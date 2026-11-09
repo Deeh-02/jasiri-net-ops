@@ -1,4 +1,4 @@
-import { can, authHeaders, formatDate, capitalize, deleteIconSvg, showView, navigate, registerRoute, refreshBadges, registerAppShownHandler, registerLogoutHandler } from "./common.js";
+import { can, authHeaders, formatDate, capitalize, deleteIconSvg, showView, navigate, registerRoute, refreshBadges, registerAppShownHandler, registerLogoutHandler, confirmDialog, stateRow } from "./common.js";
 import { refreshData as refreshDashboardData } from "./dashboard.js";
 
 // null (not []) whenever nothing currently on screen can be trusted as
@@ -109,7 +109,7 @@ async function refreshMovements() {
         // Only replace the loading placeholder — a failed background poll
         // shouldn't wipe a table that's already showing good data.
         if (movementsCache === null) {
-            document.getElementById("movements-rows").innerHTML = '<tr><td colspan="6" class="loading-text">Failed to load movements</td></tr>';
+            document.getElementById("movements-rows").innerHTML = stateRow(6, "error", "Couldn't load movements. Try again in a moment.");
         }
         return;
     }
@@ -138,7 +138,7 @@ async function refreshMovements() {
 // now (it's the loading placeholder), so nothing can legitimately compare
 // equal to it.
 async function loadMovements() {
-    document.getElementById("movements-rows").innerHTML = '<tr><td colspan="6" class="loading-text">Loading movements...</td></tr>';
+    document.getElementById("movements-rows").innerHTML = stateRow(6, "loading", "Loading movements…");
     movementsCache = null;
     movementsGeneration++;
     await refreshMovements();
@@ -148,7 +148,7 @@ function renderMovementsList(movements) {
     const tbody = document.getElementById("movements-rows");
 
     if (movements.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="6" class="loading-text">No movements${showMovementHistory ? "" : " in progress"}.</td></tr>`;
+        tbody.innerHTML = stateRow(6, "empty", `No movements${showMovementHistory ? "" : " in progress"}.`);
         return;
     }
 
@@ -252,7 +252,7 @@ function attachMovementActionListeners() {
 
     document.querySelectorAll(".movement-cancel-btn").forEach(btn => {
         btn.addEventListener("click", async () => {
-            if (!confirm("Cancel this movement?")) return;
+            if (!(await confirmDialog({ title: "Cancel this movement?", confirmLabel: "Cancel movement", cancelLabel: "Keep it", danger: true }))) return;
             const res = await fetch(`/movements/${btn.dataset.id}/cancel`, {
                 method: "POST",
                 headers: authHeaders()

@@ -1,6 +1,6 @@
 import {
     can, authHeaders, showMessage, formatDate,
-    editIconSvg, deleteIconSvg, viewIconSvg,
+    editIconSvg, deleteIconSvg, viewIconSvg, confirmDialog, stateRow
 } from "./common.js";
 
 // Shared across every inventory view (this file, items, log, issue cart,
@@ -598,7 +598,7 @@ function renderUnitList() {
         // default — a spec that's fully used up still gets an explicit
         // empty state rather than a blank box.
         const colspan = unitListTrackingType === "asset_serialized" ? 5 : 4;
-        tbody.innerHTML = `<tr><td colspan="${colspan}" class="dashboard-log-empty">No units currently in stock.</td></tr>`;
+        tbody.innerHTML = stateRow(colspan, "empty", "No units currently in stock.");
         if (paginationEl) paginationEl.innerHTML = "";
         return;
     }
@@ -701,7 +701,7 @@ async function refreshUnitListIfOpen() {
 }
 
 async function deleteItem(id, name) {
-    if (!confirm(`Delete item "${name}"? This can't be undone.`)) return;
+    if (!(await confirmDialog({ title: `Delete item "${name}"?`, message: "This can't be undone.", confirmLabel: "Delete", danger: true }))) return;
 
     const response = await fetch(`/inventory/items/${id}`, { method: "DELETE", headers: authHeaders() });
     if (response.ok) {
@@ -990,7 +990,7 @@ function closeEditProductModal() {
 }
 
 export async function deleteProduct(categoryId, skuOrSpec, name, onDeleted) {
-    if (!confirm(`Delete product "${name}"? This only succeeds if no units remain under it.`)) return;
+    if (!(await confirmDialog({ title: `Delete product "${name}"?`, message: "This only works if no units remain under it.", confirmLabel: "Delete", danger: true }))) return;
 
     const response = await fetch(
         `/inventory/products?category_id=${categoryId}&sku_or_spec=${encodeURIComponent(skuOrSpec)}`,

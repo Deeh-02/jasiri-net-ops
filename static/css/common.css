@@ -28,6 +28,291 @@ body {
     font-family: 'Inter', sans-serif;
 }
 
+/* ==== Phase 5 — shared foundation ===========================================
+   One set of tokens and base components every page uses, so a button, a tab,
+   a focus ring or an empty table looks and behaves the same everywhere. View
+   CSS files load after this one: a view only adds what is truly its own.
+   ========================================================================= */
+:root {
+    --radius-sm: 6px;
+    --radius: 10px;
+    --page-pad-x: 40px;          /* .content's side padding; the top bar matches it */
+    --form-max: 760px;           /* form-style pages (Settings, Submit report …) */
+    --section-gap: 28px;         /* between sections of one page */
+    --ease: cubic-bezier(0.4, 0, 0.2, 1);
+    --ring: 0 0 0 3px rgba(61, 220, 151, 0.28);
+    --scrollbar: 10px;           /* the content pane's scrollbar, kept reserved */
+}
+
+@media (max-width: 760px) {
+    :root { --page-pad-x: 16px; --section-gap: 20px; }
+}
+
+/* Focus: one visible ring for keyboard users on every control. Buttons and
+   links get an outline; text fields keep their accent border and gain a soft
+   ring (a box-shadow, so a view's `outline: none` on :focus can't remove it). */
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+input:focus-visible, select:focus-visible, textarea:focus-visible {
+    outline: none;
+    border-color: var(--accent) !important;
+    box-shadow: var(--ring);
+}
+/* A ring on a click, not just the keyboard, would be noise: mouse focus on a
+   button shows nothing. */
+button:focus:not(:focus-visible) { outline: none; }
+
+/* Reduced motion: nothing slides, fades, lifts or scales. Colour changes stay
+   (they are not motion), only shortened to instant. */
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
+    .stat-card:hover, .btn-primary:active, .btn-secondary:active, .btn-danger:active,
+    .btn-add-site:active, .modal-actions button:active, .panel-form button:active {
+        transform: none !important;
+    }
+}
+
+/* ---- Buttons: one family, usable anywhere (not only inside a modal) ----
+   primary: the page's main action · secondary: everything else ·
+   danger: deletes and other things that can't be undone · ghost: quiet
+   text-only actions. Each has the same hover, pressed, focus and disabled
+   behaviour. Older context-scoped rules (.modal-actions .btn-primary …) still
+   apply on top where a container needs a different size. */
+.btn-primary, .btn-secondary, .btn-danger, .btn-ghost {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 40px;
+    padding: 9px 16px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
+    font-size: 14px;
+    line-height: 1.2;
+    text-decoration: none;
+    cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, opacity 0.15s ease, transform 0.1s ease;
+}
+.btn-primary { background: var(--accent); color: #10141a; }
+.btn-secondary { background: var(--surface-2); color: var(--text); border-color: var(--border); }
+.btn-danger { background: rgba(239, 91, 91, 0.12); color: var(--danger); border-color: rgba(239, 91, 91, 0.45); }
+.btn-ghost { background: none; color: var(--text-dim); }
+
+.btn-primary:hover:not(:disabled) { opacity: 0.9; }
+.btn-secondary:hover:not(:disabled) { border-color: var(--text-dim); }
+.btn-danger:hover:not(:disabled) { background: rgba(239, 91, 91, 0.2); }
+.btn-ghost:hover:not(:disabled) { color: var(--text); }
+.btn-primary:active:not(:disabled), .btn-secondary:active:not(:disabled),
+.btn-danger:active:not(:disabled) { transform: scale(0.97); }
+
+/* Disabled looks the same on every button in the app. */
+button:disabled, .btn-primary[aria-disabled="true"], .btn-secondary[aria-disabled="true"] {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+/* ---- Tabs: switch between panels of one page ----
+   An underline under the current tab. Each view keeps its own class as the
+   JS hook (.settings-tab, .sites-tab …) and adds .tab for the look; the
+   current tab is marked by .active, .is-active or aria-selected. */
+.tabs {
+    display: flex;
+    gap: 4px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 20px;
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+.tabs::-webkit-scrollbar { display: none; }
+.tab {
+    flex-shrink: 0;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    padding: 10px 14px;
+    min-height: 44px;
+    border-radius: 0;
+    clip-path: none;
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+    text-transform: none;
+    letter-spacing: 0;
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: color 0.15s ease, border-color 0.15s ease;
+}
+.tab:hover { color: var(--text); }
+.tab.active, .tab.is-active, .tab[aria-selected="true"] {
+    color: var(--text);
+    font-weight: 600;
+    border-bottom-color: var(--accent);
+    background: none;
+}
+
+/* ---- Page header: title (+ optional subtitle) left, actions right ---- */
+.page-subtitle {
+    color: var(--text-dim);
+    font-size: 14px;
+    margin: 6px 0 0;
+    max-width: 70ch;
+}
+.page-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 10px;
+}
+
+/* ---- Toolbar: filters and search above a table, always in this one place ---- */
+.toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 10px 12px;
+    margin-bottom: 14px;
+}
+.toolbar-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.toolbar-field > span, .toolbar-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+}
+.toolbar-end { margin-left: auto; display: flex; gap: 10px; align-items: center; }
+/* The one look for a filter/search control: same height, border and focus
+   as every form field in the app. */
+.control {
+    min-height: 40px;
+    padding: 8px 12px;
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    color-scheme: dark;
+}
+.control:hover { border-color: var(--text-dim); }
+.control:focus { outline: none; border-color: var(--accent); }
+select.control {
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5 11 1.5' fill='none' stroke='%238b96a5' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    background-size: 11px 8px;
+    padding-right: 34px;
+}
+select.control option { background: var(--surface); color: var(--text); }
+@media (max-width: 760px) {
+    .toolbar-field { flex: 1 1 140px; }
+    .toolbar-field .control { width: 100%; }
+    .toolbar-end { margin-left: 0; }
+}
+
+/* ---- Loading and empty states: one look, inside a table or on its own ---- */
+.state {
+    padding: 28px 16px;
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 14px;
+}
+.state-title { display: block; color: var(--text); font-weight: 600; margin-bottom: 4px; }
+.state-loading::before {
+    content: "";
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    margin-right: 8px;
+    vertical-align: -1px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: state-spin 0.8s linear infinite;
+}
+@keyframes state-spin { to { transform: rotate(360deg); } }
+.state-error { color: var(--danger); }
+tr.state-row:hover td { background: none; }
+tr.state-row td { border-bottom: none; }
+/* In a table wider than the phone, keep the message on screen instead of
+   centred across columns you'd have to swipe to; and undo the compact
+   table's pinned/one-line first cell, which would squash it. */
+tr.state-row .state {
+    position: sticky;
+    left: 0;
+    width: min(100%, calc(100vw - 2 * var(--page-pad-x)));
+}
+.table-compact tr.state-row td {
+    position: static;
+    max-width: none;
+    white-space: normal;
+    background: none;
+    box-shadow: none;
+}
+
+/* ---- Summary strip: a few key numbers before a long table ---- */
+.summary-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 14px;
+}
+.summary-item {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 8px 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    color: var(--text-dim);
+}
+.summary-item strong {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 17px;
+    color: var(--text);
+}
+.summary-item.good strong { color: var(--accent); }
+.summary-item.warn strong { color: var(--warn); }
+.summary-item.bad strong { color: var(--danger); }
+button.summary-item { cursor: pointer; font-family: inherit; }
+button.summary-item:hover { border-color: var(--text-dim); }
+button.summary-item[aria-pressed="true"] { border-color: var(--accent); }
+
+/* ---- Confirmation dialog (common.js confirmDialog), replaces confirm() ---- */
+.confirm-box { width: 420px; }
+.confirm-box h3 { margin-bottom: 8px; }
+.confirm-message {
+    color: var(--text-dim);
+    font-size: 14px;
+    line-height: 1.5;
+    margin: 0 0 20px;
+    white-space: pre-line;
+    overflow-wrap: anywhere;
+}
+.confirm-box .modal-actions { justify-content: flex-end; }
+.confirm-box .modal-actions button { flex: 0 1 auto; min-width: 110px; }
+.confirm-box .modal-actions .btn-danger { background: var(--danger); color: #10141a; border-color: var(--danger); }
+
+/* Section heading inside a page: one size everywhere. */
+.section-title {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 17px;
+    font-weight: 700;
+    margin: 0 0 12px;
+}
+/* ==== end shared foundation ============================================== */
+
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: var(--bg); }
 ::-webkit-scrollbar-thumb {
@@ -179,6 +464,17 @@ body {
     border-left: 2px solid var(--accent);
 }
 
+/* A group heading (Technical Activity Log, Inventory, Reports, Alerts) whose
+   page is open: the SECTION reads as current (bright text, accent icon) but
+   only the page itself below it carries the accent bar, so the eye lands on
+   one highlight, not two. */
+.nav-heading.active[id$="-nav-toggle"] {
+    background: none;
+    color: var(--text);
+    border-left-color: transparent;
+}
+.nav-heading.active[id$="-nav-toggle"] .nav-icon { color: var(--accent); }
+
 .chevron {
     transition: transform 0.2s ease;
     font-family: 'Inter', sans-serif;
@@ -254,8 +550,16 @@ body {
    beat one), no !important needed. */
 .nav-link.sub.active {
     background: rgba(61, 220, 151, 0.12);
-    border-left-color: transparent;
+    border-left-color: var(--accent);
 }
+
+/* Sub-pages hang off a faint guide line, so which group a page belongs to is
+   visible at a glance. */
+.nav-subitems-inner {
+    margin-left: 17px;
+    border-left: 1px solid var(--border);
+}
+.nav-link.sub { padding-left: 12px; border-radius: 0 6px 6px 0; margin-left: -1px; }
 
 .nav-link.active {
     background: var(--surface-2);
@@ -383,12 +687,19 @@ body {
 /* ---- Page content shell — shared layout every view sits inside ---- */
 .content {
     flex: 1;
-    padding: 32px 40px 60px;
+    padding: 32px var(--page-pad-x) 60px;
+}
+
+/* Desktop: the content pane always keeps room for its scrollbar, so a page
+   that scrolls and one that doesn't end at the same right edge, and the top
+   bar's right edge (padding = --page-pad-x + --scrollbar) lines up with both. */
+@media (min-width: 761px) {
+    .content { scrollbar-gutter: stable; }
 }
 
 @media (max-width: 760px) {
     .content {
-        padding: 20px 16px 48px;
+        padding: 20px var(--page-pad-x) 48px;
         /* .content is a flex item of .layout, and flex items default to
            min-width:auto — they won't shrink below a descendant's natural
            content width unless something resets that. .table-scroll resets
@@ -1405,7 +1716,9 @@ tr:hover td { background: var(--surface-2); }
     align-items: center;
     justify-content: space-between;
     gap: 24px;
-    padding: 12px 28px;
+    /* Left: lines the logo up with the sidebar's icons. Right: lines the
+       avatar up with the page content's right edge (see .content). */
+    padding: 12px calc(var(--page-pad-x) + var(--scrollbar)) 12px 28px;
     background: var(--surface);
     border-bottom: 1px solid var(--border);
     position: sticky;
@@ -1813,7 +2126,8 @@ tr:hover td { background: var(--surface-2); }
         width: 100%;
         max-width: 100%;
         box-sizing: border-box;
-        padding: 10px 14px;
+        /* Same side padding as the page content below it. */
+        padding: 10px var(--page-pad-x);
         gap: 10px;
         /* overflow-x, not overflow:hidden — the profile menu is a topbar
            descendant that intentionally renders BELOW the topbar's own box
