@@ -118,9 +118,11 @@ what is truly its own.
   all of it off.
 - **Sidebar (sectioned, 2026-11-09):** six titled sections — Operations
   (Batteries, Sites, Network), Technical Activity Log, Inventory, Reports,
-  Alerts, System (Users, Roles). Section titles are 10px uppercase
-  JetBrains Mono, dim, with a fold chevron; a hairline separates visible
-  sections. Every page is its own row: a 16px outline icon and a title-case
+  Alerts, System (Users, Roles). Section titles are 11px (12px in the
+  phone drawer) uppercase JetBrains Mono, grey, with a fold chevron; space,
+  not a divider line, separates sections. A title turns white only while
+  one of its pages is open — hover just lifts the grey slightly (never on
+  touch screens, where hover sticks after a tap). Every page is its own row: a 16px outline icon and a title-case
   JetBrains Mono 13px label, hanging off a thin guide line down the left
   of the section. The current page carries the accent tint and its stretch
   of the guide line turns green; its section's title turns white

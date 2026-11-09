@@ -15,8 +15,8 @@ Presentation only: no database, API or permission changes, no migration.
   with the page content at every screen width.
 - **Sidebar, sorted into sections:** Operations (Batteries, Sites,
   Network), Technical Activity Log, Inventory, Reports, Alerts and System
-  (Users, Roles), each under a small title with a fold arrow and a line
-  between them. Every page has its own icon and hangs off a thin guide
+  (Users, Roles), each under a small title with a fold arrow (no divider
+  lines; a title turns white only while you're on one of its pages). Every page has its own icon and hangs off a thin guide
   line; the section you're in has a white title and the current page's
   part of the line is green. Sections stay open; one you
   fold stays folded on that device until you open it or go to one of its
