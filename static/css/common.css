@@ -707,6 +707,84 @@ button.summary-item:active:not(:disabled) { transform: scale(0.98); }
     .sidebar-backdrop { display: none; }
 }
 
+/* ---- Sectioned sidebar (Phase 5): small uppercase section titles with a
+   fold chevron, one row per page with its own icon, a hairline between
+   sections. Mono lettering throughout, title case for the pages. ---- */
+.sidebar { gap: 0; }
+.nav-section { gap: 0; }
+/* A divider above every visible section that follows another visible one
+   (so a hidden first section never leaves a stray line at the top). */
+.nav-section:not([hidden]) ~ .nav-section:not([hidden]) {
+    border-top: 1px solid var(--border);
+    margin-top: 12px;
+    padding-top: 12px;
+}
+
+.nav-heading.nav-section-title {
+    padding: 6px 10px 8px;
+    border-left: none;
+    border-radius: 6px;
+    background: none;
+    color: #6b7480;
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 0.07em;
+    white-space: nowrap;
+    gap: 8px;
+}
+.nav-heading.nav-section-title:hover { background: none; color: var(--text); }
+.nav-section-title .chevron {
+    width: 12px;
+    height: 12px;
+    padding: 0;
+    margin: 0;
+    flex-shrink: 0;
+    transition: transform 0.2s ease;
+}
+.nav-section-title.collapsed .chevron { transform: rotate(-90deg); }
+
+.nav-section .nav-subitems-inner {
+    margin-left: 0;
+    border-left: none;
+    padding-top: 0;
+    gap: 1px;
+}
+.nav-section .nav-link.sub {
+    gap: 12px;
+    margin-left: 0;
+    padding: 8px 10px;
+    border-radius: 6px;
+    border-left: 2px solid transparent;
+    color: #b4bcc7;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    font-weight: 400;
+}
+.nav-section .nav-link.sub .nav-icon { width: 16px; height: 16px; color: var(--text-dim); transition: color 0.15s ease; }
+.nav-section .nav-link.sub:hover { background: var(--surface-2); color: var(--text); }
+.nav-section .nav-link.sub:hover .nav-icon { color: var(--text); }
+.nav-section .nav-link.sub.active {
+    background: rgba(61, 220, 151, 0.10);
+    border-left-color: var(--accent);
+    color: var(--accent);
+    font-weight: 500;
+}
+.nav-section .nav-link.sub.active .nav-icon { color: var(--accent); }
+.nav-link-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Unread alerts: an amber bubble, like a notification count, not the green
+   "active movements" count on Batteries. */
+.nav-badge-alert {
+    background: rgba(245, 166, 35, 0.16);
+    color: var(--warn);
+    font-family: 'JetBrains Mono', monospace;
+}
+
+@media (max-width: 760px) {
+    .nav-heading.nav-section-title { padding: 8px 10px 10px; }
+    .nav-section .nav-link.sub { padding: 12px 10px; font-size: 14px; }
+}
+
 /* ---- Page content shell — shared layout every view sits inside ---- */
 .content {
     flex: 1;

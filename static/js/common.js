@@ -437,16 +437,14 @@ function parseRoute(hash) {
     return { name: parts[0] || "dashboard", params: parts.slice(1) };
 }
 
-// Maps a collapsible sidebar group's id prefix to the route names that
-// belong to it. Drives the group heading's .active state exactly the same
-// way every plain [data-view] nav item's active state works (Batteries lit
-// up only while you're on the Batteries page, no separate click needed to
-// "arm" it) — the heading has no data-view of its own to be picked up by the
-// generic loop below, so this fills that in for it — plus auto-*expands*
-// (never auto-collapses) the group when the active route lands inside it,
-// e.g. a page refresh or a deep link straight to a sub-route while the group
-// still shows collapsed.
+// The sidebar is a list of titled sections (Operations, Technical Activity
+// Log, Inventory, Reports, Alerts, System), each page a row with its own
+// icon. Sections start open; a section you fold shut stays shut (remembered
+// per browser) until you open it again or land on one of its pages, which
+// opens it so the current page is always visible.
 const NAV_GROUP_ROUTES = {
+    ops: ["dashboard", "sites", "network"],
+    system: ["users", "roles"],
     inventory: ["inventory", "stock", "inventory-log", "inventory-manage"],
     alerts: ["notifications", "alert-templates", "customers", "broadcast"],
     reports: ["inventory-reports", "sms-status", "revenue"],
@@ -456,18 +454,38 @@ const NAV_GROUP_ROUTES = {
 function setActiveNav(name) {
     document.querySelectorAll("[data-view]").forEach(l => l.classList.toggle("active", l.dataset.view === name));
 
-    // Only the current page's group stays open: the others fold shut, so the
-    // sidebar stays short and the open section is the one you're in. A group
-    // opened by hand stays open until you go to a page outside it.
+    // Open the section holding the current page; never fold any shut.
     Object.entries(NAV_GROUP_ROUTES).forEach(([group, routes]) => {
         const toggle = document.getElementById(`${group}-nav-toggle`);
-        const items = document.getElementById(`${group}-nav-subitems`);
-        const inGroup = routes.includes(name);
-        toggle?.classList.toggle("active", inGroup);
-        toggle?.classList.toggle("collapsed", !inGroup);
-        items?.classList.toggle("collapsed", !inGroup);
-        toggle?.setAttribute("aria-expanded", String(inGroup));
+        if (toggle && routes.includes(name) && toggle.classList.contains("collapsed")) {
+            setNavGroupOpen(toggle, true);
+            saveCollapsedNavGroups();
+        }
     });
+}
+
+const NAV_COLLAPSED_KEY = "navCollapsedGroups";
+
+function setNavGroupOpen(toggle, open) {
+    toggle.classList.toggle("collapsed", !open);
+    toggle.nextElementSibling?.classList.toggle("collapsed", !open);
+    toggle.setAttribute("aria-expanded", String(open));
+}
+
+function readCollapsedNavGroups() {
+    try {
+        const list = JSON.parse(localStorage.getItem(NAV_COLLAPSED_KEY) || "[]");
+        return new Set(Array.isArray(list) ? list : []);
+    } catch {
+        return new Set();
+    }
+}
+
+function saveCollapsedNavGroups() {
+    const shut = Array.from(document.querySelectorAll(".nav-section-title.collapsed"))
+        .map(t => t.closest(".nav-category")?.dataset.navGroup)
+        .filter(Boolean);
+    try { localStorage.setItem(NAV_COLLAPSED_KEY, JSON.stringify(shut)); } catch { /* private mode: just don't remember */ }
 }
 
 function dispatchRoute() {
@@ -945,32 +963,19 @@ export function initShell() {
         }, { passive: false });
     }
 
-    // ---- Collapsible sidebar groups: the heading (Inventory) is a pure
-    // expand/collapse toggle, not a link — clicking it only opens or closes
-    // its submenu and never navigates or changes the active page; only the
-    // submenu's own items (Items, Stock, Transaction Log, Manage) do that,
-    // via the generic [data-view] listener below, which explicitly skips
-    // any element that has a group heading's shape (see isGroupHeading
-    // there). The chevron is a second, dedicated way to toggle without
-    // relying on the label area — stopPropagation keeps its click from
-    // also re-triggering this same toggle via bubbling. Landing on one of
-    // this group's routes from somewhere else (a submenu click, a deep
-    // link, back/forward) still auto-expands the group — that's
-    // setActiveNav's NAV_GROUP_ROUTES handling elsewhere in this file, not
-    // this listener. ----
+    // ---- Sidebar sections: the title (OPERATIONS, INVENTORY …) only folds
+    // its pages away or back; it never navigates. Which sections are folded
+    // is remembered per browser; landing on a page inside a folded section
+    // opens it again (setActiveNav). ----
+    const collapsedGroups = readCollapsedNavGroups();
     document.querySelectorAll(".nav-heading").forEach(toggle => {
         const subitems = toggle.nextElementSibling;
         if (!subitems || !subitems.classList.contains("nav-subitems")) return;
-        const flip = () => {
-            const open = toggle.classList.toggle("collapsed") === false;
-            subitems.classList.toggle("collapsed", !open);
-            toggle.setAttribute("aria-expanded", String(open));
-        };
-        toggle.setAttribute("aria-expanded", String(!toggle.classList.contains("collapsed")));
-        toggle.addEventListener("click", flip);
-        toggle.querySelector(".chevron")?.addEventListener("click", (e) => {
-            e.stopPropagation();
-            flip();
+        const group = toggle.closest(".nav-category")?.dataset.navGroup;
+        setNavGroupOpen(toggle, !collapsedGroups.has(group));
+        toggle.addEventListener("click", () => {
+            setNavGroupOpen(toggle, toggle.classList.contains("collapsed"));
+            saveCollapsedNavGroups();
         });
     });
 

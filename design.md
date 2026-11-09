@@ -116,9 +116,17 @@ what is truly its own.
   ~150ms fade and 4px drop; buttons, summary filters and cards have a
   pressed state. Nothing moves that isn't changing; reduced motion turns
   all of it off.
-- **Sidebar:** the open section's heading is bright text with an accent
-  icon; only the current page carries the accent bar/tint; sub-pages hang
-  off a guide line; only the current page's group stays expanded.
+- **Sidebar (sectioned, 2026-11-09):** six titled sections — Operations
+  (Batteries, Sites, Network), Technical Activity Log, Inventory, Reports,
+  Alerts, System (Users, Roles). Section titles are 10px uppercase
+  JetBrains Mono, dim, with a fold chevron; a hairline separates visible
+  sections. Every page is its own row: a 16px outline icon and a title-case
+  JetBrains Mono 13px label. Only the current page carries the accent bar
+  and tint. Sections start open; folding one is remembered per browser
+  (`localStorage.navCollapsedGroups`) and landing on a page inside a folded
+  section opens it. Short labels in the sidebar (Overview, Submit Report,
+  Activity Types, Inventory Report); the full names stay in `data-label` for
+  the command palette. Unread alerts use an amber count bubble.
 
 
 - **Buttons:** 6px border radius everywhere. Primary = solid `--accent`

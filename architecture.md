@@ -1851,9 +1851,15 @@ live in DESIGN.md; the parts with behaviour live at the bottom of
   MutationObserver on the tbody to undim when the new rows land. A single
   capture-phase `scroll` listener marks swiped `.table-scroll` boxes
   (`.is-scrolled-x`) for the pinned-column shadow.
-- `setActiveNav` folds every sidebar group except the current page's and
-  keeps `aria-expanded` in step; a group opened by hand stays open until
-  the next navigation outside it.
+- The sidebar is six `.nav-category.nav-section` blocks, each a
+  `.nav-section-title` toggle (no `data-view`, never navigates) over a
+  `.nav-subitems` list of `.nav-link.sub[data-view]` rows. Batteries, Sites,
+  Network, Users and Roles are rows inside Operations / System now, so
+  `applyPermissionVisibility`'s "show the section if any row is allowed"
+  branch gates every section. Sections start open; `setNavGroupOpen` /
+  `saveCollapsedNavGroups` keep folded ones in
+  `localStorage.navCollapsedGroups`; `setActiveNav` only ever opens the
+  current page's section (via `NAV_GROUP_ROUTES`), never folds one.
 
 ## Integration approach
 

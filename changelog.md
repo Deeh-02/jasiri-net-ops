@@ -13,9 +13,12 @@ Presentation only: no database, API or permission changes, no migration.
   Add/Edit User, Role, Site and Customer forms, uses the same header (title,
   optional subtitle, actions on the right). The top bar's edges now line up
   with the page content at every screen width.
-- **Sidebar:** the open section reads clearly, only the current page is
-  highlighted, sub-pages hang off a guide line, and only the section you're
-  in stays expanded.
+- **Sidebar, sorted into sections:** Operations (Batteries, Sites,
+  Network), Technical Activity Log, Inventory, Reports, Alerts and System
+  (Users, Roles), each under a small title with a fold arrow and a line
+  between them. Every page has its own icon. Sections stay open; one you
+  fold stays folded on that device until you open it or go to one of its
+  pages. Unread alerts show an amber count.
 - **One set of buttons, tabs and focus rings:** primary / secondary / danger
   buttons look and behave the same on every page (hover, pressed, disabled);
   all tabs are the same underline tabs (no more slanted ones); keyboard
