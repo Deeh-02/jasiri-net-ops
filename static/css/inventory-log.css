@@ -13,7 +13,7 @@
 
 /* Row accent for an open cable cut awaiting reconciliation (Action reads
    "Pending" — see displayAction() in inventory-log.js) — same visual and
-   same border-on-<tr> technique as Check Sites' .site-row-offline (this
+   same border-on-<tr> technique as the old Check Sites row accent (this
    table also uses the default border-collapse:collapse, so a border set
    directly on the row paints; contrast .battery-row-flagged in
    dashboard.css, which has to put it on the cell instead because that
@@ -83,3 +83,38 @@
     color: var(--text-dim);
 }
 
+
+/* ---- Phones: the header's filters and buttons were stacked in a
+   right-aligned column beside the title, each a different width. On a
+   phone the title gets its own line and the controls wrap full-width
+   under it: search, then both dropdowns side by side, then the buttons. ---- */
+@media (max-width: 760px) {
+    #view-inventory-log .page-header-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    #view-inventory-log .header-action-group {
+        flex-direction: row;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+    }
+
+    #view-inventory-log .inventory-filter-search {
+        flex: 1 1 100%;
+        width: auto;
+        font-size: 16px; /* under 16px, iOS zooms the page on focus */
+    }
+
+    #view-inventory-log .inventory-filter-select {
+        /* 28% basis: up to three dropdowns share a row, and the buttons
+           wrap to the next row instead of squeezing them to "Al". */
+        flex: 1 1 28%;
+        min-width: 0;
+    }
+
+    #view-inventory-log .header-sub-link {
+        padding: 6px 12px 6px 0;
+    }
+}

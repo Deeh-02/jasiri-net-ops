@@ -32,6 +32,31 @@
 .movement-site-check-btn[data-answer="true"]:hover { border-color: var(--accent); color: var(--accent); }
 .movement-site-check-btn[data-answer="false"]:hover { border-color: var(--danger); color: var(--danger); }
 
+/* Phase 4.9 — the confirm-online prefill. .suggested marks whichever
+   button monitoring's own last-seen state points to; the hint line above
+   it is the "why" (PHASES.md's own example: "Monitoring saw Sunton come
+   back online at 14:32, 12m after you marked arrived"). Both buttons stay
+   clickable either way — this is a suggestion, not an auto-submit. */
+.site-check-hint {
+    width: 100%;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px;
+    color: var(--text-dim);
+    margin-bottom: 4px;
+}
+
+.movement-site-check-btn.suggested[data-answer="true"] {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: rgba(61, 220, 151, 0.08);
+}
+
+.movement-site-check-btn.suggested[data-answer="false"] {
+    border-color: var(--danger);
+    color: var(--danger);
+    background: rgba(239, 91, 91, 0.08);
+}
+
 .movement-cancel-btn {
     display: inline-flex;
     align-items: center;

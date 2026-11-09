@@ -283,60 +283,64 @@ body {
 
 .nav-badge[hidden] { display: none; }
 
-/* ---- Mobile nav: a phone can't spare 220px for a permanent side column, so
-   it collapses to 0 width by default and expands open on tap of the topbar
-   hamburger — a normal flex sibling of .content the whole time (never taken
-   out of flow), so opening it PUSHES .content over rather than floating on
-   top of it. Because it's still in-flow, it naturally starts below the
-   topbar (a sibling above .layout in the DOM) instead of overlapping it. ---- */
-@media (max-width: 760px) {
-    /* .sidebar has no explicit height of its own — as a flex item it
-       stretches to match .layout's height (flexbox's default
-       align-items:stretch). Since .layout no longer has the fixed-position
-       drawer to guarantee full-screen coverage, IT needs to be at least a
-       full screen tall itself, or a view with short content leaves the
-       open drawer stopping partway down instead of reaching the bottom. */
-    .layout {
-        min-height: 100vh;
-    }
+/* Right-hand end of a collapsible heading: its count badge + chevron. */
+.nav-heading-end {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
 
+/* Once the group is open, the sub-link below shows the same count, so the
+   heading's copy steps aside instead of showing it twice. */
+.nav-heading:not(.collapsed) .nav-badge-group { display: none; }
+
+/* A badge inside a sub-link sits at the far right, like on a heading. */
+.nav-link .nav-badge { margin-left: auto; }
+
+/* ---- Mobile nav: an off-canvas drawer that slides over the page from the
+   left on tap of the topbar hamburger. It used to be an in-flow column that
+   animated its width from 0, which had two problems:
+   - Every frame re-laid out the whole page, because .content was pushed
+     over as the width changed. That made the animation janky on phones.
+   - With box-sizing: border-box, width:0 can't shrink below the padding, so
+     the "closed" sidebar stayed 32px wide and a sliver of the nav showed
+     down the left edge of every page.
+   Now it's position:fixed and moved only with transform, which the GPU
+   composites without any layout. The closed state is fully off-screen, and
+   visibility:hidden keeps its links out of the tab order. ---- */
+@media (max-width: 760px) {
     .sidebar {
-        position: relative; /* stacking context, so it stays above the dim backdrop */
+        position: fixed;
+        top: 0;
+        bottom: 0;
+        left: 0;
         z-index: 90;
-        width: 0;
+        width: 260px;
         max-width: 82vw;
-        /* Constant, not transitioned — box-sizing: border-box (global, see
-           top of file) already makes width:0 collapse the box fully
-           regardless of padding, so animating padding too never bought
-           anything but a second layout property recalculating in lockstep
-           with width every frame. One animated property is cheaper than
-           two. */
         padding: 24px 16px;
-        border-right: none;
-        overflow: hidden;
-        transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-        will-change: width;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        -webkit-overflow-scrolling: touch;
+        border-right: 1px solid var(--border);
+        box-shadow: none;
+        transform: translate3d(-100%, 0, 0);
+        visibility: hidden;
+        /* visibility waits for the slide-out to finish before hiding. */
+        transition:
+            transform 0.3s cubic-bezier(0.32, 0.72, 0, 1),
+            box-shadow 0.3s ease,
+            visibility 0s linear 0.3s;
+        will-change: transform;
     }
 
     .sidebar.open {
-        width: 240px;
-        border-right: 1px solid var(--border);
-        overflow-y: auto;
-    }
-
-    /* The actual source of the roughness: with align-items:stretch (flex's
-       default), every direct child was resizing to match .sidebar's current
-       width on every animation frame — every nav label and icon was
-       reflowing/re-wrapping continuously for the whole 250ms, not just
-       .sidebar's own box. Pinning children at the fully-open content width
-       (240px sidebar − 16px×2 padding = 208px) keeps their layout stable for
-       the entire transition — .sidebar's shrinking width just clips more or
-       less of that fixed-width content via overflow:hidden above, instead of
-       forcing it to relayout. A transform-based slide gets this same benefit
-       for free (the moving box's own content never resizes); here it's
-       applied to content stability instead of position. */
-    .nav-category {
-        min-width: 208px;
+        transform: translate3d(0, 0, 0);
+        visibility: visible;
+        box-shadow: 8px 0 32px rgba(0, 0, 0, 0.45);
+        transition:
+            transform 0.3s cubic-bezier(0.32, 0.72, 0, 1),
+            box-shadow 0.3s ease,
+            visibility 0s;
     }
 
     /* Taller than the desktop nav rows — thumb targets, not cursor targets. */
@@ -345,18 +349,30 @@ body {
     }
 }
 
-/* Dims .content while the nav is open (tapping it closes the nav). Sits
-   above .content's default stacking but below both the topbar (60) and the
-   sidebar (90) — those two stay fully visible, only the pushed-over content
-   behind them dims. */
+@media (max-width: 760px) and (prefers-reduced-motion: reduce) {
+    .sidebar, .sidebar.open, .sidebar-backdrop { transition: none; }
+}
+
+/* Dims the page (topbar included) while the drawer is open. Tapping it
+   closes the drawer. Always rendered on phones so it can fade in and out.
+   It only takes taps while .open is set. */
 .sidebar-backdrop {
     position: fixed;
     inset: 0;
     background: rgba(8, 10, 14, 0.6);
-    z-index: 50;
+    z-index: 80;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition: opacity 0.3s ease, visibility 0s linear 0.3s;
 }
 
-.sidebar-backdrop[hidden] { display: none; }
+.sidebar-backdrop.open {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transition: opacity 0.3s ease, visibility 0s;
+}
 
 /* The drawer only exists on phones — never leave the backdrop stranded if the
    window is widened while the nav is open. */
@@ -423,7 +439,7 @@ body {
     margin: 0;
 }
 
-/* .btn-add-site is used by 4+ views (movements-link-btn, check-sites-link-btn,
+/* .btn-add-site is used by several views (movements-link-btn, status-link-btn,
    add-user-open-btn, add-role-open-btn) — genuinely shared, not one view's. */
 .btn-add-site {
     background: var(--accent);
@@ -453,6 +469,33 @@ body {
 .btn-add-site:hover { opacity: 0.9; }
 .btn-add-site:active { transform: scale(0.97); }
 
+/* Several buttons side by side in a page header (Roles: Alert Recipients +
+   Add Role). .btn-add-site is display:flex, i.e. block-level, so without a
+   flex wrapper it drops onto its own line under its neighbour. */
+.page-header-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+/* .btn-secondary was only ever styled inside .modal-actions; this is the
+   same look for one sitting in a page header. */
+.page-header-row .btn-secondary {
+    background: var(--surface-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 16px;
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
+    font-size: 14px;
+    cursor: pointer;
+    transition: opacity 0.15s ease, transform 0.1s ease;
+}
+
+.page-header-row .btn-secondary:hover { opacity: 0.9; }
+.page-header-row .btn-secondary:active { transform: scale(0.97); }
+
 .view {
     animation: fadeIn 0.2s ease;
 }
@@ -462,7 +505,7 @@ body {
     to { opacity: 1; transform: translateY(0); }
 }
 
-/* ---- Stat grid: shared by dashboard's battery stats and check-sites' stats ---- */
+/* ---- Stat grid: dashboard's battery stats and other views' summary cards ---- */
 .stat-grid {
     display: grid;
     grid-template-columns: repeat(5, 1fr);
@@ -645,6 +688,77 @@ body {
     }
 }
 
+/* ---- Compact tables on phones (opt-in: add table-compact next to
+   table-scroll). The default above squeezes every column to fit the screen,
+   so cells wrapped onto 3-5 lines and the 55vh box showed about three rows.
+   Compact tables instead:
+   - keep every cell on one line, so a row is one line tall;
+   - drop the 55vh inner scroll box and let the page scroll, so the whole
+     screen is used for rows;
+   - pin the first column (the row's name) while the rest swipes sideways.
+   Batteries, Reports and Alerts deliberately don't opt in. ---- */
+@media (max-width: 760px) {
+    .table-scroll.table-compact {
+        max-height: none;
+        overflow-y: visible;
+    }
+
+    .table-compact th,
+    .table-compact td {
+        white-space: nowrap;
+        padding: 10px 12px;
+        font-size: 13px;
+    }
+
+    .table-compact th { font-size: 10px; }
+
+    /* Headers aren't sticky here: with no vertical scroll box of its own,
+       there's nothing for them to stick to. */
+    .table-compact thead th {
+        position: static;
+        box-shadow: none;
+        transform: none;
+    }
+
+    /* Long free text (addresses, notes, descriptions) is cut with "…" rather
+       than making one column a screen wide. The full text is still in the
+       edit/view dialog. */
+    .table-compact td {
+        max-width: 220px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    /* Pinned first column. Opaque background, or the cells swiping
+       underneath show through it. */
+    .table-compact th:first-child,
+    .table-compact td:first-child {
+        position: sticky;
+        left: 0;
+        z-index: 5;
+        max-width: 150px;
+        box-shadow: 1px 0 0 var(--border);
+    }
+
+    .table-compact td:first-child { background: var(--surface); }
+    .table-compact thead th:first-child { background: var(--surface-2); }
+    .table-compact tr:hover td:first-child { background: var(--surface-2); }
+
+    /* Row action buttons sit side by side instead of stacking. */
+    .table-compact .actions-cell {
+        flex-wrap: nowrap;
+    }
+
+    /* A "No rows"/"Loading..." message spans every column and should wrap
+       and stay put, not be pinned or cut off. */
+    .table-compact td[colspan] {
+        position: static;
+        white-space: normal;
+        max-width: none;
+        box-shadow: none;
+    }
+}
+
 /* ---- Frozen leading column: pinned in place while the rest of a wide table
    scrolls sideways underneath, so the technician never loses track of which
    row they're on. Phones only — nothing overflows at desktop widths, so
@@ -735,8 +849,8 @@ tr:hover td { background: var(--surface-2); }
 }
 
 /* Base status pill — view-specific color variants live in each view's own
-   CSS file (dashboard: deployed/at-base, movements: movement-*, check-sites:
-   site-online/site-offline), always paired with this base class. */
+   CSS file (dashboard: deployed/at-base, movements: movement-*),
+   always paired with this base class. */
 .status-pill {
     display: inline-block;
     white-space: nowrap;
@@ -1587,6 +1701,111 @@ tr:hover td { background: var(--surface-2); }
 }
 
 .badge-count[hidden] { display: none; }
+
+/* ---- Notifications bell dropdown (Phase 4.8) ---- */
+.topbar-notif-wrap { position: relative; }
+
+.notifications-panel {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    width: 320px;
+    max-width: calc(100vw - 32px);
+    background: radial-gradient(120% 100% at 100% 0%, rgba(61, 220, 151, 0.16), transparent 55%), var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+    z-index: 50;
+    overflow: hidden;
+}
+
+.notifications-panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text);
+}
+
+.notifications-panel-header button {
+    background: none;
+    border: none;
+    color: var(--accent);
+    font-family: 'Inter', sans-serif;
+    font-size: 11.5px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.notifications-panel-header button:hover { text-decoration: underline; }
+
+.notifications-list {
+    max-height: 360px;
+    overflow-y: auto;
+}
+
+.notification-item {
+    display: block;
+    width: 100%;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+.notification-item:last-child { border-bottom: none; }
+.notification-item:hover { background: var(--surface-2); }
+
+.notification-item.unread { background: rgba(61, 220, 151, 0.06); }
+
+.notification-item.unread .notification-item-title::before {
+    content: "";
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    margin-right: 6px;
+}
+
+.notification-item-title {
+    font-family: 'Inter', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+}
+
+.notification-item-body {
+    font-family: 'Inter', sans-serif;
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-top: 2px;
+    white-space: pre-line; /* an edited SMS template can span several lines */
+}
+
+.notification-item-time {
+    font-family: 'Inter', sans-serif;
+    font-size: 10.5px;
+    color: var(--text-dim);
+    opacity: 0.7;
+    margin-top: 4px;
+}
+
+.notifications-empty {
+    padding: 24px 12px;
+    text-align: center;
+    font-family: 'Inter', sans-serif;
+    font-size: 12.5px;
+    color: var(--text-dim);
+}
+
+@media (max-width: 760px) {
+    .notifications-panel { position: fixed; top: 56px; right: 8px; left: 8px; width: auto; }
+}
 
 /* ---- Mobile top bar fix ---- */
 @media (max-width: 760px) {

@@ -1,5 +1,11 @@
 # DELEGATION.md — DeepSeek Delegation Policy (JASIRI NET OPS)
 
+*Not to be confused with the app's own use of DeepSeek:* the admin
+assistant (`routers/chat.py`, `db/deepseek.py`) calls DeepSeek at runtime
+to answer the owner's questions, with the same `DEEPSEEK_API_KEY`. That is
+a product feature, covered in ARCHITECTURE.md's "Admin assistant". This
+file is only about delegating code-writing to DeepSeek during development.
+
 **Status: built and running in production use.** `ask_deepseek.py` (repo
 root — not `scripts/`, despite what this line used to say) covers the
 DeepSeek API call, the `--design`/`--rules` context injection, and the

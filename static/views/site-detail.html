@@ -1,0 +1,98 @@
+    <section class="view" id="view-site-detail" hidden>
+        <button type="button" class="header-sub-link" id="site-detail-back-btn">
+            <span class="header-sub-link-icon">
+                <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                    <path d="M10 13L5 8L10 3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+            </span>
+            Status
+        </button>
+
+        <div id="site-detail-body">
+            <div class="sr-head">
+                <div>
+                    <div class="sr-title-row">
+                        <h1 class="sr-title" id="sr-title">&nbsp;</h1>
+                        <span id="sr-state-pill"></span>
+                    </div>
+                    <div class="sr-provenance" id="sr-provenance"></div>
+                    <div class="sr-contact" id="sr-contact"></div>
+                </div>
+                <div class="sr-range-wrap">
+                    <div class="sr-range-row">
+                        <!-- Always a named day, week or month, never a rolling "last
+                             N days" — a period you can report against and come back
+                             to later for the same answer. -->
+                        <div class="sr-range" id="sr-range" role="group" aria-label="Report by">
+                            <button type="button" data-mode="day" aria-pressed="false">Day</button>
+                            <button type="button" data-mode="week" aria-pressed="true">Week</button>
+                            <button type="button" data-mode="month" aria-pressed="false">Month</button>
+                        </div>
+                        <select class="sr-period-select" id="sr-period-select" aria-label="Which week or month"></select>
+                        <input type="date" class="sr-period-select" id="sr-day-input" aria-label="Which day" hidden>
+                    </div>
+                    <div class="sr-range-note" id="sr-range-note"></div>
+                </div>
+            </div>
+
+            <div class="sr-kpis" id="sr-kpis"></div>
+
+            <div class="sr-card">
+                <div class="sr-card-head">
+                    <div class="sr-card-title">What this site did</div>
+                    <div class="sr-card-hint" id="sr-timeline-hint"></div>
+                </div>
+                <div id="sr-timeline-wrap"></div>
+            </div>
+
+            <div class="sr-card">
+                <div class="sr-card-head">
+                    <div class="sr-card-title-group">
+                        <div class="sr-card-title">People online</div>
+                        <!-- Local to this chart only — what a bar means, not a
+                             report window, so it lives beside the title and
+                             never touches the route or any other chart. -->
+                        <select class="sr-metric-select" id="sr-people-metric" aria-label="What each bar shows">
+                            <option value="active">Active-hours avg</option>
+                            <option value="peak">Peak</option>
+                            <option value="unique">Unique users</option>
+                        </select>
+                    </div>
+                    <div class="sr-card-hint" id="sr-people-hint"></div>
+                </div>
+                <div id="sr-people-wrap"></div>
+            </div>
+
+            <div class="sr-split" id="sr-revenue-split">
+                <div class="sr-card">
+                    <div class="sr-card-head">
+                        <div class="sr-card-title" id="sr-revenue-title">Revenue per day</div>
+                    </div>
+                    <div id="sr-revenue-wrap"></div>
+                </div>
+                <div class="sr-card">
+                    <div class="sr-card-head">
+                        <div class="sr-card-title">What sells here</div>
+                    </div>
+                    <div id="sr-packages-wrap"></div>
+                </div>
+            </div>
+
+            <div class="sr-card">
+                <div class="sr-card-head">
+                    <div class="sr-card-title">Busiest hours</div>
+                    <div class="sr-card-hint">Africa/Nairobi</div>
+                </div>
+                <div id="sr-hours-wrap"></div>
+            </div>
+
+            <div class="sr-card">
+                <div class="sr-card-head">
+                    <div class="sr-card-title">What happened</div>
+                </div>
+                <div id="sr-events-wrap"></div>
+            </div>
+        </div>
+
+        <div class="sr-notfound" id="site-detail-notfound" hidden></div>
+    </section>

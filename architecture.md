@@ -1365,6 +1365,138 @@ dev fallback (`routers/auth.py` — the fallback is explicitly flagged in
 comments as "change before deploy"). Tokens carry `role`/`role_id` directly
 in the payload rather than requiring a DB lookup on every request.
 
+### Monitoring ingest auth — an intentional exception
+
+`POST /monitoring/ingest` (`routers/monitoring.py`) does NOT use the
+user-JWT dependency (`get_current_user`) that every other endpoint uses.
+This is deliberate, not a hole: the caller is a RouterOS script, which
+cannot hold or refresh a JWT. It authenticates with a static shared secret
+in an `X-Ingest-Token` header, checked with `hmac.compare_digest` against
+the `MONITORING_INGEST_TOKEN` env var (never in the repo). With no token
+configured the endpoint returns 503 — it fails closed. Implemented as a
+dependency on that one route rather than global middleware, so no other
+request path is touched by it.
+
+Every other monitoring endpoint (4.4 onward) is a normal user-facing
+route and uses JWT + `user_has_permission` like the rest of the app.
+
+Bad *data* on this endpoint is never a 4xx: unknown VLANs, unknown PPPoE
+names and unparseable bodies go to `ingest_quarantine` and return 200,
+because the router has no retry and a rejection is silent permanent loss.
+Quarantine rows are deduplicated while unresolved, since `/ppp active`
+includes home customers that will never be monitored sites.
+
+### Battery-recommendation read — the other intentional isolation exception
+
+`db/monitoring_alerts.py` reads `batteries`/`battery_movements` to pick
+which battery to recommend on a down-alert escalation (lowest recent
+removal count, confirmed `charge_status`). PHASES.md's isolation
+invariant otherwise restricts monitoring to reading `locations` and
+nothing else — this is a documented, deliberate amendment (PHASES.md,
+2026-09-23), not drift, with the same one-way shape as the revenue
+ranking signal below: **read-only, monitoring depends on the battery
+domain, never the reverse.** `db/batteries.py`, `routers/batteries.py`
+and the battery UI have zero knowledge monitoring exists — no column,
+no import, no awareness added on that side. Dropping every monitoring
+table still leaves the battery domain fully intact and passing, which is
+what the isolation invariant's proof obligation actually protects; this
+exception only ever runs the dependency the other way.
+
+Revenue is used as an internal ranking signal for battery priority
+across multiple simultaneously-down sites, but per 4.4 never appears as
+a figure in an alert body — a message can say a site is "recommended
+first", never why in KES terms. Ranking by revenue internally and
+printing revenue are two separate rules; this exception touches only
+the first.
+
+### Alert send window — one global row, fails open
+
+`alert_settings` (migration 0018) holds exactly one row (`CHECK (id = 1)`):
+whether alerts are limited to a window, and its start/end in EAT. It is a
+table rather than an env var so the owner can change it from Alerts → SMS
+Templates without a deploy, and a single constrained row rather than
+key/value pairs because there are three fields and no second consumer yet.
+It is read at the top of every alert pass (`db/alert_settings.get()`),
+which **fails open**: a missing table or a database error means "send at
+any hour" — the same rule `db/alert_templates.load_all()` follows — because
+the cost of a missed migration must be a setting that can't be edited, never
+an outage nobody was told about. The window only ever suppresses *sending*;
+episodes, `site_status_log` and the Status page are untouched, which is also
+why a muted reminder can simply fire when the window opens.
+
+### Revenue reports — derived tables, frozen days, one pure rules module
+
+Reports never read `revenue_events` directly: `daily_site_revenue` /
+`hourly_site_revenue` (migration 0019) are built from it and each day is
+frozen once it's older than yesterday. That is what makes "a report for a
+past date returns the same numbers every time" true — `revenue_events`
+itself can't promise it, because the unplaced-sale backfill can attach a
+sale to a site up to a day late. Frozen days change only through an explicit,
+logged re-freeze.
+
+The rules (which periods compare, how a change is expressed, who counts as
+active, what is red) live in `db/revenue_logic.py` as pure functions of their
+arguments — no clock, no database — so every rule has a fixed-input test and
+the report can't drift from what the tests say. `db/revenue_report.py` and
+`db/revenue_alerts.py` are the thin I/O around them. Thresholds are rows in
+`revenue_report_config` over code defaults (same shape as alert templates),
+and judged days are stored with the thresholds that judged them, so changing
+a threshold never rewrites history.
+
+Isolation: this layer reads `monitored_sites` and `locations` (names) and the
+revenue tables, writes only its own tables, and touches no existing
+network-activity code beyond one throttled background task scheduled from the
+ingest handler.
+
+### Revenue attribution — durable signal first, moment-in-time second, guess last
+
+A hotspot sale (`db/monitoring.py`'s `_record_revenue`) is booked once,
+keyed on `(hotspot_username, expiry_seen)` — the router's `users` list is
+re-sent in full every 5 minutes and the unique index is what makes that
+free. Which site it belongs to is resolved by trying progressively weaker
+signals, and whichever resolves is recorded as `origin_vlan_id`
+(migration 0010) even when it doesn't map to a `monitored_sites` row yet —
+"we knew the VLAN, it just isn't a registered site" is a distinct,
+fixable state from "we had no idea", and collapsing the two would make a
+`monitored_sites` gap look like a code bug.
+
+1. **The account's own hotspot server VLAN.** Durable — true at 3am with
+   nobody connected — because servers here are one per VLAN, named
+   `hs-v<N>`, parsed off the router's own `/ip hotspot` server list.
+2. **For an account bound to the shared `all` server** (no server VLAN of
+   its own — a mix of comped support accounts and some real paying
+   customers): **its DHCP lease's VLAN**, matched by the MAC already
+   sitting in the account's own `Exp: ... | MAC: ...` comment. A lease
+   here lasts up to 24h and outlives the hotspot session itself, and a
+   device needs an IP before it can reach the payment page at all, so this
+   is almost as durable as tier 1 in practice, just one hop further from
+   the account record.
+3. **Seen actively sessioned on a VLAN in the same heartbeat.** A
+   photograph, not a fact — correct when it fires, but a short pass
+   bought and finished between two polls is simply not in it. This was
+   the *only* signal before 2026-09-22 and left 53 sales (KES 840) that
+   single day permanently unplaced, which is what prompted tiers 1 and 2.
+4. **The buyer's last known site.** A guess, marked `attribution =
+   'inferred'` so it is never confused with a real match.
+
+**A sale is only booked once, but "unplaced" is not permanent.** Every
+heartbeat — not just the ones carrying a fresh `users` list —
+`_backfill_unplaced` re-checks anything still unplaced against whatever's
+been learned since, run twice with two different windows sized to what
+each source of evidence is worth: an active-list sighting (tier 3, a
+moment) reaches back 30 minutes; the account's own resolved VLAN (tiers
+1/2, a standing fact) reaches back 24h, matched to the DHCP lease
+lifetime. The tradeoff this accepts deliberately: an `all`-bound account
+that sold at one site and has since moved is backfilled to where it is
+*now*, not where it paid — judged better than leaving it unplaced, since
+`all` accounts are a minority and fixed-location hotspot customers rarely
+move mid-day.
+
+What neither tier nor backfill can recover: an account that expires and
+is deleted from the router before ever being placed has no MAC and no
+lease left to read — this is written off, not chased, since there is
+nothing left on the router describing where it came from.
+
 Time: every connection runs `SET TIME ZONE 'UTC';` right after connecting
 (`get_connection()`), so every naive `timestamp without time zone` column
 is unambiguous — `utc_iso()` appends a literal "Z" when serializing so the
@@ -1374,6 +1506,318 @@ Time instead, via a fixed-offset `timezone(timedelta(hours=3))`
 (`db/connection.py`'s `EAT`/`now_eat`/`to_eat`) rather than the IANA
 `Africa/Nairobi` zone — EAT has no DST, so a fixed offset is exact and
 doesn't depend on the system's tzdata being present or current.
+
+### Revenue page live refresh — polling, redraw only what changed
+
+The open Revenue page re-reads its five existing endpoints every
+`REVENUE_POLL_SECONDS` (default 30, handed to the page in the overview
+response). No push channel — polling is enough at this scale. A poll
+redraws a section only if its data changed (cards are compared by their
+rendered HTML, because a partial card's data carries a "now" that moves
+every poll), so the user's period, date, comparison, sort and scroll stay
+put; a card whose dropdown is open is left until the next poll. Polling
+stops while the tab is hidden or the page isn't showing and refreshes at
+once on return. "updated HH:MM" is the last *successful* fetch; a failed
+poll keeps the old figures and says "offline, last updated HH:MM" rather
+than going quietly stale. The comparison logic itself is untouched.
+
+### Admin assistant — fixed read-only tools, enforced in code
+
+**Update 2026-11-04: one tool per page, grounding enforced, instructions in a file.**
+- **18 tools, one per page or report** (not one per question): the original
+  seven plus the Network page (status, PPPoE clients, events), monitoring
+  (fleet uptime report, one site's history, the alert log), batteries (list
+  with movements in progress, one battery's history) and inventory (stock
+  levels, the inventory log, cable). Each calls the same function the page
+  uses. Left out of what DeepSeek receives: alert recipients and provider
+  responses, PPPoE customers' IPs and device IDs, a site's phone in site
+  history (get_site_contact still gives it on purpose).
+- **Grounding is enforced in code** (`routers/chat.py`): an answer with
+  figures when no lookup succeeded for that question goes back once with an
+  automatic "look it up or say you can't"; if it still has none, the admin
+  gets "I couldn't look that up" instead. Numbers the admin typed and
+  today's date are allowed. A lookup that returned `{"error"}` doesn't count.
+- **"Checked:" line.** `/chat` returns `{"reply", "checked"}`; the chat window
+  shows the lookups under each answer, so an answer with no line used no data.
+- **Instructions are `prompts/assistant.md`**, read on every question
+  (`<!-- -->` notes stripped; `CHAT_SYSTEM_PROMPT` still overrides). The
+  date, plain-text and look-it-up-again lines stay in code so an edit can't
+  drop them; a built-in fallback is used if the file is missing.
+- **No false zeros before the records.** Hotspot sales records start on
+  21 Sep 2026 (`revenue_daily.first_sale_date`). A period wholly before that
+  returns "no records", never KSh 0; a history range that starts earlier is
+  clipped to the start and says so. Found by asking it "last Christmas".
+- **`tools/assistant_eval.py`**: 33 real questions; each is sent once with
+  the real prompt and tools, and the script checks which tool the model asks
+  for. Tools are never run, so no data leaves. 33/33 after one fix (it took
+  "JS32" for a site; the prompt and two descriptions now say JS-names are
+  PPPoE usernames). Run it before and after any prompt or tool change.
+
+
+Built 2026-11-03/04 at the owner's request, outside the phase plan, from a
+scope that asked for a role-based DeepSeek chat. What was settled:
+
+- **Admins only, for now.** The scope's three roles (customer, technician,
+  admin) don't fit yet: customers can't log in to this app at all
+  (`users` is staff only; `ppp_customers` is an imported list), so a
+  customer role and "my account" tool would need a customer login, which
+  was out of scope. The owner chose admin-only. `role_for()` maps only the
+  built-in `admin`; every other role gets zero tools.
+- **Two layers, never the prompt.** `POST /chat` is behind
+  `require_admin`; the tool list sent to DeepSeek comes from the
+  session's role; and `run_tool()` re-checks the role before running
+  anything, so a model asking for a tool it wasn't given gets "not
+  authorized". "I'm the admin" in a message changes nothing — there's a
+  test for it.
+- **Fixed tools, no model-written SQL.** Seven hand-written tools in
+  `db/assistant_tools.py`, each calling an existing read function
+  (`revenue_report`, `monitoring`, `sites`, `customers`), with arguments
+  checked (enums, dates, lengths, no unknown keys) and results capped.
+  Revenue always comes from the Revenue Report's own pre-formatted
+  strings, so the chat and the page can't disagree. A new question it
+  can't answer means a new tool — that has closed every gap so far
+  (history over a range, site contacts, the daily-revenue ranking).
+  **Read-only SQL access was proposed by the owner and NOT built:** it
+  needs a new Supabase role (an infra change, so it waits for approval per
+  CLAUDE.md), it would let the model skip the report's rules (hotspot
+  only, no baseline rows, unplaced sales out, EAT days) and return wrong
+  money confidently, it adds load to a pooler capped at 15 connections,
+  and a grant mistake would send password hashes or phones to DeepSeek.
+- **What DeepSeek receives.** Every tool result. So: revenue totals only,
+  no individual sales; customer lookup matches on phone but never returns
+  it; hotspot usernames (which are phone numbers) are never exposed. The
+  one phone number that goes out is a site contact's, when asked for,
+  because that is the tool's purpose. Times are converted to Nairobi on
+  the server — the model was seen quoting raw UTC.
+- **Tool results live inside one request.** The browser sends back only
+  user/assistant text; tool calls and results are never sent to or
+  accepted from it, and nothing is stored server-side. Consequence, seen
+  in use: on a follow-up the model can't see earlier data and once
+  answered from its own earlier sentence (ACK 7th instead of 4th). Fixed
+  by a prompt line that survives a custom `CHAT_SYSTEM_PROMPT`: look it up
+  again for every answer with figures, rankings or statuses; never
+  re-sort. Plus temperature 0.
+- **Model and settings.** `deepseek-v4-pro` (the model `ask_deepseek.py`
+  already used; DeepSeek's docs no longer list `deepseek-chat`), thinking
+  disabled, tool calling confirmed live. All limits are env settings with
+  defaults (see `.env.example`); the rate limit is in memory, per admin.
+- **Deliberate differences from the scope.** The endpoint is `/chat`, not
+  `/api/chat`, like every other route here. The app starts without
+  `DEEPSEEK_API_KEY` (only the assistant is unavailable) so a missing key
+  can't take Ops down. No CORS middleware: the app has none, so browsers
+  already block cross-origin calls. Errors use the app's usual
+  `{"detail": ...}` shape. Streaming was not built.
+- **Tried and removed: an AI analysis panel on the Revenue page.**
+  DeepSeek wrote the wording with placeholders like `{today.value}` and
+  the server filled in every figure, rejecting any answer with a digit.
+  It worked, but the owner preferred asking questions; removed in favour
+  of the assistant. The placeholder approach is the pattern to reuse if a
+  model ever writes text that contains money again.
+
+### Network page (CCR2116) — a stateless router, Ops keeps the memory
+
+Built 2026-11-04 from the owner's scope, inside Phase 4. Two read-only
+RouterOS scripts push to `/network/ingest` (no collector machine, no router
+API, no open ports). Settled:
+
+- **The router remembers nothing.** The scope leaned on router globals (a
+  lock, "2 failed checks in a row", a local outage timer and a pending-events
+  list). On this fleet globals did not survive between scheduled runs
+  (CCR2004, 2026-09-21), so the scripts are stateless and Ops keeps the
+  memory in `network_latest`: the gateway fail streak, whether this gateway
+  has ever answered ping, last uptime. An outage is the gap between two
+  readings by Ops's own clock; the router's uptime tells the cause (still
+  counting = stayed up and lost its way out; reset = reboot/power). Router-
+  reported events are still accepted and deduplicated, for a build where
+  globals do persist. The lock is kept: harmless if globals reset.
+- **No scheduled "not reporting" job.** The app has no scheduler; the page
+  derives "not reporting" from the last receive time on every read, and the
+  event is written when readings resume (with its real duration).
+- **Gateway check uses `/ping ... as-value` (3 packets, 200 ms apart).** Found
+  in the CCR2116 dry run: `/tool flood-ping` is refused by the 2116's
+  device-mode and the script swallowed the error, showing a working gateway
+  as 100% lost. `/ping ... as-value` returns one row per packet; rows with a
+  `time` are replies. The RTT maths (microseconds, shown to 0.1 ms) is fenced
+  in its own `:onerror`, so a parse problem costs only the RTT. "Doesn't
+  answer ping" = never seen alive and present in ARP (reachable, stale,
+  delay, probe, complete), shown grey, not red.
+- **SFP power arrives in thousandths of a dBm** on RouterOS 7.24.2 (-6291 for
+  -6.291 dBm); the ingest model converts anything with magnitude >= 100.
+- **Bad data is a 4xx here**, unlike `/monitoring/ingest` (which quarantines
+  and answers 200 because the router never retries). The scope asked for
+  4xx; every rejection is logged with its reason. Token per router
+  (`NETWORK_INGEST_TOKEN_<SLUG>`), checked before anything about the router
+  is revealed.
+- **Customers.** The scope's `customers` table with `login_suffix` doesn't
+  exist. The match is the router's PPPoE username = `ppp_customers.username`
+  for the router linked in `network_routers.ppp_router_id`, ignoring case and
+  surrounding spaces, read through `customers.match_usernames` (no phone).
+  Joined at read time, so an expiry change shows on the next refresh. No
+  package for unmatched sessions: `/ppp active` has no profile and
+  `/ppp secret` is off limits.
+- **Storage.** Latest reading per router, 1-minute rollups as sums + maxes
+  (exact averages, 30 days), events (90 days), session parts until a batch
+  is complete (2 minutes). Purged hourly from ingest itself. All five tables
+  have RLS on (see the advisory below). Verified against a throwaway
+  PostgreSQL 16, including the migration twice and its rollback.
+- **Routes** are `/network/*`, not `/api/network/*`, like the rest of the
+  app. Reads need `sites:view_network` (Roles → Sites → Network (CCR2116)).
+
+#### Several internet links (added 2026-11-04, migration 0023)
+
+The CCR2116 has two default routes (Airtel distance 1 on `sfp-sfpplus1`, Veenet
+distance 2 on `sfp-sfpplus3` over VLAN 808). The first build watched one fixed
+port and would have gone green on a Veenet failover while Airtel was down.
+Settled:
+
+- **Links are discovered, not configured.** The live script reads every
+  enabled default route in the main table; each is one link, named by the
+  route comment, with its gateway, distance and whether it is the active route
+  (found with the `find ... && active` filter, not a property). The interface
+  is taken from the route's resolved next hop (`immediate-gw`, falling back to
+  the gateway text, `gateway-status`, and finally the gateway's ARP entry: on
+  the 2116 the inactive Veenet route has `immediate-gw=""`, and ARP still names
+  `veenet uplink`); a VLAN is followed to its parent
+  port, because the switch chip's hardware-offloaded traffic shows on the
+  port and not on the VLAN interface (`l3-hw-offloading=yes`). Two routes on
+  one port are counted once. A new ISP link needs no change on the router or
+  in Ops. The old `--gateway-ip` option is gone.
+- **The message** carries `links: [...]`. The single `uplink` + `gateway` of
+  the first script is still accepted and wrapped as one link, so a router
+  running the old script keeps working through an upgrade.
+- **Storage.** `network_uplinks` (one row per router + interface: label,
+  gateway, newest reading, the per-link memory the router can't keep, and the
+  capacity) and `network_uplink_minutes` (per-link rollups). `network_minutes`
+  stays the router-level rollup and now holds the SUM of the links, so the
+  existing chart and "peak today" are unchanged. Events carry
+  `details.link`, so Airtel's outage and Veenet's are separate.
+- **Status.** The primary link is the lowest route distance. Trouble on it is
+  red even when customers are online through the backup; trouble on a backup
+  link is amber ("no failover"); traffic on the backup while the primary isn't
+  the active route is amber; a link the router stops listing stays on the
+  page, greyed, and is ignored by the status.
+- **Capacity.** The router can't know the contracted speed. A new link starts
+  at its port speed with `capacity_source = 'auto'` ("estimated"). An admin
+  sets the real figure (`PUT /network/uplinks/capacity`, `require_admin`);
+  that becomes `'admin'` and the router's readings never overwrite it.
+  "Busy" is only judged against an admin figure: a port-speed estimate would
+  call a full 350 Mbps link on a 1 Gbps port "fine". A capacity guessed from
+  observed traffic was rejected: the Airtel link peaks near 140 of 350 Mbps,
+  so "highest seen" would read as nearly full all day. The highest rate seen
+  in 30 days is shown beside the capacity as a hint instead.
+- **Not in service (migration 0024).** A link that is plugged in but not paid
+  for (Veenet, 2026-11-04) never answers its gateway and would hold the page
+  amber for as long as that lasts, masking real warnings. An admin switches it
+  off (`PUT /network/uplinks/service`, `require_admin`): the card stays,
+  greyed and labelled, but the link is left out of the status and the
+  events, its open outage events are closed, and it can't be the primary. Its
+  readings, memory and rollups keep updating, so switching it back on starts
+  from the truth.
+- **Live chart (migration 0025).** The router reports every 15 s, and the
+  1-minute rollups can't show that, so each link's raw reading also goes into
+  `network_samples` (kept an hour, purged hourly with the rest). The Live
+  range is the last 10 minutes from there, one point per reading, polled
+  every 5 s by the page while Live is selected. Per-second needs the router
+  to report faster: a separate tiny script was offered and not chosen.
+- **Verified** against a throwaway PostgreSQL 16 (31 checks: migration twice,
+  discovery of a second and a third link, a failover with per-link events,
+  capacity edit surviving later readings, purge, the old message shape) and in
+  headless Chromium against fake data (cards, picker, tooltip, admin edit,
+  failover, phone width).
+
+### Open: Supabase security advisory (2026-10-31)
+
+Supabase flagged `rls_disabled_in_public` (and, on the separate
+FreeRADIUS-Manager-Tool project, `sensitive_columns_exposed`): public
+tables reachable through Supabase's own API with the anon key. Ops never
+uses that API (it connects to Postgres directly as the table owner), so
+enabling RLS with no policies on every public table closes it without
+affecting the app. Not applied — waiting for the owner to confirm which
+project is Ops and to run the owner/RLS check first. The FreeRADIUS
+project needs its own look: if that tool uses the anon key, it needs
+policies, not a blanket switch.
+
+### Technical Activity Log — reports, not tickets; rules in one pure module
+
+Added 2026-11-06 on `phase-4-network-monitoring` (owner's call; scope document
+"Technical Activity Log & Reporting"). Phases 1 and 2: submit, reports, overview,
+per-type extra fields, the admin Manage screen, the duplicate warning and the
+repeat-visit metric. Materials and Photos are deferred and NOT built.
+- **Tables (migration 0026):** `activity_categories`, `activity_types`,
+  `activity_reports`, `activity_report_technicians`, `activity_reference_counters`.
+  Categories/types are seeded by the migration and are data, not code; deactivate,
+  never delete. A report stores its type; the category is derived by join.
+  Materials/attachments tables can later point at `activity_reports(id)` with no
+  change here. `details jsonb` is reserved for Phase 2 and stays NULL.
+- **Reuses** `users` (submitter, technicians) and `locations` (site/area, with a free
+  text "Other" fallback). The Overview and Reports read both through their tables.
+- **Permissions:** one new section, `activity_log`: `view` (Reports: your own and ones you
+  are listed on), `submit` (and edit your own for 48 hours), `view_all`, `view_overview`.
+  The built-in admin passes all, edits any report at any time, and alone deletes (soft
+  delete: a flag, hidden from lists and every total). A "Technician" or "Manager" is just a
+  custom role with those boxes ticked; there is no built-in Manager role.
+- **References** (`TAL-2026-00001`) come from a per-year counter row updated in the same
+  transaction as the insert, so concurrent submits can't share one and a failed save
+  burns no number. The browser's `client_token` makes a retry after a lost answer return the
+  report already saved instead of a duplicate.
+- **Rules without a database** live in `db/activity_logic.py` (validation, the edit window,
+  reference format, bucketing, outcome shares). Time chips count as 0.5 / 1 / 4 / 8 hours
+  in the Overview's effort totals (owner-approved) and only reports that gave a time count.
+- **Form** keeps its state in one object; a failed submit changes nothing, and a draft is
+  kept in `localStorage` so a reload doesn't lose it. The date defaults to today in Nairobi,
+  the location to the person's last report.
+- **Phase 2 (migration 0027).** `activity_types.details_schema` (jsonb list of
+  `{key,label,kind,required[,min,max]}`; kind text|number|customer) is the config for a
+  type's extra fields; answers go in `activity_reports.details`. The form, validation and
+  display all read the schema, so a new field is an admin edit, not code. Seeded: Customer
+  Installation (customer, package, signal dBm) and Network Maintenance (fault, repair);
+  no cable fields, that is Materials. The seed runs only on the first run and only fills
+  types with a NULL schema; "no fields" is saved as `[]`, so a re-run never undoes an
+  admin's edit. A customer answer is `{id,name,username}`; the browser sends only the id and
+  the server copies the rest from `ppp_customers` (the picker returns name, username and plan
+  only, never phone numbers, which sit behind the broadcast permission). Hotspot customers
+  are not records, so only PPPoE customers are searchable.
+- **Field sets from real reports (migration 0028).** Data only, plus a `longtext` kind
+  (a few lines, 1,000 characters). A type's questions are replaced only while unset or still
+  exactly the 0027 seed, so the Manage screen's edits are never overwritten; the migration is a
+  single transaction. "Materials used" is a free-text LIST, never a quantity: it does not touch
+  Inventory (owner's call, 2026-11-06; the deferred Materials table supersedes it). The keys
+  `account` and `client_name` are a convention: repeat visits match a customer by the picked
+  customer's username or the typed account, ignoring case and spaces.
+- **Follow-ups (migration 0029).** `activity_reports.follows_up_report_id` is set on the LATER
+  report and points at the unfinished one it finishes; a unique partial index allows one live
+  follow-up per report (a soft-deleted follow-up re-opens the job). Rules in
+  `logic.check_follow_up`: target must exist, be live, be partially completed or unable to
+  resolve, be dated the same day or before, not be the report itself, not already be followed up.
+  "Still open" = unfinished with no live follow-up; it is a Reports filter value (`outcome=open`),
+  not an outcome. The earlier visit's outcome is never changed: the trip count stays honest.
+  Candidates for the pick are the last 90 days, same site first (a hotspot chain is often finished
+  from a neighbouring site), returning references, dates and types only.
+- **Location picker (submit form).** A type-ahead over `options.locations`, filtered in the
+  browser (starts-with, then word-start, then anywhere; 8 matches), not a `<select>`. Only an id
+  from the list or the explicit "Other" (with `other_location` text) ever reaches `state.location`;
+  free text never does, and an exact name typed in any case is accepted on blur. The API is
+  unchanged (`location_id` or `other_location`), so the server's checks still apply. The Reports
+  filter keeps its plain dropdown.
+- **Route (migration 0030).** Data only: an optional `text` field with key `route`, first
+  question on Fibre repair, Splicing, Cable re-tensioning, New fibre deployment and Cable
+  installation, for work that runs W - X - Y - Z. Location stays the single area the Overview
+  counts; the stops are typed text (found by search through `details::text`), not location ids.
+  Added only where a type has no `route` question yet, so admin edits survive a re-run.
+- **Manage screen** (admin only, `require_admin`, not grantable to a custom role): add,
+  rename, reorder, deactivate categories and types, edit a type's fields, optionally copying
+  them to every type in the category. Names are unique ignoring case. Every change answers
+  with the whole catalog and the screen redraws from it.
+- **Duplicate warning:** same type + location + date as a live report returns 409 with the
+  existing reference(s) and saves nothing; resending with `confirm_duplicate` saves. It never
+  blocks. The retry token is checked first, so resending the same form is not a "duplicate".
+- **Repeat visits:** categories carry a `repeat_visit_tracking` flag (seeded for Customer
+  Support) so no code names a category. The window is the 30 days ending on the Overview's
+  end date. A visit is a *day*: two technicians reporting one job on the same day are one
+  visit. Areas are always known; customers appear only where a report names one, so Customer
+  Support shows customers only once that type is given a Customer field on the Manage screen.
+- Tested against a throwaway Postgres (migration twice, concurrent references, scoping,
+  soft delete) and driven in headless Chromium at phone width. `tests/test_activity.py`.
 
 ## Integration approach
 

@@ -5,6 +5,207 @@ Phase-based, not version-based — this project ships in named phases (see
 concise, user-facing summary; full technical detail lives in the git log
 and in `phase.md`'s own per-phase writeups.
 
+## Technical Activity Log (on `phase-4-network-monitoring`)
+
+Added at the owner's request (2026-11-06). Needs `migrations/0026_technical_activity_log.sql`
+run once; until then only these pages error.
+- **Submit Activity Report:** pick a category and a type and tap Submit (3 taps; date, location,
+  outcome and "just me" are pre-filled). Optional time spent, extra technicians and remarks.
+  A failed send keeps everything so you can retry; the success screen shows the reference
+  (TAL-2026-00001) and "Submit another".
+- **Activity Reports:** search by reference or description; filter by date, category, type,
+  area, technician and outcome; detail view; CSV export. Technicians see their own reports and
+  ones they're listed on; roles with "See every report" see all.
+- **Activity Overview** (managers): activities over time, by category and type, by area, by
+  technician, outcome mix (with the "Unable to resolve" rate) and time spent.
+- **Editing:** the submitter for 48 hours, an admin any time. Only an admin deletes, and a
+  deleted report is hidden from the lists and every total, never erased.
+- **Roles page:** new "Technical Activity Log" section.
+- **Where it lives in the sidebar:** all four pages (Activity Overview, Activity Reports, Submit
+  Activity Report, Manage Activity Types) sit in the **Technical Activity Log** group. They
+  spent a few days under Reports; the owner moved them back (2026-11-09).
+
+**Phase 2** (needs `migrations/0027_activity_log_phase2.sql`; it is additive, so it can run
+before or after the code is deployed)
+- **Extra questions per activity type:** Customer Installation asks for the customer (search
+  by name or username, and the package fills in from their plan), package and optical signal
+  (dBm); Network Maintenance asks for the fault and the repair. They show only for those types.
+- **Manage Activity Types (admin only):** add, rename, reorder and deactivate categories and
+  types, and change what each type asks, without a code change.
+- **Duplicate warning:** if the same type, location and date has already been reported, the
+  form shows that reference and asks "Submit anyway?". It never blocks.
+- **Matched to the WhatsApp reports (migration 0028):** installations ask for client name,
+  account, package, contact, address/landmark, signal and a materials list; support asks for
+  client name, account, finding at site and solution; hotspot chain restoration asks for the
+  chain and routers restored; fibre/FAT jobs ask for signal before and after splitting; most
+  types have "Materials used". The materials box is a **list only: nothing is deducted from
+  Inventory** (it is replaced when Materials is built). New type: Cable re-tensioning.
+- **Follow-ups (migration 0029):** a partial or unresolved visit stays true about that day.
+  The visit that finishes the job can say so ("This finishes an earlier report", optional, same
+  place first). The earlier report then shows "Finished by TAL-…", the list marks unfinished jobs
+  "Still open" or "Followed up", Reports has a "Still open" filter, and the Overview splits
+  partials into finished later and still open, with a link to that list.
+- **Location is typed, not scrolled:** start typing the area and pick from the matches (tap,
+  or arrows and Enter). Only a location on the list is accepted, or a deliberate "Other" with a
+  few words; typed text that matches nothing is refused with a hint. Tap the picked area to
+  change it.
+- **Route (migration 0030):** Fibre repair, Splicing, Cable re-tensioning, New fibre deployment
+  and Cable installation ask an optional "Route (if more than one place)", e.g.
+  "Kamutini - Sunton - Stage". Location stays the main area or starting point, and that is what
+  the Overview counts; search finds any stop on a route.
+- **Repeat visits** on the Overview: customers and areas with Customer Support visits on more
+  than one day in the 30 days up to the end of the chosen period. A customer is recognised by
+  the account typed in (a new customer isn't in the customer list yet) or the one picked.
+
+## Revenue Report live figures, and an admin assistant (on `phase-4-network-monitoring`)
+
+Built outside the phase plan at the owner's request (2026-11-03/04), on
+`feature/revenue-insights`, then merged into the Phase 4 branch. Not on
+`main` yet.
+
+**Revenue page**
+- Refreshes itself every 30 seconds while it's open and the tab is
+  visible, and at once when you come back to the tab. Only what changed is
+  redrawn: your period, date, comparison and scroll position stay put.
+  "updated HH:MM" is the last successful refresh; if one fails, the old
+  figures stay and it says "offline, last updated HH:MM".
+
+**Admin assistant (the "Ask" button on every page)**
+- A DeepSeek chat, admins only — technicians and custom roles don't see it
+  and the server refuses them. It answers from the app's own data through
+  seven read-only lookups:
+  - revenue headlines, or one day/week/month/year (optionally per site)
+  - revenue history over a date range, network or one site, per day, week
+    or month, with KSh and % change, best/worst and trend
+  - every site ranked by daily revenue, with 14-day totals, share of the
+    network, last 7 days vs the 7 before, and the Revenue Report's flag
+  - live site status: up/down, people connected, uptime, today's sales
+  - a site's contact person, phone and address (from the Sites page)
+  - packages and prices
+  - PPPoE customer lookup by username, name or phone
+- It can't change anything and never writes SQL. Money comes from the
+  Revenue Report's own figures. Customer phone numbers are never sent to
+  DeepSeek; a site contact's number is, when you ask for it.
+- Site names match loosely ("Red Soil" finds "Redsoil").
+- It looks figures up again for every answer instead of repeating earlier
+  ones, after it once put ACK 7th instead of 4th from memory (2026-11-04).
+
+**Tried and removed**
+- An AI-written analysis panel on the Revenue page (DeepSeek wrote the
+  words, the server filled in every figure). Replaced by the assistant.
+
+## Admin assistant: every page, and no answers from nowhere (2026-11-04)
+
+- 11 new lookups (18 in all), one per page or report: the Network page
+  (status, PPPoE clients online, outages), site uptime reports and a site's
+  history, the alert log, batteries and a battery's history, stock levels,
+  the inventory log and cable stock.
+- It can't give figures it didn't look up: if it tries, the server makes it
+  check, and if it still has nothing it says "I couldn't look that up".
+- Each answer shows what it checked ("Checked: network status").
+- Its instructions are now a file you can read and edit:
+  `prompts/assistant.md`.
+- Before 21 Sep 2026 there are no sales records: it now says so instead of
+  "KSh 0".
+- `tools/assistant_eval.py` checks it picks the right lookup for 33 real
+  questions (33/33).
+
+## Network page: several internet links (Phase 4, 2026-11-04)
+
+Migration 0023 (two new tables) and a new `ops-live` script. The router has
+two default routes (Airtel, Veenet) and the page now knows about both.
+
+- One card per link, found from the router's default routes: name (the route
+  comment), Primary/Backup, Carrying traffic/Standby, traffic with a bar, its
+  gateway, errors and SFP. A new link appears by itself.
+- Capacity is estimated from the port speed until an admin confirms it with
+  **Set the real speed**; "busy" warnings only use a confirmed figure.
+- A failure of the primary link is red even when customers are online via the
+  backup; a dead backup is amber. Events name the link.
+- The chart has a link picker, and a cursor readout (time, download, upload).
+- **Live** chart (the default): the last 10 minutes, one point per 15-second
+  reading, redrawn every 5 s, times to the second. Raw readings are kept for
+  an hour in `network_samples` (migration 0025); everything longer still
+  comes from the 1-minute rollups. No router change.
+- "Peak today" now says when it happened and what it is (the single highest
+  15-second reading). The chart's solid lines are averages, so the peak could
+  never be found on them: the chart now draws a faint "peak" line above each
+  average, and the cursor readout adds "Highest reading".
+- Chart: a **6h** range (1h, 6h, 24h, 7d); round axis numbers (0, 100, 200,
+  300) that still follow the traffic; and the total chart is only shaded for
+  router-wide silences and the PRIMARY link's outages, so an unpaid or dead
+  backup link no longer paints the whole chart red (its own chart and the
+  Events list still show it).
+- **Not in service** switch (migration 0024): an admin can grey out a link
+  that is plugged in but not paid for yet (Veenet), so it stops raising
+  warnings and events until it is switched back on.
+- Fixed from the first dry run: the gateway ping now uses `/ping`
+  (`/tool flood-ping` is blocked by the 2116's device-mode and the script
+  hid the error, showing a working gateway as 100% lost); SFP power is
+  converted from thousandths of a dBm; ARP states `delay`/`stale`/`probe`
+  count as "seen".
+
+## Network page — CCR2116 uplink, gateway and PPPoE clients (Phase 4, 2026-11-04)
+
+Added to Phase 4 at the owner's call. Not live until migration 0022 is run,
+`NETWORK_INGEST_TOKEN_CCR2116` is set on Render, and the two router scripts
+are installed (docs/network-monitor-runbook.md).
+
+- A **Network** page: router status (green / amber / red, with reasons),
+  "All traffic" download and upload against the 350 Mbps contract with
+  today's peak, gateway alive / not responding / doesn't answer ping, link,
+  errors, CPU, temperature, SFP, and a 1h / 24h / 7d chart with outages
+  marked.
+- Every PPPoE client on the CCR2116 with name, package and Active / Expired
+  from the customer list. Expired-but-connected clients are highlighted;
+  unknown usernames are kept, never dropped.
+- "Router not reporting since HH:MM:SS", "Gateway not responding" and
+  "0 clients online" each look different. When reports resume, Ops records
+  how long it was quiet and whether the router stayed up or restarted.
+- Two read-only RouterOS scripts, a render tool that fills in the token from
+  the environment, a one-step uninstall, and a lint test that fails on any
+  router command outside the read-only list.
+- Technicians need the new Roles switch Sites → Network (CCR2116). No phone
+  numbers or payment amounts on the page.
+
+## Phase 4 — Network Monitoring (in progress, on `phase-4-network-monitoring`)
+
+Not merged yet; the entry below is filled in as pieces land. Full detail and
+the reasoning behind each decision is in `phase.md` §4.
+
+**Site status and reports**
+- Status and Trends pages for every monitored site, driven by a 60-second
+  router heartbeat: online/offline/flapping, people connected, uptime, and a
+  per-site report for any day, week or month.
+- Acknowledge a known-bad site to move it out of the headline without
+  hiding that it's down.
+- Hotspot sales are recorded per site, with the package price at the time
+  of the sale; Packages shows what each package is worth.
+
+**Alerts**
+- Debounced down alerts with a reminder ladder, a one-off flapping alert,
+  and a back-online message, by in-app notification, SMS and WhatsApp.
+- When two or more sites are down at once, one combined message with a
+  "which site gets which battery" plan. A site someone has acknowledged is
+  left out of that plan (2026-10-14).
+- Message wording is editable (Alerts → SMS Templates).
+- Alerts can be limited to set hours of the day (2026-10-14); reminders that
+  came due overnight go out once when the hours open, not one per poll.
+- Reports → SMS Status shows every alert actually sent.
+- Customers and Broadcast: upload the PPPoE customer list and send a manual
+  SMS to chosen customers.
+
+**Revenue report** (2026-10-14)
+- Reports → Revenue: today / yesterday / week / month / year against a
+  chosen comparison, partial periods compared to the same point, key
+  findings, a plain-language summary, a sortable site table with each site's
+  share of the change, rankings, and a trend chart with an "unusual" band.
+- Sites needing attention are flagged red / amber / green by stated rules,
+  each showing the numbers that triggered it; thresholds are editable
+  defaults. Hotspot sales only for now — PPPoE revenue is not included.
+- Past days are frozen, so a report for an earlier date is the same every
+  time it's opened.
+
 ## Phase 3 — Ops Inventory System (completed 2026-09-17, merged to `main`)
 
 A new inventory/asset-tracking domain for field operations, entirely

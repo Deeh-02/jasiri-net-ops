@@ -24,6 +24,25 @@ the MikroTik CCR2004, because the billing/RADIUS system is closed.
 
 ---
 
+### Added 2026-11-04: Network page for the CCR2116 (owner's call: part of Phase 4)
+
+Uplink/gateway/router health and the CCR2116's PPPoE clients, from two
+read-only RouterOS scripts that push to `/network/ingest`. Built, tested
+against a throwaway Postgres, NOT installed: needs migration 0022, the
+Render token, and the scripts installed per `docs/network-monitor-runbook.md`
+(no lab router — the owner judged the 2116 stable enough; every step starts
+as a dry run). Router-side facts still to confirm from the 2116 itself:
+RouterOS version (the session shows 7.24.2), uplink interface name,
+default-route gateway. Globals confirmed NOT to survive between runs on the
+2116 too (2026-11-04 test: a counter logged 1 on every run), which is what the
+stateless design assumes. Design notes in ARCHITECTURE.md "Network page".
+
+**Several links (2026-11-04, migration 0023).** The Network page now tracks
+each internet link (Airtel and Veenet on the 2116) found from the default
+routes, with per-link status, events, chart and an admin-editable capacity.
+Needs `migrations/0023_network_uplinks.sql` and the new `ops-live` script
+(dry run first, per the runbook).
+
 ### 4.0 — Router reconnaissance: COMPLETE
 
 Run against `JS-Core2-CCR2004` on 2026-09-18. **RouterOS 7.24.2**,
@@ -148,15 +167,37 @@ The CCR thinks it is in **Mauritius (UTC+4)**. Nairobi is UTC+3. The router repo
 
 NTP itself is healthy (`synchronized`, stratum 1, `system-offset: 0.873 ms`, drift 6.058 PPM) — UTC is correct. Only the display timezone is wrong, almost certainly because `time-zone-autodetect` geolocated the upstream/tunnel IP.
 
-Every locally-formatted timestamp the router produces is therefore an hour ahead, and "today" rolls over at 23:00 local. Fix before any timestamp is trusted:
+Every locally-formatted timestamp the router produces is therefore an hour ahead, and "today" rolls over at 23:00 local.
 
-```
-/system clock set time-zone-autodetect=no time-zone-name=Africa/Nairobi
-```
+**DECISION 2026-09-21 (owner): do NOT fix this on the router. Correct it on
+the Ops side instead.** The router keeps `Indian/Mauritius` and Phase 4 takes
+zero router-config risk on the clock. Consequences, all of which must hold:
 
-Autodetect must go off in the same command or it will revert. This is read-safe and affects no traffic.
+- **The router clock stays known-wrong.** Anything else reading this router —
+  a person on Winbox, the billing vendor, a future phase — still sees +1h.
+  This is now a permanent documented quirk, not a bug being fixed.
+- **`received_at` becomes load-bearing, not merely insurance.** All uptime,
+  all daily boundaries, all revenue-day attribution compute from
+  `received_at`. This was already the design; it is now the *only* correct
+  path rather than the safer of two.
+- **The heartbeat must send the router's own offset with the payload.** Have
+  the 4.3 script include `[/system clock get gmt-offset]` alongside
+  `router_ts`, so the payload is self-describing and the correction is data
+  rather than a constant hardcoded in Ops. If someone later fixes the router
+  clock, a hardcoded `-1h` would silently corrupt every reading; a
+  transmitted offset just starts arriving as `+03:00`.
+- **Store `router_ts` raw, exactly as reported.** Normalize to UTC on ingest
+  using the transmitted offset; never mutate the stored raw value.
+- **Do not blanket-correct every router-sourced timestamp.** The `Exp:`
+  comments on hotspot users (Correction 2) are written by the *billing
+  system* over the `freeisphotspotap` tunnel, not by the router's clock —
+  their timezone is that system's, which is **unknown and must be
+  established separately before 4.7 prices a renewal.** Applying the −1h
+  router correction to them would be wrong. Open question.
 
-The review's recommendation to store both `router_ts` and `received_at` and compute from `received_at` stands regardless — this is exactly the class of bug it was insurance against, and it was live.
+Note `db/connection.py` already pins every session to UTC and defines
+`EAT = timezone(timedelta(hours=3))` as a fixed offset (EAT has no DST), so
+the Ops side already has the right primitives for this.
 
 #### Correction 6 — eight VLANs had zero users, and that needs explaining before it gets coded
 
@@ -175,29 +216,124 @@ This is precisely the "site up, hotspot broken" failure the review called out as
 
 ---
 
-### 4.0b — Infrastructure facts: STILL OPEN
+### 4.0b — Infrastructure facts: PARTIALLY ANSWERED
 
-- **Render plan.** Free tier sleeps after ~15 min idle and cold-starts in 30–60s. A 60s heartbeat keeps it permanently awake — a genuine side benefit — but any gap causes a cold start, which causes more gaps.
-- **Supabase plan and current DB size.** Drives the retention design in 4.1.
-- **Migration approach.** Alembic, or hand-applied SQL? Claude Code can answer this itself from the repo.
-- **M-Pesa data access, for 4.7's reconciliation.** Automated (an API/export Ops can pull programmatically) or manual (someone reading Safaricom statements)? This decides whether daily reconciliation is free or a recurring manual chore — see 4.7.
+**Answered 2026-09-21:**
 
-### 4.0c — The site mapping table: STILL OPEN, and now the critical path
+- **Migration approach: hand-applied numbered SQL.** No Alembic, no framework
+  — `migrations/` holds `0001_`…`0005_`, run by hand. Phase 4's migration is
+  therefore `0006_monitoring_core_tables.sql`.
+- **M-Pesa data access: MANUAL.** It cannot be pulled programmatically.
+  Per 4.7 this means the automatic Ops-side daily revenue log still runs
+  daily and costs nothing, but the *comparison* against M-Pesa is a human
+  reading statements, so its cadence is Ops' choice — **cadence still to be
+  picked** (weekly is the doc's suggested default).
 
-Per Correction 3, this cannot be derived from the router. Produce one row per monitored site:
+- **Render plan: FREE.** Sleeps after ~15 min idle, cold-starts in 30–60s. The 60s heartbeat keeps it permanently awake, which is the right trade since the router has no retry and every cold start would lose readings. **Consequence:** Render's free tier bills 750 instance-hours/month *across the account*, and a service awake 24/7 is ~730 of them. There is no room for a second free Render service alongside this one.
+- **Supabase plan: FREE** — 500 MB cap. This makes retention binding, not hygiene. Measured: `ingest_snapshots` at 1,440 rows/day is 58–100 MB/yr and would eat the whole tier in ~3 years on its own, so it is downsampled raw-30-days-then-hourly via a `granularity` column, the same mechanism as `site_session_counts`. See 0006's header for the full table.
 
-| VLAN | Gateway | Ops `location_id` | PPPoE username (if any) | Site AP IP (for ping, if no PPPoE) | Expected quiet hours |
-|---|---|---|---|---|---|
-| 35 | 10.50.35.1 | ? | `Sunton_Hotspot`? | | |
-| … | | | | | |
+- **Current DB size: 11 MB** (measured 2026-09-21). The application tables are
+  tiny — under 1 MB combined, the rest is Postgres overhead. So ~489 MB of the
+  500 MB cap is free. With the retention design above, monitoring settles at
+  roughly 30–40 MB/year steady-state, which is years of runway. **4.0b is now
+  fully answered.**
 
-Also needed:
-- Which of the eight empty VLANs are live (Correction 6).
+### 4.0c — The site mapping table: 14 of 21 MAPPED, still the critical path
+
+Owner supplied VLAN→name for 15 VLANs on 2026-09-21. Reconciled here against
+the `locations` table (read live 2026-09-21) and the 21 PPPoE session names
+from 4.0. `location_id` was **derived, not supplied** — every ✅ row below is
+a name match against a real `locations` row and should be spot-checked once.
+
+| VLAN | Gateway | `location_id` | Location name | PPPoE username | Liveness | State |
+|---|---|---|---|---|---|---|
+| 5 | 10.50.5.1 | 19 | Njeri House | `Njeri_House` | pppoe | ✅ |
+| 10 | 10.50.10.1 | 21 | Ndambaki | `Ndambaki` | pppoe | ✅ |
+| 15 | 10.50.15.1 | 20 | Kwa Mlima | `Kwamlima` | pppoe | ✅ |
+| 20 | 10.50.20.1 | — | "Street 10" | none found | ? | ⚠ no `locations` row; 0 sessions |
+| 25 | 10.50.25.1 | 18 | ACK | `ACK` | pppoe | ✅ |
+| 30 | 10.50.30.1 | 8 | Catholic Road | `CatholicRd_Hotspot` | pppoe | ✅ |
+| 35 | 10.50.35.1 | **6 or 7** | Phase 3 | `Phase3_HOTSPOT` | pppoe | ⚠ duplicate rows |
+| 40 | 10.50.40.1 | 12 | Redsoil | `Redsoil_Hotspot` | pppoe | ⚠ 0 sessions |
+| 45 | 10.50.45.1 | 17 | Sunton | `Sunton_Hotspot` | pppoe | ✅ |
+| 55 | 10.50.55.1 | — | "Monitoring" | none found | ? | ⚠ no `locations` row |
+| 60 | 10.50.60.1 | 3 | Maji Mazuri | `Maji_Hotspot` | pppoe | ✅ |
+| 65 | 10.50.65.1 | 22 | Lower Sunton | `LowerSunton_Hotspot` | pppoe | ✅ |
+| 70 | 10.50.70.1 | 5 | Policeline | `Policelin_Hotspot` | pppoe | ✅ |
+| 75 | 10.50.75.1 | ? | — | ? | ? | ✗ unmapped |
+| 77 | 10.50.77.1 | — | "Cyber" | none found | ? | ⚠ no `locations` row; 0 sessions |
+| 80 | 10.50.80.1 | ? | — | ? | ? | ✗ unmapped |
+| 85 | 10.50.85.1 | ? | — | ? | ? | ✗ unmapped; 0 sessions |
+| 90 | 10.50.90.1 | ? | — | ? | ? | ✗ unmapped; 0 sessions |
+| 105 | 10.50.105.1 | ? | — | ? | ? | ✗ unmapped; 0 sessions |
+| 110 | 10.50.110.1 | ? | — | ? | ? | ✗ unmapped; 0 sessions |
+| 115 | 10.50.115.1 | ? | — | ? | ? | ✗ unmapped; 0 sessions |
+| **99** | ? | — | "Street 9" | `Policelinestreet9` | pppoe | ⚠ **not among the 21 hotspot VLANs in 4.0** |
+
+#### Correction 3 is now almost fully resolved
+
+The eight ambiguous non-`_Hotspot` PPPoE names, checked against `locations`:
+
+| PPPoE name | `locations` row | Verdict |
+|---|---|---|
+| `ACK` | 18 ACK | **site** |
+| `Benbro` | 1 Benbro | **site** (VLAN not yet known) |
+| `Kwamlima` | 20 Kwa Mlima | **site** |
+| `Ndambaki` | 21 Ndambaki | **site** |
+| `Njeri_House` | 19 Njeri House | **site** |
+| `Policelinestreet9` | none | **site** (VLAN 99), needs a `locations` row |
+| `Prisca` | none | **likely home customer — confirm** |
+| `Stage` | none | **likely home customer — confirm** |
+
+#### Sites in `locations` with no VLAN yet
+
+Eight active, non-home-base rows are unassigned — and only **seven** VLANs
+remain (75, 80, 85, 90, 105, 110, 115). So at least one of these has no
+hotspot VLAN at all, or sits on the legacy `hotspot-bridge`:
+
+`1 Benbro`, `9 Kwa Mafuta`, `10 Kamutini`, `11 Garage`, `13 Stima`,
+`14 Maternity`, `15 Garage Escarpments`, `16 Hunters`
+
+Six of the still-unmatched PPPoE names end in `_Hotspot` (`Garage_Hotspot`,
+`GarageRd_Hotspot`, `Hunters_Hotspot`, `Kamutini_Hotspot`,
+`Maternity_Hotspot`, `Stima_Hotspot`), which lines up with six of those
+eight. `Kwa Mafuta` matches no PPPoE name at all.
+
+#### Discrepancies that need an owner answer
+
+1. **VLAN 99 is not in the 21.** 4.0's hotspot-server sweep found no VLAN 99.
+   Either it is a PPPoE-only site with no hotspot server, or 4.0's list was
+   incomplete. One command settles it: `/interface vlan print`.
+2. ~~**VLAN 5's hotspot server is named `PHASE3`**~~ **RESOLVED 2026-09-22.**
+   Confirmed a stale name, not a mapping error, and renamed to `hs-v5` on
+   the router — VLAN 5 is a real, active, registered site
+   (`monitored_sites.id=1`). This stopped being out-of-scope the moment
+   4.7's real design started depending on the `hs-v<N>` convention holding
+   with no exceptions — see 4.7 below.
+3. **`Phase 3` exists twice in `locations`** — id 6 (`is_active=false`) and
+   id 7 (`is_active=true`). VLAN 35 must point at one. Presumably 7.
+4. **Four named VLANs have no `locations` row**: Street 10 (20),
+   Monitoring (55), Cyber (77), Street 9 (99). Each needs a row created, or
+   to be declared out of scope. **Is "Monitoring" (VLAN 55) even a customer
+   site**, or is it infrastructure? It had active sessions, so something is
+   using it.
+5. **Redsoil (VLAN 40) is the strongest "site up, hotspot broken" candidate**
+   — it has a live PPPoE uplink *and* zero hotspot sessions. Per Correction 6
+   this needs classifying before the anomaly detector is calibrated.
+6. Of Correction 6's eight empty VLANs, **five are also unnamed**
+   (85, 90, 105, 110, 115) — consistent with "provisioned but not yet live".
+   Confirm that reading.
+
+#### Still needed before 4.1 can be verified end-to-end
+
+- The seven unmapped VLANs (75, 80, 85, 90, 105, 110, 115).
+- `ap_ip` for any site whose liveness must be `ping` rather than `pppoe`.
+- `quiet_hours` per site — nothing is known yet for any row.
 - Whether `hotspot1` / `hotspot-bridge` is in scope or retired.
-- Which of the eight non-`_Hotspot` PPPoE names are sites versus home customers.
-- Whether every VLAN corresponds to a row that already exists in `locations`, or whether some sites must be created first.
 
-**Nothing in 4.1 onward can be verified without this table.** It is 21 rows and only you can write it.
+**4.1's schema can be written now** — the mapping is `monitored_sites` *data*,
+not structure, and the gaps above are rows left unseeded rather than columns
+left undesigned.
 
 ---
 
@@ -205,12 +341,35 @@ Also needed:
 
 Per the domain-isolation principle in RULES.md:
 
-- The monitoring domain **reads** `locations` by `location_id` and nothing else.
+- The monitoring domain **reads** `locations` by `location_id` and nothing else — **plus one scoped, read-only exception below.**
 - `locations`, `batteries`, `movements`, `inventory`, `users`, `roles` gain **zero** new columns and **zero** awareness of monitoring.
 - No monitoring table is joined into an existing domain's queries.
 - **Do not add `vlan_id` to `locations`.** A location may be unmonitored (home base, a store); a VLAN may exist before anyone maps it. Separate lifecycles, separate tables.
 
-**Proof obligation:** dropping every monitoring table must leave Phases 0–3 passing unchanged.
+**Proof obligation:** dropping every monitoring table must leave Phases 0–3 passing unchanged. Still holds under the amendment below — the read runs the other direction (monitoring depends on batteries, not batteries on monitoring), so battery domain code is untouched either way.
+
+**AMENDMENT 2026-09-23 (owner call) — Task 3, battery recommendation on a
+down alert.** A down-alert escalation recommending which battery to send
+needs to read `batteries`/`battery_movements` (lowest recent removal
+count, confirmed `charge_status`). That's a real, deliberate exception to
+"reads `locations` and nothing else", not an oversight:
+
+- **Read-only, one direction.** Monitoring may `SELECT` from `batteries`
+  and `battery_movements`. It never writes to either, never joins them
+  into a battery-domain query (the read happens entirely inside
+  monitoring's own code, called from the alerting engine), and neither
+  table gains any column or awareness of monitoring. The wall still holds
+  from the battery domain's side — `db/batteries.py`, `routers/batteries.py`
+  and the battery UI have zero knowledge monitoring exists.
+- **Confirm this is written into architecture.md as intentional** before
+  it ships, same convention as 4.2's ingest-auth exception — a future
+  session reading `db/monitoring_alerts.py` importing from `db/batteries.py`
+  needs to see this was a decision, not drift.
+- Revenue used as an internal ranking signal for which site gets battery
+  priority is a **separate, unchanged** rule — 4.4's "no revenue figure in
+  an alert body" still applies in full; ranking by revenue internally and
+  never printing the number are two different things and this amendment
+  touches only the former.
 
 ---
 
@@ -249,6 +408,7 @@ After this phase the router answers the same question in ~60 seconds.
 3. `confirm-online` becomes a **prefilled one-tap**: *"Monitoring saw Sunton come back online at 14:32, 12m after you marked arrived"* — accept or contradict.
 4. **Both answers stored.** A contradiction is a finding: uplink up while the tech says otherwise usually means something else at the site is dead.
 5. Re-check whether `unconfirmed-count` still earns its nav badge once most confirmations are pre-answered. The re-check is in scope; changing it is not.
+   **Update 2026-09-24 (owner decision):** the Check Sites page, its `unconfirmed-count` Sites nav badge and the three `/locations/verification`, `/locations/{id}/confirm`, `/locations/unconfirmed-count` endpoints were removed. Monitoring answers "is it up" and Check Sites no longer did anything useful. The movement `confirm-online` check (point 2) is untouched. The `site_checks` permission rows and the `locations.verification_confirmed_at` / `is_online` columns were left in place (no schema change).
 
 ---
 
@@ -350,14 +510,25 @@ Per Correction 2. Seed `hotspot_packages` from the price table. In the heartbeat
 - a username not seen before → **a sale**, priced from its profile;
 - an existing username whose `Exp:` moved forward → **a renewal**, priced the same way.
 
-Attribute to a site by the user's address subnet where the user is currently active; where it is not, attribute to the site that last saw it, and mark the attribution as inferred.
+`hp support users` and `default` price at 0 — confirmed genuinely comped, not a misconfiguration.
 
-`hp support users` and `default` price at 0. Confirm `default` is genuinely comped and not a misconfiguration.
+**Attribution shipped as three tiers, not the one originally planned, after real production data (2026-09-22) showed the plan below left 53 sales (KES 840) that day permanently unplaced:**
+
+1. **The account's own hotspot server VLAN** — durable, true at 3am with nobody connected. Hotspot servers here are one per VLAN, named `hs-v<N>` with no exceptions (see the now-resolved discrepancy 2 above); the VLAN is parsed off that name directly, not resolved via `/interface` (confirmed empirically that these servers aren't bound to an interface literally named `vlan<id>`).
+2. **For accounts with no server of their own** (bound to `all` — a mix of the comped support profiles and some real paid customers, e.g. `Monthly pass400`, `10day pass150`): **the account's DHCP lease VLAN**, matched by the MAC already in its `Exp: ... | MAC: ...` comment. Leases here last up to 24h and outlive the hotspot session itself, and a device needs an IP before it can reach the payment page at all — so the lease used to buy the pass is almost always still there when this runs. DHCP servers happen to follow `dhcp-v<N>` too, but the lease's own address is read directly, same reasoning as tier 1.
+3. **The user's address subnet where currently active** (the originally-planned signal) — kept as a fallback for the rare case neither of the above resolves.
+4. **The buyer's last known site**, marked `inferred` — unchanged from the original plan, last resort only.
+
+Attribution is never a dead end: what tier 1/2 resolved even when it *isn't* a registered site yet is still recorded (`revenue_events.origin_vlan_id`, migration 0010) — "we knew, it just isn't a site in Manage Sites" is a distinguishable, fixable state, not silently discarded.
+
+**A sale is booked once, on `(username, expiry)`, and never re-examined by the booking logic itself — so a genuine backfill runs on every heartbeat, not just users runs, checking anything still unplaced against whatever's been learned since:** an active-list sighting reaches back 30 minutes (a moment, not a durable fact), the account's own tier-1/2 VLAN reaches back 24h (a standing fact, matched to the DHCP lease life). Known and accepted: an `all`-bound account that bought at one site and has since moved is placed where it is *now*, not where it paid — judged better than not placed at all.
+
+**Two gaps remain, deliberately not chased further as of 2026-09-22:** VLANs 99/105/115 have router-side hotspot/DHCP activity but no `monitored_sites` row yet (Ops-owned, pending); and an account that expires and is deleted from the router before any of the above ever resolves it has nothing left to recover from — no MAC, no lease, gone for good. Both are historical-residue problems, not ongoing leaks — same-day placement rate on new sales was verified at 100% (17/17) in production before the last of the tiers above even shipped.
 
 Because this is a *sales* measure, it should reconcile against M-Pesa. Split this into two pieces so the system side costs nothing regardless of how the M-Pesa side turns out:
 
 - **Automatic, always:** an Ops-side scheduled job logs that day's `revenue_events` total per site every day, no human involved. This alone costs nothing and should just always run.
-- **Comparison against M-Pesa, frequency TBD by 4.0b:** if M-Pesa data is pullable programmatically, do this comparison daily too — it's then free, and same-day mismatches are cheaper to debug than week-old ones. If it's a manual statement check, don't force it to daily; let Ops pick a cadence (could stay weekly) without changing the system side. Either way, a single day's gap alone isn't a bug — settlement timing can shift a sale across the midnight boundary — only a gap that repeats across the compared period is.
+- **Comparison against M-Pesa: MANUAL** (settled by 4.0b, 2026-09-21 — M-Pesa data cannot be pulled programmatically). So do **not** force this to daily; Ops picks the cadence (weekly is the working default, **still to be confirmed**) and the system side does not change either way. Ops-side job: present the stored daily totals for the chosen period so a human comparing a statement has one screen to read, rather than reconstructing days by hand. Either way, a single day's gap alone isn't a bug — settlement timing can shift a sale across the midnight boundary — only a gap that repeats across the compared period is.
 
 #### 4.8 — Alerting + external watchdog
 
@@ -368,9 +539,188 @@ Because this is a *sales* measure, it should reconcile against M-Pesa. Split thi
 - **Sessions-dropped-to-zero anomaly** — calibrate only after Correction 6 is resolved.
 - External uptime monitor on an Ops health endpoint, alerting distinctly from a site-down alert.
 
-#### 4.9 — Reconcile monitor against human `confirm-online`
+**Recipient-channel defaults + admin override — DONE 2026-09-23.** Shipped
+after the rest of 4.8, on owner request: a user with no
+`monitoring_alert_subscriptions` row now defaults to all three channels ON
+(in-app + SMS + WhatsApp), not in-app-only as originally built — applied
+retroactively to every current no-row user, not just future ones (owner's
+explicit call: reach over SMS cost-control). `get_subscription`'s no-row
+return and `load_recipients`'s `COALESCE` fallback both changed; migration
+0015 flips the table's own column defaults to match, though no code path
+actually relies on them (every row write is explicit). Self-service
+Settings > Notifications is unchanged. New: an admin-facing "Alert
+Recipients" view (Roles page, gated on `roles:edit` — the same permission
+that already controls `sites:receive_alerts` itself) lists everyone
+currently eligible with SMS/WhatsApp checkboxes, writing through
+`admin_set_channels()` to the *same* `monitoring_alert_subscriptions` row
+Settings writes to — last write wins, no conflict handling, same as every
+other admin-edits-a-user's-own-setting action in this app. `in_app_enabled`
+is deliberately untouched by the admin path; only the person themselves
+turns that off.
+
+**Editable alert wording — DONE 2026-09-23.** New sidebar group
+**Alerts** → *Notifications* (full in-app inbox; everyone) and *SMS
+Templates* (gated on the new `sites:edit_alert_messages` permission, under
+Site Status in Roles). Seven templates — down, still down, battery
+recommended, no battery, recovered, flapping, mass down — each with its
+own `{{PLACEHOLDER}}` list; unknown placeholders are rejected on save, and
+there is deliberately no revenue placeholder (4.4). Defaults live in code
+(`db/alert_templates.py`); migration 0016's `alert_message_templates`
+holds only overrides, so "Reset to default" is a row delete. The same text
+is used for SMS, WhatsApp and in-app. If the table is missing (code
+deployed before 0016 runs), sending falls back to the defaults rather
+than failing. `still_down`'s single `{{BATTERY_NOTE}}` was later split
+into `{{BATTERY_RECOMMENDED}}`/`{{BATTERY_NONE}}` (see next entry) so each
+sentence is independently editable in the SMS Templates editor.
+
+**Bundling, revised from "mass event = power failure" — DONE 2026-09-23,
+same day, same-day revision of the entry above.** The 5-site/"possible
+power failure" design shipped earlier today was replaced within hours on
+owner request: no cause is named or assumed any more (dropped — not a
+safe inference at low counts, not needed at high ones), and the threshold
+dropped from 5 to **2**. Whenever `BUNDLE_MIN_SITES` (2) or more sites are
+down at the same moment, any one of them reaching its own scheduled
+checkpoint sends one combined message covering every currently-down site,
+instead of that site's normal solo message — still carrying the same
+battery dispatch plan (ranked by people online, then today's revenue as
+the tiebreak; revenue never printed), now for every site down, not just
+the sites whose clock happened to fire.
+
+Each site keeps its own independent `SCHEDULE_MINUTES` clock, counted from
+its own `opened_at`; nothing ever resets or borrows another site's clock,
+and a site joining or leaving the down group is never itself a reason to
+send anything. What varies per send is only whether it renders solo or
+bundled, and who's named, decided fresh from whoever else is down the
+instant a clock fires — so one site's messages can legitimately alternate
+between solo and bundled framing over one outage's life as others come and
+go around it. Two firing in the very same evaluation pass still produce
+exactly one combined message, not two — verified directly (staggered
+outages at three different start times, plus simultaneous firings, plus a
+mid-bundle recovery reverting the survivor back to solo) against a scratch
+Postgres instance before this shipped. A site under its own 5-minute
+debounce doesn't count toward the group either, for the same reason it
+doesn't get its own alert. The router-restart marker (which would let a
+reboot be told apart from a real outage) is still not built.
+
+**Send window + acknowledged sites out of the battery plan — DONE
+2026-10-14, on owner request.** Three changes to when and about what alerts
+are sent:
+
+- **Alert send window.** New global setting, edited at the top of Alerts →
+  *SMS Templates* ("When alerts are sent", same `sites:edit_alert_messages`
+  gate as the wording). When enabled, alerts of every kind are only *sent*
+  between a start and end time (EAT, may wrap midnight; default off, so an
+  untouched install behaves as before). Outside it nothing is sent but the
+  episode keeps running — it mutes sending exactly as per-site quiet hours
+  do, and both apply. Stored in migration 0018's single-row
+  `alert_settings` (`db/alert_settings.py`); a missing table falls back to
+  "send at any hour", never to silence. Known and accepted: a *recovery*
+  that happens outside the window is not sent later — it fires once, on the
+  transition, and is dropped if muted (same as it always was for quiet
+  hours).
+- **Catch-up is one send.** A reminder that came due while muted (window,
+  quiet hours or acknowledgement) used to fire once per poll after the mute
+  lifted, advancing one checkpoint each time — a site down overnight would
+  have burst a dozen texts at 08:00. A send now sets `escalation_step` to
+  the number of checkpoints already crossed, so it is one message; the
+  battery recommendation rides on whichever send covers the 15-minute
+  checkpoint, and a late first alert is worded as a reminder with a
+  duration rather than "just went down".
+- **Acknowledged sites are out of the bundle.** Reverses the original
+  "currently down is a physical fact" rule above for acknowledged sites
+  only: they no longer count toward `BUNDLE_MIN_SITES` and aren't listed in
+  the battery plan, since someone has already said they're handling that
+  site and the one charged battery shouldn't be sent there. One
+  acknowledged site plus one unacknowledged one is a solo message about the
+  unacknowledged one. Quiet-hours sites still count, as before.
+
+#### 4.9 — Reconcile monitor against human `confirm-online`: DONE 2026-09-23
 
 Implement the prefill above, store both answers, surface contradictions.
+
+Built without needing an isolation-invariant amendment (unlike Task 3) —
+the prefill is composed entirely client-side: movements.js already has
+the movement's own `arrived_at`, and reads each site's current state from
+the existing `GET /monitoring/status` (unchanged), matching on
+`to_location_id`. The new write side, `POST
+/monitoring/sites/{id}/confirmation-check` (`db/monitoring_reconciliation.py`,
+migration 0014's `site_confirmations` table), stores both answers and — a
+mismatch is exactly the "finding" called for above — raises an in-app
+notification to the same `sites:receive_alerts` recipients as down/
+recovered alerts. Called by the frontend alongside the existing `POST
+/movements/{id}/confirm-online`, never instead of it; that endpoint is
+completely unchanged and stays the movement's own source of truth.
+`site_confirmations` references `monitored_sites` and `users` only — same
+already-precedented direction as `alert_deliveries.user_id` (0012) — and
+never `battery_movements` or `locations`, so no amendment was needed here.
+
+**Item 5, the `unconfirmed-count` badge re-check — assessed, not changed,
+per this item's own instruction.** `locations.is_online` (driven by
+`/locations/{id}/confirm`, the hourly Check Sites nag — a *different*
+flow from `confirm-online` above) still earns its badge: monitoring
+never writes to `locations` (the isolation invariant forbids it), so
+`is_online` stays the one field the rest of the app (movement site-down
+flow, the battery table's "needs attention" accent) actually reads, for
+every location whether or not it has a `monitored_sites` row at all. A
+prefill on confirm-online still requires an explicit tap either way (this
+is a suggestion, not an auto-answer), so the definition of "unconfirmed"
+is unchanged and the count doesn't need to change either. Extending the
+same prefill treatment to Check Sites itself (`/locations/{id}/confirm`)
+would be a natural next step — deliberately not done here, since item 3
+above only names `confirm-online` by name.
+
+#### 4.11 — Revenue reporting: DONE 2026-10-14
+
+A deterministic, read-only revenue report (Reports → Revenue; no AI, every
+number traces to stored sales). Spec: the "Revenue Reporting — Spec v2"
+brief; built in its §10 order. **Hotspot sales only in v1** — PPPoE
+revenue is never read.
+
+- **Data (0019).** `daily_site_revenue` and `hourly_site_revenue`, built
+  from `revenue_events` (sales with a site, `event_type <> 'baseline'`, EAT
+  days; a row for every active site and day, zeros included). Today and
+  yesterday are recomputed every 15 min (`revenue_daily.run_if_due`, one
+  background task on ingest); older days are frozen and change only through
+  `python -m db.revenue_daily refreeze … --reason`, which is logged to
+  `daily_revenue_refreeze_log`. **Unplaced sales are excluded** (owner's
+  call), so network totals sit slightly under the Status page's "revenue
+  today" by the unplaced amount (none since 2026-09-23). The hourly table is
+  kept for all history, not just today, because "MTD at 19:00 vs last month's
+  same point" needs sub-day totals for past days.
+- **Rules (pure, tested).** `db/revenue_logic.py`: `resolve()` (partial
+  periods are compared with the same elapsed point; unequal lengths and
+  partly-covered history are labelled, not hidden), `compare()` (New / No
+  activity, never a % from a zero base), contributions to *gross* change,
+  rankings with the absolute floor, MAD band, trend slope, and the §6 alert
+  rules (`evaluate_day`). A week or month before history is *missing*, not
+  zero — a baseline median uses only the weeks that exist.
+- **Config (0020).** `revenue_report_config` holds only overrides; defaults
+  are in `db/revenue_config.py`. Starting values, to be tuned against real
+  data (see below).
+- **API.** `GET /monitoring/revenue-report/{overview,card,sites,
+  sites/{id}/metrics,alerts,trend}`, all gated on `sites:view_revenue`.
+- **Alerts (0021).** One row per site-day in `revenue_site_status`, with
+  the rules that fired, their triggering values and the thresholds in force,
+  so a past day reads back as it was judged. Status is always as of the
+  last *completed* day against the same weekday last week.
+- **UI.** `static/js/revenue.js` — header, five cards (each switchable to
+  another comparison), key findings, summary, attention list, sortable site
+  table, rankings, trend chart (7-day average, usual-range band, unusual
+  points).
+
+**Judgement calls.** Streaks and the 7-day-vs-7-day rule have no floor in
+the spec but §9.5 says alerts always need one: `amber_min_abs` /
+`green_min_abs` are applied. The active-site average excludes the day being
+judged. History is treated as starting the first full day after the first
+sale (2026-09-22), not 09-21.
+
+**Known limits, not bugs.** Until about mid-November, month/year
+comparisons return "No comparable data" and a 6-week baseline uses only the
+weeks that exist. Comparing one day with one day is noisy for small sites
+(a good day last week makes this week's ordinary day look red); if that
+proves too loud, require the day to also be below the site's own baseline
+for the % rules. After a large one-day drop the 7-day-vs-7-day amber rule
+keeps firing for a week and, by the spec's precedence, hides "Recovered".
 
 #### 4.10 — OPTIONAL: event-driven fast path · *touches the router*
 
@@ -401,11 +751,12 @@ Deferred by Correction 4 — the operational case for 6s over 60s is weak, and t
 
 **Not** a config re-import — that drops every session and risks a state matching neither old nor new. Keep the export for "the router is bricked" only.
 
-Phase 4 as scoped touches the router in only three places, each reversed by one command:
+Phase 4 as scoped touches the router in only two places, each reversed by one
+command (the timezone fix is no longer among them — see Correction 5's
+2026-09-21 decision):
 
 | Change | Rollback |
 |---|---|
-| Timezone fix (Correction 5) | `/system clock set time-zone-autodetect=yes` |
 | 4.3 heartbeat scheduler | `/system scheduler disable [find name="ops-heartbeat"]` |
 | 4.6 netwatch probes | `/tool netwatch disable [find comment~"ops-monitor"]` |
 | 4.10 (if ever done) | clear the two PPP profile fields |
@@ -427,7 +778,12 @@ Extending DELEGATION.md's rule that an agent shows each command before running i
 ### Exit criteria
 
 1. 4.0c mapping table complete — all 21 VLANs mapped, with the eight empty VLANs and the eight ambiguous PPPoE names classified.
-2. Router timezone reads `Africa/Nairobi` with autodetect off.
+2. Router clock is left untouched (still `Indian/Mauritius`), and Ops
+   normalizes correctly: a reading taken at a known wall-clock instant
+   stores a `router_ts` an hour ahead, a `received_at` matching wall clock,
+   and a normalized UTC value derived from the *transmitted* `gmt-offset`
+   rather than a hardcoded constant — verified by temporarily faking the
+   offset in a test payload and seeing the normalized value follow it.
 3. All mapped sites reporting via heartbeat for 7 consecutive days with no gap longer than the staleness window.
 4. Dropping every monitoring table leaves Phases 0–3 green.
 5. A user without `sites/view_revenue` receives responses containing **no revenue field** — verified by reading the raw response, not the UI.
@@ -459,7 +815,12 @@ customers table — to be CONFIRMED, not assumed, once this phase starts.
 **Phase 8 — Chat.** Deliberately deferred and flagged for reassessment.
 Most technically demanding of the set, and WhatsApp already works as a
 contact channel. Confirm this solves a real operational gap before
-building anything.
+building anything. *(2026-11-04: an admin-only, read-only data assistant
+— the "Ask" button — was built ahead of this phase at the owner's
+request and sits on the Phase 4 branch; see ARCHITECTURE.md's "Admin
+assistant". It answers the owner's questions from the app's data; it is
+NOT customer chat, which still needs a customer login and remains this
+phase's open question.)*
 
 Each phase runs in its own branch (one branch per phase — see CLAUDE.md).
 Before confirming any phase done, the owner checks it out locally

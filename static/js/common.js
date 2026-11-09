@@ -70,7 +70,16 @@ const ROUTE_PERMISSION_MAP = {
     users: ["users", "view"],
     roles: ["roles", "view"],
     movements: ["movements", "view"],
-    "check-sites": ["site_checks", "view"],
+    status: ["sites", "view_status"],
+    // Drilling into one site isn't a heavier claim than seeing it listed on
+    // Status, so it shares that route's gate rather than getting its own.
+    "site-detail": ["sites", "view_status"],
+    // The same sites as Status, over a window instead of right now.
+    trends: ["sites", "view_status"],
+    "manage-sites": ["sites", "manage_monitoring"],
+    // Same gate as Manage Sites: this screen sets what every future sale is
+    // worth, which is a heavier permission than reading a revenue total.
+    packages: ["sites", "manage_monitoring"],
     // Independently gated from the Inventory master permission (below) —
     // "Inventory Items" and "Stock" are each their own toggle in roles.js's
     // permissions panel now, controlling access to these two routes
@@ -91,7 +100,30 @@ const ROUTE_PERMISSION_MAP = {
     // plain heading[data-view] branch in applyPermissionVisibility() below —
     // no NAV_GROUP_MASTER_PERMISSION entry needed for it.
     "inventory-reports": ["reports", "view"],
+    "sms-status": ["reports", "view"],
+    // Money, so its own gate: the same permission that shows revenue on
+    // Status and Trends. Sits in the Reports group but doesn't need
+    // reports:view (the group shows if any child is allowed).
+    revenue: ["sites", "view_revenue"],
     "inventory-manage": ["inventory_categories", "view"],
+    // Alerts group. "notifications" has no entry on purpose — it's the
+    // user's own inbox, same as the bell, so everyone logged in gets it
+    // (which also keeps the Alerts group itself always visible).
+    "alert-templates": ["sites", "edit_alert_messages"],
+    customers: ["sites", "send_broadcasts"],
+    broadcast: ["sites", "send_broadcasts"],
+    // The CCR2116 page: customer names and expiry, so its own switch rather
+    // than riding on view_status (which is about the hotspot sites).
+    network: ["sites", "view_network"],
+    // Technical Activity Log: Reports is the group's base permission (your own
+    // reports, plus everyone's with view_all), Submit and Overview each have
+    // their own switch. The group shows when any of them is allowed.
+    "activity-reports": ["activity_log", "view"],
+    "activity-submit": ["activity_log", "submit"],
+    "activity-overview": ["activity_log", "view_overview"],
+    // Admin only: no role can be given this (the Roles page doesn't offer it and
+    // the server uses require_admin), so only the built-in admin ever passes can().
+    "activity-manage": ["activity_log", "manage"],
 };
 
 function isRouteAllowed(name) {
@@ -154,6 +186,7 @@ function applyPermissionVisibility() {
         "add-site-open-btn": ["sites", "add"],
         "add-user-open-btn": ["users", "add"],
         "add-role-open-btn": ["roles", "add"],
+        "alert-recipients-open-btn": ["roles", "edit"],
         "add-inventory-category-open-btn": ["inventory_categories", "add"],
         "add-inventory-transaction-open-btn": ["inventory_transactions", "add"],
         // Add Item opens a wizard covering both New Product (create a new
@@ -192,8 +225,11 @@ function applyPermissionVisibility() {
     const movementsLinkBtn = document.getElementById("movements-link-btn");
     if (movementsLinkBtn) movementsLinkBtn.hidden = !can("movements", "view");
 
-    const checkSitesLinkBtn = document.getElementById("check-sites-link-btn");
-    if (checkSitesLinkBtn) checkSitesLinkBtn.hidden = !can("site_checks", "view");
+    const statusLinkBtn = document.getElementById("status-link-btn");
+    if (statusLinkBtn) statusLinkBtn.hidden = !can("sites", "view_status");
+
+    const manageSitesLinkBtn = document.getElementById("manage-sites-link-btn");
+    if (manageSitesLinkBtn) manageSitesLinkBtn.hidden = !can("sites", "manage_monitoring");
 
     const issueMaterialsLinkBtn = document.getElementById("issue-materials-link-btn");
     if (issueMaterialsLinkBtn) issueMaterialsLinkBtn.hidden = !can("inventory_transactions", "issue");
@@ -338,7 +374,12 @@ function parseRoute(hash) {
 // (never auto-collapses) the group when the active route lands inside it,
 // e.g. a page refresh or a deep link straight to a sub-route while the group
 // still shows collapsed.
-const NAV_GROUP_ROUTES = { inventory: ["inventory", "stock", "inventory-log", "inventory-manage"] };
+const NAV_GROUP_ROUTES = {
+    inventory: ["inventory", "stock", "inventory-log", "inventory-manage"],
+    alerts: ["notifications", "alert-templates", "customers", "broadcast"],
+    reports: ["inventory-reports", "sms-status", "revenue"],
+    activity: ["activity-overview", "activity-reports", "activity-submit", "activity-manage"],
+};
 
 function setActiveNav(name) {
     document.querySelectorAll("[data-view]").forEach(l => l.classList.toggle("active", l.dataset.view === name));
@@ -402,12 +443,6 @@ function startRouter(fallback) {
 
 function initHeaderLinkIcons() {
     document.getElementById("movements-link-icon").innerHTML = moveIconSvg();
-    document.getElementById("check-sites-link-icon").innerHTML = `
-        <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M8 1.5L14 4V8C14 11.5 11.5 13.8 8 14.5C4.5 13.8 2 11.5 2 8V4L8 1.5Z" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/>
-            <path d="M5.5 8L7.2 9.7L10.5 6.2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-    `;
     const issueMaterialsLinkIcon = document.getElementById("issue-materials-link-icon");
     if (issueMaterialsLinkIcon) issueMaterialsLinkIcon.innerHTML = `
         <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -424,14 +459,40 @@ function initHeaderLinkIcons() {
     `;
 }
 
+// Views that show notification read state themselves (Alerts >
+// Notifications) register here to be told when the unread count changes —
+// whether that came from the bell's "Mark all read", tapping an item in the
+// bell, the view's own buttons, or a new alert arriving on the 45s poll.
+// Without this the bell and the Notifications page each kept their own
+// picture, and marking all read in one left the other showing unread items.
+const notificationsChangedHandlers = [];
+export function registerNotificationsChangedHandler(fn) {
+    notificationsChangedHandlers.push(fn);
+}
+
+// null until the first count arrives, so the first refresh after login
+// never counts as a "change" by itself.
+let lastUnreadCount = null;
+
+// Same number in three places: the bell, the Alerts heading in the sidebar,
+// and its Notifications sub-link. The heading's copy is hidden by CSS while
+// the group is expanded, so the count never shows twice side by side.
+function renderUnreadBadges(count) {
+    const bellBadge = document.getElementById("notifications-badge");
+    bellBadge.textContent = count > 99 ? "99+" : count;
+    bellBadge.hidden = count === 0;
+    ["alerts-nav-badge", "notifications-nav-badge"].forEach(id => {
+        const badge = document.getElementById(id);
+        if (!badge) return;
+        badge.textContent = count > 99 ? "99+" : count;
+        badge.hidden = count === 0;
+    });
+}
+
 export async function refreshBadges() {
-    // No /notifications/unread-count call here: there's no notifications
-    // feature on the backend yet (no route, no table) — the bell icon in
-    // the topbar is a placeholder with no click handler either. Add the
-    // fetch back once that feature actually exists server-side.
-    const [movRes, siteRes] = await Promise.all([
+    const [movRes, notifRes] = await Promise.all([
         fetch("/movements/active-count", { headers: authHeaders() }),
-        fetch("/locations/unconfirmed-count", { headers: authHeaders() }),
+        fetch("/notifications/unread-count", { headers: authHeaders() }),
     ]);
 
     if (movRes.ok) {
@@ -443,15 +504,58 @@ export async function refreshBadges() {
         navBadge.textContent = count;
         navBadge.hidden = count === 0;
     }
-    if (siteRes.ok) {
-        const { count } = await siteRes.json();
-        const badge = document.getElementById("sites-badge");
-        badge.textContent = count;
-        badge.hidden = count === 0;
-        const navBadge = document.getElementById("sites-nav-badge");
-        navBadge.textContent = count;
-        navBadge.hidden = count === 0;
+    if (notifRes.ok) {
+        const { count } = await notifRes.json();
+        renderUnreadBadges(count);
+        const changed = lastUnreadCount !== null && count !== lastUnreadCount;
+        lastUnreadCount = count;
+        if (changed) notificationsChangedHandlers.forEach(fn => fn());
     }
+}
+
+export function timeAgo(iso) {
+    if (!iso) return "";
+    const diffMs = Date.now() - new Date(iso).getTime();
+    const mins = Math.max(0, Math.round(diffMs / 60000));
+    if (mins < 1) return "just now";
+    if (mins < 60) return `${mins}m ago`;
+    const hours = Math.round(mins / 60);
+    if (hours < 24) return `${hours}h ago`;
+    return `${Math.round(hours / 24)}d ago`;
+}
+
+async function loadNotifications() {
+    const list = document.getElementById("notifications-list");
+    const res = await fetch("/notifications", { headers: authHeaders() });
+    if (!res.ok) return;
+    const items = await res.json();
+    if (!items.length) {
+        list.innerHTML = `<div class="notifications-empty">Nothing here yet.</div>`;
+        return;
+    }
+    list.innerHTML = items.map(n => `
+        <div class="notification-item${n.read ? "" : " unread"}" data-id="${n.id}" data-link="${n.link || ""}">
+            <div class="notification-item-title">${n.title}</div>
+            <div class="notification-item-body">${n.body}</div>
+            <div class="notification-item-time">${timeAgo(n.created_at)}</div>
+        </div>
+    `).join("");
+}
+
+// Polled independently of any one view (unlike the dashboard's live-sync,
+// which only runs while the Batteries view is on screen) — a site can drop
+// while someone is on any other page, and the bell should catch up without
+// needing that page's own refresh logic to know about it. 45s, not 60s:
+// deliberately not a multiple of the router's own 60s heartbeat, so a poll
+// doesn't consistently land just before or just after each ingest.
+const NOTIFICATION_POLL_MS = 45000;
+let notifPollId = null;
+function startNotificationPolling() {
+    clearInterval(notifPollId);
+    notifPollId = setInterval(() => {
+        if (document.visibilityState !== "visible") return;
+        refreshBadges();
+    }, NOTIFICATION_POLL_MS);
 }
 
 // ---- App-shown handlers: view modules register their own initial data load,
@@ -476,6 +580,10 @@ const logoutHandlers = [];
 export function registerLogoutHandler(fn) {
     logoutHandlers.push(fn);
 }
+registerLogoutHandler(() => {
+    clearInterval(notifPollId);
+    lastUnreadCount = null; // the next login may be a different person
+});
 
 export async function showApp() {
     document.getElementById("login-screen").hidden = true;
@@ -490,6 +598,7 @@ export async function showApp() {
         ...appShownHandlers.map(fn => fn()),
         refreshBadges(),
     ]);
+    startNotificationPolling();
     startRouter(firstAllowed);
 }
 
@@ -589,7 +698,7 @@ function renderCmdkResults(query) {
 // ---- Fragment loader: fetches every view's HTML and injects it into its
 // mount point. Loaded eagerly, all at once, at startup — the app is small
 // enough that lazy-per-nav loading isn't worth the added state-tracking. ----
-const VIEW_NAMES = ["dashboard", "sites", "movements", "check-sites", "users", "roles", "settings", "inventory", "stock", "inventory-log", "issue-materials", "return-materials", "inventory-reports", "inventory-manage"];
+const VIEW_NAMES = ["dashboard", "sites", "movements", "status", "site-detail", "trends", "manage-sites", "packages", "notifications", "alert-templates", "customers", "broadcast", "users", "roles", "settings", "inventory", "stock", "inventory-log", "issue-materials", "return-materials", "inventory-reports", "sms-status", "revenue", "inventory-manage", "network", "activity-overview", "activity-reports", "activity-submit", "activity-manage"];
 
 export async function loadViewFragments() {
     await Promise.all(VIEW_NAMES.map(async (name) => {
@@ -676,12 +785,44 @@ export function initShell() {
         menu.hidden = !menu.hidden;
     });
 
+    // ---- Notifications bell (Phase 4.8) ----
+    document.getElementById("notifications-btn").addEventListener("click", (e) => {
+        e.stopPropagation();
+        const panel = document.getElementById("notifications-panel");
+        const opening = panel.hidden;
+        panel.hidden = !panel.hidden;
+        if (opening) loadNotifications();
+    });
+
+    document.getElementById("notifications-mark-all-btn").addEventListener("click", async (e) => {
+        e.stopPropagation();
+        await fetch("/notifications/read-all", { method: "POST", headers: authHeaders() });
+        await Promise.all([loadNotifications(), refreshBadges()]);
+    });
+
+    document.getElementById("notifications-list").addEventListener("click", async (e) => {
+        const item = e.target.closest(".notification-item");
+        if (!item) return;
+        const id = item.dataset.id;
+        const link = item.dataset.link;
+        if (item.classList.contains("unread")) {
+            item.classList.remove("unread");
+            fetch(`/notifications/${id}/read`, { method: "POST", headers: authHeaders() })
+                .then(refreshBadges)
+                .catch(() => {});
+        }
+        document.getElementById("notifications-panel").hidden = true;
+        if (link) navigate(link);
+    });
+
     document.addEventListener("click", () => {
         document.getElementById("topbar-avatar-menu").hidden = true;
+        document.getElementById("notifications-panel").hidden = true;
     });
 
     document.getElementById("logout-btn").addEventListener("click", () => {
         logoutHandlers.forEach(fn => fn());
+        setNavOpen(false);
         clearSession();
         document.getElementById("global-topbar").hidden = true;
         document.getElementById("app-layout").hidden = true;
@@ -696,7 +837,7 @@ export function initShell() {
 
     function setNavOpen(isOpen) {
         sidebar.classList.toggle("open", isOpen);
-        sidebarBackdrop.hidden = !isOpen;
+        sidebarBackdrop.classList.toggle("open", isOpen);
     }
 
     document.getElementById("nav-toggle-btn").addEventListener("click", () => {

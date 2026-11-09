@@ -13,6 +13,14 @@ def user_has_permission(current_user: dict, section: str, action: str) -> bool:
         return False
     return db.check_role_permission(role_id, section, action)
 
+# For features that are the built-in admin's alone, not something a custom
+# role can be granted (the AI revenue analysis sends figures to an outside
+# service, so the owner keeps it to admins).
+def require_admin(current_user: dict = Depends(get_current_user)):
+    if current_user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Only an admin can do this")
+    return current_user
+
 class RoleCreate(BaseModel):
     name: str
 

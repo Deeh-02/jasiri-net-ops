@@ -88,11 +88,54 @@ const PERM_SECTIONS = [
     {
         key: "sites", label: "Sites", actions: ["add", "edit", "delete"],
         children: [
-            { key: "site_checks", label: "Check Sites", actions: ["confirm"] }
+            // Network monitoring (Status tab). view_status gates the tab and
+            // its endpoints; view_revenue is nested under it and is the only
+            // thing that puts revenue figures in the API payload.
+            {
+                id: "sites_view_status", key: "sites", label: "Site Status",
+                toggleAction: "view_status",
+                actions: [
+                    { label: "View Revenue", action: "view_revenue" },
+                    // Phase 4.8 — who is actually texted/WhatsApped/bell-
+                    // notified on a down/recovered/flapping site. Each
+                    // person still picks their own channels in Settings >
+                    // Notifications; this only decides whether they're in
+                    // the recipient list at all. No revenue ever appears in
+                    // an alert body regardless of this flag (PHASES.md 4.4).
+                    { label: "Receive Alerts", action: "receive_alerts" },
+                    // Alerts > SMS Templates — changes the wording every
+                    // recipient above gets, on every channel.
+                    { label: "Edit Alert Messages", action: "edit_alert_messages" },
+                    // Alerts > Customers / Broadcast — import the PPPoE customer
+                    // list and text them. Holds phone numbers and can message
+                    // every customer, so it's its own switch.
+                    { label: "Customer Broadcasts", action: "send_broadcasts" },
+                ],
+            },
+            // The Network page (CCR2116 uplink, gateway, PPPoE clients). Shows
+            // customer names, packages and expiry — never phones or payments.
+            {
+                id: "sites_view_network", key: "sites", label: "Network (CCR2116)",
+                toggleAction: "view_network",
+                actions: [],
+            },
         ]
     },
     { key: "users", label: "Users", actions: ["add", "edit", "delete"] },
     { key: "roles", label: "Roles", actions: ["add", "edit", "delete"] },
+    // Technical Activity Log. The master toggle (activity_log:view) is Activity
+    // Reports: a person sees their own reports and ones they're listed on.
+    // The built-in admin always has everything, and alone can delete a
+    // report or edit anyone's; a Technician role is View + Submit, a Manager
+    // role adds See all reports + See Overview.
+    {
+        key: "activity_log", label: "Technical Activity Log",
+        actions: [
+            { label: "Submit reports (and edit your own for 48 hours)", action: "submit" },
+            { label: "See every report, not just your own", action: "view_all" },
+            { label: "See Activity Overview", action: "view_overview" },
+        ],
+    },
     // A plain master toggle, same shape as Users/Roles above — no flat
     // actions or children, since "view" is the only capability the Reports
     // page needs (every panel on it, SKU Summary/Cable Summary/Offcuts, is
@@ -169,10 +212,11 @@ const PERM_SECTIONS = [
 ];
 
 const ACTION_NOUN = {
-    batteries: "battery", movements: "movement", sites: "site", site_checks: "site check",
+    batteries: "battery", movements: "movement", sites: "site",
     users: "user", roles: "role", inventory_items: "item",
     inventory_categories: "category",
     inventory_transactions: "transaction",
+    activity_log: "report",
 };
 
 function renderPermGrid(permissions) {
@@ -318,8 +362,50 @@ async function openRoleForm(roleId) {
     }
 }
 
+async function loadAlertRecipients() {
+    const res = await fetch("/monitoring/alert-recipients", { headers: authHeaders() });
+    if (!res.ok) {
+        alert("Failed to load alert recipients");
+        return;
+    }
+    const recipients = await res.json();
+    renderAlertRecipients(recipients);
+}
+
+function renderAlertRecipients(recipients) {
+    const tbody = document.getElementById("alert-recipients-rows");
+    if (!tbody) return;
+
+    tbody.innerHTML = recipients.map(r => `
+        <tr>
+            <td>${r.name}</td>
+            <td>${r.phone || "—"}</td>
+            <td><input type="checkbox" class="recipient-sms-cb" data-id="${r.id}" ${r.sms ? "checked" : ""}></td>
+            <td><input type="checkbox" class="recipient-whatsapp-cb" data-id="${r.id}" ${r.whatsapp ? "checked" : ""}></td>
+        </tr>
+    `).join("");
+
+    async function saveChannels(id) {
+        const sms = tbody.querySelector(`.recipient-sms-cb[data-id="${id}"]`).checked;
+        const whatsapp = tbody.querySelector(`.recipient-whatsapp-cb[data-id="${id}"]`).checked;
+        const res = await fetch(`/monitoring/alert-recipients/${id}`, {
+            method: "PUT",
+            headers: authHeaders({ "Content-Type": "application/json" }),
+            body: JSON.stringify({ sms_enabled: sms, whatsapp_enabled: whatsapp }),
+        });
+        if (!res.ok) alert("Failed to save — try again");
+    }
+
+    tbody.querySelectorAll(".recipient-sms-cb, .recipient-whatsapp-cb").forEach(cb => {
+        cb.addEventListener("change", () => saveChannels(cb.dataset.id));
+    });
+}
+
 export function initRoles() {
     document.getElementById("add-role-open-btn").addEventListener("click", () => navigate("roles/new"));
+
+    document.getElementById("alert-recipients-open-btn").addEventListener("click", () => navigate("roles/alert-recipients"));
+    document.getElementById("alert-recipients-back-btn").addEventListener("click", () => navigate("roles"));
 
     document.getElementById("role-form-cancel").addEventListener("click", () => {
         navigate("roles");
@@ -405,6 +491,10 @@ export function initRoles() {
         if (params[0] === "new") {
             await openRoleForm(null);
             showView("view-role-form");
+        } else if (params[0] === "alert-recipients") {
+            if (!can("roles", "edit")) { navigate("roles"); return; }
+            showView("view-alert-recipients");
+            loadAlertRecipients();
         } else if (params[0] && params[1] === "edit") {
             await openRoleForm(params[0]);
             showView("view-role-form");

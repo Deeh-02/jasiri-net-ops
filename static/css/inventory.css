@@ -87,6 +87,40 @@
     color: var(--text-dim);
 }
 
+/* ---- Phones: the panel header's one long row (title, search, 1-3
+   dropdowns, CSV/Add buttons) ran off the right edge of the screen. It
+   wraps instead: title, then a full-width search, then the dropdowns
+   sharing one row, then the buttons. ---- */
+@media (max-width: 760px) {
+    .inventory-panel-header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 10px;
+    }
+
+    .inventory-panel-header-actions {
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .inventory-panel-header-actions .inventory-filter-search {
+        flex: 1 1 100%;
+        width: auto;
+        font-size: 16px; /* under 16px, iOS zooms the page on focus */
+    }
+
+    .inventory-panel-header-actions .inventory-filter-select {
+        /* 28% basis: up to three dropdowns share a row, and the buttons
+           wrap to the next row instead of squeezing them to "Al". */
+        flex: 1 1 28%;
+        min-width: 0;
+    }
+
+    .inventory-panel-header-actions .header-sub-link {
+        padding: 6px 0;
+    }
+}
+
 .inventory-filter-search:focus {
     outline: none;
     border-color: var(--accent);

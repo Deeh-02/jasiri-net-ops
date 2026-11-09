@@ -127,6 +127,41 @@ Three families, loaded once via a Google Fonts `@import` in `common.css`:
   (an opacity-faded `var(--text)`, not `var(--text-dim)` itself) until
   Phase 2 added an explicit `.panel-form input::placeholder` rule.
 
+- **Direction and status are glyph + word, never colour alone** (Trends,
+  Revenue): `▲ Up` / `▼ Down` / `► Flat`, and `● Investigate` /
+  `● Attention` / `● Positive` for the red / amber / green alert levels,
+  coloured with the same `--accent` / `--warn` / `--danger` tokens as
+  everywhere else. A person who can't tell green from red still reads the
+  word. Revenue's alert rows add a 3px left border in the same colour and
+  show the rule id (JetBrains Mono, `--text-dim`) beside the numbers that
+  triggered it — an interpretation always carries the rule that produced it.
+- **Money is shown exactly as the server formats it** (`KSh 10,810`,
+  `-KSh 3,220`), never re-formatted or rounded in the browser, so a page
+  can't disagree with the stored report. A figure that doesn't exist is
+  "No comparable data", never `0` or `—` that could be read as zero.
+- **Line charts are inline SVG** (Revenue's trend), drawn with the page's own
+  tokens: `--accent` for the series, `--info` dashed for the 7-day average,
+  a 12%-opacity `--info` band for the usual range, hollow marker for a
+  period still in progress, and a `--danger` / `--warn` ring on an unusual
+  point. Every point carries a `<title>` tooltip with its value and, where
+  it applies, the rule that flagged it. Bar charts elsewhere (Trends, the
+  site report) stay CSS-div bars — SVG is for charts that need a line or a
+  band.
+- **Native `<select>` on report pages is a known exception** to the
+  custom-dropdown rule above: Trends' period picker already uses one, and
+  Revenue's comparison and series pickers match it rather than introducing
+  a second look on the same report screens. New *form* fields should still
+  use the custom dropdown.
+
+- **The assistant widget** (`chat.css`, `.chat-*`) is the one floating
+  element: a pill "Ask" button bottom-right (accent outline on
+  `--surface`), opening a 390px panel there on desktop and the full screen
+  on phones (≤760px). The user's bubbles sit right on a faint accent tint;
+  the assistant's sit left on `--surface-2`; an error is a full-width
+  `--danger` outlined bubble with a Retry button; a three-dot typing
+  indicator shows while waiting. Text is shown as typed (`pre-wrap`), so
+  the assistant is told to answer in plain text, not markdown.
+
 ## Spacing conventions
 
 No formal scale variable, but a consistent rhythm shows up throughout:

@@ -2,7 +2,12 @@ import { loadViewFragments, initShell, resolveAuthUI, bootAuth } from "./common.
 import { initDashboard } from "./dashboard.js";
 import { initSites } from "./sites.js";
 import { initMovements } from "./movements.js";
-import { initCheckSites } from "./check-sites.js";
+import { initStatus } from "./status.js";
+import { initSiteDetail } from "./site-detail.js";
+import { initTrends } from "./trends.js";
+import { initManageSites } from "./manage-sites.js";
+import { initPackages } from "./packages.js";
+import { initAlerts } from "./alerts.js";
 import { initUsers } from "./users.js";
 import { initRoles } from "./roles.js";
 import { initSettings } from "./settings.js";
@@ -13,6 +18,16 @@ import { initInventoryLog } from "./inventory-log.js";
 import { initIssueMaterials } from "./issue-materials.js";
 import { initReturnMaterials } from "./return-materials.js";
 import { initInventoryReports } from "./inventory-reports.js";
+import { initSmsStatus } from "./sms-status.js";
+import { initRevenue } from "./revenue.js";
+import { initCustomers } from "./customers.js";
+import { initBroadcast } from "./broadcast.js";
+import { initChat } from "./chat.js";
+import { initNetwork } from "./network.js";
+import { initActivitySubmit } from "./activity-submit.js";
+import { initActivityReports } from "./activity-reports.js";
+import { initActivityOverview } from "./activity-overview.js";
+import { initActivityManage } from "./activity-manage.js";
 
 async function boot() {
     initShell();
@@ -22,7 +37,12 @@ async function boot() {
     initDashboard();
     initSites();
     initMovements();
-    initCheckSites();
+    initStatus();
+    initSiteDetail();
+    initTrends();
+    initManageSites();
+    initPackages();
+    initAlerts();
     initUsers();
     initRoles();
     initSettings();
@@ -33,6 +53,16 @@ async function boot() {
     initIssueMaterials();
     initReturnMaterials();
     initInventoryReports();
+    initSmsStatus();
+    initRevenue();
+    initCustomers();
+    initBroadcast();
+    initChat();
+    initNetwork();
+    initActivitySubmit();
+    initActivityReports();
+    initActivityOverview();
+    initActivityManage();
 
     bootAuth();
 }

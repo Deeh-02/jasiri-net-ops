@@ -12,14 +12,53 @@ import { refreshData as refreshDashboardData } from "./dashboard.js";
 let movementsCache = null;
 let showMovementHistory = false;
 
-// Bumped by loadMovements() on every route re-dispatch and history-filter
-// toggle. A refreshMovements() call captures the value at its own start and
-// checks it again once the fetch resolves — if a newer call has started in
-// the meantime, this one's response is stale (however it got that way: a
-// slower request, or one that simply started earlier) and is discarded
-// instead of overwriting the screen with an answer to a question nobody's
-// asking anymore.
-let movementsRequestId = 0;
+// Phase 4.9 — the confirm-online prefill. Keyed by location_id (what
+// GET /monitoring/status returns per site) so a movement row's own
+// to_location_id can look itself up with no join, no new backend read.
+// null (not {}) before the first fetch completes or when the viewer lacks
+// sites:view_status — renderMovementActions treats null as "no prefill
+// data available" and falls back to the plain two-button UI unchanged,
+// exactly like today for anyone without that permission.
+let siteLivenessByLocation = null;
+
+async function refreshSiteLiveness() {
+    if (!can("sites", "view_status")) {
+        siteLivenessByLocation = null;
+        return;
+    }
+    try {
+        const res = await fetch("/monitoring/status", { headers: authHeaders() });
+        if (!res.ok) { siteLivenessByLocation = null; return; }
+        const data = await res.json();
+        const map = {};
+        for (const s of data.sites || []) {
+            if (s.location_id != null) map[s.location_id] = s;
+        }
+        siteLivenessByLocation = map;
+    } catch {
+        // A prefill hint is a convenience, not a requirement — any failure
+        // here just means the plain two-button UI, never a broken page.
+        siteLivenessByLocation = null;
+    }
+}
+
+// Two separate staleness checks. They used to be one counter bumped by
+// every call, which meant each 1.5s poll tick invalidated whatever request
+// was still in flight. On a slow server (any response over 1.5s) nothing
+// ever got to render, and the table sat on "Loading movements..." for good.
+//
+// movementsGeneration: bumped only by loadMovements() (navigation, history
+// toggle). A response from an older generation answered a different
+// question (e.g. history off vs on) and is dropped.
+// movementsSeq / movementsAppliedSeq: within one generation, a response is
+// dropped only if a *newer* one has already been rendered. A slower older
+// response can never overwrite a newer one, but a newer request no longer
+// cancels an older one that hasn't been answered yet.
+let movementsGeneration = 0;
+let movementsSeq = 0;
+let movementsAppliedSeq = 0;
+let movementsInFlight = 0;
+let livenessInFlight = false;
 
 export const MOVEMENT_STATUS_META = {
     pending: { label: "Pending", cls: "pending" },
@@ -42,29 +81,51 @@ const MOVEMENT_REASON_LABELS = {
 // the one function every fetch of this list goes through, load or poll
 // alike, so the staleness guard below covers both.
 async function refreshMovements() {
-    const requestId = ++movementsRequestId;
-    const res = await fetch(`/movements${showMovementHistory ? "?history=true" : ""}`, { headers: authHeaders() });
-    // A newer call (another poll tick, or a fresh loadMovements() from
-    // navigating away and back) has started since this fetch went out —
-    // whatever this response says, it's not the answer to display anymore.
-    // Without this, two overlapping requests race on nothing but network
-    // timing: whichever happens to resolve *last* wins the render, even if
-    // it was the *first* one issued and is now describing an older state
-    // than what the newer request already put on screen.
-    if (requestId !== movementsRequestId) return;
-    if (!res.ok) {
-        document.getElementById("movements-rows").innerHTML = '<tr><td colspan="6" class="loading-text">Failed to load movements</td></tr>';
+    const generation = movementsGeneration;
+    const seq = ++movementsSeq;
+    const isStale = () => generation !== movementsGeneration || seq < movementsAppliedSeq;
+    movementsInFlight++;
+    let res, data;
+    // Phase 4.9's prefill data — refreshed every cycle alongside the list
+    // (not gated behind the dedup below), but not awaited: it's only a hint,
+    // and /monitoring/status can be slow, so the table shouldn't wait on it.
+    // An "arrived" row always re-renders on the next tick (see hasArrived
+    // below), which is when a late answer shows up.
+    if (!livenessInFlight) {
+        livenessInFlight = true;
+        refreshSiteLiveness().finally(() => { livenessInFlight = false; });
+    }
+    try {
+        res = await fetch(`/movements${showMovementHistory ? "?history=true" : ""}`, { headers: authHeaders() });
+        if (res.ok) data = await res.json();
+    } catch {
+        res = null;
+    } finally {
+        movementsInFlight--;
+    }
+    if (isStale()) return;
+    movementsAppliedSeq = seq;
+    if (!res || !res.ok) {
+        // Only replace the loading placeholder — a failed background poll
+        // shouldn't wipe a table that's already showing good data.
+        if (movementsCache === null) {
+            document.getElementById("movements-rows").innerHTML = '<tr><td colspan="6" class="loading-text">Failed to load movements</td></tr>';
+        }
         return;
     }
-    const data = await res.json();
-    if (requestId !== movementsRequestId) return;
     // movementsCache is null exactly when there's nothing on screen yet to
     // compare against (see its declaration above) — most other polls land
     // on an unchanged list, where rebuilding the tbody anyway would tear
     // down and recreate every action button, dropping whatever button the
     // mouse happens to be hovering (its :hover style blinks off then back
-    // on) even though nothing actually changed.
-    if (movementsCache !== null && JSON.stringify(data) === JSON.stringify(movementsCache)) return;
+    // on) even though nothing actually changed. The one exception: an
+    // "arrived" row's prefill can go stale-to-fresh purely from
+    // siteLivenessByLocation changing underneath an otherwise-identical
+    // movements list, so an unchanged list still re-renders while one is
+    // waiting on a site-check answer.
+    const unchanged = movementsCache !== null && JSON.stringify(data) === JSON.stringify(movementsCache);
+    const hasArrived = data.some(m => m.status === "arrived");
+    if (unchanged && !hasArrived) return;
     movementsCache = data;
     renderMovementsList(movementsCache);
 }
@@ -79,6 +140,7 @@ async function refreshMovements() {
 async function loadMovements() {
     document.getElementById("movements-rows").innerHTML = '<tr><td colspan="6" class="loading-text">Loading movements...</td></tr>';
     movementsCache = null;
+    movementsGeneration++;
     await refreshMovements();
 }
 
@@ -109,6 +171,29 @@ function renderMovementsList(movements) {
     attachMovementActionListeners();
 }
 
+// Phase 4.9 — "Monitoring saw Sunton come back online at 14:32, 12m after
+// you marked arrived" (PHASES.md's own example). Two cases suggest an
+// answer: monitoring currently shows offline (supports "Still Down"), or
+// it shows online with the recovery happening AFTER this movement's own
+// arrival (supports "Site Online") — a site that was already online
+// before arrival isn't evidence of anything this movement did, so that
+// case deliberately returns no hint at all rather than a misleading one.
+function siteCheckPrefill(m) {
+    if (!siteLivenessByLocation || m.to_location_id == null) return null;
+    const site = siteLivenessByLocation[m.to_location_id];
+    if (!site) return null;
+    if (site.state === "offline") return { suggestOnline: false, site };
+    if (site.state === "online" && m.arrived_at && site.state_since
+        && new Date(site.state_since) > new Date(m.arrived_at)) {
+        return { suggestOnline: true, site };
+    }
+    return null;
+}
+
+function eatTime(iso) {
+    return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", timeZone: "Africa/Nairobi" });
+}
+
 function renderMovementActions(m) {
     switch (m.status) {
         case "pending":
@@ -125,13 +210,25 @@ function renderMovementActions(m) {
                     <button type="button" class="movement-cancel-btn" data-id="${m.id}" title="Cancel movement">${deleteIconSvg()}</button>
                 </div>
             `;
-        case "arrived":
+        case "arrived": {
+            const prefill = siteCheckPrefill(m);
+            let hint = "";
+            if (prefill) {
+                hint = prefill.suggestOnline
+                    ? `<div class="site-check-hint">Monitoring saw it back online at ${eatTime(prefill.site.state_since)}, ${Math.round((new Date(prefill.site.state_since) - new Date(m.arrived_at)) / 60000)}m after you marked arrived.</div>`
+                    : `<div class="site-check-hint">Monitoring still shows this site offline.</div>`;
+            }
+            const siteIdAttr = prefill ? ` data-monitored-site-id="${prefill.site.id}"` : "";
+            const onlineCls = prefill && prefill.suggestOnline ? " suggested" : "";
+            const downCls = prefill && !prefill.suggestOnline ? " suggested" : "";
             return `
+                ${hint}
                 <div class="actions-cell">
-                    <button type="button" class="movement-site-check-btn" data-answer="true" data-id="${m.id}">Site Online</button>
-                    <button type="button" class="movement-site-check-btn" data-answer="false" data-id="${m.id}">Still Down</button>
+                    <button type="button" class="movement-site-check-btn${onlineCls}" data-answer="true" data-id="${m.id}"${siteIdAttr}>Site Online</button>
+                    <button type="button" class="movement-site-check-btn${downCls}" data-answer="false" data-id="${m.id}"${siteIdAttr}>Still Down</button>
                 </div>
             `;
+        }
         default:
             return "—";
     }
@@ -184,6 +281,22 @@ function attachMovementActionListeners() {
                 body: JSON.stringify({ is_online })
             });
             if (res.ok) {
+                // Phase 4.9 — reconciliation, not the source of truth: fired
+                // alongside confirm-online above (which just succeeded and
+                // is what actually moved the battery's lifecycle forward),
+                // never instead of it, and only when this movement's site
+                // was one monitoring could match at all (see
+                // siteCheckPrefill — a movement with no monitored site at
+                // its destination has no data-monitored-site-id to send).
+                // Best-effort: a failure here is a missed reconciliation
+                // record, not a reason to tell the tech their tap failed.
+                if (btn.dataset.monitoredSiteId) {
+                    fetch(`/monitoring/sites/${btn.dataset.monitoredSiteId}/confirmation-check`, {
+                        method: "POST",
+                        headers: authHeaders({ "Content-Type": "application/json" }),
+                        body: JSON.stringify({ is_online }),
+                    }).catch(() => {});
+                }
                 await refreshMovements();
                 await refreshBadges();
             } else {
@@ -214,6 +327,9 @@ function startLiveSync() {
         const view = document.getElementById("view-movements");
         if (!view || view.hidden) return;
         if (document.visibilityState !== "visible") return;
+        // Don't pile a new request on top of one still waiting — on a slow
+        // server that just queues more work and answers nothing sooner.
+        if (movementsInFlight > 0) return;
         refreshMovements();
     }, LIVE_SYNC_INTERVAL_MS);
 }

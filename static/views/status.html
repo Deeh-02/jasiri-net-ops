@@ -1,0 +1,66 @@
+    <section class="view" id="view-status" hidden>
+        <div class="page-header-row">
+            <h1 class="page-title">Network <span>Status</span></h1>
+            <div class="status-header-side">
+                <button type="button" id="manage-sites-link-btn" class="header-sub-link" hidden>Manage sites</button>
+                <div class="status-feed" id="status-feed">
+                    <span class="status-feed-dot"></span>
+                    <span id="status-feed-text">Connecting</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Status and Trends are two tabs on the same data, not two nav
+             entries — see phase.md's "Where it lands in the UI". -->
+        <div class="sites-tabs" role="tablist">
+            <button type="button" class="sites-tab is-active" role="tab" aria-selected="true">Status</button>
+            <button type="button" class="sites-tab" role="tab" aria-selected="false" data-tab-route="trends">Trends</button>
+        </div>
+
+        <div class="status-hero" id="status-hero"></div>
+
+        <div class="status-section" id="status-problems-section" hidden>
+            <div class="status-section-head">
+                <h2 class="status-section-title">Needs attention</h2>
+                <span class="status-section-note" id="status-problems-note"></span>
+            </div>
+            <div class="status-problems" id="status-problems"></div>
+        </div>
+
+        <!-- Acknowledged: still broken, no longer news. Out of the headline,
+             never off the page. -->
+        <div class="status-section" id="status-known-section" hidden>
+            <div class="status-section-head">
+                <h2 class="status-section-title is-quiet">Known issues</h2>
+                <span class="status-section-note">acknowledged &mdash; left out of the headline, cleared when the site comes back</span>
+            </div>
+            <div class="status-known" id="status-known"></div>
+        </div>
+
+        <!-- Sits directly above the money it qualifies. Hidden while the
+             customer list is arriving on time. -->
+        <div class="status-alert" id="status-sales-alert" hidden></div>
+
+        <div class="stat-grid" id="status-totals"></div>
+
+        <div class="status-section-head">
+            <h2 class="status-section-title">All sites</h2>
+            <span class="status-section-note">problems first &middot; &ldquo;online&rdquo; = PPPoE session up to the CCR</span>
+        </div>
+        <div class="table-scroll table-compact">
+            <table id="status-table">
+                <thead>
+                    <tr>
+                        <th class="col-frozen">Site</th>
+                        <th>Status</th>
+                        <th>Online now</th>
+                        <th class="status-col-wide">Uptime 30d</th>
+                        <th class="status-col-wide">Last seen</th>
+                        <th id="status-revenue-th" hidden>Revenue today</th>
+                    </tr>
+                </thead>
+                <tbody id="status-rows"></tbody>
+            </table>
+        </div>
+        <p class="status-footnote" id="status-footnote"></p>
+    </section>

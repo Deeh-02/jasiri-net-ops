@@ -1,0 +1,73 @@
+    <section class="view" id="view-customers" hidden>
+        <div class="page-header-row">
+            <h1 class="page-title">Customers</h1>
+            <button type="button" id="customer-add-open-btn" class="btn-add-site">+ Add Customer</button>
+        </div>
+
+        <div class="customers-intro">
+            <p>PPPoE customers from the billing export. Choose the router the file belongs to, check it, then import. Importing again refreshes each existing customer's plan, valid-until date and account status only &mdash; names and phone numbers you've entered here are never overwritten, and nobody is ever deleted.</p>
+        </div>
+
+        <div class="customers-import">
+            <label>Router
+                <select id="customers-import-router"></select>
+            </label>
+            <label>Customer export (.xlsx or .csv)
+                <input type="file" id="customers-import-file" accept=".xlsx,.csv">
+            </label>
+            <button type="button" id="customers-import-check">Check file</button>
+            <button type="button" id="customers-import-commit" hidden>Import</button>
+        </div>
+        <div class="customers-import-result" id="customers-import-result"></div>
+
+        <div class="customers-filters">
+            <label>Show
+                <select id="customers-filter-router"></select>
+            </label>
+            <div class="customers-summary" id="customers-summary"></div>
+        </div>
+
+        <div class="table-scroll">
+            <table id="customers-table">
+                <thead>
+                    <tr>
+                        <th>Router</th>
+                        <th>Username</th>
+                        <th>Name</th>
+                        <th>Phone</th>
+                        <th>Plan</th>
+                        <th>Expiry</th>
+                        <th>Account</th>
+                        <th>Manage</th>
+                    </tr>
+                </thead>
+                <tbody id="customers-rows"></tbody>
+            </table>
+        </div>
+    </section>
+
+    <section class="view" id="view-customer-form" hidden>
+        <h2 id="customer-form-title">Add Customer</h2>
+        <form id="customer-form" class="panel-form">
+            <select id="customer-form-router" required></select>
+            <input type="text" id="customer-form-username" placeholder="PPPoE username" required>
+            <input type="text" id="customer-form-name" placeholder="Customer name">
+            <input type="tel" id="customer-form-phone" placeholder="Phone (e.g. 0712345678)">
+            <input type="text" id="customer-form-plan" placeholder="Plan (e.g. Standard)">
+            <select id="customer-form-account" required>
+                <option value="Active">Active</option>
+                <option value="Expired">Expired</option>
+                <option value="Inactive">Inactive</option>
+            </select>
+            <label class="customer-form-field">Valid until (optional)
+                <input type="date" id="customer-form-expiry">
+            </label>
+            <label class="checkbox-row"><input type="checkbox" id="customer-form-disabled"> Disabled in billing</label>
+
+            <div class="modal-actions">
+                <button type="button" id="customer-form-cancel" class="btn-secondary">Cancel</button>
+                <button type="submit" class="btn-primary">Save</button>
+            </div>
+        </form>
+        <div class="form-msg" id="customer-form-msg"></div>
+    </section>
