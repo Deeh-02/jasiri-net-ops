@@ -42,6 +42,60 @@ Three families, loaded once via a Google Fonts `@import` in `common.css`:
 
 ## Component style conventions
 
+### Phase 5 shared foundation (`common.css` top + `common.js` bottom)
+
+Use these before inventing a view-specific version; a view's CSS only adds
+what is truly its own.
+
+- **Tokens** on `:root`: `--radius-sm` 6px, `--radius` 10px, `--page-pad-x`
+  (40px desktop / 16px phone; `.content` and the top bar both use it),
+  `--form-max` 760px, `--section-gap`, `--ring` (soft focus ring),
+  `--scrollbar` 10px.
+- **Page header:** `.page-header-row` with `h1.page-title` on the left
+  (optionally wrapped with a `p.page-subtitle` under it) and the actions on
+  the right (`.page-header-actions` for several). Every page uses it,
+  including form pages (Add User, Add Role …), Settings and Site detail. A
+  back link sits above it as `.header-sub-link.page-back`. Section titles
+  inside a page: `.section-title`.
+- **Buttons:** `.btn-primary` (the page's main action), `.btn-secondary`,
+  `.btn-danger` (deletes, irreversible), `.btn-ghost`. Usable anywhere, not
+  only inside `.modal-actions`; same hover, pressed (`scale(0.97)`), focus
+  and disabled (`opacity .45`, `not-allowed`) behaviour everywhere.
+  `.btn-add-site` remains as the older name for a primary header button.
+- **Focus:** every control shows `outline: 2px solid var(--accent)` on
+  `:focus-visible`; text fields keep the accent border and add `--ring`
+  (a box-shadow, so a view's `outline: none` can't remove it). Mouse focus
+  on a button shows nothing.
+- **Motion:** `prefers-reduced-motion: reduce` turns every animation and
+  transition into an instant change and removes lifts/scales. Keep new
+  motion subtle (≤ 0.3s, opacity/transform only).
+- **Filters above a table:** `.toolbar` (wraps, sits directly above the
+  table or its summary) with `.toolbar-field` (small mono uppercase label
+  span + control) and `.control` for inputs/selects (drawn chevron,
+  dark date picker). Never put filters inside the page header.
+- **Summary before a long table:** `.summary-strip` of `.summary-item`s
+  (`<strong>` number + label; `.good`/`.warn`/`.bad` tone the number). A
+  `button.summary-item` with `aria-pressed` acts as a quick filter (SMS
+  Status by status, Stock's "low on stock"). Put the thing someone must act
+  on first.
+- **Loading / empty / error:** `stateHtml(kind, text, title)` and, inside a
+  `<tbody>`, `stateRow(colspan, kind, text, title)` or
+  `showEmptyIfNone(tbody, count, text, title)` (works out the colspan).
+  Empty states say what to do next ("Try a wider date range…").
+- **Confirmations:** `await confirmDialog({ title, message, confirmLabel,
+  danger })`, never `confirm()`. Enter confirms, Escape/outside click
+  cancels, focus returns to the button that opened it. `danger: true` for
+  anything that deletes or can't be undone.
+- **Form feedback:** `showMessage(id, text, isError)` on a `.form-msg`.
+  Success fades after 4s; an error is a tinted box that stays until the
+  person edits that form. While the request a submit starts is in flight,
+  its submit button is disabled with a spinner (`aria-busy`) — automatic,
+  see ARCHITECTURE.md; a form that disables its own button is left alone.
+- **Sidebar:** the open section's heading is bright text with an accent
+  icon; only the current page carries the accent bar/tint; sub-pages hang
+  off a guide line; only the current page's group stays expanded.
+
+
 - **Buttons:** 6px border radius everywhere. Primary = solid `--accent`
   fill with dark text (`#10141a`); secondary = `--surface-2` fill with a
   `--border` outline. Hover = opacity 0.9; active = `scale(0.97)`. No
@@ -87,15 +141,15 @@ Three families, loaded once via a Google Fonts `@import` in `common.css`:
 - **Toggle switches** (`.perm-toggle`, role permission grid): custom
   checkbox-driven pill toggle, not a native checkbox — accent-colored track
   when checked, sliding thumb.
-- **Tab groups** (`.dashboard-tab-slant`, Settings' `.settings-tab`):
-  slanted parallelogram tabs (`clip-path`), uppercase Space Grotesk,
-  `--surface-2` background with dim text at rest, active tab drops to
-  `--surface` background with `--accent` text — not a filled pill, not an
-  underline. Used by the View Battery modal's Details/Logs tabs and (Phase
-  2) Settings' Profile/Password tabs; kept as two independently-styled
-  classes rather than one shared one, on purpose — each file's own click
-  handler wires its own tabs by bare class name, so sharing one class would
-  mean each handler also firing on the other's buttons.
+- **Tab groups** (Phase 5): one look everywhere, the shared `.tabs`
+  container + `.tab` buttons in `common.css` — an underline under the
+  current tab (`.active`, `.is-active` or `aria-selected="true"`), Inter
+  text, no fill. The slanted parallelogram tabs are gone. Each view keeps
+  its own class (`.settings-tab`, `.dashboard-tab-slant`,
+  `.inventory-item-tab`, `.sites-tab`) purely as its JS hook, so no click
+  handler fires on another view's tabs; the look comes only from `.tab`.
+  Day/Week/Month period switches (`.sr-range`, `.fleet-range`) are a
+  different control (a segmented switch) and keep their own look.
 - **Inline text-input autocomplete** (`.move-by-field`/`.move-by-suggestions`/
   `.move-by-option`, the "Moved by" field): a positioned dropdown anchored
   to a text input, filtered live as you type, scrollable past a handful of

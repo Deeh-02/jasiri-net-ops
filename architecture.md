@@ -1819,6 +1819,35 @@ repeat-visit metric. Materials and Photos are deferred and NOT built.
 - Tested against a throwaway Postgres (migration twice, concurrent references, scoping,
   soft delete) and driven in headless Chromium at phone width. `tests/test_activity.py`.
 
+### Phase 5 UI foundation — shared pieces, and one global fetch wrapper
+
+Presentation only (no schema, API or permission change). The conventions
+live in DESIGN.md; the parts with behaviour live at the bottom of
+`static/js/common.js`:
+
+- `confirmDialog()` replaces every `confirm()`: one lazily built
+  `.modal-overlay` reused for every confirmation, returns a Promise<boolean>.
+  Callers `await` it, so each was already inside an `async` function.
+- `stateHtml` / `stateRow` / `showEmptyIfNone` render the shared loading,
+  empty and error states (escaped text only).
+- `showMessage()` keeps an error until the person edits the form (an
+  `input` listener, once, on the enclosing `.modal-box` or the message's
+  parent) and sets `role="alert"`/`"status"`.
+- **Submit feedback wraps `window.fetch` once, at module load.** A
+  capture-phase `submit` listener marks the submit "pending"; any `fetch()`
+  called before the handler's first `await` (i.e. in the same task) is
+  attached to it, and the submit button is disabled with `aria-busy` until
+  those requests settle. Requests started later, timers and polling are
+  not attached (they may attach only if they happen to fire in that same
+  tick, which only delays re-enabling by one request). The wrapper returns
+  the original promise untouched. If a form already disabled its own
+  button, the wrapper leaves it alone. Anything else that monkey-patches
+  `fetch` (tests) should wrap the wrapper, not replace it, or the busy
+  state won't be seen.
+- `setActiveNav` folds every sidebar group except the current page's and
+  keeps `aria-expanded` in step; a group opened by hand stays open until
+  the next navigation outside it.
+
 ## Integration approach
 
 **Domain boundary:** `auth`, `permissions`, `sites`, `batteries` (includes
