@@ -9,12 +9,164 @@ and whatever's still upcoming.
 
 ---
 
+## ACTIVE PHASE: Phase 6 — SmartOLT Integration
+
+Started at the owner's explicit call, 2026-11-10, after Phase 5 was merged to
+`main`. Branch: `phase-6-smartolt` (from `main`). The owner's scope document
+called this "Phase 3 of the Technical Activity Log roadmap"; it is numbered 6
+here so it doesn't clash with the app's own Phase 3 (Inventory). Its
+sub-phases 3A–3D are 6A–6D below. Upcoming phases renumbered: Notifications
+6 → 7, Ticketing 7 → 8, CRM 8 → 9, Chat 9 → 10.
+
+### Purpose
+
+Bring SmartOLT's ONU data into OPS so technicians and managers can see fibre
+customer health without logging into SmartOLT. Existing stack only (FastAPI,
+PostgreSQL, plain JS/CSS), no new services. **Read before write:** nothing in
+OPS changes an ONU until the data has been correct and trusted for a while.
+
+SmartOLT is the cloud version at `https://jasiri.smartolt.com`. OPS is on
+Render with a public HTTPS address, so it can receive SmartOLT webhooks.
+
+### Sub-phases and gates
+
+Each sub-phase ships on its own; the next starts only when its gate is met.
+
+| Sub-phase | Delivers | Risk | Gate to start |
+|---|---|---|---|
+| **6A** Read-only ONU health | Polling of ONU status and signal, an `onu_state` table, a Network page panel | None, read only | API key set, sample responses saved |
+| **6A-W** Webhooks | SmartOLT pushes ONU status changes to OPS the moment they happen | None, read only | 6A polling has run reliably; webhook format looked up and a sample saved |
+| **6B** Customer linking | ONUs linked to customers; ONU status and signal on the customer account; optical signal pre-filled on Customer Installation reports | Medium: a wrong link shows the wrong customer's data | 6A has run reliably for at least a week |
+| **6C** Actions | Enable, disable, reboot one ONU from OPS, confirmed and audited | High: a wrong action cuts off the wrong customer | Every active customer's link verified in 6B |
+| **6D** Provisioning and configuration | Authorize ONUs, speed profiles from billing packages, WAN/port modes, resync, delete | Highest: changes live OLT configuration | 6C in daily use with no wrong-ONU incident, and a spare ONU to test on |
+
+Billing-driven automation (for example, disabling an ONU when an account is
+suspended) is not part of 6C or 6D. It needs its own decision after 6D.
+
+### 6A — Read-only ONU health
+
+**First task: capture real responses.** Before any other code, call each
+endpoint once and save the raw JSON as a sample, outside the repo (ONU names
+may hold customer names). Confirm against it: the key holding the ONU list,
+the format of the signal values, the full list of status values, and any
+rate-limit headers. Build on those facts, not assumptions.
+
+- **Config:** `SMARTOLT_URL` and `SMARTOLT_API_KEY` in `.env` and Render's
+  Environment. Never in the frontend, never in git. A dedicated OPS key.
+- **Client:** one module, `db/smartolt.py` (the scope doc's
+  `app/integrations/smartolt.py`; this repo keeps integrations in `db/`, like
+  `db/deepseek.py`). Sends the key in the `X-Token` header, raises when the
+  response's `status` is false, waits and retries once on HTTP 429 using
+  `Retry-After`.
+- **Polling:** `GET /api/onu/get_onus_statuses` every 6 minutes,
+  `GET /api/onu/get_onus_signals` every 20 minutes, each with a small random
+  delay. About 13 calls an hour. No per-ONU endpoints in a loop.
+- **What drives the polling (owner's call, 2026-11-10):** no scheduler. The
+  router's 15-second heartbeat (Phase 4 ingest) is the clock: on each one, if
+  a poll is due, it runs in the background so the heartbeat is never held up
+  (same approach as `purge_if_due`). Backup: opening the Network page with
+  data older than 6 minutes triggers a fetch, so the data can't go silently
+  stale while someone is looking.
+- **Table `onu_state`** (schema change, owner approval before it runs):
+  `unique_external_id` text primary key, `sn`, `olt_id`, `board`, `port`,
+  `name`, `status`, `last_status_change`, `signal_1310`, `signal_1490`
+  (text until the format is confirmed), `polled_at` timestamptz not null
+  default now(). Both jobs upsert by `unique_external_id`.
+- **Network page panel:** counts by status (whatever values the real response
+  has); ONUs not online, sorted by time since `last_status_change`; a
+  weak-signal list with configurable thresholds (start: warn −25 dBm,
+  critical −27 dBm); a "last updated" time; shown as **stale** when
+  `polled_at` is older than 15 minutes.
+
+### 6A-W — Webhooks (added at the owner's call, 2026-11-10)
+
+SmartOLT tells OPS the moment an ONU changes, instead of OPS waiting up to
+6 minutes for the next poll.
+
+- **Before building:** look up SmartOLT's webhook events, payload and how it
+  proves a request came from SmartOLT. Don't guess them.
+- An inbound endpoint that rejects any request that can't be verified, and
+  updates `onu_state` for that one ONU. It never changes anything in SmartOLT.
+- **Polling stays.** Webhooks cover status changes only; signal readings
+  still come from the 20-minute poll, and the 6-minute status poll stays as
+  a safety net for any missed webhook (it can run less often once webhooks
+  have proved reliable).
+- Later, once trusted: an in-app alert when an ONU goes offline, using the
+  existing Alerts settings. Not part of the first webhook release.
+
+### 6B — Customer linking
+
+Each fibre customer links to exactly one ONU. A person confirms every link;
+the system never links silently.
+
+- `customer_onu`: customer id, `unique_external_id`, who confirmed it and
+  when. Unique on both customer and ONU.
+- Suggestions from comparing ONU name and `sn` with customer records; accept
+  or reject each.
+- Unmatched screen: ONUs with no customer, active fibre customers with no ONU.
+- Customer page: ONU status, signal, last status change, same stale warning.
+- Customer Installation report: optical signal pre-filled from the linked
+  ONU; the technician can overwrite it.
+- Out of scope: changing any ONU or billing record from the link.
+
+### 6C — Actions
+
+Enable, disable or reboot one ONU at a time.
+
+- Look up exact paths and parameters in
+  `https://www.smartolt.com/openapi.json` first.
+- Admins only to start.
+- Confirmation dialog with customer name, ONU serial and the action.
+- Sent with `async=1`; shown as pending until `check_bulk_task_status`
+  reports succeeded.
+- Audit table: who, which ONU, which action, when, final result (failures
+  too). No bulk actions.
+
+### 6D — Provisioning and configuration
+
+Authorize a new ONU (from SmartOLT's unconfigured list, named by the customer
+account convention so 6B links it); change speed profile through a
+`package_speed_profile` mapping table; set WAN and Ethernet port modes;
+resync config; delete an ONU (typed serial confirmation, only once unlinked);
+bulk changes last. CATV and VoIP not planned. Paths and parameters from the
+OpenAPI file first; async changes count as done only on `succeeded`.
+
+**Safety rules for every write (6C and 6D):**
+1. Kill switch `SMARTOLT_WRITES_ENABLED`: false refuses every write; reads keep working.
+2. One feature flag per action, switched on only after it's been tested.
+3. Every new action tested on a spare ONU before customers.
+4. Before-and-after preview and a confirm click.
+5. Read back from SmartOLT after every write; flag any mismatch.
+6. Audit log with before and after values and the result, failures included.
+7. Separate view, control and configure permissions; delete and authorize admin only to start.
+8. A dedicated OPS API key, revocable on its own.
+9. Bulk batches capped at 20 ONUs to start.
+
+### Open questions
+
+- [x] Cloud version? Yes: `https://jasiri.smartolt.com`. How many OLTs and ONUs: comes from the first sample.
+- [ ] Is the ONU name in SmartOLT the customer's account name or number? (decides 6B's suggestions)
+- [ ] Signal levels for warning and critical on your hardware (starting at −25 / −27 dBm).
+- [ ] In 6C, may technicians reboot an ONU, or only admins?
+- [x] Is OPS reachable over HTTPS? Yes (Render), so webhooks are in scope as 6A-W.
+- [ ] Chained ONTs: this phase, or the separate TR-069 investigation?
+- [ ] For 6D: which speed profile matches each billing package?
+- [ ] For 6D: a spare ONU and OLT port to test writes on?
+- [ ] For 6D: authorize, delete and speed changes admin only, or a technician role too?
+
+### Done when
+
+Each sub-phase is confirmed by the owner on its own, after running it. The
+phase is done when the owner confirms the sub-phases they want shipped,
+which may stop short of 6D.
+
+---
+
 ## MERGED, COMPLETION NOT YET CONFIRMED: Phase 5 — UI Consistency
 
 *Merged to `main` on 2026-11-10 at the owner's request. That is not the
 owner's confirmation that the done-when criteria below are met: they stay
-open until the owner confirms them. The next phase is not active until the
-owner confirms its brief.*
+open until the owner confirms them. Phase 6 is now the active phase.*
 
 Inserted at the owner's explicit call, 2026-11-09, after Phase 4 was merged to
 `main` the same day. Branch: `phase-5-ui-consistency` (from `main`). Upcoming
@@ -862,22 +1014,23 @@ Extending DELEGATION.md's rule that an agent shows each command before running i
 ## convention until it becomes active, at which point its full brief goes
 ## here the same way Phase 3's did before it was completed)
 
-**Phase 6 — Notifications.** Lowest-effort new addition — SMS templates
+**Phase 7 — Notifications.** Lowest-effort new addition — SMS templates
 already designed, this is mostly wiring them in. (Originally Phase 3;
 renumbered to Phase 4 to make room for the Phase 3 Ops Inventory System
 brief, per owner's explicit call 2026-09-06 — see COMPLETED PHASES for
 that phase's outcome. Renumbered again to Phase 5 to make room for the
 Phase 4 Network Monitoring brief, per owner's explicit call 2026-09-18,
-and to Phase 6 for the Phase 5 UI Consistency brief, per owner's explicit
-call 2026-11-09.)
+to Phase 6 for the Phase 5 UI Consistency brief, per owner's explicit
+call 2026-11-09, and to Phase 7 for the Phase 6 SmartOLT brief, per owner's
+explicit call 2026-11-10.)
 
-**Phase 7 — Ticketing.** Close in shape to the existing site verification/
+**Phase 8 — Ticketing.** Close in shape to the existing site verification/
 check-in flow.
 
-**Phase 8 — Basic CRM.** Likely just views/notes on top of the existing
+**Phase 9 — Basic CRM.** Likely just views/notes on top of the existing
 customers table — to be CONFIRMED, not assumed, once this phase starts.
 
-**Phase 9 — Chat.** Deliberately deferred and flagged for reassessment.
+**Phase 10 — Chat.** Deliberately deferred and flagged for reassessment.
 Most technically demanding of the set, and WhatsApp already works as a
 contact channel. Confirm this solves a real operational gap before
 building anything. *(2026-11-04: an admin-only, read-only data assistant
