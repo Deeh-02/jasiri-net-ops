@@ -2023,6 +2023,13 @@ Readers of the links (Customers page column, installation-report pre-fill)
 fail soft: if the table or the database read fails, those pages simply show
 no ONU rather than breaking.
 
+Hotspot sites use the same table (`site_id`, 0034): a row is exactly one of
+customer, site or "not a customer" (CHECK `num_nonnulls(...) + not_a_customer
+= 1`). Site suggestions compare letters and digits only (`squash()`), take
+the longest site name that fits, and are ambiguous when two sites tie or two
+ONUs want one site. `/monitoring/status` and `/monitoring/sites/{id}` attach
+`onu` from `onu_links.site_onus()`, which also fails soft.
+
 **Webhooks (6A-W)** come in at `POST /smartolt/webhook`, the only SmartOLT
 route without a login. Each delivery is verified Standard Webhooks style
 (HMAC-SHA256 over `id.timestamp.body` with `SMARTOLT_WEBHOOK_SECRET`,

@@ -188,6 +188,16 @@ the system never links silently.
   stale note. ONU View: its customer. Installation report: picking a linked
   customer fills the optical signal from the ONU's 1490 reading. OPS now
   keeps each ONU's PPPoE username (never the password) for the suggestions.
+- **Hotspot sites (owner's call, 2026-11-11):** live result after the
+  customer pass: 39 ONUs linked to customers, 0 active customers without
+  an ONU, 22 ONUs left, which are hotspot sites. Migration 0034 (approved)
+  adds `site_id` (unique, one ONU per site) and a rule that each row is
+  exactly one of customer / site / not a customer. Suggestions: same PPPoE
+  username as the site, else the site's name inside the ONU's name
+  (longest site name wins). The tab is renamed **Links**. Network Status
+  shows each site's ONU (status, signal) and a down site's card says what
+  the fibre suggests (power fail = check power and battery; LOS = fibre
+  cut; online = look at the equipment). The site page has a Fibre ONU card.
 
 ### 6C — Actions
 

@@ -450,10 +450,11 @@ function renderOnu(o) {
         signalBox("OLT Rx 1310nm", o.signal_1310_dbm, o.signal_quality),
     );
     const c = o.customer;
-    $("olt-onu-customer").replaceChildren(...(c?.not_a_customer ? [fact("Customer", "Not a customer (hotspot, site or link)")]
+    $("olt-onu-customer").replaceChildren(...(c?.site ? [fact("Hotspot site", c.site.name)]
+        : c?.not_a_customer ? [fact("Customer", "Not a customer")]
         : c ? [fact("Customer", c.name || c.username), fact("Username", c.username, { className: "olt-mono" }),
                fact("Plan", c.plan), fact("Account", [c.account_status, c.expiry ? `expires ${when(c.expiry)}` : null].filter(Boolean).join(" · "))]
-        : [fact("Customer", "Not linked yet (OLT → Customers)", { className: "olt-dim" })]));
+        : [fact("Customer", "Not linked yet (OLT → Links)", { className: "olt-dim" })]));
     const wan = o.wan_mode ? `${o.wan_mode}${o.ip_address ? ` - ${o.ip_address}` : ""}` : null;
     $("olt-onu-service").replaceChildren(
         fact("TR069 profile", o.tr069 === "Enabled" ? (o.tr069_profile || "Enabled") : (o.tr069 || "Inactive")),
@@ -606,6 +607,21 @@ function customerLabel(c) {
     return box;
 }
 
+function siteLabel(x) {
+    const box = el("div");
+    box.append(el("div", "olt-name-cell", x?.name || "—"), el("div", "olt-dim", x?.vlan_id != null ? `vlan ${x.vlan_id}` : ""));
+    return box;
+}
+
+async function confirmSiteLink(onu, site, how) {
+    const ok = await confirmDialog({
+        title: "Link this ONU to this hotspot site?",
+        message: `ONU: ${onu.name || "—"} (${onu.sn || onu.id})\nSite: ${site.name}${site.vlan_id != null ? ` · vlan ${site.vlan_id}` : ""}\n\nNetwork Status and the site's page will show this ONU's status and signal.`,
+        confirmLabel: "Link",
+    });
+    if (ok && await postLink("/olt/links/site", { onu_id: onu.id, site_id: site.id, matched_by: how })) loadLinks();
+}
+
 function button(label, cls, data) {
     const b = el("button", cls, label);
     b.type = "button";
@@ -618,7 +634,8 @@ function renderLinks() {
     if (!p) return;
     const edit = p.can_edit;
     const visible = p.suggestions.filter(s => !state.rejected.has(`${s.onu.id}|${s.customer.id}`));
-    $("olt-count-links").textContent = visible.length ? String(visible.length) : "";
+    const siteWaiting = p.site_suggestions.filter(x => !state.rejected.has(`${x.onu.id}|site${x.site.id}`)).length;
+    $("olt-count-links").textContent = visible.length + siteWaiting ? String(visible.length + siteWaiting) : "";
     const chip = (n, label, tone) => {
         const b = el("span", `summary-item${tone && n ? ` ${tone}` : ""}`);
         b.append(el("strong", null, String(n)), document.createTextNode(` ${label}`));
@@ -627,10 +644,38 @@ function renderLinks() {
     $("olt-links-summary").replaceChildren(
         chip(p.linked.length, "linked", "good"),
         chip(visible.length, "suggested", "warn"),
-        chip(p.onus_without_customer.length, "ONUs with no customer"),
+        chip(p.onus_without_customer.length, "ONUs with nothing linked"),
         chip(p.customers_without_onu.length, "active customers with no ONU"),
+        chip(p.linked_sites.length, "hotspot sites", "good"),
         chip(p.not_customers.length, "not customers"),
     );
+    // ---- hotspot sites ----
+    const siteSug = p.site_suggestions.filter(x => !state.rejected.has(`${x.onu.id}|site${x.site.id}`));
+    const siteBulk = siteSug.filter(x => !x.ambiguous).length;
+    $("olt-accept-sites").hidden = !edit || !siteBulk;
+    $("olt-accept-sites").textContent = `Accept all ${siteBulk} site matches`;
+    const ss = $("olt-site-suggestions");
+    if (!siteSug.length) ss.innerHTML = stateRow(4, "empty", "No site suggestions right now.");
+    else ss.replaceChildren(...siteSug.map(x => {
+        const tr = el("tr");
+        const how = [el("div", null, MATCHED[x.matched_by] || x.matched_by)];
+        if (x.ambiguous) how.push(el("div", "olt-warn-text olt-dim", "◆ more than one possible match"));
+        const actions = el("div", "olt-actions");
+        if (edit) actions.append(button("Accept", "btn-primary olt-small", { act: "siteaccept", onu: x.onu.id, site: x.site.id, how: x.matched_by }),
+                                 button("Reject", "btn-secondary olt-small", { act: "sitereject", onu: x.onu.id, site: x.site.id }));
+        tr.append(cell("ONU", [onuLabel(x.onu)]), cell("Site", [siteLabel(x.site)]), cell("Matched by", how), cell("", [actions]));
+        return tr;
+    }));
+    const ls = $("olt-linked-sites");
+    if (!p.linked_sites.length) ls.innerHTML = stateRow(6, "empty", "No hotspot site linked yet.");
+    else ls.replaceChildren(...p.linked_sites.map(l => {
+        const tr = el("tr");
+        tr.append(cell("Site", [siteLabel(l.site)]), cell("ONU", [onuLabel(l.onu)]), cell("Status", l.onu ? [statusBadge(l.onu.status)] : "—"),
+                  cell("Signal", l.onu ? [signalCell(l.onu.signal_1310_dbm, l.onu.signal_quality)] : "—"),
+                  cell("Linked by", [el("div", null, l.by || "—"), el("div", "olt-dim", `${MATCHED[l.matched_by] || ""} · ${when(l.at)}`)]),
+                  cell("", edit ? [button("Unlink", "btn-secondary olt-small", { act: "unlink", onu: l.onu_id, label: l.site?.name || "This site" })] : []));
+        return tr;
+    }));
     const bulk = visible.filter(s => s.bulk_ok).length;
     $("olt-accept-all").hidden = !edit || !bulk;
     $("olt-accept-all").textContent = `Accept all ${bulk} exact username matches`;
@@ -655,6 +700,7 @@ function renderLinks() {
         const tr = el("tr");
         const actions = el("div", "olt-actions");
         if (edit) actions.append(button("Link to a customer…", "btn-secondary olt-small", { act: "pick", onu: o.id }),
+                                 button("Link to a site…", "btn-secondary olt-small", { act: "picksite", onu: o.id }),
                                  button("Not a customer", "btn-secondary olt-small", { act: "notcust", onu: o.id }));
         tr.append(cell("ONU", [onuLabel(o)]), cell("Status", [statusBadge(o.status)]), cell("Zone", o.zone || "—"),
                   cell("Setup", o.wan_mode || "—"), cell("", [actions]));
@@ -728,7 +774,8 @@ async function postLink(path, body, method = "POST") {
 
 function findOnu(id) {
     const p = state.links;
-    return p.suggestions.find(s => s.onu.id === id)?.onu || p.onus_without_customer.find(o => o.id === id)
+    return p.suggestions.find(s => s.onu.id === id)?.onu || p.site_suggestions.find(s => s.onu.id === id)?.onu
+        || p.onus_without_customer.find(o => o.id === id)
         || p.unlinked_onus.find(o => o.id === id) || { id, name: id };
 }
 
@@ -761,6 +808,14 @@ async function onLinksClick(e) {
             message: b.dataset.label ? `${b.dataset.label} will no longer show this ONU.` : "This ONU goes back to the unmatched list.",
             confirmLabel: b.dataset.label ? "Unlink" : "Undo", danger: !!b.dataset.label });
         if (ok && await postLink(`/olt/links/${encodeURIComponent(onu)}`, null, "DELETE")) loadLinks();
+    } else if (act === "siteaccept") {
+        const x = p.site_suggestions.find(y => y.onu.id === onu && String(y.site.id) === b.dataset.site);
+        if (x) confirmSiteLink(x.onu, x.site, x.matched_by);
+    } else if (act === "sitereject") {
+        state.rejected.add(`${onu}|site${b.dataset.site}`);
+        renderLinks();
+    } else if (act === "picksite") {
+        openLinkPicker(findOnu(onu), "site");
     } else if (act === "pick") {
         openLinkPicker(findOnu(onu));
     } else if (act === "linkpick") {
@@ -794,15 +849,53 @@ async function acceptAll() {
     loadLinks();
 }
 
+async function acceptAllSites() {
+    const picks = state.links.site_suggestions.filter(x => !x.ambiguous && !state.rejected.has(`${x.onu.id}|site${x.site.id}`));
+    const ok = await confirmDialog({
+        title: `Link ${picks.length} ONUs to their hotspot sites?`,
+        message: `Each ONU's name contains exactly one site's name, and no other ONU matches that site:\n\n${picks.slice(0, 14).map(x => `${x.onu.name || x.onu.sn} → ${x.site.name}`).join("\n")}${picks.length > 14 ? `\n…and ${picks.length - 14} more` : ""}`,
+        confirmLabel: `Link ${picks.length}`,
+    });
+    if (!ok) return;
+    try {
+        if (picks.length !== state.links.site_suggestions.filter(x => !x.ambiguous).length) {
+            for (const x of picks) await api("/olt/links/site", { method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ onu_id: x.onu.id, site_id: x.site.id, matched_by: x.matched_by }) });
+        } else {
+            const r = await api("/olt/links/accept-site-matches", { method: "POST" });
+            linksMessage(r.linked !== picks.length ? `Linked ${r.linked}; the list changed while you were looking.` : "");
+        }
+    } catch (e) {
+        linksMessage(e.message);
+    }
+    loadLinks();
+}
+
 // The "Link to a customer" picker.
-let linkOnu = null, linkTimer = null;
-function openLinkPicker(onu) {
+let linkOnu = null, linkTimer = null, linkMode = "customer";
+function openLinkPicker(onu, mode = "customer") {
     linkOnu = onu;
+    linkMode = mode;
+    $("olt-link-title").textContent = mode === "site" ? "Link to a hotspot site" : "Link to a customer";
+    $("olt-link-search").placeholder = mode === "site" ? "Filter sites by name or vlan" : "Search by name or username";
     $("olt-link-where").textContent = `${onu.name || "—"} · ${onu.sn || onu.id}`;
     $("olt-link-search").value = "";
     $("olt-link-results").replaceChildren(el("div", "olt-dim", "Type at least two letters."));
     $("olt-link-overlay").hidden = false;
+    if (mode === "site") showSites();
     $("olt-link-search").focus();
+}
+
+// Sites are few (the monitored ones without an ONU), so they're filtered here.
+function showSites() {
+    const q = $("olt-link-search").value.trim().toLowerCase();
+    const sites = state.links.free_sites.filter(x => !q || (x.name || "").toLowerCase().includes(q) || String(x.vlan_id ?? "").includes(q));
+    $("olt-link-results").replaceChildren(...(sites.length ? sites.map(x => {
+        const b = button("", "olt-link-result", { id: x.id });
+        b.append(el("span", "olt-name-cell", x.name || "—"), el("span", "olt-dim", x.vlan_id != null ? ` vlan ${x.vlan_id}` : ""));
+        b.addEventListener("click", () => { const o = linkOnu; closeLinkPicker(); confirmSiteLink(o, x, "manual"); });
+        return b;
+    }) : [el("div", "olt-dim", "No monitored site without an ONU matches.")]));
 }
 function closeLinkPicker() { $("olt-link-overlay").hidden = true; linkOnu = null; }
 async function searchLinkCustomers() {
@@ -891,7 +984,11 @@ export function initOlt() {
     });
     $("olt-links-panel").addEventListener("click", onLinksClick);
     $("olt-accept-all").addEventListener("click", acceptAll);
-    $("olt-link-search").addEventListener("input", () => { clearTimeout(linkTimer); linkTimer = setTimeout(searchLinkCustomers, 250); });
+    $("olt-link-search").addEventListener("input", () => {
+        if (linkMode === "site") { showSites(); return; }
+        clearTimeout(linkTimer); linkTimer = setTimeout(searchLinkCustomers, 250);
+    });
+    $("olt-accept-sites").addEventListener("click", acceptAllSites);
     $("olt-link-cancel").addEventListener("click", closeLinkPicker);
     $("olt-link-overlay").addEventListener("click", e => { if (e.target === $("olt-link-overlay")) closeLinkPicker(); });
     $("olt-auth-type").addEventListener("change", syncMode);

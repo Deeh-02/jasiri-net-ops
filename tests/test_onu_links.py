@@ -71,5 +71,43 @@ class Endpoints(unittest.TestCase):
         self.assertEqual(e.exception.status_code, 409)
 
 
+def site(id_, name, user=None, active=True):
+    return {"id": id_, "name": name, "pppoe_username": user, "vlan_id": id_, "is_active": active}
+
+
+class SuggestSites(unittest.TestCase):
+    def test_site_name_inside_onu_name(self):
+        s = onu_links.suggest_sites([onu("A", "Redsoil_Hotspot")], [site(1, "Redsoil")], [])
+        self.assertEqual([(x["site"]["id"], x["matched_by"], x["ambiguous"]) for x in s], [(1, "name", False)])
+
+    def test_spaces_and_case_dont_matter(self):
+        s = onu_links.suggest_sites([onu("A", "garage-ESCARPMENTS hotspot")], [site(1, "Garage Escarpments")], [])
+        self.assertEqual(len(s), 1)
+
+    def test_longest_site_name_wins(self):
+        s = onu_links.suggest_sites([onu("A", "Garage_Escarpments")], [site(1, "Garage"), site(2, "Garage Escarpments")], [])
+        self.assertEqual([x["site"]["id"] for x in s], [2])
+        self.assertFalse(s[0]["ambiguous"])
+
+    def test_pppoe_username_first(self):
+        s = onu_links.suggest_sites([onu("A", "Stima Hotspot", "site_ack")], [site(1, "Stima"), site(2, "ACK", "SITE_ACK")], [])
+        self.assertEqual([(x["site"]["id"], x["matched_by"]) for x in s], [(2, "pppoe_username")])
+
+    def test_one_site_two_onus_is_ambiguous(self):
+        s = onu_links.suggest_sites([onu("A", "Redsoil_1"), onu("B", "Redsoil_2")], [site(1, "Redsoil")], [])
+        self.assertTrue(all(x["ambiguous"] for x in s))
+
+    def test_linked_inactive_and_short_names_are_left_out(self):
+        links = [{"onu_id": "A", "customer_id": 5, "site_id": None}, {"onu_id": "Z", "customer_id": None, "site_id": 2}]
+        s = onu_links.suggest_sites([onu("A", "Redsoil"), onu("B", "Benbro hotspot"), onu("C", "XY tower"), onu("D", "Old site")],
+                                    [site(1, "Redsoil"), site(2, "Benbro"), site(3, "XY"), site(4, "Old site", active=False)], links)
+        self.assertEqual(s, [])
+
+    def test_site_link_request_validation(self):
+        api.SiteLinkRequest(onu_id="HWTC1", site_id=4)
+        with self.assertRaises(ValidationError):
+            api.SiteLinkRequest(onu_id="HWTC1", site_id=0)
+
+
 if __name__ == "__main__":
     unittest.main()

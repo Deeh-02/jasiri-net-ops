@@ -22,6 +22,12 @@ Started 2026-11-10 at the owner's request, after Phase 5 was merged to `main`.
 - On an **installation report**, picking a customer whose ONU is linked fills
   in the optical signal reading from SmartOLT; the technician can change it.
 - Needs migration `0033_onu_customer_links.sql`.
+- **Hotspot sites:** an ONU can be linked to a Network Status site instead
+  of a customer (suggested from the site's name in the ONU's name, accepted
+  by an admin). Network Status gets a **Fibre ONU** column, a down site's
+  card says what its fibre reports (power fail, LOS, or fine), and each
+  site's page has a Fibre ONU card. The OLT tab is now called **Links**.
+  Needs migration `0034_onu_site_links.sql`.
 
 ### OLT page, and authorizing ONUs from OPS (2026-11-11)
 - The sidebar has a new **Network** section: **Network Status** (the

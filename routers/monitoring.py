@@ -10,6 +10,7 @@ from db import alert_settings, alert_templates
 from db import monitoring_alerts
 from db import monitoring_reconciliation
 from db import monitoring_retention
+from db import onu_links
 from db import revenue_alerts, revenue_daily, revenue_report
 from db import sms_log
 from db.connection import now_eat
@@ -381,6 +382,10 @@ def status(current_user: dict = Depends(require_status_access)):
     permission flag alone."""
     can_revenue = user_has_permission(current_user, "sites", "view_revenue")
     sites = db.get_site_statuses(can_revenue)
+    # Each site's fibre ONU (Phase 6B link), or none. Never fails the page.
+    onus = onu_links.site_onus()
+    for s in sites:
+        s["onu"] = onus.get(s["id"])
     counts = {}
     for s in sites:
         counts[s["state"]] = counts.get(s["state"], 0) + 1
@@ -413,7 +418,7 @@ def site_detail(
     detail = db.get_site_detail(site_id, can_revenue, month=month, week=week, day=day)
     if detail is None:
         raise HTTPException(status_code=404, detail="Monitored site not found")
-    return detail
+    return {**detail, "onu": onu_links.site_onus([site_id]).get(site_id)}
 
 
 @router.get("/monitoring/fleet")

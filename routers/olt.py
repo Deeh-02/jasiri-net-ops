@@ -238,3 +238,24 @@ def remove_link(onu_id: str, current_user: dict = Depends(require_admin)):
     except onu_links.LinkError as e:
         raise HTTPException(status_code=404, detail=str(e))
     return {"ok": True}
+
+
+class SiteLinkRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    onu_id: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_.:-]+$")
+    site_id: int = Field(ge=1)
+    matched_by: Literal["pppoe_username", "name", "manual"] = "manual"
+
+
+@router.post("/olt/links/site")
+def create_site_link(body: SiteLinkRequest, current_user: dict = Depends(require_admin)):
+    try:
+        onu_links.link_site(body.onu_id, body.site_id, body.matched_by, current_user["id"])
+    except onu_links.LinkError as e:
+        _link_failed(e)
+    return {"ok": True}
+
+
+@router.post("/olt/links/accept-site-matches")
+def accept_site_matches(current_user: dict = Depends(require_admin)):
+    return {"linked": onu_links.accept_site_matches(current_user["id"])}

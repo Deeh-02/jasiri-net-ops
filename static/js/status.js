@@ -224,6 +224,7 @@ function renderProblems(sites, stale) {
                 <div class="status-problem-state">${esc(big)}</div>
             </div>
             <div class="status-problem-detail">${esc(dropLine(s))}</div>
+            ${onuHint(s.onu) ? `<div class="status-problem-onu">${esc(onuHint(s.onu))}</div>` : ""}
             <div class="status-problem-actions" data-ack-actions="${s.id}">
                 ${canAck ? `<button type="button" class="status-btn-primary" data-ack-open="${s.id}">Acknowledge</button>` : ""}
                 <button type="button" class="status-problem-open" data-open="${s.id}">Open site</button>
@@ -427,10 +428,32 @@ function uptimeCell(s) {
     return `<span class="status-uptime ${low ? "is-low" : ""}">${s.uptime_30d_pct.toFixed(1)}%</span>`;
 }
 
+// The site's fibre ONU from SmartOLT (linked on OLT → Links). Glyph + word,
+// never colour alone; "(not current)" when SmartOLT data is old.
+const ONU_STATE = { Online: ["●", "is-up"], LOS: ["▼", "is-down"], Offline: ["▼", "is-down"], "Power fail": ["◆", "is-down"] };
+function onuCell(o) {
+    if (!o) return `<span class="status-onu is-none">–</span>`;
+    const [glyph, cls] = ONU_STATE[o.status] || ["○", ""];
+    const signal = o.signal_1490_dbm != null ? `${o.signal_1490_dbm.toFixed(1)} dBm` : "";
+    const weak = o.signal_quality === "Warning" || o.signal_quality === "Critical";
+    return `<span class="status-onu ${cls}">${glyph} ${esc(o.status || "Unknown")}</span>${o.stale ? `<span class="status-onu-note">not current</span>` : ""}
+        ${signal ? `<span class="status-onu-signal ${weak ? "is-weak" : ""}">${esc(signal)}${weak ? ` · ${esc(o.signal_quality)}` : ""}</span>` : ""}`;
+}
+
+// What the fibre says about a site that's down.
+function onuHint(o) {
+    if (!o || o.stale) return "";
+    if (o.status === "Power fail") return "Fibre ONU reports power fail: the site has lost power. Check power and the battery.";
+    if (o.status === "LOS") return "Fibre ONU reports LOS: the fibre is cut or unplugged.";
+    if (o.status === "Offline") return "Fibre ONU is offline.";
+    if (o.status === "Online") return "Fibre ONU is online: the fibre is fine, so look at the router or access points.";
+    return "";
+}
+
 function renderRows(sites, canRevenue, stale) {
     const tbody = document.getElementById("status-rows");
     document.getElementById("status-revenue-th").hidden = !canRevenue;
-    const cols = canRevenue ? 6 : 5;
+    const cols = canRevenue ? 7 : 6;
 
     if (sites.length === 0) {
         tbody.innerHTML = stateRow(cols, "empty", "No monitored sites yet.");
@@ -466,6 +489,7 @@ function renderRows(sites, canRevenue, stale) {
                 <span class="status-site-vlan">${s.vlan_id != null ? `vlan ${s.vlan_id}` : ""}${acked ? `<span class="status-ack-tag" title="${esc(s.ack.note || "Acknowledged")}">ACK</span>` : ""}</span>
             </td>
             <td>${pill(state, label)}</td>
+            <td>${onuCell(s.onu)}</td>
             <td><span class="status-sessions">${sessions}</span></td>
             <td class="status-col-wide">${uptimeCell(s)}</td>
             <td class="status-col-wide"><span class="status-since">${esc(lastSeen(s))}</span></td>

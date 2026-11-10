@@ -727,3 +727,18 @@
     padding: 48px 0;
     text-align: center;
 }
+
+/* Fibre ONU card (Phase 6B) */
+.sr-onu-name { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-dim); font-weight: 400; margin-left: 6px; }
+.sr-onu-open { font-size: 13px; color: var(--accent); text-decoration: none; }
+.sr-onu-open:hover { text-decoration: underline; }
+.sr-onu-row { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.sr-onu-state { font-family: 'Space Grotesk', sans-serif; font-size: 18px; font-weight: 700; color: var(--text-dim); }
+.sr-onu-state.is-up { color: var(--accent); }
+.sr-onu-state.is-down { color: var(--danger); }
+.sr-onu-since { font-size: 13px; color: var(--text-dim); }
+.sr-onu-stale { font-size: 12.5px; color: var(--warn); }
+.sr-onu-hint { font-size: 13.5px; color: var(--text); margin-top: 6px; }
+.sr-onu-signals { display: flex; gap: 8px 22px; flex-wrap: wrap; margin-top: 10px; font-size: 12.5px; color: var(--text-dim); }
+.sr-onu-signals strong { font-family: 'JetBrains Mono', monospace; font-weight: 500; color: var(--text); margin-left: 4px; }
+.sr-onu-signals strong.is-weak { color: var(--warn); }

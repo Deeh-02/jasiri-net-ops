@@ -13,7 +13,7 @@
             <div class="olt-tabs tabs" role="tablist">
                 <button type="button" class="olt-tab tab" role="tab" data-tab="configured" aria-selected="true">Configured <span class="olt-tab-count" id="olt-count-configured"></span></button>
                 <button type="button" class="olt-tab tab" role="tab" data-tab="unconfigured" aria-selected="false">Unconfigured <span class="olt-tab-count" id="olt-count-unconfigured"></span></button>
-                <button type="button" class="olt-tab tab" role="tab" data-tab="customers" aria-selected="false">Customers <span class="olt-tab-count" id="olt-count-links"></span></button>
+                <button type="button" class="olt-tab tab" role="tab" data-tab="customers" aria-selected="false">Links <span class="olt-tab-count" id="olt-count-links"></span></button>
             </div>
 
             <!-- Configured: OPS's own copy (status every 6 min, signal every
@@ -89,7 +89,18 @@
                 </table>
             </div>
 
-            <h2 class="olt-h2">ONUs with no customer</h2>
+            <div class="olt-section-head">
+                <h2 class="olt-h2">Suggested hotspot sites <span class="net-h2-sub">site name in the ONU's name</span></h2>
+                <button type="button" class="btn-primary" id="olt-accept-sites" hidden></button>
+            </div>
+            <div class="table-scroll table-compact">
+                <table class="olt-table">
+                    <thead><tr><th>ONU</th><th>Site</th><th>Matched by</th><th></th></tr></thead>
+                    <tbody id="olt-site-suggestions" data-skeleton="4"></tbody>
+                </table>
+            </div>
+
+            <h2 class="olt-h2">ONUs with nothing linked</h2>
             <div class="table-scroll table-compact">
                 <table class="olt-table">
                     <thead><tr><th>ONU</th><th>Status</th><th>Zone</th><th>Setup</th><th></th></tr></thead>
@@ -113,7 +124,15 @@
                 </table>
             </div>
 
-            <h2 class="olt-h2">Not customers <span class="net-h2-sub">hotspots, sites, links</span></h2>
+            <h2 class="olt-h2">Linked hotspot sites</h2>
+            <div class="table-scroll table-compact">
+                <table class="olt-table">
+                    <thead><tr><th>Site</th><th>ONU</th><th>Status</th><th>Signal</th><th>Linked by</th><th></th></tr></thead>
+                    <tbody id="olt-linked-sites" data-skeleton="4"></tbody>
+                </table>
+            </div>
+
+            <h2 class="olt-h2">Not customers <span class="net-h2-sub">anything else: backhaul, monitoring, spares</span></h2>
             <div class="table-scroll table-compact">
                 <table class="olt-table table-dense">
                     <thead><tr><th>ONU</th><th>Zone</th><th>Marked by</th><th></th></tr></thead>
