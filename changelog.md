@@ -9,6 +9,19 @@ and in `phase.md`'s own per-phase writeups.
 
 Started 2026-11-10 at the owner's request, after Phase 5 was merged to `main`.
 
+### 6C: Reboot, Disable and Enable an ONU (2026-11-11)
+- On an ONU's **View** page, admins get **Reboot** and **Disable ONU** (or
+  **Enable ONU** when it's disabled). Each asks first, naming the customer
+  or hotspot site, the ONU and its serial.
+- Disable and Enable wait for SmartOLT to report the job finished, then
+  check the ONU really changed before saying **Done**; anything else is
+  shown as **Failed** or **Check**. The page shows progress while it waits.
+- Every action, successful or not, is listed on the ONU's page with who did
+  it and when. The Configured list marks disabled ONUs.
+- Each action can be switched off on the server on its own
+  (`SMARTOLT_ACTION_REBOOT`, `_DISABLE`, `_ENABLE`), and all of them with
+  `SMARTOLT_WRITES_ENABLED=false`.
+
 ### 6B: ONUs linked to customers (2026-11-11)
 - **OLT → Customers** tab: OPS suggests which customer each ONU belongs to
   (same PPPoE username, or the customer's username in the ONU's name); an

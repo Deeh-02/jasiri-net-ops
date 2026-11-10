@@ -45,7 +45,8 @@ def configured_onus(current_user: dict = Depends(require_network_view)):
 @router.get("/olt/onus/{onu_id}")
 def onu_details(onu_id: str, current_user: dict = Depends(require_network_view)):
     try:
-        return {**smartolt.onu_details(onu_id), "customer": onu_links.onu_customer(onu_id)}
+        return {**smartolt.onu_details(onu_id), "customer": onu_links.onu_customer(onu_id),
+                "can_act": current_user["role"] == "admin", "actions": smartolt.actions_available()}
     except ValueError:
         raise HTTPException(status_code=404, detail="Unknown ONU")
     except smartolt.SmartOLTError as e:
@@ -155,8 +156,38 @@ def authorize(body: AuthorizeRequest, current_user: dict = Depends(require_admin
 
 
 @router.get("/olt/actions")
-def recent_actions(current_user: dict = Depends(require_network_view)):
-    return {"actions": smartolt.recent_actions()}
+def recent_actions(action: Optional[str] = None, onu: Optional[str] = None,
+                   current_user: dict = Depends(require_network_view)):
+    if onu is not None and not smartolt.ONU_ID.match(onu):
+        raise HTTPException(status_code=404, detail="Unknown ONU")
+    return {"actions": smartolt.recent_actions(action=action, onu_id=onu)}
+
+
+@router.get("/olt/actions/{action_id}")
+def one_action(action_id: int, current_user: dict = Depends(require_network_view)):
+    row = smartolt.get_action(action_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Unknown action")
+    return row
+
+
+class ActionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    action: Literal["reboot", "disable", "enable"]
+
+
+# 6C: one ONU at a time, admin only; the page has already shown a
+# confirmation with the customer, the serial and the action.
+@router.post("/olt/onus/{onu_id}/actions")
+def onu_action(onu_id: str, body: ActionRequest, current_user: dict = Depends(require_admin)):
+    try:
+        return smartolt.start_action(onu_id, body.action, current_user["id"])
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Unknown ONU")
+    except smartolt.WritesDisabled as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except smartolt.SmartOLTError as e:
+        _smartolt_failed(e)
 
 
 # SmartOLT's webhook (6A-W). Public on purpose (SmartOLT calls it), so no

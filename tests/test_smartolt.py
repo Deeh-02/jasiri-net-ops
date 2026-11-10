@@ -459,5 +459,93 @@ class Webhooks(unittest.TestCase):
         self.assertNotIn("contact", repr(smartolt.event_rows("onu.status_changed", [item()])[1]))
 
 
+@mock.patch.dict("os.environ", ENV)
+class OnuActions(unittest.TestCase):
+    def setUp(self):
+        self.start = mock.patch.object(smartolt, "_audit_start", return_value=9).start()
+        self.finish = mock.patch.object(smartolt, "_audit_finish").start()
+        mock.patch.object(smartolt, "get_action", side_effect=lambda i: {"id": i, "result": "pending"}).start()
+        mock.patch.object(smartolt, "save").start()
+        mock.patch.object(smartolt, "_sleep").start()
+        self.addCleanup(mock.patch.stopall)
+        smartolt._acting.clear()
+
+    def details(self, admin="Enabled"):
+        return {"status": True, "onu_details": detail_item(administrative_status=admin)}
+
+    def run_thread_inline(self):
+        return mock.patch("threading.Thread", side_effect=lambda target, args, **kw: mock.Mock(start=lambda: target(*args)))
+
+    def test_switched_off(self):
+        for env in ({"SMARTOLT_WRITES_ENABLED": "false"}, {"SMARTOLT_ACTION_DISABLE": "false"}):
+            with mock.patch.dict("os.environ", env), mock.patch.object(smartolt, "call") as call:
+                with self.assertRaises(smartolt.WritesDisabled):
+                    smartolt.start_action("HWTC00A0001", "disable", 1)
+            call.assert_not_called()
+        self.assertTrue(smartolt.actions_available()["reboot"])
+
+    def test_reboot_is_done_when_smartolt_accepts(self):
+        calls = []
+        def fake(method, path, **kw):
+            calls.append((method, path, kw.get("data")))
+            return self.details() if method == "GET" else {"status": True, "response": "Device reboot command sent"}
+        with mock.patch.object(smartolt, "call", side_effect=fake):
+            smartolt.start_action("HWTC00A0001", "reboot", 1)
+        self.assertEqual(calls[1], ("POST", "/api/onu/reboot/HWTC00A0001", None))     # no async for reboot
+        self.assertEqual(self.finish.call_args.args[1], "succeeded")
+        self.assertNotIn("HWTC00A0001", smartolt._acting)
+
+    def test_disable_is_queued_tracked_and_read_back(self):
+        answers = [self.details("Enabled"), {"status": True, "queued": True, "response": "The action was queued"},
+                   {"status": True, "response": [{"onu_external_id": "OTHER", "status": "queued"},
+                                                 {"onu_external_id": "HWTC00A0001", "status": "in_progress"}]},
+                   {"status": True, "response": [{"onu_external_id": "HWTC00A0001", "status": "succeeded"}]},
+                   self.details("Disabled")]
+        with mock.patch.object(smartolt, "call", side_effect=answers) as call, self.run_thread_inline():
+            smartolt.start_action("HWTC00A0001", "disable", 1)
+        self.assertEqual(call.call_args_list[1].kwargs["data"], {"async": "1"})
+        self.assertEqual(call.call_args_list[2].args, ("POST", "/api/onu/check_bulk_task_status"))
+        self.assertEqual(self.finish.call_args.args[1], "succeeded")
+        self.assertEqual(self.finish.call_args.args[3]["after"]["administrative_status"], "Disabled")
+        self.assertNotIn("HWTC00A0001", smartolt._acting)
+
+    def test_task_failed(self):
+        answers = [self.details(), {"status": True, "queued": True},
+                   {"status": True, "response": {"HWTC00A0001": {"status": "failed", "error_message": "OLT timeout"}}}]
+        with mock.patch.object(smartolt, "call", side_effect=answers), self.run_thread_inline():
+            smartolt.start_action("HWTC00A0001", "disable", 1)
+        self.assertEqual(self.finish.call_args.args[1], "failed")
+        self.assertIn("OLT timeout", self.finish.call_args.args[2])
+
+    def test_succeeded_but_still_enabled_is_a_mismatch(self):
+        answers = [self.details(), {"status": True, "queued": True},
+                   {"status": True, "response": {"status": "succeeded"}}, self.details("Enabled")]
+        with mock.patch.object(smartolt, "call", side_effect=answers), self.run_thread_inline():
+            smartolt.start_action("HWTC00A0001", "disable", 1)
+        self.assertEqual(self.finish.call_args.args[1], "mismatch")
+
+    def test_refused_send_is_audited(self):
+        answers = [self.details(), smartolt.SmartOLTError("SmartOLT refused the request: no ONU")]
+        with mock.patch.object(smartolt, "call", side_effect=answers):
+            with self.assertRaises(smartolt.SmartOLTError):
+                smartolt.start_action("HWTC00A0001", "enable", 1)
+        self.assertEqual(self.finish.call_args.args[1], "failed")
+        self.assertNotIn("HWTC00A0001", smartolt._acting)
+
+    def test_one_action_per_onu_at_a_time(self):
+        smartolt._acting.add("HWTC00A0001")
+        with mock.patch.object(smartolt, "call") as call:
+            with self.assertRaisesRegex(smartolt.SmartOLTError, "still running"):
+                smartolt.start_action("HWTC00A0001", "reboot", 1)
+        call.assert_not_called()
+
+    def test_parse_task_shapes(self):
+        self.assertEqual(smartolt.parse_task({"response": [{"unique_external_id": "A", "status": "queued"}]}, "A"), ("queued", None))
+        self.assertEqual(smartolt.parse_task({"response": {"A": {"status": "failed", "error_message": "x"}}}, "A"), ("failed", "x"))
+        self.assertEqual(smartolt.parse_task({"response": {"status": "succeeded"}}, "A"), ("succeeded", None))
+        self.assertEqual(smartolt.parse_task({"response": [{"onu_external_id": "B", "status": "x"}, {"onu_external_id": "C"}]}, "A"), (None, None))
+        self.assertEqual(smartolt.parse_task({}, "A"), (None, None))
+
+
 if __name__ == "__main__":
     unittest.main()

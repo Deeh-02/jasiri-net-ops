@@ -137,3 +137,9 @@
 }
 .olt-link-result:hover:not(:disabled) { border-color: var(--accent); }
 .olt-link-result:disabled { opacity: 0.55; cursor: default; }
+
+/* ---- Actions (6C) ---- */
+.olt-actions-start { justify-content: flex-start; }
+.olt-action-status { margin-top: 12px; font-size: 13.5px; padding: 10px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); color: var(--text); }
+.olt-action-status.good { border-color: var(--accent); color: var(--accent); }
+.olt-action-status.bad { border-color: var(--danger); color: var(--danger); }

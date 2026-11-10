@@ -217,6 +217,20 @@ Enable, disable or reboot one ONU at a time.
   reports succeeded.
 - Audit table: who, which ONU, which action, when, final result (failures
   too). No bulk actions.
+- **Built 2026-11-11.** Gate met: every active customer linked (6B, 0
+  left). On the ONU View page (admin only): Reboot, and Disable or Enable
+  depending on the ONU's current state. The confirmation names the
+  customer (or hotspot site), the ONU and the serial. Disable/Enable are
+  sent with async=1 and followed with check_bulk_task_status every 5 s
+  (up to 3 min) on a background thread, then read back from SmartOLT
+  (administrative status); "succeeded" only when the read-back agrees.
+  Reboot is done when SmartOLT accepts it. All in the existing
+  `onu_actions` table (no schema change) with the before and after state;
+  the ONU page lists its action history. Switches: SMARTOLT_WRITES_ENABLED
+  (all writes) and SMARTOLT_ACTION_REBOOT / _DISABLE / _ENABLE (each on
+  unless set to false). Tested end to end against a local fake SmartOLT,
+  not yet on a real ONU: first real use should be a Reboot on a
+  non-customer ONU (for example the office).
 
 ### 6D — Provisioning and configuration
 
@@ -243,7 +257,7 @@ OpenAPI file first; async changes count as done only on `succeeded`.
 - [x] Cloud version? Yes: `https://jasiri.smartolt.com`. How many OLTs and ONUs: comes from the first sample.
 - [ ] Is the ONU name in SmartOLT the customer's account name or number? (decides 6B's suggestions)
 - [x] Signal levels: use SmartOLT's own grade for now (owner, 2026-11-10). OPS thresholds can come later.
-- [ ] In 6C, may technicians reboot an ONU, or only admins?
+- [ ] In 6C, may technicians reboot an ONU, or only admins? (Admins only for now.)
 - [x] Is OPS reachable over HTTPS? Yes (Render), so webhooks are in scope as 6A-W.
 - [ ] Chained ONTs: this phase, or the separate TR-069 investigation?
 - [ ] For 6D: which speed profile matches each billing package?

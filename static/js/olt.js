@@ -161,6 +161,7 @@ function renderList() {
         tr.dataset.id = o.id;
         const status = [statusBadge(o.status)];
         if (o.status !== "Online" && o.for_s != null) status.push(el("div", "olt-dim", duration(o.for_s)));
+        if ((o.administrative_status || "").toLowerCase() === "disabled") status.push(el("div", "olt-badge olt-warn-text", "◆ Disabled"));
         const view = el("button", "btn-secondary olt-view-btn", "View");
         view.type = "button";
         view.dataset.id = o.id;
@@ -245,12 +246,13 @@ async function loadUnconfigured() {
     loadActions();
 }
 
-const RESULT = { succeeded: ["● Done", "olt-online"], failed: ["▲ Failed", "olt-down"], mismatch: ["◆ Check", "olt-warn-text"], pending: ["○ Pending", "olt-unknown"] };
+const RESULT = { succeeded: ["● Done", "olt-online"], failed: ["▲ Failed", "olt-down"], mismatch: ["◆ Check", "olt-warn-text"],
+                 pending: ["○ In progress", "olt-unknown"], unknown: ["○ Unknown", "olt-unknown"] };
 
 async function loadActions() {
     const body = $("olt-actions");
     try {
-        const { actions } = await api("/olt/actions");
+        const { actions } = await api("/olt/actions?action=authorize");
         if (!actions.length) { body.innerHTML = stateRow(6, "empty", "Nothing authorized from OPS yet."); return; }
         body.replaceChildren(...actions.map(a => {
             const [label, cls] = RESULT[a.result] || [a.result || "—", ""];
@@ -551,8 +553,10 @@ async function loadGraphs() {
     }));
 }
 
-async function openOnu(id) {
+async function openOnu(id, { keepStatus = false } = {}) {
     state.onuId = id;
+    state.onu = null;
+    if (!keepStatus) actionStatus("");
     $("olt-list-mode").hidden = true;
     $("olt-onu-mode").hidden = false;
     $("olt-onu-body").hidden = true;
@@ -568,7 +572,10 @@ async function openOnu(id) {
     try {
         const o = await api(`/olt/onus/${encodeURIComponent(id)}`);
         if (id !== state.onuId) return;
+        state.onu = o;
         renderOnu(o);
+        renderActionButtons(o);
+        loadOnuActions(id);
         $("olt-onu-updated").textContent = `read ${new Date().toLocaleTimeString("en-GB", { ...tz, hour: "2-digit", minute: "2-digit" })}`;
     } catch (e) {
         $("olt-onu-error").hidden = false;
@@ -916,6 +923,98 @@ async function searchLinkCustomers() {
     }
 }
 
+// ---- Actions on one ONU (6C) ----
+
+const ACTION_TEXT = {
+    reboot: { label: "Reboot", verb: "Reboot", doing: "Rebooting", warn: "The ONU restarts; the customer is offline for a minute or two." },
+    disable: { label: "Disable ONU", verb: "Disable", doing: "Disabling", warn: "The customer loses service until the ONU is enabled again.", danger: true },
+    enable: { label: "Enable ONU", verb: "Enable", doing: "Enabling", warn: "The ONU is switched back on; service returns once it reconnects." },
+};
+
+function whoIsOn(o) {
+    const c = o.customer;
+    if (c?.site) return `Hotspot site: ${c.site.name}`;
+    if (c?.not_a_customer) return "Not a customer";
+    if (c) return `Customer: ${c.name || c.username} (${c.username})`;
+    return "Not linked to any customer";
+}
+
+function renderActionButtons(o) {
+    const box = $("olt-onu-actions");
+    box.hidden = !o.can_act;
+    if (!o.can_act) return;
+    const disabled = (o.administrative_status || "").toLowerCase() === "disabled";
+    const list = ["reboot", disabled ? "enable" : "disable"];
+    $("olt-action-buttons").replaceChildren(...list.map(a => {
+        const t = ACTION_TEXT[a];
+        const b = button(t.label, t.danger ? "btn-danger" : "btn-secondary", { onuAction: a });
+        if (!o.actions?.[a]) { b.disabled = true; b.title = "Switched off on this server"; }
+        return b;
+    }));
+}
+
+function actionStatus(text, tone = "") {
+    const box = $("olt-action-status");
+    box.hidden = !text;
+    box.className = `olt-action-status ${tone}`;
+    box.textContent = text || "";
+}
+
+async function runAction(action) {
+    const o = state.onu;
+    if (!o) return;
+    const t = ACTION_TEXT[action];
+    const ok = await confirmDialog({
+        title: `${t.verb} this ONU?`,
+        message: `${whoIsOn(o)}\nONU: ${o.name || "—"}\nSerial: ${o.sn || o.id}\n\n${t.warn}`,
+        confirmLabel: t.verb,
+        danger: !!t.danger,
+    });
+    if (!ok) return;
+    document.querySelectorAll("#olt-action-buttons button").forEach(b => { b.disabled = true; });
+    actionStatus(`${t.doing}…`);
+    try {
+        let row = await api(`/olt/onus/${encodeURIComponent(o.id)}/actions`, {
+            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action }) });
+        loadOnuActions(o.id);
+        // Queued actions: follow them until SmartOLT says it's finished.
+        for (let i = 0; row.result === "pending" && i < 80 && state.onuId === o.id; i++) {
+            actionStatus(`${t.doing}… SmartOLT has queued it; waiting for the OLT to finish.`);
+            await new Promise(r => setTimeout(r, 3000));
+            row = await api(`/olt/actions/${row.id}`);
+        }
+        if (state.onuId !== o.id) return;
+        const [label, cls] = RESULT[row.result] || [row.result, ""];
+        actionStatus(`${label}: ${row.response || ""}`, row.result === "succeeded" ? "good" : row.result === "pending" ? "" : "bad");
+        loadOnuActions(o.id);
+        if (row.result !== "pending") setTimeout(() => { if (state.onuId === o.id) openOnu(o.id, { keepStatus: true }); }, 1500);
+    } catch (e) {
+        actionStatus(`Not done: ${e.message}`, "bad");
+        renderActionButtons(o);
+        loadOnuActions(o.id);
+    }
+}
+
+async function loadOnuActions(id) {
+    const body = $("olt-onu-action-log");
+    try {
+        const { actions } = await api(`/olt/actions?onu=${encodeURIComponent(id)}`);
+        if (id !== state.onuId) return;
+        if (!actions.length) { body.innerHTML = stateRow(4, "empty", "No actions from OPS on this ONU yet."); return; }
+        body.replaceChildren(...actions.map(a => {
+            const [label, cls] = RESULT[a.result] || [a.result || "—", ""];
+            const result = [el("span", `olt-badge ${cls}`, label)];
+            if (a.response) result.push(el("div", "olt-dim", a.response));
+            const tr = el("tr");
+            tr.append(cell("When", when(a.at), "olt-nowrap"), cell("Action", (ACTION_TEXT[a.action]?.verb) || a.action),
+                      cell("By", a.by || "—"), cell("Result", result));
+            return tr;
+        }));
+    } catch (e) {
+        body.innerHTML = stateRow(4, "error", e.message);
+    }
+}
+
 // ---- Tabs, routing, polling ----
 
 function showTab(tab) {
@@ -974,6 +1073,10 @@ export function initOlt() {
     $("olt-unconfigured").addEventListener("click", e => {
         const b = e.target.closest(".olt-auth-btn");
         if (b && state.unconfigured) openAuthorize(state.unconfigured[Number(b.dataset.index)]);
+    });
+    $("olt-action-buttons").addEventListener("click", e => {
+        const b = e.target.closest("button[data-onu-action]");
+        if (b && !b.disabled) runAction(b.dataset.onuAction);
     });
     $("olt-graph-range").addEventListener("click", e => {
         const b = e.target.closest("button[data-period]");

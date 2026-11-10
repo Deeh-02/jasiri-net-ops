@@ -659,11 +659,11 @@ def compare(sent, got):
     return out
 
 
-def _audit_start(action, sn, request, user_id):
+def _audit_start(action, sn, request, user_id, external_id=None):
     from psycopg2.extras import Json
     with db_cursor() as (conn, cur):
-        cur.execute("""INSERT INTO onu_actions (action, sn, requested_by, request, result)
-                       VALUES (%s, %s, %s, %s, 'pending') RETURNING id""", (action, sn, user_id, Json(request)))
+        cur.execute("""INSERT INTO onu_actions (action, sn, unique_external_id, requested_by, request, result)
+                       VALUES (%s, %s, %s, %s, %s, 'pending') RETURNING id""", (action, sn, external_id, user_id, Json(request)))
         action_id = cur.fetchone()[0]
         conn.commit()
     return action_id
@@ -743,15 +743,179 @@ def authorize(request, user_id):
             _authorizing.discard(sn)
 
 
-def recent_actions(limit=20):
+STALE_PENDING = timedelta(minutes=10)    # a "pending" older than this lost its tracker (restart)
+
+
+def _action_row(r, now):
+    result = r[7]
+    if result == "pending" and r[5] and now - r[5] > STALE_PENDING:
+        result = "unknown"
+    return {"id": r[0], "action": r[1], "sn": r[2], "onu": r[3], "by": r[4], "at": _iso(r[5]),
+            "finished_at": _iso(r[6]), "result": result, "response": r[8], "name": r[9], "zone": r[10]}
+
+
+ACTION_SELECT = """SELECT a.id, a.action, a.sn, a.unique_external_id, u.name, a.requested_at, a.finished_at,
+                          a.result, a.response, COALESCE(a.request->>'name', a.request->'before'->>'name'), a.request->>'zone'
+                   FROM onu_actions a LEFT JOIN users u ON u.id = a.requested_by"""
+
+
+def recent_actions(limit=20, action=None, onu_id=None):
+    where, params = [], []
+    if action:
+        where.append("a.action = %s"); params.append(action)
+    if onu_id:
+        where.append("a.unique_external_id = %s"); params.append(onu_id)
     with db_cursor() as (_, cur):
-        cur.execute("""SELECT a.id, a.action, a.sn, a.unique_external_id, u.name, a.requested_at, a.finished_at,
-                              a.result, a.response, a.request->>'name', a.request->>'zone'
-                       FROM onu_actions a LEFT JOIN users u ON u.id = a.requested_by
-                       ORDER BY a.requested_at DESC LIMIT %s""", (limit,))
-        return [{"id": r[0], "action": r[1], "sn": r[2], "onu": r[3], "by": r[4], "at": _iso(r[5]),
-                 "finished_at": _iso(r[6]), "result": r[7], "response": r[8], "name": r[9], "zone": r[10]}
-                for r in cur.fetchall()]
+        cur.execute(f"{ACTION_SELECT} {'WHERE ' + ' AND '.join(where) if where else ''} "
+                    "ORDER BY a.requested_at DESC LIMIT %s", (*params, limit))
+        now = datetime.now(timezone.utc)
+        return [_action_row(r, now) for r in cur.fetchall()]
+
+
+def get_action(action_id):
+    with db_cursor() as (_, cur):
+        cur.execute(f"{ACTION_SELECT} WHERE a.id = %s", (action_id,))
+        r = cur.fetchone()
+    return _action_row(r, datetime.now(timezone.utc)) if r else None
+
+
+# ---- ONU actions (6C): reboot, disable, enable ----
+# One ONU at a time, admin only (routers/olt.py), each confirmed in the page
+# first. Refused when SMARTOLT_WRITES_ENABLED is false, or when that action's
+# own switch (SMARTOLT_ACTION_REBOOT / _DISABLE / _ENABLE) is false: rule 2 of
+# the scope, one flag per action. Paths from openapi.json (looked up
+# 2026-11-10): enable/disable take async=1 and are only done when
+# check_bulk_task_status says "succeeded"; reboot has no async option and is
+# done when SmartOLT accepts it. Every action is in onu_actions with the
+# before and after state; enable/disable are read back from SmartOLT.
+
+ACTIONS = {
+    "reboot": {"path": "/api/onu/reboot/{id}", "queued": False},
+    "disable": {"path": "/api/onu/disable/{id}", "queued": True, "admin_status": "Disabled"},
+    "enable": {"path": "/api/onu/enable/{id}", "queued": True, "admin_status": "Enabled"},
+}
+TASK_CHECK_EVERY_S = 5
+TASK_CHECKS = 36                     # about 3 minutes
+TASK_FAILED = {"failed", "onu_not_found"}
+_acting = set()                      # ONUs with an action in flight (this process)
+
+
+def action_enabled(action):
+    flag = (os.environ.get(f"SMARTOLT_ACTION_{action.upper()}") or "true").strip().lower()
+    return writes_enabled() and flag not in ("false", "0", "no", "off")
+
+
+def actions_available():
+    return {a: action_enabled(a) for a in ACTIONS}
+
+
+def _snapshot(d):
+    """What an action is judged against: kept small, nothing secret."""
+    return {"name": parse_text(d.get("name")), "status": parse_text(d.get("status")),
+            "administrative_status": parse_text(d.get("administrative_status"))}
+
+
+def _live_details(onu_id):
+    return scrub(call("GET", f"/api/onu/get_onu_details/{onu_id}").get("onu_details") or {})
+
+
+def parse_task(body, onu_id):
+    """(status, error) for this ONU from check_bulk_task_status, tolerant of
+    a list of rows, a dict keyed by ONU, or a single row."""
+    resp = body.get("response") if isinstance(body, dict) else None
+    if isinstance(resp, dict) and onu_id in resp and isinstance(resp[onu_id], dict):
+        rows = [resp[onu_id]]
+    elif isinstance(resp, dict):
+        rows = [resp]
+    elif isinstance(resp, list):
+        rows = [r for r in resp if isinstance(r, dict)]
+    else:
+        rows = []
+    for r in rows:
+        ids = {str(r.get(k)) for k in ("onu_external_id", "unique_external_id", "external_id", "onu", "sn") if r.get(k)}
+        if onu_id in ids or len(rows) == 1:
+            return parse_text(r.get("status")), parse_text(r.get("error_message"))
+    return None, None
+
+
+def start_action(onu_id, action, user_id):
+    """Sends one action. Returns the audit row (result "pending" while a
+    queued action is tracked in the background)."""
+    check_id(onu_id)
+    if action not in ACTIONS:
+        raise ValueError("unknown action")
+    if not writes_enabled():
+        raise WritesDisabled("SmartOLT writes are switched off (SMARTOLT_WRITES_ENABLED).")
+    if not action_enabled(action):
+        raise WritesDisabled(f"{action.capitalize()} is switched off (SMARTOLT_ACTION_{action.upper()}).")
+    with _lock:
+        if onu_id in _acting:
+            raise SmartOLTError("Another action on this ONU is still running.")
+        _acting.add(onu_id)
+    handed_off = False
+    try:
+        before = _live_details(onu_id)
+        if not before:
+            raise SmartOLTError("SmartOLT doesn't know this ONU.")
+        spec = ACTIONS[action]
+        sn = parse_text(before.get("sn"))
+        action_id = _audit_start(action, sn, {"onu_id": onu_id, "before": _snapshot(before)}, user_id, onu_id)
+        try:
+            body = call("POST", spec["path"].format(id=onu_id), data={"async": "1"} if spec["queued"] else None, timeout=60)
+        except SmartOLTError as e:
+            _audit_finish(action_id, "failed", str(e))
+            raise
+        answer = (body.get("response") if isinstance(body.get("response"), str) else "accepted").rstrip(". ")
+        forget("details", "status")
+        if not spec["queued"]:
+            _audit_finish(action_id, "succeeded", answer)
+            return get_action(action_id)
+        threading.Thread(target=_track, args=(action_id, onu_id, action, answer), name=f"smartolt-{action}", daemon=True).start()
+        handed_off = True
+        return get_action(action_id)
+    finally:
+        if not handed_off:
+            with _lock:
+                _acting.discard(onu_id)
+
+
+def _track(action_id, onu_id, action, answer):
+    """Follows a queued enable/disable to the end, then reads the ONU back."""
+    want = ACTIONS[action]["admin_status"]
+    status, error = None, None
+    try:
+        for _ in range(TASK_CHECKS):
+            _sleep(TASK_CHECK_EVERY_S)
+            try:
+                status, error = parse_task(call("POST", "/api/onu/check_bulk_task_status", data={"onus_external_ids": onu_id}), onu_id)
+            except SmartOLTError as e:
+                status, error = None, str(e)
+                continue
+            if status == "succeeded" or status in TASK_FAILED:
+                break
+        if status in TASK_FAILED:
+            _audit_finish(action_id, "failed", f"SmartOLT: {status}{f' ({error})' if error else ''}")
+            return
+        after = _live_details(onu_id)
+        have = parse_text(after.get("administrative_status"))
+        try:
+            save("details", details_rows([after]), full_list=False)
+        except Exception:
+            log.exception("smartolt: couldn't save the ONU after %s", action)
+        forget("details")
+        if have == want:
+            note = "SmartOLT: succeeded" if status == "succeeded" else f"task said {status or 'nothing'}, but the ONU is {want}"
+            _audit_finish(action_id, "succeeded", f"{answer}. {note}.", {"after": _snapshot(after)})
+        else:
+            _audit_finish(action_id, "mismatch" if status == "succeeded" else "failed",
+                          f"{answer}. Task: {status or 'no answer'}; the ONU is still {have or 'unknown'}, not {want}.",
+                          {"after": _snapshot(after)})
+    except Exception as e:
+        log.exception("smartolt %s tracking failed", action)
+        _audit_finish(action_id, "failed", f"OPS lost track of it: {e}")
+    finally:
+        with _lock:
+            _acting.discard(onu_id)
 
 
 # ---- Webhooks (6A-W) ----

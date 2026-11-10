@@ -2030,6 +2030,21 @@ the longest site name that fits, and are ambiguous when two sites tie or two
 ONUs want one site. `/monitoring/status` and `/monitoring/sites/{id}` attach
 `onu` from `onu_links.site_onus()`, which also fails soft.
 
+**ONU actions (6C)** are `smartolt.start_action()` behind
+`POST /olt/onus/{id}/actions` (admin only). Before sending, OPS reads the
+ONU live (the "before" in the audit row, and proof SmartOLT knows it), then
+writes a `pending` row to `onu_actions`. Reboot finishes on SmartOLT's
+answer (the API has no async reboot). Disable/Enable are sent with
+`async=1`; a daemon thread polls `check_bulk_task_status` every 5 s for up to
+3 minutes, then reads the ONU back and only records `succeeded` if its
+administrative status is the one asked for (`mismatch` if SmartOLT said
+succeeded but the ONU didn't change). The task reply is parsed tolerantly
+(a list of rows, a dict keyed by ONU, or a single row) because its exact
+shape isn't in the docs. One action per ONU at a time (in-process set). A
+`pending` row older than 10 minutes is shown as `unknown`: its tracker was
+lost to a restart. The page polls `GET /olt/actions/{id}` every 3 s while
+it waits.
+
 **Webhooks (6A-W)** come in at `POST /smartolt/webhook`, the only SmartOLT
 route without a login. Each delivery is verified Standard Webhooks style
 (HMAC-SHA256 over `id.timestamp.body` with `SMARTOLT_WEBHOOK_SECRET`,

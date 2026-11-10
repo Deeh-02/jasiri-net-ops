@@ -206,7 +206,21 @@
                         <tbody id="olt-onu-history"></tbody>
                     </table>
                 </div>
-                <p class="olt-hint">Reboot, resync, disable and delete aren't in OPS yet; use SmartOLT for those for now.</p>
+                <!-- 6C: reboot, disable, enable. Admin only, one at a time,
+                     each confirmed with the customer, the serial and the action. -->
+                <div id="olt-onu-actions" hidden>
+                    <h2 class="olt-h2">Actions</h2>
+                    <div class="olt-actions olt-actions-start" id="olt-action-buttons"></div>
+                    <div class="olt-action-status" id="olt-action-status" role="status" hidden></div>
+                </div>
+                <h2 class="olt-h2">Actions on this ONU from OPS</h2>
+                <div class="table-scroll table-compact">
+                    <table class="olt-table table-dense">
+                        <thead><tr><th>When</th><th>Action</th><th>By</th><th>Result</th></tr></thead>
+                        <tbody id="olt-onu-action-log"></tbody>
+                    </table>
+                </div>
+                <p class="olt-hint">Resync config, restore defaults and delete aren't in OPS; use SmartOLT for those.</p>
             </div>
         </div>
     </section>
