@@ -181,6 +181,17 @@
 .net-badge.expired { color: var(--warn); }
 .net-badge.unknown { color: var(--text-dim); }
 
+/* Fibre ONUs (SmartOLT) */
+.onu-h3 { font-family: 'Space Grotesk', sans-serif; font-size: 14px; font-weight: 600; color: var(--text); margin: 16px 0 8px; }
+.onu-table + .onu-table { margin-top: 12px; }
+.net-badge.onu-online { color: var(--accent); }
+.net-badge.onu-down { color: var(--danger); }
+.net-badge.onu-warn { color: var(--warn); }
+.net-badge.onu-critical { color: var(--danger); }
+.onu-dbm { font-family: 'JetBrains Mono', monospace; font-size: 12.5px; white-space: nowrap; }
+.net-count.bad { border-color: var(--danger); }
+.net-count.bad strong { color: var(--danger); }
+
 /* Below ~600px the table becomes one card per client. */
 @media (max-width: 600px) {
     .net-table thead { display: none; }
@@ -188,6 +199,13 @@
     .net-table tr { border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px; padding: 6px 0; }
     .net-table td { border: none; padding: 3px 12px; }
     .net-table td::before { content: attr(data-label); display: inline-block; min-width: 76px; color: var(--text-dim); font-size: 11.5px; }
+    /* In card form, undo the shared phone-table rules (one line, "…", pinned
+       first column): a card has the room, and nothing swipes sideways. */
+    .table-compact .net-table td,
+    .table-compact .net-table td:first-child {
+        position: static; max-width: none; overflow: visible; white-space: normal;
+        overflow-wrap: anywhere; box-shadow: none; background: none;
+    }
     .net-hero-line { font-size: 21px; }
     .net-rate-value { font-size: 24px; }
 }

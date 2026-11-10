@@ -73,10 +73,20 @@ rate-limit headers. Build on those facts, not assumptions.
   (text until the format is confirmed), `polled_at` timestamptz not null
   default now(). Both jobs upsert by `unique_external_id`.
 - **Network page panel:** counts by status (whatever values the real response
-  has); ONUs not online, sorted by time since `last_status_change`; a
-  weak-signal list with configurable thresholds (start: warn −25 dBm,
-  critical −27 dBm); a "last updated" time; shown as **stale** when
-  `polled_at` is older than 15 minutes.
+  has); ONUs not online, most recent `last_status_change` first; a
+  weak-signal list using **SmartOLT's own grade** (Warning / Critical; the
+  owner's call, 2026-11-10, instead of OPS thresholds for now); a "last
+  updated" time; shown as **stale** when status is older than 15 minutes
+  (signal: 45 minutes, since it's only polled every 20).
+
+**6A progress (2026-11-10):** sample responses captured and confirmed (61
+ONUs on 1 OLT; statuses Online / Offline / LOS / Power fail; signals as
+`-17.62 dBm` or `-`; times in Nairobi time with no zone). Table
+`onu_state` approved by the owner and built as migration 0031 (stores the
+ONU's slot, zone, numeric dBm and SmartOLT's grade; no address or phone).
+Client, polling, panel and tests written; run locally against the real
+sample data. Not yet on production: migration 0031 and the two Render
+environment variables are still to do.
 
 ### 6A-W — Webhooks (added at the owner's call, 2026-11-10)
 
@@ -146,7 +156,7 @@ OpenAPI file first; async changes count as done only on `succeeded`.
 
 - [x] Cloud version? Yes: `https://jasiri.smartolt.com`. How many OLTs and ONUs: comes from the first sample.
 - [ ] Is the ONU name in SmartOLT the customer's account name or number? (decides 6B's suggestions)
-- [ ] Signal levels for warning and critical on your hardware (starting at −25 / −27 dBm).
+- [x] Signal levels: use SmartOLT's own grade for now (owner, 2026-11-10). OPS thresholds can come later.
 - [ ] In 6C, may technicians reboot an ONU, or only admins?
 - [x] Is OPS reachable over HTTPS? Yes (Render), so webhooks are in scope as 6A-W.
 - [ ] Chained ONTs: this phase, or the separate TR-069 investigation?

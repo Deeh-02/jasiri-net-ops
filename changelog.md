@@ -5,6 +5,27 @@ Phase-based, not version-based — this project ships in named phases (see
 concise, user-facing summary; full technical detail lives in the git log
 and in `phase.md`'s own per-phase writeups.
 
+## Phase 6 — SmartOLT (on `phase-6-smartolt`)
+
+Started 2026-11-10 at the owner's request, after Phase 5 was merged to `main`.
+
+### 6A: Fibre ONUs on the Network page (read only)
+- New **Fibre ONUs** section on the Network page, from SmartOLT: a count per
+  status (Online, LOS, Offline, Power fail), a **Not online** list (newest
+  first, with how long each has been down, its board/port/ONU and serial),
+  and a **Weak signal** list using SmartOLT's own grade (Critical first),
+  showing the reading at the ONU and at the OLT.
+- OPS asks SmartOLT for statuses every 6 minutes and signals every 20,
+  triggered by the router's 15-second report and by anyone opening the
+  panel. No scheduler, no new service, about 13 calls an hour.
+- Data older than 15 minutes (status) or 45 minutes (signal) is labelled as
+  not current instead of being shown as live.
+- SmartOLT's address and phone fields are never stored.
+- Needs migration `0031_onu_state.sql` and `SMARTOLT_URL` / `SMARTOLT_API_KEY`
+  on the server.
+- On phones, the Network page's tables (ONUs and PPPoE clients) show each row
+  as a full card again instead of cutting values off with "…".
+
 ## Phase 5 — UI Consistency (on `phase-5-ui-consistency`)
 
 Started 2026-11-09 at the owner's request, after Phase 4 was merged to `main`.

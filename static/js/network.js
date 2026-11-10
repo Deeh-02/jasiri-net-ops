@@ -10,6 +10,7 @@ const OVERVIEW_MS = 15000;   // header, uplink card, events
 const SESSIONS_MS = 30000;   // PPPoE table
 const HISTORY_MS = 60000;    // chart, 1h and longer (1-minute rollups — faster is pointless)
 const LIVE_MS = 5000;        // chart, Live (readings land every 15 s; 5 s keeps the lag short)
+const ONUS_MS = 60000;       // Fibre panel (SmartOLT is polled every 6 / 20 min server-side)
 
 const state = {
     range: "live",
@@ -20,6 +21,7 @@ const state = {
     search: "",
     status: "",
     sessions: null,      // last /network/pppoe answer, re-filtered in place
+    onus: null,          // last /network/onus answer
     lastOkAt: null,      // last successful overview fetch
     isOffline: false,
     timers: [],
@@ -561,6 +563,88 @@ function renderSessions() {
     }));
 }
 
+// ---- Fibre ONUs (SmartOLT) ----
+// Read only. ONU names come from SmartOLT, so text only, never HTML.
+
+const ONU_DOWN_GLYPH = "▼";
+const GRADE = { Critical: ["▲ Critical", "onu-critical"], Warning: ["◆ Warning", "onu-warn"] };
+const dbm = v => (v == null ? "no reading" : `${v.toFixed(2)} dBm`);
+
+function onuStatus(status) {
+    return status === "Online"
+        ? el("span", "net-badge onu-online", "● Online")
+        : el("span", "net-badge onu-down", `${ONU_DOWN_GLYPH} ${status || "Unknown"}`);
+}
+
+function renderOnus(p) {
+    const parts = [`${p.total} ONU${p.total === 1 ? "" : "s"}`];
+    if (p.status_polled_at) parts.push(`status ${nairobiHM(p.status_polled_at)}`);
+    if (p.signal_polled_at) parts.push(`signal ${nairobiHM(p.signal_polled_at)}`);
+    $("onu-sub").textContent = p.total ? `from SmartOLT · ${parts.join(" · ")}` : "from SmartOLT";
+
+    const stale = [];
+    if (!p.configured && !p.total) stale.push("SmartOLT isn't connected on this server yet (SMARTOLT_URL and SMARTOLT_API_KEY).");
+    else if (!p.status_polled_at) stale.push("No ONU data from SmartOLT yet; the first poll runs within a minute.");
+    else {
+        if (p.status_stale) stale.push(`ONU status last updated ${nairobiWhen(p.status_polled_at)}, not current.`);
+        if (p.signal_stale) stale.push(p.signal_polled_at
+            ? `Signal readings last updated ${nairobiWhen(p.signal_polled_at)}, not current.`
+            : "No signal readings from SmartOLT yet.");
+    }
+    $("onu-stale").hidden = !stale.length;
+    $("onu-stale").textContent = stale.join(" ");
+
+    // Online first, then every other status SmartOLT uses, in its own words.
+    const chip = (label, n, tone) => {
+        const box = el("div", `net-count${tone && n > 0 ? ` ${tone}` : ""}`);
+        box.append(el("strong", null, String(n)), document.createTextNode(label));
+        return box;
+    };
+    const others = Object.keys(p.counts).filter(k => k !== "Online").sort();
+    $("onu-counts").replaceChildren(...(p.total ? [
+        chip("Online", p.counts.Online || 0),
+        ...others.map(k => chip(k, p.counts[k], "bad")),
+        chip("Weak signal", p.weak.length, "warn"),
+    ] : []));
+
+    const down = $("onu-down");
+    if (!p.down.length) {
+        down.innerHTML = stateRow(6, "empty", p.total ? "Every ONU is online." : "No ONU data yet.");
+    } else {
+        down.replaceChildren(...p.down.map(o => {
+            const tr = el("tr");
+            tr.append(
+                cell("Name", o.name || "—"),
+                cell("Status", [onuStatus(o.status)]),
+                cell("For", o.for_s == null ? "—" : duration(o.for_s)),
+                cell("Since", o.last_status_change ? nairobiWhen(o.last_status_change) : "—"),
+                cell("Port", o.location || "—"),
+                cell("Serial", o.sn || o.id),
+            );
+            return tr;
+        }));
+    }
+
+    const weak = $("onu-weak");
+    if (!p.weak.length) {
+        weak.innerHTML = stateRow(6, "empty", p.total ? "SmartOLT grades no ONU as Warning or Critical." : "No ONU data yet.");
+    } else {
+        weak.replaceChildren(...p.weak.map(o => {
+            const [label, tone] = GRADE[o.signal_quality];
+            const tr = el("tr");
+            tr.append(
+                cell("Name", o.name || "—"),
+                cell("Grade", [el("span", `net-badge ${tone}`, label)]),
+                cell("At ONU", [el("span", "onu-dbm", dbm(o.signal_1490_dbm))]),
+                cell("At OLT", [el("span", "onu-dbm", dbm(o.signal_1310_dbm))]),
+                cell("Status", [onuStatus(o.status)]),
+                cell("Port", o.location || "—"),
+            );
+            return tr;
+        }));
+    }
+}
+
 // ---- Loading and polling ----
 
 async function loadOverview() {
@@ -604,6 +688,21 @@ async function loadHistory() {
     }
 }
 
+async function loadOnus() {
+    try {
+        state.onus = await api("/network/onus");
+        renderOnus(state.onus);
+    } catch (e) {
+        if (!state.onus) {
+            $("onu-down").innerHTML = stateRow(6, "error", e.message);
+            $("onu-weak").innerHTML = stateRow(6, "error", e.message);
+        } else {
+            $("onu-stale").hidden = false;
+            $("onu-stale").textContent = `Couldn't refresh ONU data: ${e.message}`;
+        }
+    }
+}
+
 const viewIsOpen = () => !$("view-network").hidden;
 
 function stopPolling() {
@@ -621,13 +720,15 @@ function startPolling() {
     // The chart timer ticks every 5 s: Live redraws each tick, the longer ranges
     // only once a minute.
     const historyDue = () => { if (state.range === "live" || Date.now() - state.historyAt >= HISTORY_MS) loadHistory(); };
-    state.timers = [every(loadOverview, OVERVIEW_MS), every(loadSessions, SESSIONS_MS), every(historyDue, LIVE_MS)];
+    state.timers = [every(loadOverview, OVERVIEW_MS), every(loadSessions, SESSIONS_MS), every(historyDue, LIVE_MS),
+                    every(loadOnus, ONUS_MS)];
 }
 
 function loadAll() {
     loadOverview();
     loadSessions();
     loadHistory();
+    loadOnus();
 }
 
 document.addEventListener("visibilitychange", () => {

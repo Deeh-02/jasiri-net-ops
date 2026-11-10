@@ -22,10 +22,12 @@ import time
 from collections import defaultdict, deque
 from typing import Literal, Optional
 
+from psycopg2 import errors as pg_errors
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from db import network as db
+from db import smartolt
 from routers.auth import get_current_user
 from routers.permissions import require_admin, user_has_permission
 
@@ -256,7 +258,11 @@ async def ingest(request: Request):
     except ValueError as e:
         _reject(422, str(e), slug)
     if isinstance(message, LiveMessage):
-        return {"ok": True, **db.record_live(slug, message.model_dump())}
+        result = db.record_live(slug, message.model_dump())
+        # The heartbeat is also the SmartOLT poller's clock (Phase 6A). It
+        # only starts a thread when a poll is due, and never raises.
+        smartolt.poll_if_due()
+        return {"ok": True, **result}
     if message.part > message.parts:
         _reject(422, "part is larger than parts", slug)
     return {"ok": True, **db.record_session_part(slug, message.model_dump())}
@@ -334,6 +340,17 @@ def network_uplink_history(router: str = "ccr2116", range: str = "1h", link: Opt
         return db.uplink_history(router, range, link=link)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/network/onus")
+def network_onus(current_user: dict = Depends(require_network_view)):
+    """The Fibre (SmartOLT) panel. Loading it also starts any SmartOLT poll
+    that's due, so ONU data stays fresh while the router isn't reporting."""
+    smartolt.poll_if_due()
+    try:
+        return smartolt.panel()
+    except pg_errors.UndefinedTable:
+        raise HTTPException(status_code=503, detail="The ONU table isn't set up yet (migration 0031).")
 
 
 @router.get("/network/events")

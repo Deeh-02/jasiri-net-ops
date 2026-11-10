@@ -1941,6 +1941,46 @@ searchable items + how to jump to one). `static/js/app.js` is the only file
 that imports every view module — it's the composition root, wiring them
 together, analogous to `main.py` including every router.
 
+## SmartOLT integration (Phase 6)
+
+**Where it lives:** `db/smartolt.py` (client, parsing, saving, polling, the
+panel's figures) and one read endpoint, `GET /network/onus` in
+`routers/network.py`, behind the Network page's own permission
+(`sites:view_network`). The scope document named `app/integrations/`; this
+repo keeps outside services in `db/` (like `db/deepseek.py`), so it went there.
+
+**No scheduler, on purpose.** Render can sleep or run more than one copy of
+the app, and a timer inside the app would stop or double. Polling is driven
+by two things that already happen: every CCR2116 heartbeat (each live
+message to `/network/ingest`, every 15 s) and every load of the ONU panel
+(every 60 s while it's open). `poll_if_due()` only compares two in-memory
+times under a lock and, when a poll is due, starts it on a daemon thread, so
+the heartbeat is never held up and it never raises. Each poll first reads
+the table's own `status_polled_at` / `signal_polled_at`; if another process
+(or this one before a restart) polled recently, it skips SmartOLT and waits
+out the remainder. A failed poll waits 2 minutes, or longer if SmartOLT sent
+Retry-After. If the router stops reporting and nobody has the page open,
+polling pauses; the panel then says the data isn't current.
+
+**The reply format was checked against real responses (2026-11-10)**, not
+assumed: the list is under `response`; signals are text like `-17.62 dBm`
+or `-` (stored as numeric dBm, NULL for `-`); times are Nairobi wall-clock
+with no zone (read as UTC+3); statuses are Online / Offline / LOS / Power
+fail; and each signal row carries SmartOLT's own grade (Very good / Warning
+/ Critical), which follows the reading at the OLT (1310). The weak-signal
+list uses that grade, at the owner's call, rather than OPS thresholds.
+
+**What isn't stored:** SmartOLT's `address` and `contact` (phone) fields are
+dropped when the reply is read. The raw samples used to confirm the format
+were kept outside the repo; tests use made-up rows of the same shape.
+
+**Removed ONUs:** the status reply is SmartOLT's full ONU list, so each
+status poll deletes rows for ONUs no longer in it, unless the list is empty
+(far more likely a fault than every ONU being deleted).
+
+**Read only.** Nothing in 6A writes to SmartOLT. The write rules for 6C/6D
+(kill switch, per-action flags, read-back, audit) are in PHASES.md.
+
 ## Visual testing — headless Chromium in this sandbox
 
 Not part of the app's own architecture — a tooling note so a future
