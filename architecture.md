@@ -1978,8 +1978,37 @@ were kept outside the repo; tests use made-up rows of the same shape.
 status poll deletes rows for ONUs no longer in it, unless the list is empty
 (far more likely a fault than every ONU being deleted).
 
-**Read only.** Nothing in 6A writes to SmartOLT. The write rules for 6C/6D
-(kill switch, per-action flags, read-back, audit) are in PHASES.md.
+**The OLT page (2026-11-11)** is `routers/olt.py` over the same module.
+Configured reads OPS's own `onu_state` (a third poll, `details`, every 30
+minutes, fills a whitelisted `details` jsonb: zone, splitter, mode, WAN mode,
+VLANs, type, authorization date). It uses SmartOLT's *paginated* details
+call, which counts against the general 1,000-an-hour budget, not the
+15-an-hour full export. The View page, Unconfigured tab, authorize dropdowns
+and graphs are live calls through a small in-process cache (details 30 s,
+full status 60 s, graphs 5 min, dropdown lists 10 min), because full status
+info and the signal graph have their own smaller hourly limits (300 and 500,
+seen in SmartOLT's rate-limit headers). Graphs are PNGs proxied through OPS,
+fetched by the page with its auth header and shown from a blob URL.
+
+**Secrets.** SmartOLT's details replies carry PPPoE and Wi-Fi passwords in
+plain text (seen 2026-11-11; its docs' examples show them empty).
+`smartolt.scrub()` removes every key named `password` (and coordinates) at
+any depth from every reply before anything else reads it, and the View page
+is built from an explicit list of fields on top of that. The running config
+is never fetched (it can hold credentials). Address and contact are shown on
+the View page, read live, never stored.
+
+**Authorize** is the one write, admin only, brought forward from 6D at the
+owner's call. `POST /olt/authorize` validates every field against
+SmartOLT's own character rules (pydantic, extra fields forbidden), refuses
+when `SMARTOLT_WRITES_ENABLED` is false (on by default, as the owner asked),
+allows one authorize per serial at a time, writes a `pending` row to
+`onu_actions` before calling SmartOLT, and finishes it as `failed`,
+`succeeded` or `mismatch`. Read-back asks SmartOLT for that serial right
+afterwards and compares OLT, board, port, type, zone, mode, VLAN and name;
+any difference is shown to the admin and kept in the audit row. The new ONU
+is written into `onu_state` straight away (never deleting other rows) so
+it appears in Configured before the next poll.
 
 ## Visual testing — headless Chromium in this sandbox
 

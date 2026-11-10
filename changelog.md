@@ -9,6 +9,31 @@ and in `phase.md`'s own per-phase writeups.
 
 Started 2026-11-10 at the owner's request, after Phase 5 was merged to `main`.
 
+### OLT page, and authorizing ONUs from OPS (2026-11-11)
+- The sidebar has a new **Network** section: **Network Analysis** (the
+  CCR2116 page, renamed) and **OLT**. Batteries and Sites stay under
+  Operations.
+- **OLT → Configured:** every ONU, like SmartOLT's list: status, name, serial,
+  board/port/ONU, zone, splitter, signal (coloured by SmartOLT's grade),
+  Bridge / R: PPPoE / Router, VLANs, ONU type and authorization date. Status
+  chips filter it (Online, LOS, Offline, Power fail, Weak signal), plus search,
+  zone and PON port. The Fibre ONUs section moved here from Network Analysis.
+- **View** opens one ONU, like SmartOLT's View page: where it is, its status
+  and distance, both signal levels, TR069, management IP, VLANs, ONU and WAN
+  mode, PPPoE username, speed profiles and Ethernet ports, plus a live read
+  from the OLT (uptime, last down cause, optical levels, temperature, up and
+  down history) and SmartOLT's traffic and signal graphs (hour, day, week,
+  month). The PPPoE password is never shown. Reboot, resync, disable and
+  delete aren't in OPS yet.
+- **OLT → Unconfigured:** ONUs the OLT sees but hasn't authorized. Admins can
+  **Authorize** one: ONU type, mode, VLAN, zone, splitter, name, comment and
+  speed profiles, all chosen from SmartOLT's own lists, then a confirmation
+  showing exactly what will be written. OPS reads the ONU back from SmartOLT
+  afterwards and flags anything that differs. Every attempt, failures
+  included, is in **Recent authorizations**. `SMARTOLT_WRITES_ENABLED=false`
+  switches authorizing off instantly.
+- Needs migration `0032_onu_details_and_actions.sql`.
+
 ### 6A: Fibre ONUs on the Network page (read only)
 - New **Fibre ONUs** section on the Network page, from SmartOLT: a count per
   status (Online, LOS, Offline, Power fail), a **Not online** list (newest

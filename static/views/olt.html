@@ -1,0 +1,178 @@
+    <section class="view" id="view-olt" hidden>
+        <!-- OLT (SmartOLT, Phase 6). Two modes on one view: the lists
+             (#/olt, #/olt/unconfigured) and one ONU (#/olt/onu/<id>).
+             Every value comes from OPS's server, never from SmartOLT
+             directly, and is put on the page as text. -->
+
+        <div id="olt-list-mode">
+            <div class="page-header-row">
+                <h1 class="page-title">OLT <span id="olt-title-sub">SmartOLT</span></h1>
+                <div class="net-updated" id="olt-updated">Loading&hellip;</div>
+            </div>
+
+            <div class="olt-tabs tabs" role="tablist">
+                <button type="button" class="olt-tab tab" role="tab" data-tab="configured" aria-selected="true">Configured <span class="olt-tab-count" id="olt-count-configured"></span></button>
+                <button type="button" class="olt-tab tab" role="tab" data-tab="unconfigured" aria-selected="false">Unconfigured <span class="olt-tab-count" id="olt-count-unconfigured"></span></button>
+            </div>
+
+            <!-- Configured: OPS's own copy (status every 6 min, signal every
+                 20, details every 30), so it loads instantly. -->
+            <div id="olt-configured-panel">
+                <div class="net-stale" id="olt-stale" hidden></div>
+                <div class="summary-strip" id="olt-chips" aria-label="Filter by status"></div>
+                <div class="toolbar">
+                    <label class="toolbar-field olt-search-field"><span>Search</span>
+                        <input type="search" class="control" id="olt-search" placeholder="Name, serial, zone or VLAN" autocomplete="off">
+                    </label>
+                    <label class="toolbar-field"><span>Zone</span>
+                        <select class="control" id="olt-zone"><option value="">All zones</option></select>
+                    </label>
+                    <label class="toolbar-field"><span>PON port</span>
+                        <select class="control" id="olt-port"><option value="">All ports</option></select>
+                    </label>
+                    <div class="toolbar-end"><span class="toolbar-count" id="olt-shown"></span></div>
+                </div>
+                <div class="table-scroll table-compact">
+                    <table class="olt-table">
+                        <thead>
+                            <tr><th>Name</th><th>Status</th><th>SN</th><th>ONU</th><th>Zone</th><th>Splitter</th><th>Signal</th><th>Mode</th><th>VLAN</th><th>Type</th><th>Authorized</th><th></th></tr>
+                        </thead>
+                        <tbody id="olt-onus" data-skeleton="12"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Unconfigured: asked of SmartOLT live each time. -->
+            <div id="olt-unconfigured-panel" hidden>
+                <div class="toolbar">
+                    <p class="olt-hint">ONUs the OLT can see but that aren't authorized yet. A newly connected ONU shows up here within a minute.</p>
+                    <div class="toolbar-end">
+                        <button type="button" class="btn-secondary" id="olt-unconfigured-refresh">Refresh</button>
+                    </div>
+                </div>
+                <div class="net-stale" id="olt-writes-off" hidden>Authorizing is switched off on this server (SMARTOLT_WRITES_ENABLED).</div>
+                <div class="table-scroll table-compact">
+                    <table class="olt-table">
+                        <thead>
+                            <tr><th>SN</th><th>PON port</th><th>ONU type</th><th>PON type</th><th>OLT</th><th></th></tr>
+                        </thead>
+                        <tbody id="olt-unconfigured" data-skeleton="6"></tbody>
+                    </table>
+                </div>
+
+                <h2 class="olt-h2">Recent authorizations</h2>
+                <div class="table-scroll table-compact">
+                    <table class="olt-table table-dense">
+                        <thead>
+                            <tr><th>When</th><th>SN</th><th>Name</th><th>Zone</th><th>By</th><th>Result</th></tr>
+                        </thead>
+                        <tbody id="olt-actions" data-skeleton="6"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- One ONU, like SmartOLT's View page. Read only: reboot, resync,
+             disable and delete come later (6C). -->
+        <div id="olt-onu-mode" hidden>
+            <button type="button" class="olt-back" id="olt-back">&larr; Configured ONUs</button>
+            <div class="page-header-row">
+                <h1 class="page-title" id="olt-onu-title">ONU</h1>
+                <div class="net-updated" id="olt-onu-updated"></div>
+            </div>
+            <div class="state state-error" id="olt-onu-error" role="alert" hidden></div>
+
+            <div class="olt-detail" id="olt-onu-body" hidden>
+                <dl class="olt-facts" id="olt-onu-facts"></dl>
+                <div class="olt-side">
+                    <div class="olt-card">
+                        <div class="olt-status-row" id="olt-onu-status"></div>
+                        <div class="olt-signals" id="olt-onu-signals"></div>
+                    </div>
+                    <dl class="olt-facts olt-facts-tight" id="olt-onu-service"></dl>
+                </div>
+            </div>
+
+            <div id="olt-onu-more" hidden>
+                <h2 class="olt-h2">From the OLT <span class="net-h2-sub" id="olt-live-sub">asked live</span></h2>
+                <div class="state state-loading" id="olt-live-loading">Asking the OLT&hellip;</div>
+                <dl class="olt-facts olt-facts-grid" id="olt-live-facts"></dl>
+
+                <div class="olt-graph-head">
+                    <h2 class="olt-h2">Traffic and signal</h2>
+                    <div class="fleet-range" id="olt-graph-range" role="group" aria-label="Graph period">
+                        <button type="button" data-period="hourly" aria-pressed="false">Hour</button>
+                        <button type="button" data-period="daily" aria-pressed="true">Day</button>
+                        <button type="button" data-period="weekly" aria-pressed="false">Week</button>
+                        <button type="button" data-period="monthly" aria-pressed="false">Month</button>
+                    </div>
+                </div>
+                <div class="olt-graphs">
+                    <figure class="olt-graph"><figcaption>Traffic</figcaption><div class="olt-graph-box" id="olt-graph-traffic"></div></figure>
+                    <figure class="olt-graph"><figcaption>Signal and status</figcaption><div class="olt-graph-box" id="olt-graph-signal"></div></figure>
+                </div>
+
+                <h2 class="olt-h2">Speed profiles</h2>
+                <div class="table-scroll table-compact">
+                    <table class="olt-table table-dense">
+                        <thead><tr><th>Service</th><th>Service-port ID</th><th>User-VLAN</th><th>Download</th><th>Upload</th></tr></thead>
+                        <tbody id="olt-onu-speeds"></tbody>
+                    </table>
+                </div>
+
+                <h2 class="olt-h2">Ethernet ports</h2>
+                <div class="table-scroll table-compact">
+                    <table class="olt-table table-dense">
+                        <thead><tr><th>Port</th><th>Admin state</th><th>Mode</th><th>VLAN</th><th>DHCP</th><th>Link</th></tr></thead>
+                        <tbody id="olt-onu-ports"></tbody>
+                    </table>
+                </div>
+
+                <h2 class="olt-h2">Up and down history</h2>
+                <div class="table-scroll table-compact">
+                    <table class="olt-table table-dense">
+                        <thead><tr><th>#</th><th>Up at</th><th>Down at</th><th>Cause</th></tr></thead>
+                        <tbody id="olt-onu-history"></tbody>
+                    </table>
+                </div>
+                <p class="olt-hint">Reboot, resync, disable and delete aren't in OPS yet; use SmartOLT for those for now.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Authorize one ONU (admin only). Every field maps to SmartOLT's
+         authorize_onu; the confirm step shows exactly what will be sent. -->
+    <div class="modal-overlay" id="olt-auth-overlay" hidden>
+        <div class="modal-box olt-auth-box" role="dialog" aria-modal="true" aria-labelledby="olt-auth-title">
+            <h3 id="olt-auth-title">Authorize ONU</h3>
+            <p class="olt-auth-where" id="olt-auth-where"></p>
+            <form id="olt-auth-form" class="panel-form olt-auth-form" novalidate>
+                <label>ONU type
+                    <select id="olt-auth-type" required></select></label>
+                <label>ONU mode
+                    <select id="olt-auth-mode" required>
+                        <option value="Routing">Routing</option>
+                        <option value="Bridging">Bridging</option>
+                    </select></label>
+                <label>VLAN
+                    <select id="olt-auth-vlan" required></select></label>
+                <label>Zone
+                    <select id="olt-auth-zone" required></select></label>
+                <label>Splitter <span class="olt-optional">optional</span>
+                    <select id="olt-auth-odb"><option value="">None</option></select></label>
+                <label>Name
+                    <input type="text" id="olt-auth-name" maxlength="80" required placeholder="e.g. Mark_JS45" autocomplete="off"></label>
+                <label class="olt-auth-wide">Address or comment <span class="olt-optional">optional</span>
+                    <input type="text" id="olt-auth-comment" maxlength="120" autocomplete="off"></label>
+                <label>Download speed <span class="olt-optional">optional</span>
+                    <select id="olt-auth-down"><option value="">OLT default</option></select></label>
+                <label>Upload speed <span class="olt-optional">optional</span>
+                    <select id="olt-auth-up"><option value="">OLT default</option></select></label>
+                <div class="olt-auth-msg" id="olt-auth-msg" role="alert" hidden></div>
+                <div class="modal-actions olt-auth-wide">
+                    <button type="button" class="btn-secondary" id="olt-auth-cancel">Cancel</button>
+                    <button type="submit" class="btn-primary" id="olt-auth-submit">Review and authorize</button>
+                </div>
+            </form>
+        </div>
+    </div>

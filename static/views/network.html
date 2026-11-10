@@ -1,6 +1,6 @@
     <section class="view" id="view-network" hidden>
         <div class="page-header-row">
-            <h1 class="page-title">Network <span>CCR2116</span></h1>
+            <h1 class="page-title">Network Analysis <span>CCR2116</span></h1>
             <div class="net-updated" id="net-updated">Loading&hellip;</div>
         </div>
 
@@ -56,31 +56,6 @@
 
         <h2 class="net-h2">Events</h2>
         <div class="net-events" id="net-events"></div>
-
-        <!-- Fibre (SmartOLT, Phase 6A): read only. OPS polls SmartOLT (status
-             every 6 min, signal every 20 min); the browser never calls it.
-             Weak signal uses SmartOLT's own grade (owner's call). -->
-        <h2 class="net-h2">Fibre ONUs <span class="net-h2-sub" id="onu-sub">from SmartOLT</span></h2>
-        <div class="net-stale" id="onu-stale" hidden></div>
-        <div class="net-counts" id="onu-counts"></div>
-        <h3 class="onu-h3">Not online</h3>
-        <div class="table-scroll table-compact">
-            <table class="net-table onu-table">
-                <thead>
-                    <tr><th>Name</th><th>Status</th><th>For</th><th>Since</th><th>Port</th><th>Serial</th></tr>
-                </thead>
-                <tbody id="onu-down" data-skeleton="6"></tbody>
-            </table>
-        </div>
-        <h3 class="onu-h3">Weak signal <span class="net-h2-sub">SmartOLT's grade</span></h3>
-        <div class="table-scroll table-compact">
-            <table class="net-table onu-table">
-                <thead>
-                    <tr><th>Name</th><th>Grade</th><th>At ONU (1490)</th><th>At OLT (1310)</th><th>Status</th><th>Port</th></tr>
-                </thead>
-                <tbody id="onu-weak" data-skeleton="6"></tbody>
-            </table>
-        </div>
 
         <h2 class="net-h2">PPPoE clients</h2>
         <div class="net-counts" id="net-counts"></div>

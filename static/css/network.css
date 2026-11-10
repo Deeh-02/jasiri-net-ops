@@ -181,17 +181,6 @@
 .net-badge.expired { color: var(--warn); }
 .net-badge.unknown { color: var(--text-dim); }
 
-/* Fibre ONUs (SmartOLT) */
-.onu-h3 { font-family: 'Space Grotesk', sans-serif; font-size: 14px; font-weight: 600; color: var(--text); margin: 16px 0 8px; }
-.onu-table + .onu-table { margin-top: 12px; }
-.net-badge.onu-online { color: var(--accent); }
-.net-badge.onu-down { color: var(--danger); }
-.net-badge.onu-warn { color: var(--warn); }
-.net-badge.onu-critical { color: var(--danger); }
-.onu-dbm { font-family: 'JetBrains Mono', monospace; font-size: 12.5px; white-space: nowrap; }
-.net-count.bad { border-color: var(--danger); }
-.net-count.bad strong { color: var(--danger); }
-
 /* Below ~600px the table becomes one card per client. */
 @media (max-width: 600px) {
     .net-table thead { display: none; }

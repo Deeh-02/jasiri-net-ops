@@ -88,6 +88,27 @@ Client, polling, panel and tests written; run locally against the real
 sample data. Not yet on production: migration 0031 and the two Render
 environment variables are still to do.
 
+### OLT page (owner's call, 2026-11-11)
+
+The owner asked for SmartOLT's own day-to-day screens inside OPS, ahead of
+the original order:
+
+- **Sidebar:** a new **Network** section with **Network Analysis** (the
+  CCR2116 page, renamed) and **OLT**.
+- **OLT → Configured** (like SmartOLT's list) and **View** (like SmartOLT's
+  ONU page), read only. Action buttons (reboot, resync, disable, delete) stay
+  in 6C, as the owner chose.
+- **OLT → Unconfigured** with **Authorize**, built and switched on from day
+  one at the owner's explicit choice (2026-11-11), instead of waiting for
+  6D's gate (6C in daily use, a spare ONU to test on). The 6D safety rules
+  that apply to it are in place: kill switch `SMARTOLT_WRITES_ENABLED`,
+  confirm step showing what will be sent, read-back with mismatches flagged,
+  audit log `onu_actions`, admin only.
+- Migration 0032 (approved 2026-11-11): `onu_state.details` jsonb and
+  `details_polled_at`, and the `onu_actions` audit table.
+- SmartOLT returns PPPoE and Wi-Fi passwords in plain text in its details
+  replies; OPS strips them from every reply and never shows them.
+
 ### 6A-W — Webhooks (added at the owner's call, 2026-11-10)
 
 SmartOLT tells OPS the moment an ONU changes, instead of OPS waiting up to
@@ -95,6 +116,31 @@ SmartOLT tells OPS the moment an ONU changes, instead of OPS waiting up to
 
 - **Before building:** look up SmartOLT's webhook events, payload and how it
   proves a request came from SmartOLT. Don't guess them.
+- **Looked up 2026-11-10** (from `https://www.smartolt.com/openapi.json`,
+  `x-webhooks` and the "Real-time events" tag; no other docs page exists):
+  - Set up in SmartOLT under **General > API key > Edit > Webhook**: an
+    HTTPS URL, the events wanted, a **Signing secret** (`whsec_…`), and a
+    "Send test event" button (`webhook.test`).
+  - POST, JSON: `{"type", "timestamp" (UTC), "data": {"onus" | "pons" |
+    "olts": [...]}}`, one event type per batch, up to 1,000 rows.
+  - Events: `onu.status_changed` (rows shaped like the status poll's),
+    `onu.signal_changed` (band change or ≥2 dB), `onu.signal_reading`
+    (1310), `onu.rx1490_reading` (1490), `pon.outage_started/ended`,
+    `olt.status_stale/fresh`, `onu.authorized/updated/deleted/
+    unconfigured_detected`.
+  - Signed the **Standard Webhooks** way: headers `webhook-id`,
+    `webhook-timestamp`, `webhook-signature: v1,<base64 HMAC-SHA256>` over
+    `{id}.{timestamp}.{raw body}`, key = the secret without `whsec_`,
+    base64-decoded.
+  - Must answer 2xx within 15 s; redirects count as failures. Retries after
+    5 s, 5 min, 30 min, 2 h, 5 h, then every 10 h; disabled (with an email)
+    after 5 days of failures. A retry resends the same `webhook-id` and body.
+  - **Not documented:** source IPs, a timestamp tolerance, whether a retry
+    keeps the original `webhook-timestamp`. Check with the test event before
+    rejecting old timestamps, or retries could be refused until SmartOLT
+    disables the webhook.
+- Signals can come by webhook too (`onu.rx1490_reading`,
+  `onu.signal_changed`), so this sub-phase can cover both, not status only.
 - An inbound endpoint that rejects any request that can't be verified, and
   updates `onu_state` for that one ONU. It never changes anything in SmartOLT.
 - **Polling stays.** Webhooks cover status changes only; signal readings
@@ -124,7 +170,13 @@ the system never links silently.
 Enable, disable or reboot one ONU at a time.
 
 - Look up exact paths and parameters in
-  `https://www.smartolt.com/openapi.json` first.
+  `https://www.smartolt.com/openapi.json` first. **Looked up 2026-11-10:**
+  `POST /api/onu/enable/{onu_external_id}` and `.../disable/...` (form field
+  `async=1` queues it); `POST /api/onu/reboot/{onu_external_id}` (no async
+  option: it answers "Device reboot command sent" directly);
+  `POST /api/onu/check_bulk_task_status` (form `onus_external_ids`; states
+  queued, in_progress, retrying, failed, succeeded, no_task, onu_not_found).
+  Async calls have their own 5,000-an-hour budget.
 - Admins only to start.
 - Confirmation dialog with customer name, ONU serial and the action.
 - Sent with `async=1`; shown as pending until `check_bulk_task_status`

@@ -24,6 +24,7 @@ import { initCustomers } from "./customers.js";
 import { initBroadcast } from "./broadcast.js";
 import { initChat } from "./chat.js";
 import { initNetwork } from "./network.js";
+import { initOlt } from "./olt.js";
 import { initActivitySubmit } from "./activity-submit.js";
 import { initActivityReports } from "./activity-reports.js";
 import { initActivityOverview } from "./activity-overview.js";
@@ -59,6 +60,7 @@ async function boot() {
     initBroadcast();
     initChat();
     initNetwork();
+    initOlt();
     initActivitySubmit();
     initActivityReports();
     initActivityOverview();

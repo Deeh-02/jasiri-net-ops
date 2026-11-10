@@ -116,8 +116,9 @@ what is truly its own.
   ~150ms fade and 4px drop; buttons, summary filters and cards have a
   pressed state. Nothing moves that isn't changing; reduced motion turns
   all of it off.
-- **Sidebar (sectioned, 2026-11-09):** six titled sections — Operations
-  (Batteries, Sites, Network), Technical Activity Log, Inventory, Reports,
+- **Sidebar (sectioned, 2026-11-09):** seven titled sections — Operations
+  (Batteries, Sites), Network (Network Analysis, OLT; added 2026-11-11),
+  Technical Activity Log, Inventory, Reports,
   Alerts, System (Users, Roles). Section titles are 11px (12px in the
   phone drawer) uppercase JetBrains Mono, grey, with a fold chevron; space,
   not a divider line, separates sections. A title turns white only while

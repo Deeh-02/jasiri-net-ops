@@ -1,26 +1,42 @@
-"""SmartOLT, Phase 6A: read-only ONU status and signal (see PHASES.md).
+"""SmartOLT (Phase 6, see PHASES.md): ONU status, signal and details, the OLT
+page's live reads, and authorizing new ONUs.
 
-OPS asks SmartOLT for every ONU's status every 6 minutes and every ONU's
-signal every 20 minutes, two bulk calls (about 13 an hour against SmartOLT's
-1,000), and keeps the latest answer in `onu_state`. The browser never talks to
-SmartOLT. Nothing here writes to SmartOLT: 6A is read only.
+POLLING. OPS keeps the latest state of every ONU in `onu_state`: statuses
+every 6 minutes, signals every 20, the Configured list's details every 30
+(SmartOLT's paginated details call, which uses the general budget rather than
+the 15-an-hour full export). About 15 calls an hour against 1,000.
 
 There is no scheduler. poll_if_due() is called on every router heartbeat
 (the CCR2116 reports every 15 s, routers/network.py) and whenever someone
-loads the ONU panel, so polling carries on while the router is down as long
-as someone is looking. It never blocks the caller: a due poll runs on its own
+loads the OLT page, so polling carries on while the router is down as long as
+someone is looking. It never blocks the caller: a due poll runs on its own
 thread, at most one per kind at a time. Before calling SmartOLT a poll checks
 the table's own "last polled" time, so a restart or a second app process
 doesn't poll early.
 
-The reply format below was confirmed against real responses on 2026-11-10:
-{"status": true, "response_code": "success", "response": [ {...}, ... ]},
-signals as "-17.62 dBm" or "-", times as Nairobi wall-clock
-"2026-11-10 21:03:11.123456" with no zone, statuses Online / Offline / LOS /
-Power fail, and SmartOLT's own signal grade Very good / Warning / Critical.
+LIVE READS (the View page, Unconfigured tab, authorize dropdowns, graphs) go
+to SmartOLT when asked, through a short cache so a busy page can't burn the
+hourly budgets (full status info has its own 300 an hour, the signal graph
+500, as SmartOLT's rate-limit headers showed on 2026-11-11).
 
-Configured by SMARTOLT_URL and SMARTOLT_API_KEY. The key goes only in the
-X-Token header and is never logged.
+SECRETS. SmartOLT returns PPPoE and Wi-Fi passwords in plain text (checked
+2026-11-11, despite its docs showing them empty). Every reply is passed
+through scrub() before anything else sees it: any key named "password" at
+any depth is removed, and so are coordinates. The running config is never
+fetched (it can hold credentials). Address and contact are shown on the
+View page, read live, and never stored.
+
+WRITES. Only authorize, for now (the owner's call, 2026-11-11, ahead of the
+original 6D gate). Admin only (routers/olt.py), refused when
+SMARTOLT_WRITES_ENABLED is false, one at a time per serial, every attempt
+written to `onu_actions` with what was sent, SmartOLT's answer and a
+read-back of what SmartOLT actually configured.
+
+Reply formats confirmed against real responses on 2026-11-10/11: lists under
+`response` (`onus` for the details call, `onu_details` for one ONU),
+signals as "-17.62 dBm" or "-" in the bulk calls but numbers in the details,
+times as Nairobi wall-clock with no zone. Configured by SMARTOLT_URL and
+SMARTOLT_API_KEY; the key goes only in the X-Token header and is never logged.
 """
 import logging
 import os
@@ -29,7 +45,7 @@ import re
 import threading
 import time
 from datetime import datetime, timedelta, timezone
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 import requests
 
@@ -39,16 +55,21 @@ log = logging.getLogger(__name__)
 
 STATUS_EVERY = timedelta(minutes=6)
 SIGNAL_EVERY = timedelta(minutes=20)
+DETAILS_EVERY = timedelta(minutes=30)
 JITTER_S = 45                      # random extra wait per run, so calls don't line up
 STATUS_STALE = timedelta(minutes=15)
 SIGNAL_STALE = timedelta(minutes=45)   # two missed 20-minute polls
+DETAILS_STALE = timedelta(minutes=75)
 RETRY_AFTER_FAILURE = timedelta(minutes=2)
-MAX_RETRY_WAIT_S = 120             # longest a 429 is waited out before giving up this run
+MAX_RETRY_WAIT_S = 120             # longest a 429 is waited out before giving up
 TIMEOUT_S = 30
+AUTHORIZE_TIMEOUT_S = 150          # SmartOLT: "expect this call to take tens of seconds"
+PAGE_SIZE = 100
 
 KINDS = {
     "status": {"path": "/api/onu/get_onus_statuses", "every": STATUS_EVERY, "column": "status_polled_at"},
     "signal": {"path": "/api/onu/get_onus_signals", "every": SIGNAL_EVERY, "column": "signal_polled_at"},
+    "details": {"path": "/api/onu/get_all_onus_details", "every": DETAILS_EVERY, "column": "details_polled_at"},
 }
 
 
@@ -60,6 +81,10 @@ class SmartOLTError(Exception):
         self.retry_after = retry_after
 
 
+class WritesDisabled(Exception):
+    pass
+
+
 def _settings():
     return (os.environ.get("SMARTOLT_URL") or "").strip().rstrip("/"), (os.environ.get("SMARTOLT_API_KEY") or "").strip()
 
@@ -69,7 +94,17 @@ def configured():
     return bool(url and key)
 
 
+def writes_enabled():
+    """The kill switch. On unless SMARTOLT_WRITES_ENABLED says otherwise (the
+    owner asked for authorize to be on from day one)."""
+    return (os.environ.get("SMARTOLT_WRITES_ENABLED") or "true").strip().lower() not in ("false", "0", "no", "off")
+
+
 # ---- Calling SmartOLT ----
+
+_send = requests.request
+_sleep = time.sleep
+
 
 def _retry_after(value):
     try:
@@ -78,15 +113,17 @@ def _retry_after(value):
         return 60
 
 
-def fetch(kind, get=requests.get, sleep=time.sleep):
-    """The `response` list of one bulk endpoint. Retries once on HTTP 429,
-    waiting as long as Retry-After says (if that's within MAX_RETRY_WAIT_S)."""
+def call(method, path, *, params=None, data=None, timeout=TIMEOUT_S, image=False):
+    """One SmartOLT call. Returns the parsed JSON object (its `status` checked)
+    or, with image=True, the PNG bytes. Retries once on HTTP 429, waiting as
+    long as Retry-After says if that's within MAX_RETRY_WAIT_S."""
     url, key = _settings()
     if not (url and key):
         raise SmartOLTError("SmartOLT isn't configured")
     for attempt in (1, 2):
         try:
-            r = get(url + KINDS[kind]["path"], headers={"X-Token": key, "Accept": "application/json"}, timeout=TIMEOUT_S)
+            r = _send(method, url + path, headers={"X-Token": key, "Accept": "image/png" if image else "application/json"},
+                      params=params, data=data, timeout=timeout)
         except requests.RequestException as e:
             raise SmartOLTError(f"couldn't reach SmartOLT ({type(e).__name__})") from None
         if r.status_code != 429:
@@ -94,32 +131,67 @@ def fetch(kind, get=requests.get, sleep=time.sleep):
         wait = _retry_after(r.headers.get("Retry-After"))
         if attempt == 2 or wait > MAX_RETRY_WAIT_S:
             raise SmartOLTError("SmartOLT rate limit reached", retry_after=wait)
-        sleep(wait)
-    if r.status_code != 200:
-        raise SmartOLTError(f"SmartOLT answered HTTP {r.status_code}")
+        _sleep(wait)
+    if image and r.status_code == 200 and "image" in (r.headers.get("Content-Type") or ""):
+        return r.content
     try:
-        data = r.json()
+        body = r.json()
     except ValueError:
-        raise SmartOLTError("SmartOLT's answer wasn't JSON") from None
-    if not isinstance(data, dict) or data.get("status") is not True:
-        detail = data.get("error") or data.get("message") if isinstance(data, dict) else None
-        raise SmartOLTError(f"SmartOLT refused the request{f': {detail}' if detail else ''}")
-    rows = data.get("response")
+        raise SmartOLTError(f"SmartOLT answered HTTP {r.status_code}" if r.status_code != 200
+                            else "SmartOLT's answer wasn't JSON") from None
+    if not isinstance(body, dict) or body.get("status") is not True:
+        detail = (body.get("error") or body.get("message") or body.get("response")) if isinstance(body, dict) else None
+        detail = detail if isinstance(detail, str) else None
+        raise SmartOLTError(f"SmartOLT refused the request{f': {detail}' if detail else ''}"
+                            if r.status_code in (200, 400) else f"SmartOLT answered HTTP {r.status_code}")
+    return body
+
+
+def _list(body, key="response"):
+    rows = body.get(key)
     if not isinstance(rows, list):
-        raise SmartOLTError("SmartOLT's answer had no ONU list")
+        raise SmartOLTError("SmartOLT's answer had no list")
     return rows
 
 
-# ---- Reading the answer (pure) ----
+def fetch(kind):
+    """Every row of one bulk poll."""
+    if kind != "details":
+        return _list(call("GET", KINDS[kind]["path"]))
+    rows, page = [], 1
+    while True:
+        body = call("GET", KINDS["details"]["path"], params={"page": page, "page_size": PAGE_SIZE})
+        rows += _list(body, "onus")
+        if page >= int(body.get("total_pages") or 1) or page >= 200:
+            return rows
+        page += 1
 
-DBM = re.compile(r"^\s*(-?\d+(?:\.\d+)?)\s*dBm\s*$", re.IGNORECASE)
+
+# ---- Reading the answers (pure) ----
+
+DBM = re.compile(r"^\s*(-?\d+(?:\.\d+)?)\s*(?:dBm)?\s*$", re.IGNORECASE)
 NO_VALUE = {"", "-", "none", "null", "n/a"}
+SECRET_KEYS = {"password", "latitude", "longitude"}
+
+
+def scrub(value):
+    """A copy with every password (and coordinate) removed, at any depth."""
+    if isinstance(value, dict):
+        return {k: scrub(v) for k, v in value.items() if str(k).lower() not in SECRET_KEYS}
+    if isinstance(value, list):
+        return [scrub(v) for v in value]
+    return value
 
 
 def parse_dbm(value):
-    """'-17.62 dBm' -> Decimal('-17.62'); '-' or anything else -> None."""
-    m = DBM.match(str(value)) if value is not None else None
-    return Decimal(m.group(1)) if m else None
+    """'-17.62 dBm' or -17.62 -> Decimal('-17.62'); '-' or anything else -> None."""
+    if value is None or isinstance(value, bool):
+        return None
+    m = DBM.match(str(value))
+    try:
+        return Decimal(m.group(1)) if m else None
+    except InvalidOperation:
+        return None
 
 
 def parse_time(value):
@@ -132,7 +204,11 @@ def parse_time(value):
             return datetime.strptime(text, fmt).replace(tzinfo=EAT)
         except ValueError:
             pass
-    return None
+    try:   # full status info uses "2026-11-07 17:51:22+03:00"
+        dt = datetime.fromisoformat(text)
+        return dt if dt.tzinfo else dt.replace(tzinfo=EAT)
+    except ValueError:
+        return None
 
 
 def parse_int(value):
@@ -149,6 +225,10 @@ def parse_text(value):
     return None if text.lower() in NO_VALUE else text
 
 
+def _iso(dt):
+    return dt.isoformat() if dt else None
+
+
 def _common(item):
     return {
         "unique_external_id": parse_text(item.get("unique_external_id")),
@@ -162,58 +242,83 @@ def _common(item):
     }
 
 
-def status_rows(items):
-    """The rows a status poll saves. Address and contact are left behind."""
+def _rows(items, own):
     rows = []
     for item in items:
         if not isinstance(item, dict):
             continue
         row = _common(item)
-        if not row["unique_external_id"]:
-            continue
-        row["status"] = parse_text(item.get("status"))
-        row["last_status_change"] = parse_time(item.get("last_status_change"))
-        rows.append(row)
+        if row["unique_external_id"]:
+            row.update(own(item))
+            rows.append(row)
     return rows
+
+
+def status_rows(items):
+    """The rows a status poll saves. Address and contact are left behind."""
+    return _rows(items, lambda i: {"status": parse_text(i.get("status")),
+                                   "last_status_change": parse_time(i.get("last_status_change"))})
 
 
 def signal_rows(items):
-    rows = []
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-        row = _common(item)
-        if not row["unique_external_id"]:
-            continue
-        row["signal_1310_dbm"] = parse_dbm(item.get("signal_1310"))
-        row["signal_1490_dbm"] = parse_dbm(item.get("signal_1490"))
-        row["signal_quality"] = parse_text(item.get("signal"))
-        rows.append(row)
-    return rows
+    return _rows(items, lambda i: {"signal_1310_dbm": parse_dbm(i.get("signal_1310")),
+                                   "signal_1490_dbm": parse_dbm(i.get("signal_1490")),
+                                   "signal_quality": parse_text(i.get("signal"))})
+
+
+DETAIL_FIELDS = ("olt_name", "pon_type", "gpon_channel", "onu_type_name", "zone_name", "odb_name", "odb_port",
+                 "mode", "wan_mode", "vlan", "tr069", "administrative_status", "catv", "voip_service")
+
+
+def service_vlans(item):
+    vlans = []
+    for sp in item.get("service_ports") or []:
+        v = parse_int(sp.get("vlan")) if isinstance(sp, dict) else None
+        if v is not None and v not in vlans:
+            vlans.append(v)
+    return vlans
+
+
+def details_row(item):
+    """The Configured list's columns, whitelisted: nothing secret, no address,
+    contact or coordinates."""
+    d = {f: parse_text(item.get(f)) for f in DETAIL_FIELDS}
+    d["authorization_date"] = _iso(parse_time(item.get("authorization_date")))
+    d["vlans"] = service_vlans(item)
+    return {"details": d}
+
+
+def details_rows(items):
+    return _rows(items, details_row)
+
+
+ROWS = {"status": status_rows, "signal": signal_rows, "details": details_rows}
 
 
 # ---- Saving ----
 
 COMMON = ("unique_external_id", "sn", "olt_id", "board", "port", "onu", "zone_id", "name")
 OWN = {"status": ("status", "last_status_change"),
-       "signal": ("signal_1310_dbm", "signal_1490_dbm", "signal_quality")}
+       "signal": ("signal_1310_dbm", "signal_1490_dbm", "signal_quality"),
+       "details": ("details",)}
 
 
-def save(kind, rows, now=None):
+def save(kind, rows, now=None, full_list=True):
     """Upserts one poll's rows. A status poll is SmartOLT's full ONU list, so
     it also drops ONUs SmartOLT no longer has (never on an empty list: an
-    empty answer is far more likely a fault than every ONU being deleted)."""
-    from psycopg2.extras import execute_values
+    empty answer is far more likely a fault than every ONU being deleted).
+    full_list=False (a single ONU's read-back) never deletes anything."""
+    from psycopg2.extras import Json, execute_values
     now = now or datetime.now(timezone.utc)
     stamp = KINDS[kind]["column"]
     cols = COMMON + OWN[kind] + (stamp,)
     updates = ", ".join(f"{c} = EXCLUDED.{c}" for c in cols[1:])
-    values = [tuple(r[c] for c in COMMON + OWN[kind]) + (now,) for r in rows]
+    values = [tuple(Json(r[c]) if isinstance(r[c], dict) else r[c] for c in COMMON + OWN[kind]) + (now,) for r in rows]
     with db_cursor() as (conn, cur):
         if values:
             execute_values(cur, f"INSERT INTO onu_state ({', '.join(cols)}) VALUES %s "
                                 f"ON CONFLICT (unique_external_id) DO UPDATE SET {updates}", values)
-            if kind == "status":
+            if kind == "status" and full_list:
                 cur.execute("DELETE FROM onu_state WHERE NOT (unique_external_id = ANY(%s))",
                             ([r["unique_external_id"] for r in rows],))
         conn.commit()
@@ -244,7 +349,7 @@ def poll_once(kind, now=None):
     last = last_polled(kind)
     if last is not None and now - last < every:
         return (every - (now - last)).total_seconds() + _jitter()
-    saved = save(kind, (status_rows if kind == "status" else signal_rows)(fetch(kind)), now)
+    saved = save(kind, ROWS[kind](fetch(kind)), now)
     log.info("smartolt %s poll saved %s ONUs", kind, saved)
     return every.total_seconds() + _jitter()
 
@@ -265,7 +370,7 @@ def _run(kind):
 
 def poll_if_due():
     """Starts any poll that's due on its own thread and returns at once.
-    Called on every router heartbeat and every ONU panel load. Never raises."""
+    Called on every router heartbeat and every OLT page load. Never raises."""
     try:
         if not configured():
             return
@@ -279,67 +384,367 @@ def poll_if_due():
         log.exception("smartolt poll_if_due failed")
 
 
-# ---- The Network page panel ----
-
-def _iso(dt):
-    return dt.isoformat() if dt else None
-
+# ---- The Configured list ----
 
 def _num(d):
     return float(d) if d is not None else None
 
 
-def panel(now=None):
-    """Everything the ONU panel shows. Statuses are counted with whatever
-    values SmartOLT uses; "not online" is any status other than Online."""
+def configured_list(now=None):
     now = now or datetime.now(timezone.utc)
     with db_cursor() as (_, cur):
-        cur.execute("""SELECT unique_external_id, sn, board, port, onu, name, status, last_status_change,
-                              signal_1310_dbm, signal_1490_dbm, signal_quality, status_polled_at, signal_polled_at
+        cur.execute("""SELECT unique_external_id, sn, olt_id, board, port, onu, name, status, last_status_change,
+                              signal_1310_dbm, signal_1490_dbm, signal_quality, details,
+                              status_polled_at, signal_polled_at, details_polled_at
                        FROM onu_state""")
         cols = [d[0] for d in cur.description]
         rows = [dict(zip(cols, r)) for r in cur.fetchall()]
-    return build_panel(rows, now)
+    return build_list(rows, now)
 
 
-QUALITY_ORDER = {"Critical": 0, "Warning": 1}
+def _latest(rows, column):
+    return max((r[column] for r in rows if r.get(column)), default=None)
 
 
-def build_panel(rows, now):
-    status_at = max((r["status_polled_at"] for r in rows if r["status_polled_at"]), default=None)
-    signal_at = max((r["signal_polled_at"] for r in rows if r["signal_polled_at"]), default=None)
+def build_list(rows, now):
+    """Every ONU for the Configured tab, plus counts and how fresh each kind
+    of data is. Statuses are counted with whatever values SmartOLT uses."""
+    status_at, signal_at, details_at = (_latest(rows, c) for c in ("status_polled_at", "signal_polled_at", "details_polled_at"))
     counts = {}
     for r in rows:
         if r["status"]:
             counts[r["status"]] = counts.get(r["status"], 0) + 1
 
     def onu(r):
+        d = r.get("details") or {}
         since = r["last_status_change"]
         return {
             "id": r["unique_external_id"], "sn": r["sn"], "name": r["name"], "status": r["status"],
+            "olt_id": r.get("olt_id"), "board": r["board"], "port": r["port"], "onu": r["onu"],
             "location": "/".join(str(v) for v in (r["board"], r["port"], r["onu"]) if v is not None) or None,
             "last_status_change": _iso(since),
             "for_s": int((now - since).total_seconds()) if since and since <= now else None,
             "signal_1310_dbm": _num(r["signal_1310_dbm"]), "signal_1490_dbm": _num(r["signal_1490_dbm"]),
             "signal_quality": r["signal_quality"],
+            "olt_name": d.get("olt_name"), "zone": d.get("zone_name"), "odb": d.get("odb_name"),
+            "mode": d.get("mode"), "wan_mode": d.get("wan_mode"), "vlans": d.get("vlans") or [],
+            "onu_type": d.get("onu_type_name"), "authorization_date": d.get("authorization_date"),
+            "administrative_status": d.get("administrative_status"),
         }
 
-    # Most recently changed first: a fresh outage is the one to act on.
-    down = sorted((r for r in rows if r["status"] and r["status"] != "Online"),
-                  key=lambda r: r["last_status_change"] or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
-    # SmartOLT's own grade (owner's call, 2026-11-10): Critical before Warning,
-    # then the weakest reading at the OLT first.
-    weak = sorted((r for r in rows if r["signal_quality"] in QUALITY_ORDER),
-                  key=lambda r: (QUALITY_ORDER[r["signal_quality"]],
-                                 r["signal_1310_dbm"] if r["signal_1310_dbm"] is not None else Decimal(0)))
     return {
         "configured": configured(),
+        "writes_enabled": writes_enabled(),
         "total": len(rows),
         "counts": counts,
+        "weak": sum(1 for r in rows if r["signal_quality"] in ("Warning", "Critical")),
         "status_polled_at": _iso(status_at),
         "signal_polled_at": _iso(signal_at),
+        "details_polled_at": _iso(details_at),
         "status_stale": status_at is None or now - status_at > STATUS_STALE,
         "signal_stale": signal_at is None or now - signal_at > SIGNAL_STALE,
-        "down": [onu(r) for r in down],
-        "weak": [onu(r) for r in weak],
+        "details_stale": details_at is None or now - details_at > DETAILS_STALE,
+        # Newest authorization first, like SmartOLT's own list.
+        "onus": sorted((onu(r) for r in rows), key=lambda o: o["authorization_date"] or "", reverse=True),
     }
+
+
+# ---- Live reads, through a short cache ----
+
+_cache = {}
+_cache_lock = threading.Lock()
+CACHE_MAX = 300
+
+
+def cached(key, ttl_s, load):
+    now = time.monotonic()
+    with _cache_lock:
+        hit = _cache.get(key)
+        if hit and now - hit[0] < ttl_s:
+            return hit[1]
+    value = load()
+    with _cache_lock:
+        if len(_cache) >= CACHE_MAX:
+            for k, _ in sorted(_cache.items(), key=lambda kv: kv[1][0])[:CACHE_MAX // 4]:
+                _cache.pop(k, None)
+        _cache[key] = (now, value)
+    return value
+
+
+def forget(*prefixes):
+    with _cache_lock:
+        for k in [k for k in _cache if any(k[0] == p for p in prefixes)]:
+            _cache.pop(k, None)
+
+
+ONU_ID = re.compile(r"^[A-Za-z0-9_.:-]{1,64}$")
+
+
+def check_id(onu_id):
+    if not ONU_ID.match(onu_id or ""):
+        raise ValueError("not an ONU id")
+    return onu_id
+
+
+def onu_details(onu_id):
+    """One ONU, live, scrubbed, shaped for the View page."""
+    check_id(onu_id)
+    return cached(("details", onu_id), 30, lambda: shape_details(scrub(call("GET", f"/api/onu/get_onu_details/{onu_id}").get("onu_details") or {})))
+
+
+def shape_details(d):
+    def ports(key, fields):
+        return [{f: parse_text(p.get(f)) for f in fields} for p in d.get(key) or [] if isinstance(p, dict)]
+
+    return {
+        "id": parse_text(d.get("unique_external_id")), "sn": parse_text(d.get("sn")),
+        "olt_id": parse_int(d.get("olt_id")), "olt_name": parse_text(d.get("olt_name")),
+        "board": parse_int(d.get("board")), "port": parse_int(d.get("port")), "onu": parse_int(d.get("onu")),
+        "pon_type": parse_text(d.get("pon_type")), "gpon_channel": parse_text(d.get("gpon_channel")),
+        "onu_type": parse_text(d.get("onu_type_name")), "zone": parse_text(d.get("zone_name")),
+        "odb": parse_text(d.get("odb_name")), "name": parse_text(d.get("name")),
+        "address": parse_text(d.get("address")), "contact": parse_text(d.get("contact")),
+        "is_vip": str(d.get("is_vip")) == "1",
+        "authorization_date": _iso(parse_time(d.get("authorization_date"))),
+        "status": parse_text(d.get("status")), "last_status_change": _iso(parse_time(d.get("last_status_change"))),
+        "signal_quality": parse_text(d.get("signal")),
+        "signal_1310_dbm": _num(parse_dbm(d.get("signal_1310"))), "signal_1490_dbm": _num(parse_dbm(d.get("signal_1490"))),
+        "distance_m": parse_int(d.get("distance")),
+        "mode": parse_text(d.get("mode")), "wan_mode": parse_text(d.get("wan_mode")), "vlan": parse_text(d.get("vlan")),
+        "ip_address": parse_text(d.get("ip_address")),
+        "pppoe_username": parse_text(d.get("username")),
+        "tr069": parse_text(d.get("tr069")), "tr069_profile": parse_text(d.get("tr069_profile")),
+        "mgmt_ip_mode": parse_text(d.get("mgmt_ip_mode")), "mgmt_ip_address": parse_text(d.get("mgmt_ip_address")),
+        "administrative_status": parse_text(d.get("administrative_status")),
+        "catv": parse_text(d.get("catv")), "voip_service": parse_text(d.get("voip_service")),
+        "attached_vlans": service_vlans(d),
+        "service_ports": ports("service_ports", ("service_port", "vlan", "upload_speed", "download_speed", "tag_transform_mode")),
+        "ethernet_ports": ports("ethernet_ports", ("port", "admin_state", "mode", "dhcp", "vlan", "allowed_vlans")),
+    }
+
+
+def onu_live_status(onu_id):
+    """The OLT's own view of one ONU (SmartOLT's full status info): distance,
+    uptime, last down cause, optical levels, history, LAN ports. MAC tables
+    are left out. Cached a minute: this call has its own 300-an-hour limit."""
+    check_id(onu_id)
+    return cached(("status", onu_id), 60, lambda: shape_live_status(
+        scrub(call("GET", f"/api/onu/get_onu_full_status_info/{onu_id}", timeout=60).get("full_status_json") or {})))
+
+
+def shape_live_status(j):
+    optical = j.get("Optical status") or {}
+    details = j.get("ONU details") or {}
+    history = j.get("History") or {}
+    lan = j.get("ONU LAN Interfaces status") or {}
+
+    def pick(src, keys):
+        return {label: parse_text(src.get(key)) for label, key in keys}
+
+    return {
+        "optical": pick(optical, (("onu_rx_dbm", "Rx optical power(dBm)"), ("onu_tx_dbm", "Tx optical power(dBm)"),
+                                  ("temperature_c", "Temperature(C)"), ("olt_rx_dbm", "OLT Rx ONT optical power(dBm)"))),
+        "onu": pick(details, (("run_state", "Run state"), ("distance_m", "ONT distance(m)"),
+                              ("last_down_cause", "Last down cause"), ("last_up_time", "Last up time"),
+                              ("last_down_time", "Last down time"), ("online_duration", "ONT online duration"),
+                              ("line_profile", "Line profile name"), ("service_profile", "Service profile name"),
+                              ("tr069_acs_profile", "TR069 ACS profile"))),
+        "history": [{"n": n, "up_at": parse_text(h.get("Auth at")), "down_at": parse_text(h.get("Offline at")),
+                     "cause": parse_text(h.get("Cause"))}
+                    for n, h in sorted(history.items(), reverse=True) if isinstance(h, dict)],
+        "lan_ports": [{"port": n, "type": parse_text(p.get("Type")), "speed": parse_text(p.get("Speed")),
+                       "duplex": parse_text(p.get("Duplex")), "link": parse_text(p.get("Link state"))}
+                      for n, p in sorted(lan.items(), key=lambda kv: parse_int(kv[0]) or 0) if isinstance(p, dict)],
+    }
+
+
+GRAPH_KINDS = {"traffic": "get_onu_traffic_graph", "signal": "get_onu_signal_graph"}
+GRAPH_PERIODS = ("hourly", "daily", "weekly", "monthly", "yearly")
+
+
+def onu_graph(onu_id, kind, period):
+    """SmartOLT's PNG graph, cached 5 minutes (the signal graph has its own
+    500-an-hour limit)."""
+    check_id(onu_id)
+    if kind not in GRAPH_KINDS or period not in GRAPH_PERIODS:
+        raise ValueError("unknown graph")
+    return cached(("graph", onu_id, kind, period), 300,
+                  lambda: call("GET", f"/api/onu/{GRAPH_KINDS[kind]}/{onu_id}/{period}", image=True))
+
+
+def unconfigured():
+    """ONUs the OLT sees but SmartOLT hasn't authorized, live (15 s cache)."""
+    def load():
+        rows = []
+        for i in _list(call("GET", "/api/onu/unconfigured_onus", timeout=60)):
+            if not isinstance(i, dict):
+                continue
+            rows.append({"olt_id": parse_int(i.get("olt_id")), "pon_type": parse_text(i.get("pon_type")),
+                         "board": parse_int(i.get("board")), "port": parse_int(i.get("port")),
+                         "onu": parse_int(i.get("onu")), "sn": parse_text(i.get("sn")),
+                         "onu_type": parse_text(i.get("onu_type_name")), "pon_description": parse_text(i.get("pon_description")),
+                         "is_disabled": str(i.get("is_disabled")) == "1",
+                         "can_authorize": "authorize" in (i.get("actions") or [])})
+        return rows
+    return cached(("unconfigured",), 15, load)
+
+
+def authorize_options(olt_id, pon_type):
+    """Everything the Authorize form's dropdowns need, cached 10 minutes."""
+    pon_type = pon_type if pon_type in ("gpon", "epon") else "gpon"
+
+    def olts():
+        return [{"id": parse_int(o.get("id")), "name": parse_text(o.get("name")), "hardware": parse_text(o.get("olt_hardware_version"))}
+                for o in _list(call("GET", "/api/system/get_olts"))]
+
+    def zones():
+        return sorted(({"id": parse_int(z.get("id")), "name": parse_text(z.get("name"))} for z in _list(call("GET", "/api/system/get_zones"))),
+                      key=lambda z: (z["name"] or "").lower())
+
+    def types():
+        return sorted(({"name": parse_text(t.get("name")), "capability": parse_text(t.get("capability")),
+                        "ethernet_ports": parse_int(t.get("ethernet_ports"))}
+                       for t in _list(call("GET", f"/api/system/get_onu_types_by_pon_type/{pon_type}"))),
+                      key=lambda t: (t["name"] or "").lower())
+
+    def vlans():
+        return [{"vlan": parse_int(v.get("vlan")), "description": parse_text(v.get("description")), "scope": parse_text(v.get("scope")),
+                 "default": bool(parse_text(v.get("default_for_pon_ports")))}
+                for v in _list(call("GET", f"/api/olt/get_vlans/{int(olt_id)}"))]
+
+    def speeds():
+        return [{"name": parse_text(s.get("name")), "direction": parse_text(s.get("direction")), "type": parse_text(s.get("type"))}
+                for s in _list(call("GET", "/api/system/get_speed_profiles"))]
+
+    return {
+        "olts": cached(("opt", "olts"), 600, olts),
+        "zones": cached(("opt", "zones"), 600, zones),
+        "onu_types": cached(("opt", "types", pon_type), 600, types),
+        "vlans": cached(("opt", "vlans", int(olt_id)), 600, vlans),
+        "speed_profiles": cached(("opt", "speeds"), 600, speeds),
+    }
+
+
+def odbs(zone_id):
+    return cached(("opt", "odbs", int(zone_id)), 600, lambda: sorted(
+        ({"name": parse_text(o.get("name")), "ports": parse_int(o.get("nr_of_ports"))}
+         for o in _list(call("GET", f"/api/system/get_odbs/{int(zone_id)}"))), key=lambda o: (o["name"] or "").lower()))
+
+
+# ---- Authorize ----
+
+_authorizing = set()     # serials being authorized right now (this process)
+
+# What the read-back is compared on: request field -> SmartOLT details field.
+CHECKED = {"olt_id": "olt_id", "board": "board", "port": "port", "onu_type": "onu_type_name",
+           "zone": "zone_name", "onu_mode": "mode", "vlan": "vlan", "name": "name"}
+
+
+def compare(sent, got):
+    """Fields where SmartOLT's read-back differs from what was sent."""
+    out = []
+    for field, key in CHECKED.items():
+        want = sent.get(field)
+        if want in (None, ""):
+            continue
+        have = got.get(key)
+        same = (parse_int(want) == parse_int(have)) if field in ("olt_id", "board", "port", "vlan") \
+            else str(want).strip().lower() == str(have or "").strip().lower()
+        if not same:
+            out.append({"field": field, "sent": want, "smartolt_has": have})
+    return out
+
+
+def _audit_start(action, sn, request, user_id):
+    from psycopg2.extras import Json
+    with db_cursor() as (conn, cur):
+        cur.execute("""INSERT INTO onu_actions (action, sn, requested_by, request, result)
+                       VALUES (%s, %s, %s, %s, 'pending') RETURNING id""", (action, sn, user_id, Json(request)))
+        action_id = cur.fetchone()[0]
+        conn.commit()
+    return action_id
+
+
+def _audit_finish(action_id, result, response, read_back=None, external_id=None):
+    from psycopg2.extras import Json
+    with db_cursor() as (conn, cur):
+        cur.execute("""UPDATE onu_actions SET result = %s, response = %s, read_back = %s,
+                              unique_external_id = COALESCE(%s, unique_external_id), finished_at = now()
+                       WHERE id = %s""", (result, (response or "")[:2000], Json(read_back) if read_back is not None else None,
+                                         external_id, action_id))
+        conn.commit()
+
+
+def read_back(sn):
+    """What SmartOLT has for this serial right after a write (paginated
+    details call, so it doesn't touch the 15-an-hour full export)."""
+    body = call("GET", KINDS["details"]["path"], params={"sn": sn, "page": 1, "page_size": 10})
+    matches = [o for o in _list(body, "onus") if str(o.get("sn") or "").upper() == sn.upper()]
+    return scrub(matches[0]) if matches else None
+
+
+def authorize(request, user_id):
+    """Authorizes one ONU through SmartOLT. `request` is already validated by
+    the router. Returns {result, message, mismatches, onu}. Every attempt is
+    in onu_actions, whatever happens."""
+    if not writes_enabled():
+        raise WritesDisabled("SmartOLT writes are switched off (SMARTOLT_WRITES_ENABLED).")
+    sn = request["sn"]
+    with _lock:
+        if sn in _authorizing:
+            raise SmartOLTError("This ONU is already being authorized.")
+        _authorizing.add(sn)
+    try:
+        action_id = _audit_start("authorize", sn, request, user_id)
+        form = {k: v for k, v in {
+            "olt_id": request["olt_id"], "pon_type": request["pon_type"], "sn": sn,
+            "board": request["board"], "port": request["port"], "onu_type": request["onu_type"],
+            "onu_mode": request["onu_mode"], "vlan": request.get("vlan"), "zone": request["zone"],
+            "odb": request.get("odb"), "name": request["name"], "address_or_comment": request.get("address_or_comment"),
+            "onu_external_id": request.get("onu_external_id"),
+            "upload_speed_profile_name": request.get("upload_speed_profile_name"),
+            "download_speed_profile_name": request.get("download_speed_profile_name"),
+        }.items() if v not in (None, "")}
+        try:
+            body = call("POST", "/api/onu/authorize_onu", data=form, timeout=AUTHORIZE_TIMEOUT_S)
+        except SmartOLTError as e:
+            _audit_finish(action_id, "failed", str(e))
+            raise
+        answer = body.get("response") if isinstance(body.get("response"), str) else "ONU configuration saved"
+        forget("unconfigured")
+        try:
+            got = read_back(sn)
+        except SmartOLTError as e:
+            _audit_finish(action_id, "mismatch", f"{answer}. Read-back failed: {e}")
+            return {"result": "mismatch", "message": f"SmartOLT said: {answer}. But OPS couldn't read it back ({e}); check it in the Configured tab.",
+                    "mismatches": [], "onu": None}
+        if got is None:
+            _audit_finish(action_id, "mismatch", f"{answer}. Read-back found no ONU with this serial yet.")
+            return {"result": "mismatch", "message": f"SmartOLT said: {answer}. But it doesn't list this serial yet; check again in a minute.",
+                    "mismatches": [], "onu": None}
+        diffs = compare(request, got)
+        kept = details_row(got)["details"]
+        external_id = parse_text(got.get("unique_external_id"))
+        result = "mismatch" if diffs else "succeeded"
+        _audit_finish(action_id, result, answer, {"unique_external_id": external_id, "status": got.get("status"), **kept,
+                                                  "name": got.get("name"), "mismatches": diffs}, external_id)
+        try:   # show it in Configured straight away, without waiting for the next poll
+            for kind in ("status", "signal", "details"):
+                save(kind, ROWS[kind]([got]), full_list=False)
+        except Exception:
+            log.exception("smartolt: couldn't save the authorized ONU locally")
+        return {"result": result, "message": answer, "mismatches": diffs, "onu": external_id}
+    finally:
+        with _lock:
+            _authorizing.discard(sn)
+
+
+def recent_actions(limit=20):
+    with db_cursor() as (_, cur):
+        cur.execute("""SELECT a.id, a.action, a.sn, a.unique_external_id, u.name, a.requested_at, a.finished_at,
+                              a.result, a.response, a.request->>'name', a.request->>'zone'
+                       FROM onu_actions a LEFT JOIN users u ON u.id = a.requested_by
+                       ORDER BY a.requested_at DESC LIMIT %s""", (limit,))
+        return [{"id": r[0], "action": r[1], "sn": r[2], "onu": r[3], "by": r[4], "at": _iso(r[5]),
+                 "finished_at": _iso(r[6]), "result": r[7], "response": r[8], "name": r[9], "zone": r[10]}
+                for r in cur.fetchall()]
