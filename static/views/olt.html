@@ -20,6 +20,11 @@
                  20, details every 30), so it loads instantly. -->
             <div id="olt-configured-panel">
                 <div class="net-stale" id="olt-stale" hidden></div>
+                <!-- LOS alerts open right now (customers' and hotspot sites' ONUs). -->
+                <div class="olt-los" id="olt-los" hidden>
+                    <h2 class="olt-h2">LOS now <span class="net-h2-sub" id="olt-los-sub"></span></h2>
+                    <div class="olt-los-list" id="olt-los-list"></div>
+                </div>
                 <div class="summary-strip" id="olt-chips" aria-label="Filter by status"></div>
                 <div class="toolbar">
                     <label class="toolbar-field olt-search-field"><span>Search</span>
@@ -151,6 +156,7 @@
                 <div class="net-updated" id="olt-onu-updated"></div>
             </div>
             <div class="state state-error" id="olt-onu-error" role="alert" hidden></div>
+            <div class="olt-los-list" id="olt-onu-los" hidden></div>
 
             <div class="olt-detail" id="olt-onu-body" hidden>
                 <dl class="olt-facts" id="olt-onu-facts"></dl>

@@ -141,11 +141,13 @@ log = logging.getLogger(__name__)
 # sent. Each later checkpoint crossed sends exactly one reminder (never a
 # range, never repeated) and advances site_alert_episodes.escalation_step
 # (migration 0013) by one, so this list is also literally "how many sends
-# an episode can ever produce": len(SCHEDULE_MINUTES) = 16, i.e. at most 16
-# alerts over the life of one continuous outage, tapering from every few
-# minutes in hour one to hourly by hour six, and nothing at all past 12h —
-# the episode stays open and logged, it just stops paging anyone.
-SCHEDULE_MINUTES = [5, 15, 30, 60, 90, 120, 180, 240, 300, 360, 420, 480, 540, 600, 660, 720]
+# the fast schedule can produce": len(SCHEDULE_MINUTES) = 7. After that
+# the twice-daily reminders take over (see below the list).
+# 2026-11-11 (owner): the old 16-step list (every 30–60 min up to 12 h) was
+# crying wolf. Now 7 messages over 8 hours, then — or as soon as someone
+# acknowledges the site — one reminder at each of
+# alert_settings.DAILY_REMINDER_TIMES (08:00 and 16:00 EAT) until it's back.
+SCHEDULE_MINUTES = [5, 15, 30, 60, 180, 360, 480]
 
 # A site that changes state this many times within this window is flapping,
 # not down — one alert, then silence until it settles (leaves the window
@@ -668,12 +670,14 @@ def _evaluate():
             for r in cur.fetchall()
         }
 
-        cur.execute("SELECT monitored_site_id FROM site_acknowledgements WHERE cleared_at IS NULL")
-        acked = {r[0] for r in cur.fetchall()}
+        cur.execute("SELECT monitored_site_id, acknowledged_at FROM site_acknowledgements WHERE cleared_at IS NULL")
+        acked_at = dict(cur.fetchall())
+        acked = set(acked_at)
 
         recipients = load_recipients(cur)
 
         pending_down = []    # sites whose OWN escalation clock fires this pass
+        daily_reminders = [] # sites due their 08:00 / 16:00 reminder this pass
         currently_down = {}  # every non-flapping down site, fired or not — see BUNDLING
 
         for site_id, info in sites.items():
@@ -742,6 +746,21 @@ def _evaluate():
                 # suppress sending without ever advancing step, so the
                 # reminder due while muted still fires the moment the mute
                 # lifts rather than being silently skipped forever.
+                # Twice-daily reminder: the fast schedule is used up, or the
+                # site is acknowledged. Never inside the 5-minute debounce, never
+                # muted, and measured from the later of the last message and the
+                # acknowledgement, so acknowledging never triggers one at once.
+                slow = step >= len(SCHEDULE_MINUTES) or site_id in acked
+                if slow and not quiet and down_for >= timedelta(minutes=SCHEDULE_MINUTES[0]):
+                    since = max(d for d in (episode["down_alert_sent_at"], acked_at.get(site_id), episode["opened_at"]) if d)
+                    if alert_settings.daily_slot_due(since, now):
+                        daily_reminders.append({
+                            "site_id": site_id, "episode_id": episode["id"], "name": info["name"],
+                            "sessions_at_drop": sessions_at_drop,
+                            "opened_at_eat": episode["opened_at"] + timedelta(hours=3), "downtime": down_for,
+                        })
+                    continue
+
                 if (step < len(SCHEDULE_MINUTES) and down_for >= timedelta(minutes=SCHEDULE_MINUTES[step])
                         and site_id not in acked and not quiet):
                     # Checkpoints already crossed. Normally step + 1; larger
@@ -827,5 +846,10 @@ def _evaluate():
                         (p["next_step"], p["episode_id"]),
                     )
                     _deliver(cur, p["episode_id"], p["site_id"], "down", title, message, recipients)
+
+        for d in daily_reminders:
+            message = _down_message(t, d["name"], d["sessions_at_drop"], d["opened_at_eat"], 1, d["downtime"])
+            cur.execute("UPDATE site_alert_episodes SET down_alert_sent_at = now() WHERE id = %s", (d["episode_id"],))
+            _deliver(cur, d["episode_id"], d["site_id"], "down", f"{d['name']} still down", message, recipients)
 
         conn.commit()

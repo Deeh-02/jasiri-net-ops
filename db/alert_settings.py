@@ -6,11 +6,11 @@ window that runs past midnight (22:00 to 06:00) works; start == end is
 rejected rather than guessed at.
 """
 import logging
-from datetime import time
+from datetime import datetime, time, timedelta, timezone
 
 import psycopg2
 
-from db.connection import db_cursor, now_eat, utc_iso
+from db.connection import EAT, db_cursor, now_eat, utc_iso
 
 log = logging.getLogger(__name__)
 
@@ -52,6 +52,34 @@ def is_open(settings):
     if start <= end:
         return start <= now < end
     return now >= start or now < end  # wraps midnight
+
+
+# Once an outage has had its fast reminders, or someone has acknowledged it,
+# it's only brought up twice a day (owner's call, 2026-11-11: fewer
+# messages, so people don't learn to ignore them). East Africa Time.
+DAILY_REMINDER_TIMES = (time(8, 0), time(16, 0))
+
+
+def _as_utc(dt):
+    if dt is None:
+        return None
+    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt.astimezone(timezone.utc)
+
+
+def latest_daily_slot(now):
+    """The most recent 08:00 or 16:00 EAT at or before `now` (aware, UTC)."""
+    now_local = _as_utc(now).astimezone(EAT)
+    slots = [datetime.combine(now_local.date() - timedelta(days=d), t, tzinfo=EAT)
+             for d in (0, 1) for t in DAILY_REMINDER_TIMES]
+    return max(s for s in slots if s <= now_local).astimezone(timezone.utc)
+
+
+def daily_slot_due(since, now):
+    """True when an 08:00 or 16:00 slot has passed since `since` (the last
+    message, or the acknowledgement, whichever is later). Naive datetimes
+    are read as UTC, like this schema's timestamp columns."""
+    since = _as_utc(since)
+    return since is None or latest_daily_slot(now) > since
 
 
 def get_for_editor():

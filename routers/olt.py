@@ -15,7 +15,7 @@ from psycopg2 import errors as pg_errors
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from starlette.concurrency import run_in_threadpool
 
-from db import onu_links, smartolt
+from db import onu_alerts, onu_links, smartolt
 from db.activity import search_customers
 from routers.network import require_network_view
 from routers.permissions import require_admin
@@ -33,6 +33,7 @@ def configured_onus(current_user: dict = Depends(require_network_view)):
     # Loading the page also starts any poll that's due, so the list stays
     # fresh while the router isn't reporting.
     smartolt.poll_if_due()
+    onu_alerts.tick()
     try:
         data = smartolt.configured_list()
     except pg_errors.UndefinedColumn:
@@ -290,3 +291,27 @@ def create_site_link(body: SiteLinkRequest, current_user: dict = Depends(require
 @router.post("/olt/links/accept-site-matches")
 def accept_site_matches(current_user: dict = Depends(require_admin)):
     return {"linked": onu_links.accept_site_matches(current_user["id"])}
+
+
+# ---- LOS alerts: what's open now, and acknowledging one. Anyone who can see
+# the Network pages may acknowledge (it only slows the reminders to twice a
+# day; it never silences an outage). ----
+
+@router.get("/olt/alerts")
+def los_alerts(current_user: dict = Depends(require_network_view)):
+    try:
+        return {"alerts": onu_alerts.open_alerts(), "enabled": onu_alerts.enabled()}
+    except pg_errors.UndefinedTable:
+        return {"alerts": [], "enabled": False}
+
+
+class AckRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    note: Optional[str] = Field(default=None, max_length=200)
+
+
+@router.post("/olt/alerts/{alert_id}/ack")
+def ack_los_alert(alert_id: int, body: AckRequest, current_user: dict = Depends(require_network_view)):
+    if not onu_alerts.acknowledge(alert_id, current_user["id"], (body.note or "").strip() or None):
+        raise HTTPException(status_code=409, detail="That alert has ended or is already acknowledged.")
+    return {"ok": True}

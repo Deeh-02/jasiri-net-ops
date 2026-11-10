@@ -354,6 +354,9 @@ def poll_once(kind, now=None):
         return (every - (now - last)).total_seconds() + _jitter()
     saved = save(kind, ROWS[kind](fetch(kind)), now)
     log.info("smartolt %s poll saved %s ONUs", kind, saved)
+    if kind == "status":
+        from db import onu_alerts        # fresh statuses: check for LOS now
+        onu_alerts.tick(force=True)
     return every.total_seconds() + _jitter()
 
 
@@ -1078,5 +1081,8 @@ def receive_webhook(headers, body):
         log.exception("smartolt webhook %s failed", event_type)
         return 500, "couldn't store the event"
     webhook_state.update(last_at=datetime.now(timezone.utc), last_type=event_type)
+    if event_type in ("onu.status_changed", "onu.deleted", "onu.updated"):
+        from db import onu_alerts
+        onu_alerts.tick(force=True)
     log.info("smartolt webhook %s: %s rows", event_type, touched)
     return 200, "ok"

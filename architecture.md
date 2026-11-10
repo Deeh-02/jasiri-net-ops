@@ -2045,6 +2045,28 @@ shape isn't in the docs. One action per ONU at a time (in-process set). A
 lost to a restart. The page polls `GET /olt/actions/{id}` every 3 s while
 it waits.
 
+**LOS alerts** (`db/onu_alerts.py`, table `onu_alerts`, 0035) run from
+`tick()`: at most once a minute off the router heartbeat and the OLT page,
+and at once after a status poll or a status webhook — no scheduler, a
+daemon thread, never raises, a Postgres advisory lock so two app copies
+can't both send. Nothing opens or closes while OPS's ONU status is older
+than 15 minutes. Fast schedule 2/15/30/60/180/360/480 minutes from the
+moment SmartOLT says it went LOS; a pass that finds several checkpoints
+crossed sends one catch-up message. After that, or once acknowledged,
+`alert_settings.daily_slot_due()` (08:00 and 16:00 EAT, shared with site
+alerts) decides. 3+ ONUs on one board/port going LOS within any 2-minute
+span become one port alert (`pon` set); an ONU on a port with an open port
+alert never gets its own. An alert first seen when its LOS is already
+older than 8 h (a long-dead ONU when this shipped) joins the twice-daily
+round without announcing itself. Disabled ONUs are skipped. Deliveries use
+the site alerts' recipients, channels, sending window and templates, but
+aren't written to the site delivery log (that table is per site episode).
+
+**Site-down schedule** (`monitoring_alerts.SCHEDULE_MINUTES`) is now
+5/15/30/60/180/360/480; past it, or while acknowledged, the same
+twice-daily slots apply, measured from the later of the last message and
+the acknowledgement.
+
 **Webhooks (6A-W)** come in at `POST /smartolt/webhook`, the only SmartOLT
 route without a login. Each delivery is verified Standard Webhooks style
 (HMAC-SHA256 over `id.timestamp.body` with `SMARTOLT_WEBHOOK_SECRET`,

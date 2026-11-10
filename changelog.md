@@ -9,6 +9,26 @@ and in `phase.md`'s own per-phase writeups.
 
 Started 2026-11-10 at the owner's request, after Phase 5 was merged to `main`.
 
+### LOS alerts, a calmer site-down schedule, and fixes (2026-11-11)
+- **LOS alerts:** when a customer's or hotspot site's ONU loses fibre, the
+  people who get site alerts are told after 2 minutes, then at 15 min, 30
+  min, 1 h, 3 h, 6 h and 8 h, then twice a day (08:00 and 16:00) until it's
+  back; acknowledging skips straight to twice a day. When 3 or more ONUs
+  on one PON port go LOS within 2 minutes, it's one "likely fibre cut"
+  alert for the port instead of one per customer. A "signal back" message
+  closes it. Same people, channels and alert hours as site alerts; five new
+  editable messages on SMS Templates. The OLT page lists **LOS now** with
+  Acknowledge, and the ONU's page shows its LOS. Switch:
+  `ONU_LOS_ALERTS_ENABLED`. Needs migration `0035_onu_alerts.sql`.
+- **Site down:** reminders are now 15 min, 30 min, 1 h, 3 h, 6 h and 8 h,
+  then twice a day (08:00 and 16:00) until the site is back — down from up
+  to 16 messages in 12 hours. An acknowledged site now gets the twice-a-day
+  reminders instead of none.
+- **Battery recommendation:** ties go to the battery that has rested
+  longest, so the same battery isn't picked again and again.
+- **Settings > Profile** saves again, without ever blanking the phone number.
+- The current sidebar section and the OLT back link are green.
+
 ### 6C: Reboot, Disable and Enable an ONU (2026-11-11)
 - On an ONU's **View** page, admins get **Reboot** and **Disable ONU** (or
   **Enable ONU** when it's disabled). Each asks first, naming the customer

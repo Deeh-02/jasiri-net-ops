@@ -561,6 +561,8 @@ async function openOnu(id, { keepStatus = false } = {}) {
     $("olt-onu-mode").hidden = false;
     $("olt-onu-body").hidden = true;
     $("olt-onu-more").hidden = true;
+    $("olt-onu-los").hidden = true;
+    loadLos();       // from OPS's own data: shows even when SmartOLT doesn't answer
     $("olt-onu-error").hidden = true;
     $("olt-onu-title").textContent = state.list?.onus.find(o => o.id === id)?.name || "ONU";
     $("olt-onu-updated").textContent = "Asking SmartOLT…";
@@ -1015,6 +1017,67 @@ async function loadOnuActions(id) {
     }
 }
 
+// ---- LOS alerts ----
+
+function losCard(a, compact = false) {
+    const card = el("div", `olt-los-card${a.acked_at ? " is-acked" : ""}`);
+    const top = el("div", "olt-los-top");
+    const title = el("div", "olt-los-who", `▼ ${a.who}${a.pon ? `: ${a.count} ONUs without fibre` : " — LOS"}`);
+    const since = el("div", "olt-dim", `since ${when(a.started_at)} · ${duration(Math.floor((Date.now() - new Date(a.started_at)) / 1000))}`);
+    top.append(title, since);
+    card.append(top);
+    if (a.pon && a.members.length) card.append(el("div", "olt-dim", a.members.join(", ")));
+    const foot = el("div", "olt-los-foot");
+    if (a.acked_at) {
+        foot.append(el("span", "olt-dim", `Acknowledged by ${a.acked_by || "someone"} ${when(a.acked_at)}${a.ack_note ? ` · ${a.ack_note}` : ""}. Reminders at 08:00 and 16:00 until it's back.`));
+    } else {
+        foot.append(el("span", "olt-dim", `${a.messages_sent ? `${a.messages_sent} alert${a.messages_sent === 1 ? "" : "s"} sent` : "First alert after 2 minutes"}.`));
+        const b = button("Acknowledge", "btn-secondary olt-small", { ack: a.id });
+        foot.append(b);
+    }
+    if (!compact && !a.pon) {
+        const open = el("a", "olt-los-open", "Open ONU");
+        open.href = `#/olt/onu/${encodeURIComponent(a.onu)}`;
+        foot.append(open);
+    }
+    card.append(foot);
+    return card;
+}
+
+async function loadLos() {
+    try {
+        const { alerts } = await api("/olt/alerts");
+        state.los = alerts;
+        $("olt-los").hidden = !alerts.length;
+        $("olt-los-sub").textContent = alerts.length ? `${alerts.length} open` : "";
+        $("olt-los-list").replaceChildren(...alerts.map(a => losCard(a)));
+        renderOnuLos();
+    } catch { /* the list below still works without it */ }
+}
+
+function renderOnuLos() {
+    const box = $("olt-onu-los");
+    const a = state.onuId && (state.los || []).find(x => x.onu === state.onuId && !x.pon);
+    box.hidden = !a;
+    box.replaceChildren(...(a ? [losCard(a, true)] : []));
+}
+
+async function ackLos(id) {
+    const ok = await confirmDialog({
+        title: "Acknowledge this LOS?",
+        message: "Someone is dealing with it. The fast reminders stop; it will only be brought up at 08:00 and 16:00 until the fibre is back.",
+        confirmLabel: "Acknowledge",
+    });
+    if (!ok) return;
+    try {
+        await api(`/olt/alerts/${id}/ack`, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+    } catch (e) {
+        $("olt-stale").hidden = false;
+        $("olt-stale").textContent = e.message;
+    }
+    loadLos();
+}
+
 // ---- Tabs, routing, polling ----
 
 function showTab(tab) {
@@ -1028,6 +1091,7 @@ function showTab(tab) {
     $("olt-links-panel").hidden = tab !== "customers";
     // Every tab's data loads either way, so each tab's count is right.
     loadList();
+    loadLos();
     loadUnconfigured();
     loadLinks();
 }
@@ -1041,7 +1105,7 @@ function startPolling() {
     stopPolling();
     state.timer = setInterval(() => {
         if (document.hidden || $("view-olt").hidden) { stopPolling(); return; }
-        if (!state.onuId && state.tab === "configured") loadList();
+        if (!state.onuId && state.tab === "configured") { loadList(); loadLos(); }
     }, LIST_MS);
 }
 
@@ -1074,6 +1138,12 @@ export function initOlt() {
         const b = e.target.closest(".olt-auth-btn");
         if (b && state.unconfigured) openAuthorize(state.unconfigured[Number(b.dataset.index)]);
     });
+    for (const id of ["olt-los-list", "olt-onu-los"]) {
+        $(id).addEventListener("click", e => {
+            const b = e.target.closest("button[data-ack]");
+            if (b) ackLos(b.dataset.ack);
+        });
+    }
     $("olt-action-buttons").addEventListener("click", e => {
         const b = e.target.closest("button[data-onu-action]");
         if (b && !b.disabled) runAction(b.dataset.onuAction);

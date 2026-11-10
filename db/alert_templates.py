@@ -43,9 +43,10 @@ TEMPLATES = {
     },
     "still_down": {
         "label": "Site still down",
-        "description": "Reminder at 15 min, 30 min, 1 h, then every 30–60 min up to 12 h. Exactly "
-                       "one of {{BATTERY_RECOMMENDED}} / {{BATTERY_NONE}} is filled in, and only at "
-                       "the 15-minute reminder — the other always stays empty that send.",
+        "description": "Reminder at 15 min, 30 min, 1 h, 3 h, 6 h and 8 h, then twice a day (08:00 and "
+                       "16:00) until the site is back. Once a site is acknowledged it only gets the "
+                       "twice-a-day reminders. Exactly one of {{BATTERY_RECOMMENDED}} / {{BATTERY_NONE}} "
+                       "is filled in, and only at the 15-minute reminder — the other always stays empty that send.",
         "default": "⚠ {{SITE_NAME}} is STILL DOWN — {{DURATION}} so far (since {{DOWN_SINCE}} EAT). {{BATTERY_RECOMMENDED}}{{BATTERY_NONE}}",
         "placeholders": {
             "SITE_NAME": "Site name",
@@ -120,7 +121,75 @@ TEMPLATES = {
                             "Next if more free up: 3. Ruiru Site.",
         },
     },
-}
+
+    "onu_los": {
+        "label": "ONU lost fibre (LOS)",
+        "description": "First alert, 2 minutes after a customer's or hotspot site's ONU loses fibre signal "
+                       "(SmartOLT status LOS). {{WHO}} is the customer or hotspot site linked on OLT → Links, "
+                       "otherwise the ONU's own name. Disabled ONUs never alert.",
+        "default": "⚠ LOS: {{WHO}} lost fibre signal at {{SINCE}} EAT. ONU {{ONU}}, port {{PORT}}.",
+        "placeholders": {
+            "WHO": "Customer, hotspot site or ONU name",
+            "ONU": "The ONU's name in SmartOLT",
+            "PORT": "Board/port/ONU, e.g. 0/3/4",
+            "SINCE": "When it went LOS (HH:MM, with the date if over a day ago)",
+            "DURATION": "How long it has been LOS",
+        },
+        "sample": {"WHO": "Mark (JS45)", "ONU": "Mark_JS45", "PORT": "3/0/4", "SINCE": "17:53", "DURATION": "2m"},
+    },
+    "onu_los_still": {
+        "label": "ONU still LOS",
+        "description": "Reminders at 15 min, 30 min, 1 h, 3 h, 6 h and 8 h, then twice a day (08:00 and "
+                       "16:00) until it has signal again. Once acknowledged, only the twice-a-day reminders.",
+        "default": "⚠ {{WHO}} still LOS — {{DURATION}} so far (since {{SINCE}} EAT). ONU {{ONU}}.",
+        "placeholders": {
+            "WHO": "Customer, hotspot site or ONU name",
+            "ONU": "The ONU's name in SmartOLT",
+            "PORT": "Board/port/ONU, e.g. 0/3/4",
+            "SINCE": "When it went LOS (HH:MM, with the date if over a day ago)",
+            "DURATION": "How long it has been LOS",
+        },
+        "sample": {"WHO": "Mark (JS45)", "ONU": "Mark_JS45", "PORT": "3/0/4", "SINCE": "17:53", "DURATION": "1h"},
+    },
+    "pon_los": {
+        "label": "PON port lost fibre (likely a cut)",
+        "description": "Replaces the per-ONU alerts when 3 or more ONUs on one PON port lose signal within "
+                       "2 minutes of each other: one message for the whole port, not one per customer.",
+        "default": "⚠ PON {{PORT}}: {{COUNT}} lost fibre at {{SINCE}} EAT, likely a fibre cut. Affected: {{WHO_LIST}}.",
+        "placeholders": {
+            "PORT": "Board/port, e.g. 0/3",
+            "COUNT": "How many ONUs are without signal, e.g. 7 ONUs",
+            "SINCE": "Time it started (HH:MM)",
+            "DURATION": "How long it has lasted",
+            "WHO_LIST": "Customers and sites affected (first six, then 'and N more')",
+        },
+        "sample": {"PORT": "0/3", "COUNT": "7 ONUs", "SINCE": "17:53", "DURATION": "2m",
+                   "WHO_LIST": "Mark (JS45), Bella (JS43), hotspot site Stima and 4 more"},
+    },
+    "pon_los_still": {
+        "label": "PON port still without fibre",
+        "description": "Reminders for a whole-port alert, on the same times as \"ONU still LOS\".",
+        "default": "⚠ PON {{PORT}} still down — {{COUNT}} without fibre for {{DURATION}} (since {{SINCE}} EAT). {{WHO_LIST}}.",
+        "placeholders": {
+            "PORT": "Board/port, e.g. 0/3",
+            "COUNT": "How many are still without signal, e.g. 5 ONUs",
+            "SINCE": "Time it started (HH:MM)",
+            "DURATION": "How long it has lasted",
+            "WHO_LIST": "Customers and sites still affected",
+        },
+        "sample": {"PORT": "0/3", "COUNT": "5 ONUs", "SINCE": "17:53", "DURATION": "1h",
+                   "WHO_LIST": "Mark (JS45), Bella (JS43) and 3 more"},
+    },
+    "onu_los_recovered": {
+        "label": "Fibre signal back",
+        "description": "Sent once when an ONU (or a whole port) that was alerted on has signal again.",
+        "default": "✅ {{WHO}} has fibre signal again, after {{DURATION}} LOS.",
+        "placeholders": {
+            "WHO": "Customer, hotspot site, ONU, or 'PON 0/3 (7 ONUs)'",
+            "DURATION": "How long it was LOS",
+        },
+        "sample": {"WHO": "Mark (JS45)", "DURATION": "1h 12m"},
+    },}
 
 
 def render(body, values):

@@ -26,7 +26,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from db import network as db
-from db import smartolt
+from db import onu_alerts, smartolt
 from routers.auth import get_current_user
 from routers.permissions import require_admin, user_has_permission
 
@@ -261,6 +261,7 @@ async def ingest(request: Request):
         # The heartbeat is also the SmartOLT poller's clock (Phase 6A). It
         # only starts a thread when a poll is due, and never raises.
         smartolt.poll_if_due()
+        onu_alerts.tick()              # LOS alerts' reminder clock (at most once a minute)
         return {"ok": True, **result}
     if message.part > message.parts:
         _reject(422, "part is larger than parts", slug)

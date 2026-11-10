@@ -143,3 +143,16 @@
 .olt-action-status { margin-top: 12px; font-size: 13.5px; padding: 10px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); color: var(--text); }
 .olt-action-status.good { border-color: var(--accent); color: var(--accent); }
 .olt-action-status.bad { border-color: var(--danger); color: var(--danger); }
+
+/* ---- LOS alerts ---- */
+.olt-los { margin-bottom: 16px; }
+.olt-los .olt-h2 { margin-top: 0; }
+.olt-los-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+.olt-los-card { background: var(--surface); border: 1px solid var(--danger); border-left: 3px solid var(--danger); border-radius: var(--radius); padding: 10px 14px; display: flex; flex-direction: column; gap: 4px; }
+.olt-los-card.is-acked { border-color: var(--border); border-left-color: var(--warn); }
+.olt-los-top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.olt-los-who { font-weight: 600; color: var(--danger); font-size: 14px; }
+.olt-los-card.is-acked .olt-los-who { color: var(--warn); }
+.olt-los-foot { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 4px; }
+.olt-los-open { font-size: 13px; color: var(--accent); text-decoration: none; }
+.olt-los-open:hover { text-decoration: underline; }
