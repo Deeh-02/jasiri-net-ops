@@ -9,7 +9,12 @@ and whatever's still upcoming.
 
 ---
 
-## ACTIVE PHASE: Phase 5 — UI Consistency
+## MERGED, COMPLETION NOT YET CONFIRMED: Phase 5 — UI Consistency
+
+*Merged to `main` on 2026-11-10 at the owner's request. That is not the
+owner's confirmation that the done-when criteria below are met: they stay
+open until the owner confirms them. The next phase is not active until the
+owner confirms its brief.*
 
 Inserted at the owner's explicit call, 2026-11-09, after Phase 4 was merged to
 `main` the same day. Branch: `phase-5-ui-consistency` (from `main`). Upcoming
