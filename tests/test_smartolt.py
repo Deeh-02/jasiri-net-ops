@@ -390,5 +390,73 @@ class AuthorizeValidation(unittest.TestCase):
                 olt_api.AuthorizeRequest(**{**{k: v for k, v in REQUEST.items() if v is not None}, **bad})
 
 
+SECRET_BYTES = b"test-secret-not-real-0123456789ab"
+WHSEC = "whsec_" + __import__("base64").b64encode(SECRET_BYTES).decode()
+
+
+def signed(body, msg_id="msg_1", ts="1762790000", secret=SECRET_BYTES):
+    import base64, hashlib, hmac
+    sig = base64.b64encode(hmac.new(secret, f"{msg_id}.{ts}.".encode() + body, hashlib.sha256).digest()).decode()
+    return {"webhook-id": msg_id, "webhook-timestamp": ts, "webhook-signature": f"v1,{sig}"}
+
+
+class Webhooks(unittest.TestCase):
+    def setUp(self):
+        smartolt._seen_ids.clear()
+        self.apply = mock.patch.object(smartolt, "apply_event", return_value=1).start()
+        self.addCleanup(mock.patch.stopall)
+
+    def body(self, type_="onu.status_changed", rows=None):
+        import json
+        return json.dumps({"type": type_, "timestamp": "2026-11-11T10:00:01Z", "data": {"onus": rows or [item(status="LOS")]}}).encode()
+
+    def test_refused_without_a_secret(self):
+        with mock.patch.dict("os.environ", {"SMARTOLT_WEBHOOK_SECRET": ""}):
+            self.assertEqual(smartolt.receive_webhook(signed(self.body()), self.body())[0], 503)
+        self.apply.assert_not_called()
+
+    @mock.patch.dict("os.environ", {"SMARTOLT_WEBHOOK_SECRET": WHSEC})
+    def test_valid_signature_is_applied_once(self):
+        b = self.body()
+        self.assertEqual(smartolt.receive_webhook(signed(b), b), (200, "ok"))
+        self.assertEqual(self.apply.call_args.args[0], "onu.status_changed")
+        self.assertEqual(smartolt.receive_webhook(signed(b), b), (200, "already done"))   # a resend
+        self.assertEqual(self.apply.call_count, 1)
+
+    @mock.patch.dict("os.environ", {"SMARTOLT_WEBHOOK_SECRET": WHSEC})
+    def test_bad_signatures_are_refused(self):
+        b = self.body()
+        for headers in (signed(b, secret=b"another-secret"), signed(b + b" "), {**signed(b), "webhook-id": "msg_2"},
+                        {**signed(b), "webhook-signature": ""}, {}):
+            self.assertEqual(smartolt.receive_webhook(headers, b)[0], 401)
+        self.apply.assert_not_called()
+
+    @mock.patch.dict("os.environ", {"SMARTOLT_WEBHOOK_SECRET": WHSEC})
+    def test_one_of_several_signatures_matching_is_enough(self):
+        b = self.body()
+        h = signed(b)
+        h["webhook-signature"] = "v1,AAAA " + h["webhook-signature"]
+        self.assertEqual(smartolt.receive_webhook(h, b)[0], 200)
+
+    @mock.patch.dict("os.environ", {"SMARTOLT_WEBHOOK_SECRET": WHSEC})
+    def test_a_failure_lets_the_retry_try_again(self):
+        self.apply.side_effect = RuntimeError("db down")
+        b = self.body()
+        self.assertEqual(smartolt.receive_webhook(signed(b), b)[0], 500)
+        self.apply.side_effect = None
+        self.assertEqual(smartolt.receive_webhook(signed(b), b), (200, "ok"))
+
+    def test_event_rows(self):
+        kind, rows = smartolt.event_rows("onu.status_changed", [item(status="LOS"), {"no": "id"}])
+        self.assertEqual((kind, rows[0]["status"], len(rows)), ("status", "LOS", 1))
+        kind, rows = smartolt.event_rows("onu.signal_changed", [item(rx1310=-31.2, band="warning")])
+        self.assertEqual((kind, rows[0]["signal_1310_dbm"], rows[0]["signal_quality"]), ("signal_1310", Decimal("-31.2"), "Warning"))
+        kind, rows = smartolt.event_rows("onu.rx1490_reading", [item(rx1490="-22.4 dBm")])
+        self.assertEqual((kind, rows[0]["signal_1490_dbm"]), ("signal_1490", Decimal("-22.4")))
+        self.assertEqual(smartolt.event_rows("onu.deleted", [item()])[0], "deleted")
+        self.assertEqual(smartolt.event_rows("pon.outage_started", [item()]), (None, []))
+        self.assertNotIn("contact", repr(smartolt.event_rows("onu.status_changed", [item()])[1]))
+
+
 if __name__ == "__main__":
     unittest.main()

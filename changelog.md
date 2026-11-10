@@ -34,6 +34,10 @@ Started 2026-11-10 at the owner's request, after Phase 5 was merged to `main`.
   included, is in **Recent authorizations**. `SMARTOLT_WRITES_ENABLED=false`
   switches authorizing off instantly.
 - Needs migration `0032_onu_details_and_actions.sql`.
+- **Network Analysis** no longer says "CCR2116" in its title.
+- **Webhook receiver** (built, off until a signing secret is set): SmartOLT
+  can push ONU status and signal changes to OPS the moment they happen.
+  Forged deliveries are refused; polling keeps running as the safety net.
 
 ### 6A: Fibre ONUs on the Network page (read only)
 - New **Fibre ONUs** section on the Network page, from SmartOLT: a count per

@@ -10,9 +10,10 @@ import logging
 import re
 from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from psycopg2 import errors as pg_errors
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+from starlette.concurrency import run_in_threadpool
 
 from db import smartolt
 from routers.network import require_network_view
@@ -155,3 +156,19 @@ def authorize(body: AuthorizeRequest, current_user: dict = Depends(require_admin
 @router.get("/olt/actions")
 def recent_actions(current_user: dict = Depends(require_network_view)):
     return {"actions": smartolt.recent_actions()}
+
+
+# SmartOLT's webhook (6A-W). Public on purpose (SmartOLT calls it), so no
+# login: every delivery must carry a valid Standard Webhooks signature made
+# with SMARTOLT_WEBHOOK_SECRET, or it's refused. It only ever updates
+# onu_state; it never writes to SmartOLT. SmartOLT wants a 2xx within 15 s.
+@router.post("/smartolt/webhook")
+async def smartolt_webhook(request: Request):
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > smartolt.WEBHOOK_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="payload too large")
+    body = await request.body()
+    status, message = await run_in_threadpool(smartolt.receive_webhook, request.headers, body)
+    if status != 200:
+        raise HTTPException(status_code=status, detail=message)
+    return {"ok": True, "message": message}

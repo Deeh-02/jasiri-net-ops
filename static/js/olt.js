@@ -128,6 +128,8 @@ function renderFreshness() {
     const parts = [];
     if (p.status_polled_at) parts.push(`status ${hm(p.status_polled_at)}`);
     if (p.signal_polled_at) parts.push(`signal ${hm(p.signal_polled_at)}`);
+    // A webhook in the last half hour means SmartOLT is pushing changes as they happen.
+    if (p.webhook_at && Date.now() - new Date(p.webhook_at).getTime() < 30 * 60 * 1000) parts.push("live updates on");
     $("olt-updated").textContent = parts.length ? `updated ${parts.join(" · ")}` : "";
 }
 

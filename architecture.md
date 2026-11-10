@@ -2010,6 +2010,17 @@ any difference is shown to the admin and kept in the audit row. The new ONU
 is written into `onu_state` straight away (never deleting other rows) so
 it appears in Configured before the next poll.
 
+**Webhooks (6A-W)** come in at `POST /smartolt/webhook`, the only SmartOLT
+route without a login. Each delivery is verified Standard Webhooks style
+(HMAC-SHA256 over `id.timestamp.body` with `SMARTOLT_WEBHOOK_SECRET`,
+constant-time, any of several `v1,` signatures). There's no timestamp window
+yet, because SmartOLT doesn't document whether retries keep the original
+timestamp and refusing retries would get the webhook disabled after 5 days.
+Replays are harmless instead: a seen `webhook-id` is answered "already done",
+and a status only lands if its `last_status_change` is at least as new as
+the stored one. A failed store forgets the id so SmartOLT's retry gets
+another go. Work runs on the thread pool, well inside SmartOLT's 15 s.
+
 ## Visual testing — headless Chromium in this sandbox
 
 Not part of the app's own architecture — a tooling note so a future

@@ -444,6 +444,7 @@ def build_list(rows, now):
         "status_stale": status_at is None or now - status_at > STATUS_STALE,
         "signal_stale": signal_at is None or now - signal_at > SIGNAL_STALE,
         "details_stale": details_at is None or now - details_at > DETAILS_STALE,
+        "webhook_at": _iso(webhook_state["last_at"]),
         # Newest authorization first, like SmartOLT's own list.
         "onus": sorted((onu(r) for r in rows), key=lambda o: o["authorization_date"] or "", reverse=True),
     }
@@ -748,3 +749,167 @@ def recent_actions(limit=20):
         return [{"id": r[0], "action": r[1], "sn": r[2], "onu": r[3], "by": r[4], "at": _iso(r[5]),
                  "finished_at": _iso(r[6]), "result": r[7], "response": r[8], "name": r[9], "zone": r[10]}
                 for r in cur.fetchall()]
+
+
+# ---- Webhooks (6A-W) ----
+# SmartOLT pushes events to POST /smartolt/webhook, signed the Standard
+# Webhooks way (openapi.json x-webhooks, looked up 2026-11-10): headers
+# webhook-id, webhook-timestamp and webhook-signature "v1,<base64>", where the
+# signature is HMAC-SHA256 over "{id}.{timestamp}.{raw body}" with the
+# Signing secret minus its "whsec_" prefix, base64-decoded. The secret lives
+# only in SMARTOLT_WEBHOOK_SECRET; without it every delivery is refused.
+#
+# Not documented: whether a retry keeps its original timestamp. So old
+# timestamps are not refused (that could refuse every retry until SmartOLT
+# disables the webhook); replays are harmless anyway, because each update
+# only applies when it's newer than what OPS has, and a repeated webhook-id
+# is answered "already done" without touching the table.
+#
+# Polling keeps running: webhooks make status and signal arrive at once, the
+# polls remain the safety net for anything missed.
+
+import base64
+import hashlib
+import hmac
+from collections import OrderedDict
+
+WEBHOOK_MAX_BYTES = 4 * 1024 * 1024
+_seen_ids = OrderedDict()          # recent webhook-ids, so a resend is a no-op
+_SEEN_MAX = 2000
+webhook_state = {"last_at": None, "last_type": None}
+
+
+def webhook_secret():
+    raw = (os.environ.get("SMARTOLT_WEBHOOK_SECRET") or "").strip()
+    if not raw:
+        return None
+    try:
+        return base64.b64decode(raw.removeprefix("whsec_"), validate=True)
+    except (ValueError, TypeError):
+        log.error("SMARTOLT_WEBHOOK_SECRET isn't a valid whsec_ secret")
+        return None
+
+
+def verify_signature(secret, msg_id, timestamp, body, signature_header):
+    """True if any "v1,<sig>" in the header matches. Constant-time."""
+    if not (secret and msg_id and timestamp and signature_header):
+        return False
+    signed = f"{msg_id}.{timestamp}.".encode() + body
+    expected = base64.b64encode(hmac.new(secret, signed, hashlib.sha256).digest())
+    for part in signature_header.split():
+        version, _, sig = part.partition(",")
+        if version == "v1" and hmac.compare_digest(sig.encode(), expected):
+            return True
+    return False
+
+
+def already_seen(msg_id):
+    with _lock:
+        if msg_id in _seen_ids:
+            return True
+        _seen_ids[msg_id] = True
+        while len(_seen_ids) > _SEEN_MAX:
+            _seen_ids.popitem(last=False)
+    return False
+
+
+def forget_seen(msg_id):
+    with _lock:
+        _seen_ids.pop(msg_id, None)
+
+
+GRADES = {"very good": "Very good", "very_good": "Very good", "good": "Very good",
+          "warning": "Warning", "critical": "Critical"}
+
+
+def parse_grade(value):
+    text = parse_text(value)
+    return GRADES.get(text.lower(), text) if text else None
+
+
+def event_rows(event_type, rows):
+    """(kind, row dicts) to apply for one event type; kind None = nothing to save."""
+    rows = [r for r in rows if isinstance(r, dict) and parse_text(r.get("unique_external_id"))]
+    if event_type == "onu.status_changed":
+        return "status", status_rows(rows)
+    if event_type in ("onu.signal_changed", "onu.signal_reading"):
+        return "signal_1310", [{**_common(r), "signal_1310_dbm": parse_dbm(r.get("rx1310")),
+                                "signal_quality": parse_grade(r.get("band"))} for r in rows]
+    if event_type == "onu.rx1490_reading":
+        return "signal_1490", [{**_common(r), "signal_1490_dbm": parse_dbm(r.get("rx1490"))} for r in rows]
+    if event_type in ("onu.updated", "onu.authorized"):
+        return "full", rows
+    if event_type == "onu.deleted":
+        return "deleted", [_common(r) for r in rows]
+    return None, []
+
+
+def apply_event(event_type, data):
+    """Applies one webhook batch to onu_state. Returns rows touched."""
+    rows = (data or {}).get("onus") if isinstance(data, dict) else None
+    kind, parsed = event_rows(event_type, rows if isinstance(rows, list) else [])
+    if not kind or not parsed:
+        if event_type not in ("webhook.test",):
+            log.info("smartolt webhook %s: nothing to store", event_type)
+        return 0
+    if kind == "full":
+        for k in ("status", "signal", "details"):
+            save(k, ROWS[k](parsed), full_list=False)
+        return len(parsed)
+    with db_cursor() as (conn, cur):
+        if kind == "deleted":
+            cur.execute("DELETE FROM onu_state WHERE unique_external_id = ANY(%s)",
+                        ([r["unique_external_id"] for r in parsed],))
+        elif kind == "status":
+            # Only a newer change wins: an old retry arriving late can't undo a newer status.
+            for r in parsed:
+                cur.execute("""INSERT INTO onu_state (unique_external_id, sn, olt_id, board, port, onu, zone_id, name,
+                                                      status, last_status_change)
+                               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                               ON CONFLICT (unique_external_id) DO UPDATE SET
+                                   status = EXCLUDED.status, last_status_change = EXCLUDED.last_status_change
+                               WHERE onu_state.last_status_change IS NULL OR EXCLUDED.last_status_change IS NULL
+                                  OR EXCLUDED.last_status_change >= onu_state.last_status_change""",
+                            tuple(r[c] for c in COMMON) + (r["status"], r["last_status_change"]))
+        elif kind == "signal_1310":
+            for r in parsed:
+                cur.execute("""UPDATE onu_state SET signal_1310_dbm = COALESCE(%s, signal_1310_dbm),
+                                                    signal_quality = COALESCE(%s, signal_quality)
+                               WHERE unique_external_id = %s""",
+                            (r["signal_1310_dbm"], r["signal_quality"], r["unique_external_id"]))
+        elif kind == "signal_1490":
+            for r in parsed:
+                cur.execute("UPDATE onu_state SET signal_1490_dbm = COALESCE(%s, signal_1490_dbm) WHERE unique_external_id = %s",
+                            (r["signal_1490_dbm"], r["unique_external_id"]))
+        conn.commit()
+    return len(parsed)
+
+
+def receive_webhook(headers, body):
+    """Verifies and applies one delivery. Returns (http_status, message)."""
+    secret = webhook_secret()
+    if secret is None:
+        return 503, "webhooks aren't set up on this server"
+    if len(body) > WEBHOOK_MAX_BYTES:
+        return 413, "payload too large"
+    msg_id = headers.get("webhook-id")
+    if not verify_signature(secret, msg_id, headers.get("webhook-timestamp"), body, headers.get("webhook-signature")):
+        log.warning("smartolt webhook rejected: bad or missing signature")
+        return 401, "invalid signature"
+    if already_seen(msg_id):
+        return 200, "already done"
+    import json
+    try:
+        payload = json.loads(body)
+        event_type = payload.get("type")
+    except (ValueError, AttributeError):
+        return 400, "body is not a JSON object"
+    try:
+        touched = apply_event(event_type, payload.get("data"))
+    except Exception:
+        forget_seen(msg_id)        # let SmartOLT's retry try again
+        log.exception("smartolt webhook %s failed", event_type)
+        return 500, "couldn't store the event"
+    webhook_state.update(last_at=datetime.now(timezone.utc), last_type=event_type)
+    log.info("smartolt webhook %s: %s rows", event_type, touched)
+    return 200, "ok"

@@ -142,6 +142,16 @@ SmartOLT tells OPS the moment an ONU changes, instead of OPS waiting up to
     disables the webhook.
 - Signals can come by webhook too (`onu.rx1490_reading`,
   `onu.signal_changed`), so this sub-phase can cover both, not status only.
+- **Built 2026-11-11, not switched on.** `POST /smartolt/webhook` checks
+  the signature with `SMARTOLT_WEBHOOK_SECRET` (no secret = every delivery
+  refused), ignores a repeated `webhook-id`, and applies status only when
+  it's newer than what OPS has. Handles status changes, 1310 and 1490
+  readings, ONU updated/authorized/deleted; PON and OLT events are logged
+  only for now. Old timestamps are not refused until a real retry shows
+  whether SmartOLT keeps the original one. **To switch on (around
+  2026-11-13, if polling has been solid):** add the URL and events in
+  SmartOLT, put the Signing secret in Render as `SMARTOLT_WEBHOOK_SECRET`,
+  press "Send test event". The OLT page then says "live updates on".
 - An inbound endpoint that rejects any request that can't be verified, and
   updates `onu_state` for that one ONU. It never changes anything in SmartOLT.
 - **Polling stays.** Webhooks cover status changes only; signal readings
