@@ -13,6 +13,7 @@
             <div class="olt-tabs tabs" role="tablist">
                 <button type="button" class="olt-tab tab" role="tab" data-tab="configured" aria-selected="true">Configured <span class="olt-tab-count" id="olt-count-configured"></span></button>
                 <button type="button" class="olt-tab tab" role="tab" data-tab="unconfigured" aria-selected="false">Unconfigured <span class="olt-tab-count" id="olt-count-unconfigured"></span></button>
+                <button type="button" class="olt-tab tab" role="tab" data-tab="customers" aria-selected="false">Customers <span class="olt-tab-count" id="olt-count-links"></span></button>
             </div>
 
             <!-- Configured: OPS's own copy (status every 6 min, signal every
@@ -70,6 +71,56 @@
                     </table>
                 </div>
             </div>
+
+        <!-- Customers (6B): which customer each ONU belongs to. OPS only
+             suggests; an admin confirms every link. -->
+        <div id="olt-links-panel" hidden>
+            <div class="net-stale" id="olt-links-msg" hidden></div>
+            <div class="summary-strip" id="olt-links-summary"></div>
+
+            <div class="olt-section-head">
+                <h2 class="olt-h2">Suggested links <span class="net-h2-sub">confirm each one</span></h2>
+                <button type="button" class="btn-primary" id="olt-accept-all" hidden></button>
+            </div>
+            <div class="table-scroll table-compact">
+                <table class="olt-table">
+                    <thead><tr><th>ONU</th><th>Customer</th><th>Matched by</th><th></th></tr></thead>
+                    <tbody id="olt-suggestions" data-skeleton="4"></tbody>
+                </table>
+            </div>
+
+            <h2 class="olt-h2">ONUs with no customer</h2>
+            <div class="table-scroll table-compact">
+                <table class="olt-table">
+                    <thead><tr><th>ONU</th><th>Status</th><th>Zone</th><th>Setup</th><th></th></tr></thead>
+                    <tbody id="olt-free-onus" data-skeleton="5"></tbody>
+                </table>
+            </div>
+
+            <h2 class="olt-h2">Active customers with no ONU</h2>
+            <div class="table-scroll table-compact">
+                <table class="olt-table">
+                    <thead><tr><th>Customer</th><th>Username</th><th>Plan</th><th></th></tr></thead>
+                    <tbody id="olt-free-customers" data-skeleton="4"></tbody>
+                </table>
+            </div>
+
+            <h2 class="olt-h2">Linked</h2>
+            <div class="table-scroll table-compact">
+                <table class="olt-table">
+                    <thead><tr><th>Customer</th><th>Username</th><th>ONU</th><th>Status</th><th>Signal</th><th>Linked by</th><th></th></tr></thead>
+                    <tbody id="olt-linked" data-skeleton="5"></tbody>
+                </table>
+            </div>
+
+            <h2 class="olt-h2">Not customers <span class="net-h2-sub">hotspots, sites, links</span></h2>
+            <div class="table-scroll table-compact">
+                <table class="olt-table table-dense">
+                    <thead><tr><th>ONU</th><th>Zone</th><th>Marked by</th><th></th></tr></thead>
+                    <tbody id="olt-not-customers" data-skeleton="3"></tbody>
+                </table>
+            </div>
+        </div>
         </div>
 
         <!-- One ONU, like SmartOLT's View page. Read only: reboot, resync,
@@ -89,6 +140,7 @@
                         <div class="olt-status-row" id="olt-onu-status"></div>
                         <div class="olt-signals" id="olt-onu-signals"></div>
                     </div>
+                    <dl class="olt-facts olt-facts-tight" id="olt-onu-customer"></dl>
                     <dl class="olt-facts olt-facts-tight" id="olt-onu-service"></dl>
                 </div>
             </div>
@@ -174,5 +226,18 @@
                     <button type="submit" class="btn-primary" id="olt-auth-submit">Review and authorize</button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- Link one ONU to a customer (admin): search, pick, confirm. -->
+    <div class="modal-overlay" id="olt-link-overlay" hidden>
+        <div class="modal-box olt-link-box" role="dialog" aria-modal="true" aria-labelledby="olt-link-title">
+            <h3 id="olt-link-title">Link to a customer</h3>
+            <p class="olt-auth-where" id="olt-link-where"></p>
+            <input type="search" class="control olt-link-search" id="olt-link-search" placeholder="Search by name or username" autocomplete="off">
+            <div class="olt-link-results" id="olt-link-results"></div>
+            <div class="modal-actions">
+                <button type="button" class="btn-secondary" id="olt-link-cancel">Cancel</button>
+            </div>
         </div>
     </div>

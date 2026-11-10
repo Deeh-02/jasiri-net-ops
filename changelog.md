@@ -9,6 +9,20 @@ and in `phase.md`'s own per-phase writeups.
 
 Started 2026-11-10 at the owner's request, after Phase 5 was merged to `main`.
 
+### 6B: ONUs linked to customers (2026-11-11)
+- **OLT → Customers** tab: OPS suggests which customer each ONU belongs to
+  (same PPPoE username, or the customer's username in the ONU's name); an
+  admin accepts or rejects each one, or links all exact username matches at
+  once after a confirmation. ONUs that aren't customers (hotspots, sites)
+  can be marked so. ONUs with no customer and active customers with no ONU
+  are listed so the gaps are easy to close.
+- The **Customers** page has a **Fibre ONU** column: status, signal at the
+  ONU and since when, marked "not current" when SmartOLT data is old.
+- An ONU's **View** page shows its customer, plan and expiry.
+- On an **installation report**, picking a customer whose ONU is linked fills
+  in the optical signal reading from SmartOLT; the technician can change it.
+- Needs migration `0033_onu_customer_links.sql`.
+
 ### OLT page, and authorizing ONUs from OPS (2026-11-11)
 - The sidebar has a new **Network** section: **Network Status** (the
   hotspot sites' status and trends, which used to be a button on the Sites

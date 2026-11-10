@@ -280,11 +280,14 @@ def service_vlans(item):
 
 
 def details_row(item):
-    """The Configured list's columns, whitelisted: nothing secret, no address,
+    """The Configured list's columns, whitelisted: no password, address,
     contact or coordinates."""
     d = {f: parse_text(item.get(f)) for f in DETAIL_FIELDS}
     d["authorization_date"] = _iso(parse_time(item.get("authorization_date")))
     d["vlans"] = service_vlans(item)
+    # The PPPoE username (never the password) is how 6B suggests which
+    # customer an ONU belongs to. Usernames are already shown on Network Analysis.
+    d["pppoe_username"] = parse_text(item.get("username"))
     return {"details": d}
 
 

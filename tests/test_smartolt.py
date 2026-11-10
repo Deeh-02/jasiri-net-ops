@@ -98,7 +98,8 @@ class Parsing(unittest.TestCase):
         self.assertIsNone(d["odb_name"])
         self.assertTrue(d["authorization_date"].endswith("+03:00"))
         text = repr(d)
-        for secret in ("not-a-real-password", "test-user", "somewhere", "0700000000", "37.0"):
+        self.assertEqual(d["pppoe_username"], "test-user")
+        for secret in ("not-a-real-password", "somewhere", "0700000000", "37.0"):
             self.assertNotIn(secret, text)
 
 

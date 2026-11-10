@@ -175,6 +175,19 @@ the system never links silently.
 - Customer Installation report: optical signal pre-filled from the linked
   ONU; the technician can overwrite it.
 - Out of scope: changing any ONU or billing record from the link.
+- **Built 2026-11-11** (started ahead of the one-week gate at the owner's
+  call). Match check on live data: 45 customers (27 active), 32 of 61 ONUs
+  match exactly one customer by PPPoE username, 6 more by name, 23 match
+  nobody (15 of them set up via the ONU web page, likely hotspots/sites).
+  Migration 0033 `onu_customer_links` (approved): one row per ONU, unique
+  customer, or "not a customer". OLT → Customers tab: suggestions with
+  Accept / Reject, "Accept all exact username matches" (only unambiguous
+  PPPoE-username matches, recomputed on the server), ONUs with no customer
+  (link by search, or Not a customer), active customers with no ONU, linked
+  list with Unlink. Admin only. Customers page: Fibre ONU column with the
+  stale note. ONU View: its customer. Installation report: picking a linked
+  customer fills the optical signal from the ONU's 1490 reading. OPS now
+  keeps each ONU's PPPoE username (never the password) for the suggestions.
 
 ### 6C — Actions
 

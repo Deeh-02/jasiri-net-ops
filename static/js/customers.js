@@ -79,12 +79,26 @@ async function runImport(commit) {
     }
 }
 
+// The customer's fibre ONU (OLT → Customers links it), from SmartOLT.
+// Glyph + word for every status, never colour alone.
+const ONU_GLYPH = { Online: ["●", "good"], LOS: ["▼", "bad"], Offline: ["▼", "bad"], "Power fail": ["◆", "bad"] };
+function onuCell(o) {
+    if (!o) return `<span class="cell-muted">—</span>`;
+    const [glyph, tone] = ONU_GLYPH[o.status] || ["○", ""];
+    const since = o.last_status_change
+        ? new Date(o.last_status_change).toLocaleString("en-GB", { timeZone: "Africa/Nairobi", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
+    const signal = o.signal_1490_dbm != null ? `${o.signal_1490_dbm.toFixed(2)} dBm` : "no reading";
+    const grade = o.signal_quality === "Warning" || o.signal_quality === "Critical" ? ` · ${esc(o.signal_quality)}` : "";
+    return `<span class="customer-onu ${tone}">${glyph} ${esc(o.status || "Unknown")}</span>${o.stale ? ` <span class="cell-muted">(not current)</span>` : ""}
+        <div class="cell-muted">${esc(signal)}${grade}${since ? ` · since ${esc(since)}` : ""}</div>`;
+}
+
 async function loadCustomers() {
     const routerId = document.getElementById("customers-filter-router").value;
     const rows = document.getElementById("customers-rows");
     const res = await fetch(`/customers${routerId ? `?router_id=${routerId}` : ""}`, { headers: authHeaders() });
     if (!res.ok) {
-        rows.innerHTML = stateRow(8, "error", "Couldn't load customers. Try again in a moment.");
+        rows.innerHTML = stateRow(9, "error", "Couldn't load customers. Try again in a moment.");
         return;
     }
     const customers = await res.json();
@@ -96,7 +110,7 @@ async function loadCustomers() {
         `<span class="summary-item"><strong>${customers.length}</strong> customers</span>` +
         Object.entries(counts).map(([s, n]) => `<span class="summary-item ${tone(s)}"><strong>${n}</strong> ${esc(s)}</span>`).join("");
     if (!customers.length) {
-        rows.innerHTML = stateRow(8, "empty", "Import an export above to fill this list.", "No customers yet");
+        rows.innerHTML = stateRow(9, "empty", "Import an export above to fill this list.", "No customers yet");
         return;
     }
     rows.innerHTML = customers.map(c => `
@@ -108,8 +122,14 @@ async function loadCustomers() {
             <td>${esc(c.plan || "—")}</td>
             <td>${esc(formatDate(c.expiry))}</td>
             <td>${esc(c.account_status)}${c.enabled ? "" : " (disabled)"}</td>
+            <td>${onuCell(c.onu)}</td>
             <td><button type="button" class="customer-edit-btn" data-id="${c.id}">Edit</button></td>
         </tr>`).join("");
+    // ONU data older than 15 minutes is labelled, never shown as current.
+    const stale = customers.some(c => c.onu?.stale);
+    const note = document.getElementById("customers-onu-stale");
+    note.hidden = !stale;
+    note.textContent = stale ? "Fibre ONU status hasn't updated from SmartOLT for over 15 minutes; it may not be current." : "";
 }
 
 async function loadPage() {

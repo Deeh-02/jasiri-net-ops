@@ -27,6 +27,8 @@ const state = {
     authRow: null,
     authOptions: null,
     authBusy: false,
+    links: null,
+    rejected: new Set(),
 };
 
 const $ = id => document.getElementById(id);
@@ -447,6 +449,11 @@ function renderOnu(o) {
         signalBox("ONU Rx 1490nm", o.signal_1490_dbm, o.signal_quality),
         signalBox("OLT Rx 1310nm", o.signal_1310_dbm, o.signal_quality),
     );
+    const c = o.customer;
+    $("olt-onu-customer").replaceChildren(...(c?.not_a_customer ? [fact("Customer", "Not a customer (hotspot, site or link)")]
+        : c ? [fact("Customer", c.name || c.username), fact("Username", c.username, { className: "olt-mono" }),
+               fact("Plan", c.plan), fact("Account", [c.account_status, c.expiry ? `expires ${when(c.expiry)}` : null].filter(Boolean).join(" · "))]
+        : [fact("Customer", "Not linked yet (OLT → Customers)", { className: "olt-dim" })]));
     const wan = o.wan_mode ? `${o.wan_mode}${o.ip_address ? ` - ${o.ip_address}` : ""}` : null;
     $("olt-onu-service").replaceChildren(
         fact("TR069 profile", o.tr069 === "Enabled" ? (o.tr069_profile || "Enabled") : (o.tr069 || "Inactive")),
@@ -580,6 +587,242 @@ async function openOnu(id) {
     }
 }
 
+// ---- Customers (6B): linking ONUs to customers ----
+// OPS suggests; an admin confirms each link. "Reject" only hides a suggestion
+// until the page is reloaded (rejections aren't stored).
+
+const MATCHED = { pppoe_username: "PPPoE username", name: "ONU name", manual: "Picked by hand" };
+
+function onuLabel(o) {
+    const box = el("div");
+    box.append(el("div", "olt-name-cell", o?.name || "—"), el("div", "olt-dim olt-mono", o ? `${o.sn || o.id}${o.location ? ` · ${o.location}` : ""}` : "no longer in SmartOLT"));
+    return box;
+}
+
+function customerLabel(c) {
+    const box = el("div");
+    box.append(el("div", "olt-name-cell", c?.name || c?.username || "—"),
+               el("div", "olt-dim", c ? [c.username, c.account_status].filter(Boolean).join(" · ") : ""));
+    return box;
+}
+
+function button(label, cls, data) {
+    const b = el("button", cls, label);
+    b.type = "button";
+    Object.assign(b.dataset, data);
+    return b;
+}
+
+function renderLinks() {
+    const p = state.links;
+    if (!p) return;
+    const edit = p.can_edit;
+    const visible = p.suggestions.filter(s => !state.rejected.has(`${s.onu.id}|${s.customer.id}`));
+    $("olt-count-links").textContent = visible.length ? String(visible.length) : "";
+    const chip = (n, label, tone) => {
+        const b = el("span", `summary-item${tone && n ? ` ${tone}` : ""}`);
+        b.append(el("strong", null, String(n)), document.createTextNode(` ${label}`));
+        return b;
+    };
+    $("olt-links-summary").replaceChildren(
+        chip(p.linked.length, "linked", "good"),
+        chip(visible.length, "suggested", "warn"),
+        chip(p.onus_without_customer.length, "ONUs with no customer"),
+        chip(p.customers_without_onu.length, "active customers with no ONU"),
+        chip(p.not_customers.length, "not customers"),
+    );
+    const bulk = visible.filter(s => s.bulk_ok).length;
+    $("olt-accept-all").hidden = !edit || !bulk;
+    $("olt-accept-all").textContent = `Accept all ${bulk} exact username matches`;
+
+    const sug = $("olt-suggestions");
+    if (!visible.length) sug.innerHTML = stateRow(4, "empty", "No suggestions right now.");
+    else sug.replaceChildren(...visible.map(s => {
+        const tr = el("tr");
+        const how = [el("div", null, MATCHED[s.matched_by] || s.matched_by)];
+        if (s.ambiguous) how.push(el("div", "olt-warn-text olt-dim", "◆ more than one possible match"));
+        const actions = edit ? [button("Accept", "btn-primary olt-small", { act: "accept", onu: s.onu.id, customer: s.customer.id, how: s.matched_by }),
+                                button("Reject", "btn-secondary olt-small", { act: "reject", onu: s.onu.id, customer: s.customer.id })] : [];
+        tr.append(cell("ONU", [onuLabel(s.onu)]), cell("Customer", [customerLabel(s.customer)]), cell("Matched by", how),
+                  cell("", [el("div", "olt-actions", null)]));
+        tr.lastChild.firstChild.append(...actions);
+        return tr;
+    }));
+
+    const free = $("olt-free-onus");
+    if (!p.onus_without_customer.length) free.innerHTML = stateRow(5, "empty", "Every ONU is linked, suggested, or marked as not a customer.");
+    else free.replaceChildren(...p.onus_without_customer.map(o => {
+        const tr = el("tr");
+        const actions = el("div", "olt-actions");
+        if (edit) actions.append(button("Link to a customer…", "btn-secondary olt-small", { act: "pick", onu: o.id }),
+                                 button("Not a customer", "btn-secondary olt-small", { act: "notcust", onu: o.id }));
+        tr.append(cell("ONU", [onuLabel(o)]), cell("Status", [statusBadge(o.status)]), cell("Zone", o.zone || "—"),
+                  cell("Setup", o.wan_mode || "—"), cell("", [actions]));
+        return tr;
+    }));
+
+    const custs = $("olt-free-customers");
+    if (!p.customers_without_onu.length) custs.innerHTML = stateRow(4, "empty", "Every active customer has an ONU.");
+    else custs.replaceChildren(...p.customers_without_onu.map(c => {
+        const tr = el("tr");
+        const actions = el("div", "olt-actions");
+        if (edit) {
+            const pick = el("select", "control olt-onu-pick");
+            pick.dataset.customer = String(c.id);
+            pick.append(new Option("Choose its ONU…", ""), ...p.unlinked_onus.map(o => new Option(`${o.name || o.sn} (${o.sn})`, o.id)));
+            actions.append(pick, button("Link", "btn-primary olt-small", { act: "linkpick", customer: c.id }));
+        }
+        tr.append(cell("Customer", c.name || c.username), cell("Username", c.username, "olt-mono"), cell("Plan", c.plan || "—"), cell("", [actions]));
+        return tr;
+    }));
+
+    const linked = $("olt-linked");
+    if (!p.linked.length) linked.innerHTML = stateRow(7, "empty", "Nothing linked yet. Start with the suggestions above.");
+    else linked.replaceChildren(...p.linked.map(l => {
+        const tr = el("tr");
+        tr.append(cell("Customer", l.customer?.name || l.customer?.username || "—"), cell("Username", l.customer?.username || "—", "olt-mono"),
+                  cell("ONU", [onuLabel(l.onu)]), cell("Status", l.onu ? [statusBadge(l.onu.status)] : "—"),
+                  cell("Signal", l.onu ? [signalCell(l.onu.signal_1310_dbm, l.onu.signal_quality)] : "—"),
+                  cell("Linked by", [el("div", null, l.by || "—"), el("div", "olt-dim", `${MATCHED[l.matched_by] || ""} · ${when(l.at)}`)]),
+                  cell("", edit ? [button("Unlink", "btn-secondary olt-small", { act: "unlink", onu: l.onu_id, label: l.customer?.name || l.customer?.username || "" })] : []));
+        return tr;
+    }));
+
+    const notc = $("olt-not-customers");
+    if (!p.not_customers.length) notc.innerHTML = stateRow(4, "empty", "None marked.");
+    else notc.replaceChildren(...p.not_customers.map(l => {
+        const tr = el("tr");
+        tr.append(cell("ONU", [onuLabel(l.onu)]), cell("Zone", l.onu?.zone || "—"), cell("Marked by", `${l.by || "—"} · ${when(l.at)}`),
+                  cell("", edit ? [button("Undo", "btn-secondary olt-small", { act: "unlink", onu: l.onu_id, label: "" })] : []));
+        return tr;
+    }));
+}
+
+async function loadLinks() {
+    try {
+        state.links = await api("/olt/links");
+        $("olt-links-msg").hidden = true;
+        renderLinks();
+    } catch (e) {
+        $("olt-links-msg").hidden = false;
+        $("olt-links-msg").textContent = e.message;
+        if (!state.links) $("olt-suggestions").innerHTML = stateRow(4, "error", e.message);
+    }
+}
+
+function linksMessage(text) {
+    $("olt-links-msg").hidden = !text;
+    $("olt-links-msg").textContent = text || "";
+}
+
+async function postLink(path, body, method = "POST") {
+    try {
+        await api(path, { method, headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+        linksMessage("");
+        return true;
+    } catch (e) {
+        linksMessage(e.message);
+        return false;
+    }
+}
+
+function findOnu(id) {
+    const p = state.links;
+    return p.suggestions.find(s => s.onu.id === id)?.onu || p.onus_without_customer.find(o => o.id === id)
+        || p.unlinked_onus.find(o => o.id === id) || { id, name: id };
+}
+
+async function confirmLink(onu, customer, how) {
+    const ok = await confirmDialog({
+        title: "Link this ONU to this customer?",
+        message: `ONU: ${onu.name || "—"} (${onu.sn || onu.id})\nCustomer: ${customer.name || customer.username} · ${customer.username}${customer.plan ? ` · ${customer.plan}` : ""}\n\nThe customer's account will show this ONU's status and signal.`,
+        confirmLabel: "Link",
+    });
+    if (ok && await postLink("/olt/links", { onu_id: onu.id, customer_id: customer.id, matched_by: how })) loadLinks();
+}
+
+async function onLinksClick(e) {
+    const b = e.target.closest("button[data-act]");
+    if (!b || !state.links) return;
+    const { act, onu, customer, how } = b.dataset;
+    const p = state.links;
+    if (act === "accept") {
+        const s = p.suggestions.find(x => x.onu.id === onu && String(x.customer.id) === customer);
+        if (s) confirmLink(s.onu, s.customer, s.matched_by || how);
+    } else if (act === "reject") {
+        state.rejected.add(`${onu}|${customer}`);
+        renderLinks();
+    } else if (act === "notcust") {
+        const o = findOnu(onu);
+        if (await confirmDialog({ title: "Mark as not a customer?", message: `${o.name || o.id} will stop showing as an unmatched ONU (for a hotspot, a site or a link). You can undo it below.`, confirmLabel: "Mark" })
+            && await postLink("/olt/links/not-a-customer", { onu_id: onu })) loadLinks();
+    } else if (act === "unlink") {
+        const ok = await confirmDialog({ title: b.dataset.label ? "Unlink this customer?" : "Undo?",
+            message: b.dataset.label ? `${b.dataset.label} will no longer show this ONU.` : "This ONU goes back to the unmatched list.",
+            confirmLabel: b.dataset.label ? "Unlink" : "Undo", danger: !!b.dataset.label });
+        if (ok && await postLink(`/olt/links/${encodeURIComponent(onu)}`, null, "DELETE")) loadLinks();
+    } else if (act === "pick") {
+        openLinkPicker(findOnu(onu));
+    } else if (act === "linkpick") {
+        const pick = document.querySelector(`select.olt-onu-pick[data-customer="${CSS.escape(customer)}"]`);
+        if (!pick?.value) { linksMessage("Choose the customer's ONU first."); return; }
+        const c = p.customers_without_onu.find(x => String(x.id) === customer);
+        confirmLink(findOnu(pick.value), c, "manual");
+    }
+}
+
+async function acceptAll() {
+    const picks = state.links.suggestions.filter(s => s.bulk_ok && !state.rejected.has(`${s.onu.id}|${s.customer.id}`));
+    const ok = await confirmDialog({
+        title: `Link ${picks.length} ONUs to their customers?`,
+        message: `Each of these ONUs has exactly the same PPPoE username as one customer, and nothing else matches either of them:\n\n${picks.slice(0, 12).map(s => `${s.onu.name || s.onu.sn} → ${s.customer.name || s.customer.username}`).join("\n")}${picks.length > 12 ? `\n…and ${picks.length - 12} more` : ""}`,
+        confirmLabel: `Link ${picks.length}`,
+    });
+    if (!ok) return;
+    try {
+        // Rejected rows are excluded by linking one by one when any were rejected.
+        if (picks.length !== state.links.suggestions.filter(s => s.bulk_ok).length) {
+            for (const s of picks) await api("/olt/links", { method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ onu_id: s.onu.id, customer_id: s.customer.id, matched_by: "pppoe_username" }) });
+        } else {
+            const r = await api("/olt/links/accept-username-matches", { method: "POST" });
+            linksMessage(r.linked !== picks.length ? `Linked ${r.linked}; the list changed while you were looking.` : "");
+        }
+    } catch (e) {
+        linksMessage(e.message);
+    }
+    loadLinks();
+}
+
+// The "Link to a customer" picker.
+let linkOnu = null, linkTimer = null;
+function openLinkPicker(onu) {
+    linkOnu = onu;
+    $("olt-link-where").textContent = `${onu.name || "—"} · ${onu.sn || onu.id}`;
+    $("olt-link-search").value = "";
+    $("olt-link-results").replaceChildren(el("div", "olt-dim", "Type at least two letters."));
+    $("olt-link-overlay").hidden = false;
+    $("olt-link-search").focus();
+}
+function closeLinkPicker() { $("olt-link-overlay").hidden = true; linkOnu = null; }
+async function searchLinkCustomers() {
+    const q = $("olt-link-search").value.trim();
+    if (q.length < 2) { $("olt-link-results").replaceChildren(el("div", "olt-dim", "Type at least two letters.")); return; }
+    try {
+        const { customers } = await api(`/olt/customer-search?q=${encodeURIComponent(q)}`);
+        const linkedIds = new Set(state.links.linked.map(l => l.customer_id));
+        $("olt-link-results").replaceChildren(...(customers.length ? customers.map(c => {
+            const b = button("", "olt-link-result", { id: c.id });
+            b.append(el("span", "olt-name-cell", c.name || c.username), el("span", "olt-dim olt-mono", ` ${c.username}${c.plan ? ` · ${c.plan}` : ""}`));
+            if (linkedIds.has(c.id)) { b.disabled = true; b.append(el("span", "olt-dim", " · already has an ONU")); }
+            b.addEventListener("click", () => { const o = linkOnu; closeLinkPicker(); confirmLink(o, c, "manual"); });
+            return b;
+        }) : [el("div", "olt-dim", "No customer matches.")]));
+    } catch (e) {
+        $("olt-link-results").replaceChildren(el("div", "state-error", e.message));
+    }
+}
+
 // ---- Tabs, routing, polling ----
 
 function showTab(tab) {
@@ -590,9 +833,11 @@ function showTab(tab) {
     document.querySelectorAll(".olt-tab").forEach(b => b.setAttribute("aria-selected", String(b.dataset.tab === tab)));
     $("olt-configured-panel").hidden = tab !== "configured";
     $("olt-unconfigured-panel").hidden = tab !== "unconfigured";
-    // Both lists load either way, so each tab's count is right.
+    $("olt-links-panel").hidden = tab !== "customers";
+    // Every tab's data loads either way, so each tab's count is right.
     loadList();
     loadUnconfigured();
+    loadLinks();
 }
 
 function stopPolling() {
@@ -615,7 +860,7 @@ document.addEventListener("visibilitychange", () => {
 export function initOlt() {
     document.querySelector(".olt-tabs").addEventListener("click", e => {
         const b = e.target.closest(".olt-tab");
-        if (b) navigate(b.dataset.tab === "unconfigured" ? "olt/unconfigured" : "olt");
+        if (b) navigate(b.dataset.tab === "configured" ? "olt" : `olt/${b.dataset.tab}`);
     });
     $("olt-chips").addEventListener("click", e => {
         const b = e.target.closest("button[data-filter]");
@@ -644,6 +889,11 @@ export function initOlt() {
         document.querySelectorAll("#olt-graph-range button").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
         loadGraphs();
     });
+    $("olt-links-panel").addEventListener("click", onLinksClick);
+    $("olt-accept-all").addEventListener("click", acceptAll);
+    $("olt-link-search").addEventListener("input", () => { clearTimeout(linkTimer); linkTimer = setTimeout(searchLinkCustomers, 250); });
+    $("olt-link-cancel").addEventListener("click", closeLinkPicker);
+    $("olt-link-overlay").addEventListener("click", e => { if (e.target === $("olt-link-overlay")) closeLinkPicker(); });
     $("olt-auth-type").addEventListener("change", syncMode);
     $("olt-auth-zone").addEventListener("change", loadOdbs);
     $("olt-auth-form").addEventListener("submit", submitAuthorize);
@@ -652,6 +902,7 @@ export function initOlt() {
     document.addEventListener("keydown", e => {
         // The confirm dialog handles its own Escape first (capture phase).
         if (e.key === "Escape" && !$("olt-auth-overlay").hidden) closeAuthorize();
+        if (e.key === "Escape" && !$("olt-link-overlay").hidden) closeLinkPicker();
     });
 
     registerRoute("olt", (params) => {
@@ -662,7 +913,7 @@ export function initOlt() {
             openOnu(decodeURIComponent(params[1]));
             return;
         }
-        showTab(params[0] === "unconfigured" ? "unconfigured" : "configured");
+        showTab(["unconfigured", "customers"].includes(params[0]) ? params[0] : "configured");
         startPolling();
     });
 }

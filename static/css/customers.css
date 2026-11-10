@@ -66,3 +66,8 @@
 @media (max-width: 760px) {
     .customers-file-field { flex-basis: 100%; }
 }
+
+/* Fibre ONU column (Phase 6B): glyph + word, coloured by state. */
+.customer-onu { font-size: 13px; font-weight: 600; white-space: nowrap; }
+.customer-onu.good { color: var(--accent); }
+.customer-onu.bad { color: var(--danger); }

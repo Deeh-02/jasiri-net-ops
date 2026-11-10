@@ -15,7 +15,8 @@ from psycopg2 import errors as pg_errors
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from starlette.concurrency import run_in_threadpool
 
-from db import smartolt
+from db import onu_links, smartolt
+from db.activity import search_customers
 from routers.network import require_network_view
 from routers.permissions import require_admin
 
@@ -44,7 +45,7 @@ def configured_onus(current_user: dict = Depends(require_network_view)):
 @router.get("/olt/onus/{onu_id}")
 def onu_details(onu_id: str, current_user: dict = Depends(require_network_view)):
     try:
-        return smartolt.onu_details(onu_id)
+        return {**smartolt.onu_details(onu_id), "customer": onu_links.onu_customer(onu_id)}
     except ValueError:
         raise HTTPException(status_code=404, detail="Unknown ONU")
     except smartolt.SmartOLTError as e:
@@ -172,3 +173,68 @@ async def smartolt_webhook(request: Request):
     if status != 200:
         raise HTTPException(status_code=status, detail=message)
     return {"ok": True, "message": message}
+
+
+# ---- 6B: linking ONUs to customers. Reading needs the Network permission;
+# every change is admin only, and each one is a person confirming a link. ----
+
+def _link_failed(e):
+    raise HTTPException(status_code=409, detail=str(e))
+
+
+@router.get("/olt/links")
+def links_overview(current_user: dict = Depends(require_network_view)):
+    try:
+        data = onu_links.overview()
+    except pg_errors.UndefinedTable:
+        raise HTTPException(status_code=503, detail="Customer links aren't set up yet (migration 0033).")
+    return {**data, "can_edit": current_user["role"] == "admin"}
+
+
+@router.get("/olt/customer-search")
+def customer_search(q: str = "", current_user: dict = Depends(require_admin)):
+    return {"customers": search_customers(q)}
+
+
+class LinkRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    onu_id: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_.:-]+$")
+    customer_id: int = Field(ge=1)
+    matched_by: Literal["pppoe_username", "name", "manual"] = "manual"
+
+
+class OnuOnly(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    onu_id: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_.:-]+$")
+
+
+@router.post("/olt/links")
+def create_link(body: LinkRequest, current_user: dict = Depends(require_admin)):
+    try:
+        onu_links.link(body.onu_id, body.customer_id, body.matched_by, current_user["id"])
+    except onu_links.LinkError as e:
+        _link_failed(e)
+    return {"ok": True}
+
+
+@router.post("/olt/links/not-a-customer")
+def not_a_customer(body: OnuOnly, current_user: dict = Depends(require_admin)):
+    try:
+        onu_links.mark_not_customer(body.onu_id, current_user["id"])
+    except onu_links.LinkError as e:
+        _link_failed(e)
+    return {"ok": True}
+
+
+@router.post("/olt/links/accept-username-matches")
+def accept_username_matches(current_user: dict = Depends(require_admin)):
+    return {"linked": onu_links.accept_username_matches(current_user["id"])}
+
+
+@router.delete("/olt/links/{onu_id}")
+def remove_link(onu_id: str, current_user: dict = Depends(require_admin)):
+    try:
+        onu_links.unlink(onu_id)
+    except onu_links.LinkError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    return {"ok": True}

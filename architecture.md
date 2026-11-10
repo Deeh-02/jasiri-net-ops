@@ -2010,6 +2010,19 @@ any difference is shown to the admin and kept in the audit row. The new ONU
 is written into `onu_state` straight away (never deleting other rows) so
 it appears in Configured before the next poll.
 
+**Customer links (6B)** live in `db/onu_links.py` and `onu_customer_links`
+(primary key on the ONU, unique customer, so neither can be linked twice;
+"not a customer" rows keep hotspots and sites off the unmatched list).
+Suggestions are computed on every load, never stored: an exact PPPoE
+username match (from the details poll, which now keeps `pppoe_username`),
+else a word of the ONU's name equal to a customer's username. A customer
+or ONU in more than one suggestion is ambiguous. Bulk accept recomputes the
+suggestions on the server under a table lock and links only unambiguous
+username matches, so a stale browser list can't link the wrong pair.
+Readers of the links (Customers page column, installation-report pre-fill)
+fail soft: if the table or the database read fails, those pages simply show
+no ONU rather than breaking.
+
 **Webhooks (6A-W)** come in at `POST /smartolt/webhook`, the only SmartOLT
 route without a login. Each delivery is verified Standard Webhooks style
 (HMAC-SHA256 over `id.timestamp.body` with `SMARTOLT_WEBHOOK_SECRET`,

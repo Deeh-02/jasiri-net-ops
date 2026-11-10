@@ -109,7 +109,8 @@ function detailInput(f) {
         return `<div class="act-detail-field">${label}<textarea id="${id}" class="act-input" rows="3" maxlength="1000" data-detail="${esc(f.key)}">${esc(value ?? "")}</textarea></div>`;
     }
     const attrs = f.kind === "number" ? `type="number" step="any"${f.min != null ? ` min="${f.min}"` : ""}${f.max != null ? ` max="${f.max}"` : ""}` : `type="text" maxlength="200"`;
-    return `<div class="act-detail-field">${label}<input ${attrs} id="${id}" class="act-input" data-detail="${esc(f.key)}" value="${esc(value ?? "")}"></div>`;
+    const note = f.key === "signal_dbm" && state.signalNote && String(value ?? "") !== "" ? `<p class="act-hint">${esc(state.signalNote)}</p>` : "";
+    return `<div class="act-detail-field">${label}<input ${attrs} id="${id}" class="act-input" data-detail="${esc(f.key)}" value="${esc(value ?? "")}">${note}</div>`;
 }
 
 function drawDetails() {
@@ -137,13 +138,18 @@ async function searchCustomers(input) {
     results.hidden = false;
     if (!res.ok) { results.innerHTML = `<p class="act-hint">${esc(res.error)}</p>`; return; }
     results.innerHTML = res.data.length
-        ? res.data.map(c => `<button type="button" class="act-result" data-customer-pick="${esc(input.dataset.customerSearch)}" data-id="${c.id}" data-name="${esc(c.name)}" data-username="${esc(c.username)}" data-plan="${esc(c.plan || "")}">${esc(c.name)} <span class="act-sub">${esc(c.username)}${c.plan ? " · " + esc(c.plan) : ""}</span></button>`).join("")
+        ? res.data.map(c => `<button type="button" class="act-result" data-customer-pick="${esc(input.dataset.customerSearch)}" data-id="${c.id}" data-name="${esc(c.name)}" data-username="${esc(c.username)}" data-plan="${esc(c.plan || "")}" data-signal="${c.onu_signal_dbm ?? ""}" data-signal-at="${esc(c.onu_signal_at || "")}">${esc(c.name)} <span class="act-sub">${esc(c.username)}${c.plan ? " · " + esc(c.plan) : ""}</span></button>`).join("")
         : `<p class="act-hint">No customer found. Leave it blank and name them in the description.</p>`;
 }
 
 function onDetailsEvent(e) {
     const input = e.target.closest("[data-detail]");
-    if (input) { state.details[input.dataset.detail] = input.value; saveDraft(); return; }
+    if (input) {
+        state.details[input.dataset.detail] = input.value;
+        if (input.dataset.detail === "signal_dbm") state.signalNote = null;     // their own reading now
+        saveDraft();
+        return;
+    }
     const search = e.target.closest("[data-customer-search]");
     if (search) { clearTimeout(customerTimer); customerTimer = setTimeout(() => searchCustomers(search), 250); }
 }
@@ -159,6 +165,15 @@ function onDetailsClick(e) {
         // Same for the name and account fields, when the type has them.
         if (asksFor("client_name") && !state.details.client_name) state.details.client_name = name;
         if (asksFor("account") && !state.details.account) state.details.account = username;
+        // The customer's ONU reading from SmartOLT (Phase 6B), when their ONU
+        // is linked. Only into an empty field; the technician can change it.
+        const { signal, signalAt } = pick.dataset;
+        const asksForSignal = currentFields().some(f => f.key === "signal_dbm" && f.kind === "number");
+        if (signal !== "" && signal != null && asksForSignal && (state.details.signal_dbm ?? "") === "") {
+            state.details.signal_dbm = signal;
+            const at = signalAt ? new Date(signalAt).toLocaleTimeString("en-GB", { timeZone: "Africa/Nairobi", hour: "2-digit", minute: "2-digit" }) : "";
+            state.signalNote = `Filled in from SmartOLT: the reading at the customer's ONU${at ? ` at ${at}` : ""}. Change it if your meter reads differently.`;
+        }
         drawDetails();
         saveDraft();
         return;
