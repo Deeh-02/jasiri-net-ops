@@ -117,7 +117,8 @@ what is truly its own.
   pressed state. Nothing moves that isn't changing; reduced motion turns
   all of it off.
 - **Sidebar (sectioned, 2026-11-09):** seven titled sections — Operations
-  (Batteries, Sites), Network (Network Analysis, OLT; added 2026-11-11),
+  (Batteries, Sites), Network (Network Status, Network Analysis, OLT;
+  added 2026-11-11; Network Status used to be a button on the Sites page),
   Technical Activity Log, Inventory, Reports,
   Alerts, System (Users, Roles). Section titles are 11px (12px in the
   phone drawer) uppercase JetBrains Mono, grey, with a fold chevron; space,

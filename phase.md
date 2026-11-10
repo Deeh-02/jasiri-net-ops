@@ -93,8 +93,9 @@ environment variables are still to do.
 The owner asked for SmartOLT's own day-to-day screens inside OPS, ahead of
 the original order:
 
-- **Sidebar:** a new **Network** section with **Network Analysis** (the
-  CCR2116 page, renamed) and **OLT**.
+- **Sidebar:** a new **Network** section with **Network Status** (moved
+  from a button on the Sites page, owner's call the same day), **Network
+  Analysis** (the CCR2116 page, renamed) and **OLT**.
 - **OLT → Configured** (like SmartOLT's list) and **View** (like SmartOLT's
   ONU page), read only. Action buttons (reboot, resync, disable, delete) stay
   in 6C, as the owner chose.

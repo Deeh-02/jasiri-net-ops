@@ -10,9 +10,10 @@ and in `phase.md`'s own per-phase writeups.
 Started 2026-11-10 at the owner's request, after Phase 5 was merged to `main`.
 
 ### OLT page, and authorizing ONUs from OPS (2026-11-11)
-- The sidebar has a new **Network** section: **Network Analysis** (the
-  CCR2116 page, renamed) and **OLT**. Batteries and Sites stay under
-  Operations.
+- The sidebar has a new **Network** section: **Network Status** (the
+  hotspot sites' status and trends, which used to be a button on the Sites
+  page), **Network Analysis** (the CCR2116 page, renamed) and **OLT**.
+  Batteries and Sites stay under Operations.
 - **OLT → Configured:** every ONU, like SmartOLT's list: status, name, serial,
   board/port/ONU, zone, splitter, signal (coloured by SmartOLT's grade),
   Bridge / R: PPPoE / Router, VLANs, ONU type and authorization date. Status

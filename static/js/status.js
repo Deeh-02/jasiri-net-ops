@@ -548,7 +548,6 @@ function stopPolling() {
 }
 
 export function initStatus() {
-    document.getElementById("status-link-btn").addEventListener("click", () => navigate("status"));
     document.querySelector("#view-status [data-tab-route]")
         .addEventListener("click", (e) => navigate(e.currentTarget.dataset.tabRoute));
     wireProblemActions();

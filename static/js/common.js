@@ -228,9 +228,6 @@ function applyPermissionVisibility() {
     const movementsLinkBtn = document.getElementById("movements-link-btn");
     if (movementsLinkBtn) movementsLinkBtn.hidden = !can("movements", "view");
 
-    const statusLinkBtn = document.getElementById("status-link-btn");
-    if (statusLinkBtn) statusLinkBtn.hidden = !can("sites", "view_status");
-
     const manageSitesLinkBtn = document.getElementById("manage-sites-link-btn");
     if (manageSitesLinkBtn) manageSitesLinkBtn.hidden = !can("sites", "manage_monitoring");
 
@@ -447,7 +444,7 @@ function parseRoute(hash) {
 // opens it so the current page is always visible.
 const NAV_GROUP_ROUTES = {
     ops: ["dashboard", "sites"],
-    network: ["network", "olt"],
+    network: ["status", "trends", "site-detail", "manage-sites", "packages", "network", "olt"],
     system: ["users", "roles"],
     inventory: ["inventory", "stock", "inventory-log", "inventory-manage"],
     alerts: ["notifications", "alert-templates", "customers", "broadcast"],
@@ -455,8 +452,13 @@ const NAV_GROUP_ROUTES = {
     activity: ["activity-overview", "activity-reports", "activity-submit", "activity-manage"],
 };
 
+// Pages reached from inside another page light up that page's sidebar row:
+// Trends, one site, Manage sites and Packages all open from Network Status.
+const NAV_ACTIVE_ALIAS = { trends: "status", "site-detail": "status", "manage-sites": "status", packages: "status" };
+
 function setActiveNav(name) {
-    document.querySelectorAll("[data-view]").forEach(l => l.classList.toggle("active", l.dataset.view === name));
+    const row = NAV_ACTIVE_ALIAS[name] || name;
+    document.querySelectorAll("[data-view]").forEach(l => l.classList.toggle("active", l.dataset.view === row));
 
     // The current page's section title turns white, and the section opens if
     // it was folded; no section is ever folded shut from here.

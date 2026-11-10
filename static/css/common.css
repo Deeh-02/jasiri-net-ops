@@ -858,7 +858,7 @@ button.summary-item:active:not(:disabled) { transform: scale(0.98); }
     margin: 0;
 }
 
-/* .btn-add-site is used by several views (movements-link-btn, status-link-btn,
+/* .btn-add-site is used by several views (movements-link-btn,
    add-user-open-btn, add-role-open-btn) — genuinely shared, not one view's. */
 .btn-add-site {
     background: var(--accent);
