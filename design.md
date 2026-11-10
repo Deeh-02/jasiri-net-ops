@@ -122,12 +122,12 @@ what is truly its own.
   Technical Activity Log, Inventory, Reports,
   Alerts, System (Users, Roles). Section titles are 11px (12px in the
   phone drawer) uppercase JetBrains Mono, grey, with a fold chevron; space,
-  not a divider line, separates sections. A title turns white only while
+  not a divider line, separates sections. A title (and its chevron) turns green only while
   one of its pages is open — hover just lifts the grey slightly (never on
   touch screens, where hover sticks after a tap). Every page is its own row: a 16px outline icon and a title-case
   JetBrains Mono 13px label, hanging off a thin guide line down the left
   of the section. The current page carries the accent tint and its stretch
-  of the guide line turns green; its section's title turns white
+  of the guide line turns green; its section's title turns green
   (`.nav-section-title.current`). Sections start open; folding one is remembered per browser
   (`localStorage.navCollapsedGroups`) and landing on a page inside a folded
   section opens it. Short labels in the sidebar (Overview, Submit Report,

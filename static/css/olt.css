@@ -39,13 +39,13 @@
 .olt-back {
     background: none;
     border: none;
-    color: var(--text-dim);
+    color: var(--accent);
     font-size: 13px;
     padding: 6px 0;
     margin-bottom: 4px;
     cursor: pointer;
 }
-.olt-back:hover { color: var(--text); }
+.olt-back:hover { text-decoration: underline; }
 
 .olt-detail {
     display: grid;

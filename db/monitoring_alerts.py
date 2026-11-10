@@ -99,7 +99,8 @@ still draws.
 BATTERY RECOMMENDATION (Task 3, 2026-09-23). At escalation step 1 (the
 15-minute "still down" reminder — SCHEDULE_MINUTES[1]), a down alert
 names which battery to bring: the confirmed-charged, currently-At-Base
-battery with the lowest recent removal count. This is the ONE place
+battery that has worked least (fewest trips in 30 days, then rested
+longest, then fewest trips ever; see least_used_first). This is the ONE place
 monitoring reads outside its own domain — `batteries`/`battery_movements`
 — a deliberate, documented amendment to the isolation invariant (see
 PHASES.md, 2026-09-23 and ARCHITECTURE.md's matching section), not drift:
@@ -476,19 +477,39 @@ def _deliver_bundle(cur, episodes, message, recipients):
 REMOVAL_COUNT_WINDOW = timedelta(days=30)
 
 
-def _recent_removal_counts(cur, battery_ids):
+def _usage(cur, battery_ids):
+    """{battery_id: (removals in the last 30 days, removals ever, last move
+    time or None)} — every input to "which battery has worked least"."""
     if not battery_ids:
         return {}
     cur.execute(
         """
-        SELECT battery_id, count(*) FROM battery_movements
-        WHERE battery_id = ANY(%s) AND from_location_id IS NOT NULL
-          AND status != 'cancelled' AND created_at > now() - %s
+        SELECT battery_id,
+               count(*) FILTER (WHERE from_location_id IS NOT NULL AND created_at > now() - %s),
+               count(*) FILTER (WHERE from_location_id IS NOT NULL),
+               max(created_at)
+        FROM battery_movements
+        WHERE battery_id = ANY(%s) AND status != 'cancelled'
         GROUP BY battery_id
         """,
-        (battery_ids, REMOVAL_COUNT_WINDOW),
+        (REMOVAL_COUNT_WINDOW, battery_ids),
     )
-    return dict(cur.fetchall())
+    return {r[0]: (r[1], r[2], r[3]) for r in cur.fetchall()}
+
+
+def least_used_first(candidates, usage):
+    """Fewest trips out in the last 30 days first. Ties (common: several at
+    0) go to the battery that has RESTED LONGEST (oldest last move; never
+    moved counts as rested longest), then the fewest trips ever, and only
+    then the battery number. Before 2026-11-11 ties went straight to the
+    lowest number, so the same battery kept being picked without anyone
+    noticing (owner's report)."""
+    oldest = datetime.min
+
+    def key(b):
+        recent, ever, last = usage.get(b["id"], (0, 0, None))
+        return (recent, last or oldest, ever, b["battery_number"])
+    return sorted(candidates, key=key)
 
 
 def _available_batteries(cur):
@@ -498,14 +519,13 @@ def _available_batteries(cur):
     lowest recent removal count first, battery_number as a deterministic
     tiebreak. Reuses db.batteries.get_all_batteries()'s own status
     computation rather than re-deriving "At Base" here a second time in a
-    way that could quietly drift from the Batteries page's own definition."""
+    way that could quietly drift from the Batteries page's own definition.
+    Ordered by least_used_first()."""
     from db.batteries import get_all_batteries
     candidates = [b for b in get_all_batteries() if b["status"] == "At Base" and b["charge_status"] == "charged"]
     if not candidates:
         return []
-    removals = _recent_removal_counts(cur, [b["id"] for b in candidates])
-    candidates.sort(key=lambda b: (removals.get(b["id"], 0), b["battery_number"]))
-    return candidates
+    return least_used_first(candidates, _usage(cur, [b["id"] for b in candidates]))
 
 
 def _eat_day_start_utc():

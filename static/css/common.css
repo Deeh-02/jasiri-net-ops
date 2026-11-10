@@ -728,13 +728,14 @@ button.summary-item:active:not(:disabled) { transform: scale(0.98); }
     white-space: nowrap;
     gap: 8px;
 }
-/* Only the section you're in turns white. Hover (and a phone's sticky
-   after-tap hover) just lifts the grey a touch. */
+/* Only the section you're in turns green (title and chevron, which draws
+   in the title's colour). Hover (and a phone's sticky after-tap hover) just
+   lifts the grey a touch. */
 .nav-heading.nav-section-title:hover { background: none; color: #6b7480; }
 @media (hover: hover) {
     .nav-heading.nav-section-title:hover { color: #8a939f; }
 }
-.nav-heading.nav-section-title.current { color: var(--text); }
+.nav-heading.nav-section-title.current { color: var(--accent); }
 .nav-section-title .chevron {
     width: 12px;
     height: 12px;

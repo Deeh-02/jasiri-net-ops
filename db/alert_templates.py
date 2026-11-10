@@ -60,7 +60,9 @@ TEMPLATES = {
     "battery_recommended": {
         "label": "Battery recommendation",
         "description": "Fills {{BATTERY_RECOMMENDED}} in the message above when a charged battery is "
-                       "at base. {{PRIORITY}} only appears when several sites are competing for batteries.",
+                       "at base. It picks the one that has worked least: fewest trips out in the last 30 "
+                       "days, then the one that has rested longest, so no battery gets overused. "
+                       "{{PRIORITY}} only appears when several sites are competing for batteries.",
         "default": "Recommended battery: {{BATTERY}} {{PRIORITY}}.",
         "placeholders": {
             "BATTERY": "Battery number",

@@ -78,6 +78,20 @@ def update_user(user_id, name, email, phone, role, role_id):
         )
         conn.commit()
 
+def get_profile(user_id):
+    with db_cursor() as (conn, cur):
+        cur.execute("SELECT name, email, phone FROM users WHERE id = %s;", (user_id,))
+        r = cur.fetchone()
+    return {"name": r[0], "email": r[1], "phone": r[2]} if r else None
+
+def update_own_profile(user_id, name, email, phone):
+    """Settings > Profile: a person's own name, email and phone. Role and
+    status are never touched here."""
+    with db_cursor() as (conn, cur):
+        cur.execute("UPDATE users SET name = %s, email = %s, phone = %s WHERE id = %s;",
+                    (name, email, phone, user_id))
+        conn.commit()
+
 def deactivate_user(user_id):
     with db_cursor() as (conn, cur):
         cur.execute("UPDATE users SET status = 'inactive' WHERE id = %s;", (user_id,))

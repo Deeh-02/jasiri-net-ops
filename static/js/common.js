@@ -260,6 +260,14 @@ export function getCurrentUser() {
 // Single source of truth for the logged-in user's profile fields — mutates
 // the shared in-memory copy (the same one `can()` reads), persists it, and
 // re-renders the topbar so avatar initials stay in sync.
+// After a profile change the server issues a new token (it carries the name
+// and email); keep it so later requests use the current details.
+export function replaceAuthToken(token) {
+    if (!token) return;
+    authToken = token;
+    localStorage.setItem("authToken", token);
+}
+
 export function updateCurrentUser(patch) {
     currentUser = { ...currentUser, ...patch };
     localStorage.setItem("currentUser", JSON.stringify(currentUser));
