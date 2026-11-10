@@ -55,26 +55,16 @@
 
 /* ---- Header ---- */
 
+/* The shared page header (.page-header-row): title block left, the period
+   controls right, wrapping under the title when there isn't room. */
 .sr-head {
-    display: flex;
-    justify-content: space-between;
     align-items: flex-start;
-    gap: 20px;
+    gap: 16px 20px;
     flex-wrap: wrap;
-    margin-bottom: 18px;
 }
 
-.sr-title {
-    font-family: 'Space Grotesk', sans-serif;
-    font-size: 36px;
-    font-weight: 700;
-    line-height: 1.1;
-    margin: 6px 0 10px;
-}
-
-@media (max-width: 760px) {
-    .sr-title { font-size: 26px; }
-}
+/* Size comes from the shared .page-title; only the spacing is its own. */
+.sr-title { line-height: 1.15; }
 
 .sr-title-row {
     display: flex;
@@ -98,7 +88,7 @@
 /* Always its own row under the title, right-aligned. Beside the title it
    only fit for some labels ("This week · …" but not "This month · …"), so
    the controls jumped up and down as you switched between them. */
-.sr-range-wrap { flex-basis: 100%; text-align: right; }
+.sr-range-wrap { margin-left: auto; text-align: right; }
 
 .sr-range-row {
     display: inline-flex;

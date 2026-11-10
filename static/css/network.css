@@ -42,7 +42,7 @@
     margin-bottom: 18px;
 }
 .net-card-head { display: flex; align-items: baseline; justify-content: space-between; }
-.net-h2 { font-family: 'Space Grotesk', sans-serif; font-size: 16px; margin: 22px 0 10px; color: var(--text); }
+.net-h2 { font-family: 'Space Grotesk', sans-serif; font-size: 17px; margin: calc(var(--section-gap) + 6px) 0 12px; color: var(--text); }
 .net-card .net-h2 { margin-top: 0; }
 .net-h2-sub { font-family: 'Inter', sans-serif; font-size: 12px; font-weight: 400; color: var(--text-dim); margin-left: 6px; }
 

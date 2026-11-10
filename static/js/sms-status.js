@@ -1,4 +1,4 @@
-import { authHeaders, showView, registerRoute, formatDate } from "./common.js";
+import { authHeaders, showView, registerRoute, formatDate, stateRow, markRefreshing } from "./common.js";
 
 function esc(s) {
     return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -31,30 +31,37 @@ async function loadSmsStatus() {
 
     const rows = document.getElementById("sms-status-rows");
     const summary = document.getElementById("sms-status-summary");
-    const res = await fetch(`/monitoring/sms-log?${params}`, { headers: authHeaders() });
-    if (!res.ok) {
+    markRefreshing(rows, 9, "Loading the SMS log…");
+    const res = await fetch(`/monitoring/sms-log?${params}`, { headers: authHeaders() }).catch(() => null);
+    if (!res || !res.ok) {
         summary.innerHTML = "";
-        rows.innerHTML = `<tr><td colspan="9">Couldn't load the SMS log.</td></tr>`;
+        rows.innerHTML = stateRow(9, "error", "Couldn't load the SMS log. Try again in a moment.");
         return;
     }
     const data = await res.json();
-    summary.innerHTML = Object.entries(data.counts).map(([s, n]) =>
-        `<span class="sms-status-chip ${esc(s)}">${esc(STATUS_LABEL[s] || s)}: ${n}</span>`).join("");
+    // Failed first: it is the one that needs someone to act.
+    const chosen = document.getElementById("sms-status-status").value;
+    const order = (s) => (s === "failed" ? 0 : s === "sent" ? 2 : 1);
+    summary.innerHTML = Object.entries(data.counts)
+        .sort((a, b) => order(a[0]) - order(b[0]))
+        .map(([s, n]) => `<button type="button" class="summary-item ${s === "failed" ? "bad" : s === "sent" ? "good" : "warn"}"
+            data-status="${esc(s)}" aria-pressed="${chosen === s}" title="Show only ${esc(STATUS_LABEL[s] || s)}">
+            <strong>${n}</strong> ${esc(STATUS_LABEL[s] || s)}</button>`).join("");
     if (!data.rows.length) {
-        rows.innerHTML = `<tr><td colspan="9">Nothing sent in this period.</td></tr>`;
+        rows.innerHTML = stateRow(9, "empty", "Try a longer date range or another channel.", "Nothing sent in this period");
         return;
     }
     rows.innerHTML = data.rows.map(r => `
         <tr>
-            <td>${r.id}</td>
+            <td class="muted">${r.id}</td>
             <td>${esc(KIND_LABEL[r.kind] || r.kind)}</td>
             <td>${esc(CHANNEL_LABEL[r.channel] || r.channel)}</td>
             <td>${esc(r.user_name || "—")}</td>
             <td>${esc(r.recipient || "—")}</td>
             <td>${esc(r.site_name || "—")}</td>
-            <td>${esc(STATUS_LABEL[r.status] || r.status)}</td>
+            <td><span class="status-pill sms-status-pill ${r.status === "sent" ? "sent" : r.status === "failed" ? "failed" : "other"}">${esc(STATUS_LABEL[r.status] || r.status)}</span></td>
             <td class="sms-status-response" title="${esc(responseText(r))}">${esc(responseText(r))}</td>
-            <td>${esc(formatDate(r.sent_at))}</td>
+            <td class="muted">${esc(formatDate(r.sent_at))}</td>
         </tr>
     `).join("");
 }
@@ -65,6 +72,14 @@ export function initSmsStatus() {
     document.getElementById("sms-status-start").value = isoDay(new Date(today.getTime() - 30 * 86400000));
     ["sms-status-start", "sms-status-end", "sms-status-channel", "sms-status-status"]
         .forEach(id => document.getElementById(id).addEventListener("change", loadSmsStatus));
+    // Tap a total to show only that status; tap it again to show all.
+    document.getElementById("sms-status-summary").addEventListener("click", (e) => {
+        const item = e.target.closest("[data-status]");
+        if (!item) return;
+        const select = document.getElementById("sms-status-status");
+        select.value = select.value === item.dataset.status ? "" : item.dataset.status;
+        loadSmsStatus();
+    });
 
     registerRoute("sms-status", () => {
         showView("view-sms-status");

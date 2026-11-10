@@ -15,13 +15,15 @@
                         <th id="users-manage-th">Manage</th>
                     </tr>
                 </thead>
-                <tbody id="users-rows"></tbody>
+                <tbody id="users-rows" data-skeleton="5"></tbody>
             </table>
         </div>
     </section>
 
     <section class="view" id="view-user-form" hidden>
-        <h2 id="user-form-title">Add User</h2>
+        <div class="page-header-row">
+            <h1 class="page-title" id="user-form-title">Add User</h1>
+        </div>
         <form id="user-form" class="panel-form">
             <input type="hidden" id="user-form-id" value="">
 

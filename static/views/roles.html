@@ -16,7 +16,7 @@
                         <th id="roles-actions-th">Actions</th>
                     </tr>
                 </thead>
-                <tbody id="roles-rows"></tbody>
+                <tbody id="roles-rows" data-skeleton="3"></tbody>
             </table>
         </div>
     </section>
@@ -49,7 +49,9 @@
     </section>
 
     <section class="view" id="view-role-form" hidden>
-        <h2 id="role-form-title">Add Role</h2>
+        <div class="page-header-row">
+            <h1 class="page-title" id="role-form-title">Add Role</h1>
+        </div>
         <form id="role-form" class="panel-form">
             <input type="hidden" id="role-form-id" value="">
             <input type="text" id="role-form-name" placeholder="Role name (e.g. Sales)" required>

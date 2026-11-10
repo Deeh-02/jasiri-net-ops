@@ -6,6 +6,7 @@
                 Show history
             </label>
         </div>
+        <div class="summary-strip" id="movements-summary" aria-label="Movements in progress"></div>
         <div class="table-scroll table-compact">
             <table id="movements-table">
                 <thead>
@@ -14,11 +15,11 @@
                         <th>Route</th>
                         <th>Reason</th>
                         <th>Status</th>
-                        <th>Time</th>
+                        <th aria-sort="descending">Time</th>
                         <th>Action</th>
                     </tr>
                 </thead>
-                <tbody id="movements-rows"></tbody>
+                <tbody id="movements-rows" data-skeleton="6"></tbody>
             </table>
         </div>
     </section>

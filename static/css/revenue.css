@@ -33,13 +33,26 @@
 .rev-field input,
 .rev-field select,
 .rev-card select {
-    background: var(--surface-2);
+    background-color: var(--surface-2);
     color: var(--text);
     border: 1px solid var(--border);
     border-radius: 6px;
     padding: 6px 8px;
     font-family: 'Inter', sans-serif;
     font-size: 13px;
+    color-scheme: dark;
+    min-height: 34px;
+}
+/* The app's drawn chevron instead of the browser's own. */
+.rev-field select,
+.rev-card select {
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5 11 1.5' fill='none' stroke='%238b96a5' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    background-size: 10px 7px;
+    padding-right: 28px;
 }
 
 .rev-period-note { font-size: 12px; color: var(--text-dim); min-height: 16px; margin-bottom: 14px; }
@@ -47,8 +60,8 @@
 
 .rev-h2 {
     font-family: 'Space Grotesk', sans-serif;
-    font-size: 16px;
-    margin: 26px 0 10px;
+    font-size: 17px;
+    margin: calc(var(--section-gap) + 6px) 0 12px;
     color: var(--text);
 }
 .rev-h2-sub { font-family: 'Inter', sans-serif; font-size: 12px; font-weight: 400; color: var(--text-dim); margin-left: 6px; }
@@ -155,11 +168,9 @@
 .rev-presets button.is-active { color: var(--text); border-color: var(--accent); }
 
 .rev-table th[data-col] { cursor: pointer; user-select: none; white-space: nowrap; }
-.rev-table th.is-sorted::after { content: " \25BE"; color: var(--accent); }
-.rev-table th.is-sorted.asc::after { content: " \25B4"; }
+/* Sorted column: the shared th[aria-sort] arrow (common.css). */
 .rev-table td.num, .rev-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .rev-table tbody tr { cursor: pointer; }
-.rev-table tbody tr:hover { background: var(--surface-2); }
 .rev-label { font-size: 12px; color: var(--text-dim); }
 .rev-footnote { font-size: 12px; color: var(--text-dim); margin-top: 8px; }
 

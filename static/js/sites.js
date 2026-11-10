@@ -1,6 +1,6 @@
 import {
     can, authHeaders, showMessage, editIconSvg, deleteIconSvg,
-    registerAppShownHandler, registerCmdkProvider, showView, registerRoute,
+    registerAppShownHandler, registerCmdkProvider, showView, registerRoute, confirmDialog, showEmptyIfNone
 } from "./common.js";
 
 let locationsCache = [];
@@ -19,6 +19,7 @@ function renderSiteList(locations) {
 
     const hasActions = can("sites", "edit") || can("sites", "delete");
 
+    if (showEmptyIfNone(tbody, locations.length, "Add a site to start tracking where batteries are.", "No sites yet")) return;
     tbody.innerHTML = locations.map(loc => `
         <tr>
             <td>
@@ -52,7 +53,7 @@ function renderSiteList(locations) {
 }
 
 async function deleteSite(id, name) {
-    if (!confirm(`Delete site "${name}"? This can't be undone.`)) return;
+    if (!(await confirmDialog({ title: `Delete site "${name}"?`, message: "This can't be undone.", confirmLabel: "Delete", danger: true }))) return;
 
     const response = await fetch(`/locations/${id}`, { method: "DELETE", headers: authHeaders() });
     if (response.ok) {

@@ -1,4 +1,4 @@
-import { authHeaders, showView, navigate, registerRoute, can } from "./common.js";
+import { authHeaders, showView, navigate, registerRoute, can, stateRow } from "./common.js";
 
 const POLL_MS = 30000;
 // The router beats every 60s, so a gap this long means we have stopped being
@@ -433,7 +433,7 @@ function renderRows(sites, canRevenue, stale) {
     const cols = canRevenue ? 6 : 5;
 
     if (sites.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="${cols}" class="loading-text">No monitored sites yet.</td></tr>`;
+        tbody.innerHTML = stateRow(cols, "empty", "No monitored sites yet.");
         return;
     }
 

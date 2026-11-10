@@ -266,12 +266,61 @@ export function updateCurrentUser(patch) {
     renderTopbarUser();
 }
 
+// A form's feedback line, the same on every form. Success fades after a few
+// seconds; an error stays until the person changes something in that form
+// (or the next message replaces it), so a validation message can't vanish
+// before it's read. Screen readers announce both.
+const messageTimers = new WeakMap();
 export function showMessage(elementId, text, isError) {
     const el = document.getElementById(elementId);
+    if (!el) return;
+    clearTimeout(messageTimers.get(el));
     el.textContent = text;
     el.className = "form-msg " + (isError ? "error" : "success");
-    setTimeout(() => { el.textContent = ""; el.className = "form-msg"; }, 3000);
+    el.setAttribute("role", isError ? "alert" : "status");
+    const clear = () => { el.textContent = ""; el.className = "form-msg"; };
+    if (!isError) {
+        messageTimers.set(el, setTimeout(clear, 4000));
+        return;
+    }
+    const scope = el.closest(".modal-box") || el.parentElement;
+    scope?.addEventListener("input", () => { if (el.classList.contains("error")) clear(); }, { once: true });
 }
+
+// Submit feedback for every form, without each form wiring it: while the
+// request a submit starts is in flight, its submit button is disabled and
+// marked busy (a spinner, via CSS), so it can't be sent twice. A submit that
+// starts no request (it failed a check first) leaves the button as it was.
+(function trackFormSubmits() {
+    let pending = null;     // {button, requests: []} for the submit being dispatched
+    const realFetch = window.fetch.bind(window);
+    window.fetch = (...args) => {
+        const p = realFetch(...args);
+        if (pending) pending.requests.push(p.catch(() => {}));
+        return p;
+    };
+    document.addEventListener("submit", (e) => {
+        const form = e.target;
+        const button = e.submitter || form.querySelector('button[type="submit"], button:not([type])');
+        if (!button || button.disabled) return;
+        const entry = { button, requests: [] };
+        pending = entry;
+        // Requests started synchronously by the form's own handler (or before
+        // its first await) are attached; anything later isn't waited for.
+        setTimeout(() => {
+            if (pending === entry) pending = null;
+            // A form that manages its own button (it already disabled it)
+            // is left to do so.
+            if (!entry.requests.length || button.disabled) return;
+            button.disabled = true;
+            button.setAttribute("aria-busy", "true");
+            Promise.all(entry.requests).finally(() => {
+                button.disabled = false;
+                button.removeAttribute("aria-busy");
+            });
+        }, 0);
+    }, true);
+})();
 
 // Every timestamp in the app displays in East Africa Time regardless of the
 // viewer's own device/browser timezone — EAT has no DST, so this offset
@@ -338,8 +387,31 @@ export function deleteIconSvg() {
 }
 
 export function showView(viewId) {
-    document.querySelectorAll(".view").forEach(v => v.hidden = true);
-    document.getElementById(viewId).hidden = false;
+    const view = document.getElementById(viewId);
+    const arriving = view.hidden;
+    document.querySelectorAll(".view").forEach(v => { if (v !== view) v.hidden = true; });
+    view.hidden = false;
+    // A different page starts at its top (on a phone the whole window
+    // scrolls, on desktop the content pane does); staying on the same page
+    // (a filter in the URL changing) keeps its place.
+    if (arriving) {
+        window.scrollTo(0, 0);
+        document.querySelector(".content")?.scrollTo(0, 0);
+    }
+    // First visit: a main table that has nothing in it yet shows skeleton
+    // rows until its page script draws the real rows (or its empty state).
+    // Opt-in per table with data-skeleton="<columns>" on the <tbody>.
+    view.querySelectorAll("tbody[data-skeleton]").forEach(tbody => {
+        if (tbody.rows.length) return;
+        tbody.innerHTML = skeletonRows(Number(tbody.dataset.skeleton) || 4, 5);
+        // If nothing ever replaces them (the request failed without the page
+        // saying so), don't pretend to load forever.
+        setTimeout(() => {
+            if (tbody.querySelector(".skeleton-row")) {
+                tbody.innerHTML = stateRow(Number(tbody.dataset.skeleton) || 4, "error", "This is taking too long. Check your connection and reload the page.");
+            }
+        }, 20000);
+    });
 }
 
 // ---- Router: reflects the current section (and, for a couple of views, a
@@ -365,16 +437,14 @@ function parseRoute(hash) {
     return { name: parts[0] || "dashboard", params: parts.slice(1) };
 }
 
-// Maps a collapsible sidebar group's id prefix to the route names that
-// belong to it. Drives the group heading's .active state exactly the same
-// way every plain [data-view] nav item's active state works (Batteries lit
-// up only while you're on the Batteries page, no separate click needed to
-// "arm" it) — the heading has no data-view of its own to be picked up by the
-// generic loop below, so this fills that in for it — plus auto-*expands*
-// (never auto-collapses) the group when the active route lands inside it,
-// e.g. a page refresh or a deep link straight to a sub-route while the group
-// still shows collapsed.
+// The sidebar is a list of titled sections (Operations, Technical Activity
+// Log, Inventory, Reports, Alerts, System), each page a row with its own
+// icon. Sections start open; a section you fold shut stays shut (remembered
+// per browser) until you open it again or land on one of its pages, which
+// opens it so the current page is always visible.
 const NAV_GROUP_ROUTES = {
+    ops: ["dashboard", "sites", "network"],
+    system: ["users", "roles"],
     inventory: ["inventory", "stock", "inventory-log", "inventory-manage"],
     alerts: ["notifications", "alert-templates", "customers", "broadcast"],
     reports: ["inventory-reports", "sms-status", "revenue"],
@@ -384,14 +454,40 @@ const NAV_GROUP_ROUTES = {
 function setActiveNav(name) {
     document.querySelectorAll("[data-view]").forEach(l => l.classList.toggle("active", l.dataset.view === name));
 
+    // The current page's section title turns white, and the section opens if
+    // it was folded; no section is ever folded shut from here.
     Object.entries(NAV_GROUP_ROUTES).forEach(([group, routes]) => {
         const toggle = document.getElementById(`${group}-nav-toggle`);
-        const inGroup = routes.includes(name);
-        toggle?.classList.toggle("active", inGroup);
-        if (!inGroup) return;
-        toggle?.classList.remove("collapsed");
-        document.getElementById(`${group}-nav-subitems`)?.classList.remove("collapsed");
+        toggle?.classList.toggle("current", routes.includes(name));
+        if (toggle && routes.includes(name) && toggle.classList.contains("collapsed")) {
+            setNavGroupOpen(toggle, true);
+            saveCollapsedNavGroups();
+        }
     });
+}
+
+const NAV_COLLAPSED_KEY = "navCollapsedGroups";
+
+function setNavGroupOpen(toggle, open) {
+    toggle.classList.toggle("collapsed", !open);
+    toggle.nextElementSibling?.classList.toggle("collapsed", !open);
+    toggle.setAttribute("aria-expanded", String(open));
+}
+
+function readCollapsedNavGroups() {
+    try {
+        const list = JSON.parse(localStorage.getItem(NAV_COLLAPSED_KEY) || "[]");
+        return new Set(Array.isArray(list) ? list : []);
+    } catch {
+        return new Set();
+    }
+}
+
+function saveCollapsedNavGroups() {
+    const shut = Array.from(document.querySelectorAll(".nav-section-title.collapsed"))
+        .map(t => t.closest(".nav-category")?.dataset.navGroup)
+        .filter(Boolean);
+    try { localStorage.setItem(NAV_COLLAPSED_KEY, JSON.stringify(shut)); } catch { /* private mode: just don't remember */ }
 }
 
 function dispatchRoute() {
@@ -869,30 +965,19 @@ export function initShell() {
         }, { passive: false });
     }
 
-    // ---- Collapsible sidebar groups: the heading (Inventory) is a pure
-    // expand/collapse toggle, not a link — clicking it only opens or closes
-    // its submenu and never navigates or changes the active page; only the
-    // submenu's own items (Items, Stock, Transaction Log, Manage) do that,
-    // via the generic [data-view] listener below, which explicitly skips
-    // any element that has a group heading's shape (see isGroupHeading
-    // there). The chevron is a second, dedicated way to toggle without
-    // relying on the label area — stopPropagation keeps its click from
-    // also re-triggering this same toggle via bubbling. Landing on one of
-    // this group's routes from somewhere else (a submenu click, a deep
-    // link, back/forward) still auto-expands the group — that's
-    // setActiveNav's NAV_GROUP_ROUTES handling elsewhere in this file, not
-    // this listener. ----
+    // ---- Sidebar sections: the title (OPERATIONS, INVENTORY …) only folds
+    // its pages away or back; it never navigates. Which sections are folded
+    // is remembered per browser; landing on a page inside a folded section
+    // opens it again (setActiveNav). ----
+    const collapsedGroups = readCollapsedNavGroups();
     document.querySelectorAll(".nav-heading").forEach(toggle => {
         const subitems = toggle.nextElementSibling;
         if (!subitems || !subitems.classList.contains("nav-subitems")) return;
+        const group = toggle.closest(".nav-category")?.dataset.navGroup;
+        setNavGroupOpen(toggle, !collapsedGroups.has(group));
         toggle.addEventListener("click", () => {
-            toggle.classList.toggle("collapsed");
-            subitems.classList.toggle("collapsed");
-        });
-        toggle.querySelector(".chevron")?.addEventListener("click", (e) => {
-            e.stopPropagation();
-            toggle.classList.toggle("collapsed");
-            subitems.classList.toggle("collapsed");
+            setNavGroupOpen(toggle, toggle.classList.contains("collapsed"));
+            saveCollapsedNavGroups();
         });
     });
 
@@ -985,4 +1070,142 @@ export function bootAuth() {
     if (authToken) {
         showApp();
     }
+}
+
+// ---- Shared UI pieces (Phase 5) ----
+
+function escText(s) {
+    return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+// Loading / empty / error state, the same everywhere. stateHtml() for a box
+// on its own; stateRow() for inside a table's <tbody> (spans every column).
+//   kind: "loading" | "empty" | "error"
+export function stateHtml(kind, text, title = "") {
+    const role = kind === "error" ? ' role="alert"' : (kind === "loading" ? ' role="status"' : "");
+    return `<div class="state state-${kind}"${role}>${title ? `<span class="state-title">${escText(title)}</span>` : ""}${escText(text)}</div>`;
+}
+
+// While a table first loads it shows skeleton rows shaped like its columns
+// (the text is still there for screen readers), not a "Loading…" line.
+const SKELETON_WIDTHS = [72, 48, 60, 36, 54, 66, 42, 58];
+export function stateRow(colspan, kind, text, title = "") {
+    if (kind === "loading") return skeletonRows(colspan, 5, text);
+    return `<tr class="state-row"><td colspan="${colspan}">${stateHtml(kind, text, title)}</td></tr>`;
+}
+
+export function skeletonRows(colspan, rows = 5, label = "Loading…") {
+    let html = "";
+    for (let r = 0; r < rows; r++) {
+        let cells = "";
+        for (let c = 0; c < colspan; c++) {
+            const w = SKELETON_WIDTHS[(r + c * 3) % SKELETON_WIDTHS.length];
+            cells += `<td><span class="skeleton" style="width:${w}%"></span></td>`;
+        }
+        html += `<tr class="skeleton-row state-row" aria-hidden="true">${cells}</tr>`;
+    }
+    return `<tr class="state-row"><td colspan="${colspan}" class="sr-only" role="status">${escText(label)}</td></tr>` + html;
+}
+
+// Skeleton stat cards, for a summary grid that is still loading.
+export function skeletonCards(count = 4) {
+    return Array.from({ length: count }, () =>
+        `<div class="skeleton-card" aria-hidden="true"><span class="skeleton" style="width:55%"></span><span class="skeleton"></span></div>`).join("");
+}
+
+// Before reloading a table: if it already shows data, keep that data on
+// screen (slightly dimmed) until the new rows replace it, instead of
+// flashing skeletons; only an empty table gets the skeleton rows.
+export function markRefreshing(tbody, colspan, label = "Loading…") {
+    const hasData = [...tbody.rows].some(r => !r.classList.contains("state-row"));
+    if (!hasData) { tbody.innerHTML = stateRow(colspan, "loading", label); return; }
+    const panel = tbody.closest(".table-scroll");
+    if (!panel) return;
+    panel.classList.add("is-refreshing");
+    tbody.closest("table").setAttribute("aria-busy", "true");
+    const done = new MutationObserver(() => {
+        panel.classList.remove("is-refreshing");
+        tbody.closest("table")?.removeAttribute("aria-busy");
+        done.disconnect();
+    });
+    done.observe(tbody, { childList: true });
+}
+
+// Phones: a table swiped sideways gets .is-scrolled-x so its pinned first
+// column shows a shadow (CSS). One listener for every table.
+document.addEventListener("scroll", (e) => {
+    const el = e.target;
+    if (el instanceof Element && el.classList.contains("table-scroll")) {
+        el.classList.toggle("is-scrolled-x", el.scrollLeft > 2);
+    }
+}, { capture: true, passive: true });
+
+// The in-app confirmation dialog, in place of the browser's confirm().
+//   const ok = await confirmDialog({ title, message, confirmLabel, danger });
+// Enter confirms, Escape or a click outside cancels, and focus goes back to
+// whatever had it before. `message` is plain text (line breaks kept).
+let confirmEl = null;
+export function confirmDialog({ title = "Are you sure?", message = "", confirmLabel = "Confirm", cancelLabel = "Cancel", danger = false } = {}) {
+    if (!confirmEl) {
+        confirmEl = document.createElement("div");
+        confirmEl.className = "modal-overlay";
+        confirmEl.hidden = true;
+        confirmEl.innerHTML = `
+            <div class="modal-box confirm-box" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-message">
+                <h3 id="confirm-title"></h3>
+                <p class="confirm-message" id="confirm-message"></p>
+                <div class="modal-actions">
+                    <button type="button" class="btn-secondary" data-confirm="no"></button>
+                    <button type="button" data-confirm="yes"></button>
+                </div>
+            </div>`;
+        document.body.appendChild(confirmEl);
+    }
+    const before = document.activeElement;
+    const yes = confirmEl.querySelector('[data-confirm="yes"]');
+    const no = confirmEl.querySelector('[data-confirm="no"]');
+    confirmEl.querySelector("#confirm-title").textContent = title;
+    const msg = confirmEl.querySelector("#confirm-message");
+    msg.textContent = message;
+    msg.hidden = !message;
+    yes.textContent = confirmLabel;
+    yes.className = danger ? "btn-danger" : "btn-primary";
+    no.textContent = cancelLabel;
+    confirmEl.hidden = false;
+    yes.focus();
+
+    return new Promise(resolve => {
+        const close = (answer) => {
+            confirmEl.hidden = true;
+            confirmEl.removeEventListener("click", onClick);
+            document.removeEventListener("keydown", onKey, true);
+            if (before && typeof before.focus === "function" && document.contains(before)) before.focus();
+            resolve(answer);
+        };
+        const onClick = (e) => {
+            if (e.target === confirmEl) return close(false);
+            const b = e.target.closest("[data-confirm]");
+            if (b) close(b.dataset.confirm === "yes");
+        };
+        const onKey = (e) => {
+            if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); close(false); }
+            else if (e.key === "Enter" && document.activeElement !== no) { e.preventDefault(); e.stopPropagation(); close(true); }
+            else if (e.key === "Tab") {         // keep focus inside the two buttons
+                e.preventDefault();
+                (document.activeElement === yes ? no : yes).focus();
+            }
+        };
+        confirmEl.addEventListener("click", onClick);
+        document.addEventListener("keydown", onKey, true);
+    });
+}
+
+// For a table renderer: when there is nothing to show, put the shared empty
+// state in the <tbody> (spanning every header column) and return true, so the
+// caller can `if (showEmptyIfNone(...)) return;` before building rows.
+export function showEmptyIfNone(tbody, count, text, title = "") {
+    if (count) return false;
+    const cols = tbody.closest("table")?.querySelectorAll("thead tr:first-child > *").length || 1;
+    tbody.innerHTML = stateRow(cols, "empty", text, title);
+    return true;
 }

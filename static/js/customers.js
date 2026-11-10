@@ -1,4 +1,4 @@
-import { authHeaders, showView, registerRoute, navigate, showMessage, formatDate } from "./common.js";
+import { authHeaders, showView, registerRoute, navigate, showMessage, formatDate, stateRow } from "./common.js";
 
 function esc(s) {
     return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -84,18 +84,19 @@ async function loadCustomers() {
     const rows = document.getElementById("customers-rows");
     const res = await fetch(`/customers${routerId ? `?router_id=${routerId}` : ""}`, { headers: authHeaders() });
     if (!res.ok) {
-        rows.innerHTML = `<tr><td colspan="8">Couldn't load customers.</td></tr>`;
+        rows.innerHTML = stateRow(8, "error", "Couldn't load customers. Try again in a moment.");
         return;
     }
     const customers = await res.json();
     customersCache = customers;
     const counts = {};
     customers.forEach(c => { counts[c.account_status] = (counts[c.account_status] || 0) + 1; });
+    const tone = (s) => (s.toLowerCase() === "active" ? "good" : s.toLowerCase() === "expired" ? "bad" : "");
     document.getElementById("customers-summary").innerHTML =
-        `<span class="customers-chip">Total: ${customers.length}</span>` +
-        Object.entries(counts).map(([s, n]) => `<span class="customers-chip ${esc(s.toLowerCase())}">${esc(s)}: ${n}</span>`).join("");
+        `<span class="summary-item"><strong>${customers.length}</strong> customers</span>` +
+        Object.entries(counts).map(([s, n]) => `<span class="summary-item ${tone(s)}"><strong>${n}</strong> ${esc(s)}</span>`).join("");
     if (!customers.length) {
-        rows.innerHTML = `<tr><td colspan="8">No customers yet — import an export above.</td></tr>`;
+        rows.innerHTML = stateRow(8, "empty", "Import an export above to fill this list.", "No customers yet");
         return;
     }
     rows.innerHTML = customers.map(c => `

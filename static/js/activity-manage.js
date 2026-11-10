@@ -1,4 +1,4 @@
-import { showView, registerRoute } from "./common.js";
+import { showView, registerRoute, confirmDialog } from "./common.js";
 import { api, esc, setError } from "./activity-common.js";
 
 // Admin only (the server refuses anyone else). Every change goes to the
@@ -167,7 +167,7 @@ async function onClick(e) {
             render();
             break;
         case "save-fields": {
-            if (editor.applyAll && !confirm(`Replace the extra fields of every type in ${category.name} with these?`)) break;
+            if (editor.applyAll && !(await confirmDialog({ title: `Replace the questions of every type in ${category.name}?`, message: "Every activity type in this category gets these extra questions. Answers already saved on reports are not changed.", confirmLabel: "Replace all" }))) break;
             await send(`/activity/admin/types/${type.id}/fields`, "PUT", { fields: fieldsToSave(), apply_to_category: editor.applyAll });
             break;
         }

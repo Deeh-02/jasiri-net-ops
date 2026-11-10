@@ -1,6 +1,6 @@
 import {
     can, authHeaders, showMessage, capitalize, editIconSvg, deleteIconSvg,
-    showView, navigate, registerRoute, registerCmdkProvider,
+    showView, navigate, registerRoute, registerCmdkProvider, confirmDialog, showEmptyIfNone
 } from "./common.js";
 
 let usersCache = [];
@@ -23,6 +23,7 @@ function renderUsersList(users) {
     const activeUsers = users.filter(u => u.status !== "inactive");
     const hasManage = can("users", "edit") || can("users", "delete");
 
+    if (showEmptyIfNone(tbody, activeUsers.length, "Add a user to give someone access.", "No users yet")) return;
     tbody.innerHTML = activeUsers.map(u => `
         <tr>
             <td>${u.name}</td>
@@ -53,7 +54,7 @@ function renderUsersList(users) {
 }
 
 async function deactivateUser(id, name) {
-    if (!confirm(`Deactivate user "${name}"? They will no longer be able to log in.`)) return;
+    if (!(await confirmDialog({ title: `Deactivate user "${name}"?`, message: "They will no longer be able to log in.", confirmLabel: "Deactivate", danger: true }))) return;
 
     const response = await fetch(`/users/${id}`, { method: "DELETE", headers: authHeaders() });
     if (response.ok) {

@@ -9,7 +9,70 @@ and whatever's still upcoming.
 
 ---
 
-## ACTIVE PHASE: Phase 4 — Network Monitoring (Site Status)
+## MERGED, COMPLETION NOT YET CONFIRMED: Phase 5 — UI Consistency
+
+*Merged to `main` on 2026-11-10 at the owner's request. That is not the
+owner's confirmation that the done-when criteria below are met: they stay
+open until the owner confirms them. The next phase is not active until the
+owner confirms its brief.*
+
+Inserted at the owner's explicit call, 2026-11-09, after Phase 4 was merged to
+`main` the same day. Branch: `phase-5-ui-consistency` (from `main`). Upcoming
+phases renumbered: Notifications 5 → 6, Ticketing 6 → 7, CRM 7 → 8, Chat 8 → 9.
+
+### Purpose
+
+Make the whole app feel like one product: the same page structure, the same
+tables and forms, the same interaction states on every page, and data-heavy
+pages that can be scanned at a glance. Presentation only: no schema, API or
+permission changes.
+
+### Scope (the owner's brief)
+
+1. **Page structure.** One page header (title, optional one-line subtitle,
+   actions on the right), one content width, one section spacing and one
+   heading scale. Settings and Site detail currently use their own header
+   structures; they move onto the shared one.
+2. **Tables and forms.** Filters and search in one place above a table; one
+   row density; one look for row actions; shared loading and empty states;
+   the same phone behaviour. Forms get the same field spacing, validation
+   messages and submit feedback.
+3. **The shell.** The sidebar (Batteries, Sites, Network, Technical Activity
+   Log, Inventory, Reports, Alerts, Users, Roles) shows the active section
+   and the current page at a glance; the top bar and the page content line up
+   at every width.
+4. **Interaction states.** Buttons, tabs, selected filters, focus rings,
+   disabled controls and confirmation dialogs look and behave alike. The
+   browser's own `confirm()` pop-ups are replaced by one in-app dialog.
+   Animation stays subtle and honours `prefers-reduced-motion`.
+5. **Scanability.** Clear section hierarchy, and a compact summary before a
+   long table, so important status and next actions stand out.
+
+### Done when
+
+1. Every page uses the shared page header; Settings and Site detail included.
+2. `.btn-primary`, `.btn-secondary` and `.btn-danger` look the same wherever
+   they appear (no longer only inside a modal), with hover, pressed, focus and
+   disabled states.
+3. No `confirm(` call is left in `static/js/`; every confirmation uses the
+   shared dialog (keyboard: Enter confirms, Escape cancels, focus returns).
+4. A keyboard user sees one visible focus ring on every control.
+5. With reduced motion turned on, nothing slides, fades or lifts.
+6. The top bar's edges line up with the page content at phone, tablet and
+   desktop widths.
+7. Every table has the same empty and loading states.
+8. The owner has run the branch locally (or on the live app) and checked it on a phone and a
+   desktop.
+
+---
+
+## MERGED, COMPLETION NOT YET CONFIRMED: Phase 4 — Network Monitoring (Site Status)
+
+*Merged to `main` on 2026-11-09 at the owner's request, so that Phase 5 could
+start on a clean branch. That is not the owner's confirmation that the exit
+criteria below are met: they stay open, and this section keeps its full
+detail until the owner confirms them, after which it collapses into COMPLETED
+PHASES like Phase 3.*
 
 Phase 4.0 (router reconnaissance) is **COMPLETE** — its findings are
 recorded below and they replace several assumptions in the original
@@ -799,20 +862,22 @@ Extending DELEGATION.md's rule that an agent shows each command before running i
 ## convention until it becomes active, at which point its full brief goes
 ## here the same way Phase 3's did before it was completed)
 
-**Phase 5 — Notifications.** Lowest-effort new addition — SMS templates
+**Phase 6 — Notifications.** Lowest-effort new addition — SMS templates
 already designed, this is mostly wiring them in. (Originally Phase 3;
 renumbered to Phase 4 to make room for the Phase 3 Ops Inventory System
 brief, per owner's explicit call 2026-09-06 — see COMPLETED PHASES for
 that phase's outcome. Renumbered again to Phase 5 to make room for the
-Phase 4 Network Monitoring brief, per owner's explicit call 2026-09-18.)
+Phase 4 Network Monitoring brief, per owner's explicit call 2026-09-18,
+and to Phase 6 for the Phase 5 UI Consistency brief, per owner's explicit
+call 2026-11-09.)
 
-**Phase 6 — Ticketing.** Close in shape to the existing site verification/
+**Phase 7 — Ticketing.** Close in shape to the existing site verification/
 check-in flow.
 
-**Phase 7 — Basic CRM.** Likely just views/notes on top of the existing
+**Phase 8 — Basic CRM.** Likely just views/notes on top of the existing
 customers table — to be CONFIRMED, not assumed, once this phase starts.
 
-**Phase 8 — Chat.** Deliberately deferred and flagged for reassessment.
+**Phase 9 — Chat.** Deliberately deferred and flagged for reassessment.
 Most technically demanding of the set, and WhatsApp already works as a
 contact channel. Confirm this solves a real operational gap before
 building anything. *(2026-11-04: an admin-only, read-only data assistant

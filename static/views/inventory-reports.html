@@ -1,7 +1,7 @@
     <div class="modal-overlay" id="offcut-drilldown-overlay" hidden>
         <div class="modal-box">
             <h3>Offcuts <span id="offcut-drilldown-label"></span></h3>
-            <div class="table-scroll">
+            <div class="table-scroll table-compact">
                 <table id="offcut-drilldown-table">
                     <thead>
                         <tr>
@@ -28,7 +28,7 @@
                  (unlike the Units view, which excludes depleted reels by
                  default) — this is the one place a depleted reel's status and
                  last known location before it closed out are still visible. -->
-            <div class="table-scroll">
+            <div class="table-scroll table-compact">
                 <table id="cable-drilldown-table">
                     <thead>
                         <tr>
@@ -61,15 +61,15 @@
             </div>
         </div>
 
-        <div class="inventory-item-tab-row" id="reports-tab-row">
-            <button type="button" class="inventory-item-tab active" id="reports-tab-btn-sku" data-tab="sku">SKU Summary</button>
-            <button type="button" class="inventory-item-tab" id="reports-tab-btn-cable" data-tab="cable">Cable Summary</button>
-            <button type="button" class="inventory-item-tab" id="reports-tab-btn-offcut" data-tab="offcut">Offcut Rollup</button>
+        <div class="inventory-item-tab-row tabs" id="reports-tab-row">
+            <button type="button" class="inventory-item-tab tab active" id="reports-tab-btn-sku" data-tab="sku">SKU Summary</button>
+            <button type="button" class="inventory-item-tab tab" id="reports-tab-btn-cable" data-tab="cable">Cable Summary</button>
+            <button type="button" class="inventory-item-tab tab" id="reports-tab-btn-offcut" data-tab="offcut">Offcut Rollup</button>
         </div>
 
         <div class="dashboard-tab-panel" id="reports-tab-sku">
             <div class="inventory-panel">
-                <div class="table-scroll">
+                <div class="table-scroll table-compact">
                     <table id="sku-summary-table">
                         <thead>
                             <tr>
@@ -90,7 +90,7 @@
 
         <div class="dashboard-tab-panel" id="reports-tab-cable" hidden>
             <div class="inventory-panel">
-                <div class="table-scroll">
+                <div class="table-scroll table-compact">
                     <table id="cable-summary-table">
                         <thead>
                             <tr>
@@ -108,7 +108,7 @@
 
         <div class="dashboard-tab-panel" id="reports-tab-offcut" hidden>
             <div class="inventory-panel">
-                <div class="table-scroll">
+                <div class="table-scroll table-compact">
                     <table id="offcut-summary-table">
                         <thead>
                             <tr>

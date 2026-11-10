@@ -1,6 +1,6 @@
 import {
     can, authHeaders, showMessage, formatDate, capitalize, editIconSvg, deleteIconSvg,
-    showView, navigate, registerRoute, registerCmdkProvider,
+    showView, navigate, registerRoute, registerCmdkProvider, confirmDialog, showEmptyIfNone
 } from "./common.js";
 
 let rolesCache = [];
@@ -22,6 +22,7 @@ function renderRolesList(roles) {
 
     const hasActions = can("roles", "edit") || can("roles", "delete");
 
+    if (showEmptyIfNone(tbody, roles.length, "Add a role to group permissions.", "No roles yet")) return;
     tbody.innerHTML = roles.map(r => `
         <tr>
             <td>${r.name}</td>
@@ -50,7 +51,7 @@ function renderRolesList(roles) {
 }
 
 async function deleteRole(id, name) {
-    if (!confirm(`Delete role "${name}"? This can't be undone.`)) return;
+    if (!(await confirmDialog({ title: `Delete role "${name}"?`, message: "This can't be undone.", confirmLabel: "Delete", danger: true }))) return;
 
     const response = await fetch(`/roles/${id}`, { method: "DELETE", headers: authHeaders() });
     if (response.ok) {

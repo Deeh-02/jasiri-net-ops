@@ -1,4 +1,4 @@
-import { can, authHeaders, formatDate, capitalize, deleteIconSvg, showView, navigate, registerRoute, refreshBadges, registerAppShownHandler, registerLogoutHandler } from "./common.js";
+import { can, authHeaders, formatDate, capitalize, deleteIconSvg, showView, navigate, registerRoute, refreshBadges, registerAppShownHandler, registerLogoutHandler, confirmDialog, stateRow, markRefreshing } from "./common.js";
 import { refreshData as refreshDashboardData } from "./dashboard.js";
 
 // null (not []) whenever nothing currently on screen can be trusted as
@@ -109,7 +109,7 @@ async function refreshMovements() {
         // Only replace the loading placeholder — a failed background poll
         // shouldn't wipe a table that's already showing good data.
         if (movementsCache === null) {
-            document.getElementById("movements-rows").innerHTML = '<tr><td colspan="6" class="loading-text">Failed to load movements</td></tr>';
+            document.getElementById("movements-rows").innerHTML = stateRow(6, "error", "Couldn't load movements. Try again in a moment.");
         }
         return;
     }
@@ -138,17 +138,34 @@ async function refreshMovements() {
 // now (it's the loading placeholder), so nothing can legitimately compare
 // equal to it.
 async function loadMovements() {
-    document.getElementById("movements-rows").innerHTML = '<tr><td colspan="6" class="loading-text">Loading movements...</td></tr>';
+    markRefreshing(document.getElementById("movements-rows"), 6, "Loading movements…");
     movementsCache = null;
     movementsGeneration++;
     await refreshMovements();
 }
 
+// What is in progress, at a glance, before the list: "arrived" is the one
+// that needs someone (a site check), so it reads in the attention colour.
+function renderMovementsSummary(movements) {
+    const box = document.getElementById("movements-summary");
+    if (!box) return;
+    const n = (status) => movements.filter(m => m.status === status).length;
+    const items = [
+        [n("pending"), "waiting to leave", ""],
+        [n("in_transit"), "on the way", ""],
+        [n("arrived"), "arrived, need a site check", "warn"],
+    ];
+    box.innerHTML = items.some(([count]) => count)
+        ? items.map(([count, label, tone]) => `<span class="summary-item ${count ? tone : ""}"><strong>${count}</strong> ${label}</span>`).join("")
+        : "";
+}
+
 function renderMovementsList(movements) {
     const tbody = document.getElementById("movements-rows");
+    renderMovementsSummary(movements);
 
     if (movements.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="6" class="loading-text">No movements${showMovementHistory ? "" : " in progress"}.</td></tr>`;
+        tbody.innerHTML = stateRow(6, "empty", `No movements${showMovementHistory ? "" : " in progress"}.`);
         return;
     }
 
@@ -162,7 +179,7 @@ function renderMovementsList(movements) {
                 <td>${m.from_location || "—"} &rarr; ${m.to_location}</td>
                 <td>${MOVEMENT_REASON_LABELS[m.reason] || "—"}</td>
                 <td><span class="status-pill movement-${meta.cls}">${meta.label}</span></td>
-                <td>${formatDate(m.created_at)}</td>
+                <td class="muted">${formatDate(m.created_at)}</td>
                 <td>${canMove ? renderMovementActions(m) : "—"}</td>
             </tr>
         `;
@@ -252,7 +269,7 @@ function attachMovementActionListeners() {
 
     document.querySelectorAll(".movement-cancel-btn").forEach(btn => {
         btn.addEventListener("click", async () => {
-            if (!confirm("Cancel this movement?")) return;
+            if (!(await confirmDialog({ title: "Cancel this movement?", confirmLabel: "Cancel movement", cancelLabel: "Keep it", danger: true }))) return;
             const res = await fetch(`/movements/${btn.dataset.id}/cancel`, {
                 method: "POST",
                 headers: authHeaders()

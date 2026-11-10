@@ -1,54 +1,36 @@
 /* ---- Alerts > Customers ---- */
 
-.customers-intro {
-    max-width: 720px;
-    color: var(--text-dim);
-    font-size: 13.5px;
-}
-
-.customers-import,
-.customers-filters {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: flex-end;
-    gap: 12px;
-    margin-bottom: 14px;
-}
-
-.customers-import label,
-.customers-filters label {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    font-size: 12px;
-    color: var(--text-dim);
-}
-
-.customers-import select,
-.customers-import input[type="file"],
-.customers-filters select {
+/* The import card: an occasional job, set apart from the everyday list. The
+   controls are the shared .toolbar/.control and buttons. */
+.customers-import-card {
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 8px 10px;
-    color: var(--text);
-    font-family: 'Inter', sans-serif;
-    font-size: 13.5px;
+    border-radius: var(--radius);
+    padding: 16px 18px 4px;
+    margin-bottom: var(--section-gap);
 }
 
-.customers-import button {
-    background: var(--accent);
-    color: #10141a;
-    border: none;
+.customers-intro {
+    max-width: 72ch;
+    color: var(--text-dim);
+    font-size: 13.5px;
+    line-height: 1.5;
+    margin: 0 0 14px;
+}
+
+/* The file picker's own button reads like the app's secondary button. */
+.customers-import input[type="file"] { padding: 6px 8px; }
+.customers-import input[type="file"]::file-selector-button {
+    background: var(--surface-2);
+    color: var(--text);
+    border: 1px solid var(--border);
     border-radius: 6px;
-    padding: 9px 16px;
-    font-family: 'Space Grotesk', sans-serif;
-    font-weight: 700;
-    font-size: 14px;
+    padding: 5px 10px;
+    margin-right: 10px;
+    font-family: 'Inter', sans-serif;
+    font-size: 13px;
     cursor: pointer;
 }
-
-.customers-import button:disabled { opacity: 0.5; cursor: default; }
 
 .customers-import-result {
     margin-bottom: 18px;
@@ -59,22 +41,6 @@
 .customers-import-result ul { margin: 6px 0 0; padding-left: 20px; }
 .customers-import-result .error { color: var(--danger); }
 
-.customers-summary {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-}
-
-.customers-chip {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    padding: 4px 12px;
-    font-size: 12.5px;
-}
-
-.customers-chip.active { color: var(--accent); }
-.customers-chip.expired { color: var(--danger); }
 
 .customer-form-field {
     display: flex;
@@ -93,4 +59,10 @@
     font-family: 'Inter', sans-serif;
     font-size: 12.5px;
     cursor: pointer;
+}
+
+/* Phones: the file picker gets a row of its own, so the chosen file's name
+   is readable. */
+@media (max-width: 760px) {
+    .customers-file-field { flex-basis: 100%; }
 }

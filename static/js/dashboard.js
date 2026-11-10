@@ -3,7 +3,7 @@ import {
     batteryIconSvg, moveIconSvg, editIconSvg, viewIconSvg, deleteIconSvg,
     registerAppShownHandler, registerCmdkProvider, refreshBadges,
     showView, navigate, registerRoute, registerRouteResetter,
-    registerLogoutHandler,
+    registerLogoutHandler, confirmDialog, stateRow, showEmptyIfNone, skeletonCards
 } from "./common.js";
 import { MOVEMENT_STATUS_META } from "./movements.js";
 
@@ -36,8 +36,8 @@ function buildStats(batteries) {
 
 // ---- Initial load: shows loading text once ----
 async function loadDashboard() {
-    document.getElementById("stat-grid").innerHTML = '<div class="loading-text">Loading...</div>';
-    document.getElementById("battery-rows").innerHTML = '<tr><td colspan="9" class="loading-text">Loading batteries...</td></tr>';
+    document.getElementById("stat-grid").innerHTML = skeletonCards(5);
+    document.getElementById("battery-rows").innerHTML = stateRow(8, "loading", "Loading batteries…");
     // The placeholder just replaced whatever was rendered, so nothing on
     // screen matches batteriesCache any more. Without this, logging out and
     // back in left the previous session's list in batteriesCache, the fresh
@@ -285,6 +285,7 @@ function bindChargeDropdown(dropdown) {
 function renderTable(batteries) {
     const tbody = document.getElementById("battery-rows");
     tbody.innerHTML = "";
+    if (showEmptyIfNone(tbody, batteries.length, "Add a battery, or clear the search and filters.", "No batteries to show")) return;
 
     batteries.forEach(battery => {
         // Flags a Deployed battery sitting at a confirmed-offline site by
@@ -301,7 +302,7 @@ function renderTable(batteries) {
             </td>
             <td>${battery.current_location}</td>
             <td>${battery.moved_by || "—"}</td>
-            <td>${formatDate(battery.moved_at)}</td>
+            <td class="muted nowrap">${formatDate(battery.moved_at)}</td>
             <td>
     <div class="actions-cell">
         ${can("movements", "create") ? `
@@ -350,7 +351,7 @@ function closeAllChargeMenus() {
 }
 
 async function deactivateBattery(id, number) {
-    if (!confirm(`Deactivate battery "${number}"? It will be hidden from the list.`)) return;
+    if (!(await confirmDialog({ title: `Deactivate battery "${number}"?`, message: "It will be hidden from the list.", confirmLabel: "Deactivate", danger: true }))) return;
 
     const response = await fetch(`/batteries/${id}`, { method: "DELETE", headers: authHeaders() });
     if (response.ok) {

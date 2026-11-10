@@ -1,4 +1,4 @@
-import { authHeaders, showView, registerRoute, navigate, can, formatDate } from "./common.js";
+import { authHeaders, showView, registerRoute, navigate, can, formatDate, confirmDialog, stateRow } from "./common.js";
 import { api, esc, formatDay, outcomePill, setError } from "./activity-common.js";
 
 const PAGE_SIZE = 25;
@@ -74,7 +74,7 @@ async function loadReports() {
             <td>${esc(r.technicians.map(t => t.name).join(", "))}</td>
             <td>${outcomePill(r.outcome, r.outcome_label)}${followUpNote(r)}</td>
         </tr>`).join("")
-        : `<tr><td colspan="6" class="act-empty">No reports match.</td></tr>`;
+        : stateRow(6, "empty", "Try a wider date range or clear a filter.", "No reports match");
 
     const from = total ? offset + 1 : 0;
     $("act-pager-text").textContent = `${from}–${Math.min(offset + PAGE_SIZE, total)} of ${total}`;
@@ -151,7 +151,7 @@ async function openDetail(id) {
 
 async function deleteCurrent() {
     if (!currentDetail) return;
-    if (!confirm(`Delete ${currentDetail.reference}? It will disappear from the lists and the totals.`)) return;
+    if (!(await confirmDialog({ title: `Delete ${currentDetail.reference}?`, message: "It will disappear from the lists and the totals.", confirmLabel: "Delete", danger: true }))) return;
     const res = await api(`/activity/reports/${currentDetail.id}`, { method: "DELETE" });
     if (!res.ok) { setError($("act-detail-error"), res.error); return; }
     navigate("activity-reports");

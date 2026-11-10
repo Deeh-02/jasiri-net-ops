@@ -1,6 +1,6 @@
 import {
     authHeaders, showMessage, showView, navigate, registerRoute, refreshBadges, timeAgo, formatDate, getCurrentUser,
-    registerNotificationsChangedHandler,
+    registerNotificationsChangedHandler, confirmDialog
 } from "./common.js";
 
 function esc(s) {
@@ -139,7 +139,7 @@ async function saveTemplate(kind) {
 
 async function resetTemplate(kind) {
     const t = templates.find(x => x.kind === kind);
-    if (!confirm(`Put "${t.label}" back to the default wording?`)) return;
+    if (!(await confirmDialog({ title: `Reset "${t.label}"?`, message: "It goes back to the default wording.", confirmLabel: "Reset" }))) return;
     const res = await fetch(`/monitoring/alert-templates/${kind}`, { method: "DELETE", headers: authHeaders() });
     if (!res.ok) {
         showMessage(`template-msg-${kind}`, "Failed to reset", true);

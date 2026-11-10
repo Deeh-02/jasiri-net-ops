@@ -140,35 +140,6 @@
 
 /* ---- Status / Trends tabs. Two views of the same sites, so a tab strip
    rather than two nav entries. Shared by status.html and trends.html. ---- */
-.sites-tabs {
-    display: flex;
-    gap: 4px;
-    border-bottom: 1px solid var(--border);
-    margin-bottom: 20px;
-}
-
-.sites-tab {
-    background: none;
-    border: none;
-    border-bottom: 2px solid transparent;
-    margin-bottom: -1px;
-    padding: 10px 14px;
-    min-height: 44px;
-    font-family: 'Inter', sans-serif;
-    font-size: 14px;
-    font-weight: 500;
-    color: var(--text-dim);
-    cursor: pointer;
-}
-
-.sites-tab:hover { color: var(--text); }
-
-.sites-tab.is-active {
-    color: var(--text);
-    font-weight: 600;
-    border-bottom-color: var(--accent);
-    cursor: default;
-}
 
 /* ---- Section heading: a title and a quiet note on one baseline ---- */
 .status-section-head {

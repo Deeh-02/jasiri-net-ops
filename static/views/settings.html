@@ -1,11 +1,15 @@
     <section class="view" id="view-settings" hidden>
-        <h1 class="page-title">Settings</h1>
-        <p class="settings-subtitle">Manage your account settings and preferences.</p>
+        <div class="page-header-row">
+            <div>
+                <h1 class="page-title">Settings</h1>
+                <p class="page-subtitle">Manage your account settings and preferences.</p>
+            </div>
+        </div>
 
-        <div class="settings-tabs">
-            <button type="button" class="settings-tab active" data-settings-tab="profile">Profile</button>
-            <button type="button" class="settings-tab" data-settings-tab="password">Password</button>
-            <button type="button" class="settings-tab" data-settings-tab="notifications">Notifications</button>
+        <div class="settings-tabs tabs">
+            <button type="button" class="settings-tab tab active" data-settings-tab="profile">Profile</button>
+            <button type="button" class="settings-tab tab" data-settings-tab="password">Password</button>
+            <button type="button" class="settings-tab tab" data-settings-tab="notifications">Notifications</button>
         </div>
 
         <div class="settings-panel" id="settings-tab-profile">
@@ -74,7 +78,7 @@
         </div>
 
         <div class="settings-panel" id="settings-tab-notifications" hidden>
-            <p class="settings-subtitle">
+            <p class="settings-panel-intro">
                 How site down/back-online alerts reach you. You'll only ever
                 receive these if an admin has granted your role
                 "Receive Alerts" under Sites &mdash; these switches just pick

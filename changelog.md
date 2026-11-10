@@ -5,6 +5,57 @@ Phase-based, not version-based — this project ships in named phases (see
 concise, user-facing summary; full technical detail lives in the git log
 and in `phase.md`'s own per-phase writeups.
 
+## Phase 5 — UI Consistency (on `phase-5-ui-consistency`)
+
+Started 2026-11-09 at the owner's request, after Phase 4 was merged to `main`.
+Presentation only: no database, API or permission changes, no migration.
+- **One page structure:** every page, including Settings, Site detail and the
+  Add/Edit User, Role, Site and Customer forms, uses the same header (title,
+  optional subtitle, actions on the right). The top bar's edges now line up
+  with the page content at every screen width.
+- **Sidebar, sorted into sections:** Operations (Batteries, Sites,
+  Network), Technical Activity Log, Inventory, Reports, Alerts and System
+  (Users, Roles), each under a small title with a fold arrow (no divider
+  lines; a title turns white only while you're on one of its pages). Every page has its own icon and hangs off a thin guide
+  line; the section you're in has a white title and the current page's
+  part of the line is green. Sections stay open; one you
+  fold stays folded on that device until you open it or go to one of its
+  pages. Unread alerts show an amber count.
+- **One set of buttons, tabs and focus rings:** primary / secondary / danger
+  buttons look and behave the same on every page (hover, pressed, disabled);
+  all tabs are the same underline tabs (no more slanted ones); keyboard
+  focus shows the same green ring on every control.
+- **Confirmations:** every "are you sure?" is now an in-app dialog instead
+  of the browser's pop-up (Enter confirms, Escape cancels). Deletes show a
+  red button.
+- **Tables:** filters sit in one toolbar above the table (SMS Status,
+  Inventory Log, Customers); every main table shows the same loading,
+  "nothing here — try…" and error states.
+- **Forms:** an error message now stays until you change something (it used
+  to disappear after 3 seconds); while a form is saving its button shows a
+  spinner and can't be pressed twice.
+- **At a glance:** SMS Status (tap Failed to see only failures), Stock
+  (low on stock, tap to filter; total value), Movements (waiting / on the
+  way / arrived and needing a site check) and Customers show a short summary
+  before the table.
+- **Reduced motion:** with the phone or computer set to reduce motion,
+  nothing slides, fades or lifts.
+- **Softer tables (second pass):** every table sits in a rounded panel with
+  softer lines, a faint stripe on every other row and a clear hover; rows
+  have a little more room (the Inventory Log and SMS Status stay compact);
+  numbers line up on the right; dates and categories are quieter so names
+  stand out; the column a list is ordered by shows an arrow; Inventory Log
+  shows how many transactions the filters leave.
+- **Smoother loading:** tables show grey placeholder rows shaped like the
+  table while they first load (and the battery cards on the dashboard);
+  changing a filter keeps the old rows on screen, slightly dimmed, until the
+  new ones arrive instead of flashing; a new page opens at its top.
+- **Phones:** every table now keeps one line per row with its first column
+  pinned (Batteries, Reports and Alerts included); the pinned column shows a
+  shadow once you swipe sideways.
+- **Revenue and Network:** more space above each section; the dropdowns and
+  sort arrows match the rest of the app.
+
 ## Technical Activity Log (on `phase-4-network-monitoring`)
 
 Added at the owner's request (2026-11-06). Needs `migrations/0026_technical_activity_log.sql`

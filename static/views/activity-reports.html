@@ -21,19 +21,19 @@
 
         <p class="act-error" id="act-reports-error" role="alert" hidden></p>
 
-        <div class="table-scroll">
+        <div class="table-scroll table-compact">
             <table id="act-reports-table">
                 <thead>
                     <tr>
                         <th>Reference</th>
-                        <th>Date</th>
+                        <th aria-sort="descending">Date</th>
                         <th>Category and type</th>
                         <th>Area</th>
                         <th>Technicians</th>
                         <th>Outcome</th>
                     </tr>
                 </thead>
-                <tbody id="act-reports-rows"></tbody>
+                <tbody id="act-reports-rows" data-skeleton="6"></tbody>
             </table>
         </div>
         <div class="act-pager">

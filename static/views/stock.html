@@ -124,9 +124,9 @@
                 <h3>Item <span id="item-detail-label"></span></h3>
                 <button type="button" id="item-detail-close" class="dashboard-modal-close-btn">&times;</button>
             </div>
-            <div class="inventory-item-tab-row">
-                <button type="button" class="inventory-item-tab active" id="item-detail-tab-btn-details" data-tab="details">Details</button>
-                <button type="button" class="inventory-item-tab" id="item-detail-tab-btn-logs" data-tab="logs">Logs</button>
+            <div class="inventory-item-tab-row tabs">
+                <button type="button" class="inventory-item-tab tab active" id="item-detail-tab-btn-details" data-tab="details">Details</button>
+                <button type="button" class="inventory-item-tab tab" id="item-detail-tab-btn-logs" data-tab="logs">Logs</button>
             </div>
             <div class="dashboard-tab-panel" id="item-detail-tab-details">
                 <div id="item-detail-fields"></div>
@@ -182,10 +182,11 @@
                     <button type="button" id="export-stock-csv-btn" class="header-sub-link">Export CSV</button>
                 </div>
             </div>
+            <div class="summary-strip" id="stock-summary" aria-label="Stock at a glance"></div>
             <div class="table-scroll table-compact">
                 <table id="stock-table">
                     <thead id="stock-thead"></thead>
-                    <tbody id="stock-rows"></tbody>
+                    <tbody id="stock-rows" data-skeleton="8"></tbody>
                 </table>
             </div>
         </div>

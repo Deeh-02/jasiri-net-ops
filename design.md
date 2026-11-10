@@ -42,6 +42,97 @@ Three families, loaded once via a Google Fonts `@import` in `common.css`:
 
 ## Component style conventions
 
+### Phase 5 shared foundation (`common.css` top + `common.js` bottom)
+
+Use these before inventing a view-specific version; a view's CSS only adds
+what is truly its own.
+
+- **Tokens** on `:root`: `--radius-sm` 6px, `--radius` 10px, `--page-pad-x`
+  (40px desktop / 16px phone; `.content` and the top bar both use it),
+  `--form-max` 760px, `--section-gap`, `--ring` (soft focus ring),
+  `--scrollbar` 10px.
+- **Page header:** `.page-header-row` with `h1.page-title` on the left
+  (optionally wrapped with a `p.page-subtitle` under it) and the actions on
+  the right (`.page-header-actions` for several). Every page uses it,
+  including form pages (Add User, Add Role …), Settings and Site detail. A
+  back link sits above it as `.header-sub-link.page-back`. Section titles
+  inside a page: `.section-title`.
+- **Buttons:** `.btn-primary` (the page's main action), `.btn-secondary`,
+  `.btn-danger` (deletes, irreversible), `.btn-ghost`. Usable anywhere, not
+  only inside `.modal-actions`; same hover, pressed (`scale(0.97)`), focus
+  and disabled (`opacity .45`, `not-allowed`) behaviour everywhere.
+  `.btn-add-site` remains as the older name for a primary header button.
+- **Focus:** every control shows `outline: 2px solid var(--accent)` on
+  `:focus-visible`; text fields keep the accent border and add `--ring`
+  (a box-shadow, so a view's `outline: none` can't remove it). Mouse focus
+  on a button shows nothing.
+- **Motion:** `prefers-reduced-motion: reduce` turns every animation and
+  transition into an instant change and removes lifts/scales. Keep new
+  motion subtle (≤ 0.3s, opacity/transform only).
+- **Filters above a table:** `.toolbar` (wraps, sits directly above the
+  table or its summary) with `.toolbar-field` (small mono uppercase label
+  span + control) and `.control` for inputs/selects (drawn chevron,
+  dark date picker). Never put filters inside the page header.
+- **Summary before a long table:** `.summary-strip` of `.summary-item`s
+  (`<strong>` number + label; `.good`/`.warn`/`.bad` tone the number). A
+  `button.summary-item` with `aria-pressed` acts as a quick filter (SMS
+  Status by status, Stock's "low on stock"). Put the thing someone must act
+  on first.
+- **Loading / empty / error:** `stateHtml(kind, text, title)` and, inside a
+  `<tbody>`, `stateRow(colspan, kind, text, title)` or
+  `showEmptyIfNone(tbody, count, text, title)` (works out the colspan).
+  Empty states say what to do next ("Try a wider date range…").
+- **Confirmations:** `await confirmDialog({ title, message, confirmLabel,
+  danger })`, never `confirm()`. Enter confirms, Escape/outside click
+  cancels, focus returns to the button that opened it. `danger: true` for
+  anything that deletes or can't be undone.
+- **Form feedback:** `showMessage(id, text, isError)` on a `.form-msg`.
+  Success fades after 4s; an error is a tinted box that stays until the
+  person edits that form. While the request a submit starts is in flight,
+  its submit button is disabled with a spinner (`aria-busy`) — automatic,
+  see ARCHITECTURE.md; a form that disables its own button is left alone.
+- **Tables (visual pass):** a table inside `.table-scroll` sits in one
+  rounded panel (the wrapper has the surface, border and radius; the table
+  drops its own frame). Dividers are soft (`--rule-soft`), even rows get a
+  faint tint (`--row-alt`) and hover a clear one (`--row-hover`); both are
+  opaque so the phone's pinned first column covers what slides under it.
+  Rows have 14px vertical padding; logs use `.table-dense` (Inventory Log,
+  SMS Status). Numbers: `th.num`/`td.num` (right-aligned, tabular figures —
+  every table uses tabular figures). Quieter secondary cells: `td.muted`
+  (dates, categories, ids) or a `.cell-sub` line under a name. The column a
+  table is ordered by carries `aria-sort` and shows an accent ↓/↑. A
+  toolbar can end with `.toolbar-count` ("45 transactions").
+- **Every table is compact on phones** (`.table-compact` on every
+  `.table-scroll`): one line per row, the page scrolls, the first column is
+  pinned and casts a soft shadow once swiped (`.is-scrolled-x`).
+- **Loading without flashing:** a main table's `<tbody data-skeleton="N">`
+  shows N-column skeleton rows on first visit; `stateRow(n, "loading")`
+  draws skeletons too; `skeletonCards(n)` for a stat grid. Reloading a table
+  that already shows data: `markRefreshing(tbody, n)` keeps it on screen,
+  slightly dimmed, until the new rows replace it. Live refreshes redraw only
+  what changed. Going to another page starts at its top; staying on a page
+  (a filter in the URL) doesn't replay its entrance.
+- **Motion:** menus, pop-overs, dialogs and form messages appear with a
+  ~150ms fade and 4px drop; buttons, summary filters and cards have a
+  pressed state. Nothing moves that isn't changing; reduced motion turns
+  all of it off.
+- **Sidebar (sectioned, 2026-11-09):** six titled sections — Operations
+  (Batteries, Sites, Network), Technical Activity Log, Inventory, Reports,
+  Alerts, System (Users, Roles). Section titles are 11px (12px in the
+  phone drawer) uppercase JetBrains Mono, grey, with a fold chevron; space,
+  not a divider line, separates sections. A title turns white only while
+  one of its pages is open — hover just lifts the grey slightly (never on
+  touch screens, where hover sticks after a tap). Every page is its own row: a 16px outline icon and a title-case
+  JetBrains Mono 13px label, hanging off a thin guide line down the left
+  of the section. The current page carries the accent tint and its stretch
+  of the guide line turns green; its section's title turns white
+  (`.nav-section-title.current`). Sections start open; folding one is remembered per browser
+  (`localStorage.navCollapsedGroups`) and landing on a page inside a folded
+  section opens it. Short labels in the sidebar (Overview, Submit Report,
+  Activity Types, Inventory Report); the full names stay in `data-label` for
+  the command palette. Unread alerts use an amber count bubble.
+
+
 - **Buttons:** 6px border radius everywhere. Primary = solid `--accent`
   fill with dark text (`#10141a`); secondary = `--surface-2` fill with a
   `--border` outline. Hover = opacity 0.9; active = `scale(0.97)`. No
@@ -87,15 +178,15 @@ Three families, loaded once via a Google Fonts `@import` in `common.css`:
 - **Toggle switches** (`.perm-toggle`, role permission grid): custom
   checkbox-driven pill toggle, not a native checkbox — accent-colored track
   when checked, sliding thumb.
-- **Tab groups** (`.dashboard-tab-slant`, Settings' `.settings-tab`):
-  slanted parallelogram tabs (`clip-path`), uppercase Space Grotesk,
-  `--surface-2` background with dim text at rest, active tab drops to
-  `--surface` background with `--accent` text — not a filled pill, not an
-  underline. Used by the View Battery modal's Details/Logs tabs and (Phase
-  2) Settings' Profile/Password tabs; kept as two independently-styled
-  classes rather than one shared one, on purpose — each file's own click
-  handler wires its own tabs by bare class name, so sharing one class would
-  mean each handler also firing on the other's buttons.
+- **Tab groups** (Phase 5): one look everywhere, the shared `.tabs`
+  container + `.tab` buttons in `common.css` — an underline under the
+  current tab (`.active`, `.is-active` or `aria-selected="true"`), Inter
+  text, no fill. The slanted parallelogram tabs are gone. Each view keeps
+  its own class (`.settings-tab`, `.dashboard-tab-slant`,
+  `.inventory-item-tab`, `.sites-tab`) purely as its JS hook, so no click
+  handler fires on another view's tabs; the look comes only from `.tab`.
+  Day/Week/Month period switches (`.sr-range`, `.fleet-range`) are a
+  different control (a segmented switch) and keep their own look.
 - **Inline text-input autocomplete** (`.move-by-field`/`.move-by-suggestions`/
   `.move-by-option`, the "Moved by" field): a positioned dropdown anchored
   to a text input, filtered live as you type, scrollable past a handful of

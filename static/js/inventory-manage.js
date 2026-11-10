@@ -1,6 +1,6 @@
 import {
     can, authHeaders, showMessage, editIconSvg, deleteIconSvg,
-    registerAppShownHandler, showView, registerRoute,
+    registerAppShownHandler, showView, registerRoute, confirmDialog, showEmptyIfNone
 } from "./common.js";
 import {
     trackingTypeLabel, loadInventoryCategories, getInventoryCategories,
@@ -27,6 +27,7 @@ function renderCategoryList(categories) {
 
     const hasActions = can("inventory_categories", "edit") || can("inventory_categories", "delete");
 
+    if (showEmptyIfNone(tbody, categories.length, "Add a category to start tracking stock.", "No categories yet")) return;
     tbody.innerHTML = categories.map(cat => `
         <tr>
             <td>${cat.name}</td>
@@ -56,7 +57,7 @@ function renderCategoryList(categories) {
 }
 
 async function deleteCategory(id, name) {
-    if (!confirm(`Delete category "${name}"? This can't be undone.`)) return;
+    if (!(await confirmDialog({ title: `Delete category "${name}"?`, message: "This can't be undone.", confirmLabel: "Delete", danger: true }))) return;
 
     const response = await fetch(`/inventory/categories/${id}`, { method: "DELETE", headers: authHeaders() });
     if (response.ok) {
