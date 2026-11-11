@@ -140,6 +140,14 @@
 
 /* ---- Actions (6C) ---- */
 .olt-actions-start { justify-content: flex-start; }
+.olt-h3 { font-size: 13px; font-weight: 600; color: var(--text-dim); margin: 14px 0 8px; }
+.olt-config-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 14px; }
+.olt-config-fields .olt-auth-wide { grid-column: 1 / -1; }
+.olt-config-preview { margin: 0; font-size: 14px; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--surface-2, var(--surface)); border: 1px solid var(--border); }
+.olt-config-preview:empty, .olt-config-warn:empty { display: none; }
+.olt-config-warn { margin: 0; font-size: 13px; color: var(--warn); }
+.olt-flag { color: var(--warn); font-weight: 600; }
+@media (max-width: 600px) { .olt-config-fields { grid-template-columns: 1fr; } }
 .olt-action-status { margin-top: 12px; font-size: 13.5px; padding: 10px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); color: var(--text); }
 .olt-action-status.good { border-color: var(--accent); color: var(--accent); }
 .olt-action-status.bad { border-color: var(--danger); color: var(--danger); }

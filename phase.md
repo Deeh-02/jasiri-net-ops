@@ -257,6 +257,30 @@ resync config; delete an ONU (typed serial confirmation, only once unlinked);
 bulk changes last. CATV and VoIP not planned. Paths and parameters from the
 OpenAPI file first; async changes count as done only on `succeeded`.
 
+- **Built 2026-11-11 at the owner's call** ("finish phase 6D"), ahead of the
+  gate, like Authorize. Owner's decisions the same day:
+  - **Speed: by hand per ONU, no package mapping.** The sample showed all
+    61 ONUs at 1G/1G in SmartOLT; the router's PPPoE plan sets the real
+    speed, so a package→profile table would only add a second, riskier
+    limit. Admin picks upload/download from SmartOLT's internet profiles.
+  - **Actions:** Resync config, Speed, Ethernet port (LAN / Access on an
+    attached VLAN / shut down), ONU mode (Routing / Bridging), WAN mode
+    (PPPoE / DHCP / Setup via ONU webpage), Delete (typed serial; refused
+    while linked to a customer or site).
+  - **On from day one**, admin only. Switches SMARTOLT_ACTION_RESYNC /
+    _SPEED / _PORTS / _MODE / _DELETE, plus SMARTOLT_WRITES_ENABLED.
+- Every change: live read first, checked against the ONU (port, attached
+  VLAN, profile names), before → after preview, confirm with customer and
+  serial, audit row in `onu_actions` (no schema change), one synchronous
+  call, read back from SmartOLT, `succeeded` / `mismatch` / `failed`. The
+  PPPoE password is sent to SmartOLT only, never stored or logged.
+- Tested end to end against a local fake SmartOLT (every change, including
+  delete); not yet on a real ONU. First real use should be on a
+  non-customer ONU: Resync on one of the two ONUs SmartOLT flags as
+  "resync failed" is the lowest-risk start.
+- Not built: bulk changes (scope said "bulk changes last"), static-IP WAN,
+  Wi-Fi settings, restore factory defaults, CATV/VoIP.
+
 **Safety rules for every write (6C and 6D):**
 1. Kill switch `SMARTOLT_WRITES_ENABLED`: false refuses every write; reads keep working.
 2. One feature flag per action, switched on only after it's been tested.
@@ -276,9 +300,9 @@ OpenAPI file first; async changes count as done only on `succeeded`.
 - [ ] In 6C, may technicians reboot an ONU, or only admins? (Admins only for now.)
 - [x] Is OPS reachable over HTTPS? Yes (Render), so webhooks are in scope as 6A-W.
 - [ ] Chained ONTs: this phase, or the separate TR-069 investigation?
-- [ ] For 6D: which speed profile matches each billing package?
-- [ ] For 6D: a spare ONU and OLT port to test writes on?
-- [ ] For 6D: authorize, delete and speed changes admin only, or a technician role too?
+- [x] For 6D: which speed profile matches each billing package? None: speed is set by hand per ONU (owner, 2026-11-11), the router's plan does the real limiting.
+- [ ] For 6D: a spare ONU and OLT port to test writes on? (Owner chose on from day one; first tries on a non-customer ONU.)
+- [x] For 6D: authorize, delete and speed changes admin only, or a technician role too? Admin only.
 
 ### Done when
 

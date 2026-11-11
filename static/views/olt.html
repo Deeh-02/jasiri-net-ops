@@ -212,11 +212,14 @@
                         <tbody id="olt-onu-history"></tbody>
                     </table>
                 </div>
-                <!-- 6C: reboot, disable, enable. Admin only, one at a time,
-                     each confirmed with the customer, the serial and the action. -->
+                <!-- 6C: reboot, disable, enable. 6D: resync, speed, port, ONU and
+                     WAN mode, delete. Admin only, one at a time, each confirmed
+                     with the customer, the serial and the before and after. -->
                 <div id="olt-onu-actions" hidden>
                     <h2 class="olt-h2">Actions</h2>
                     <div class="olt-actions olt-actions-start" id="olt-action-buttons"></div>
+                    <h3 class="olt-h3">Configuration</h3>
+                    <div class="olt-actions olt-actions-start" id="olt-config-buttons"></div>
                     <div class="olt-action-status" id="olt-action-status" role="status" hidden></div>
                 </div>
                 <h2 class="olt-h2">Actions on this ONU from OPS</h2>
@@ -226,7 +229,7 @@
                         <tbody id="olt-onu-action-log"></tbody>
                     </table>
                 </div>
-                <p class="olt-hint">Resync config, restore defaults and delete aren't in OPS; use SmartOLT for those.</p>
+                <p class="olt-hint">Restore factory defaults and Wi-Fi settings aren't in OPS; use SmartOLT for those.</p>
             </div>
         </div>
     </section>
@@ -263,6 +266,26 @@
                 <div class="modal-actions olt-auth-wide">
                     <button type="button" class="btn-secondary" id="olt-auth-cancel">Cancel</button>
                     <button type="submit" class="btn-primary" id="olt-auth-submit">Review and authorize</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 6D: one configuration change on one ONU (admin). The fields depend on
+         the change; the preview shows before → after, and Apply asks once
+         more with the customer and serial. -->
+    <div class="modal-overlay" id="olt-config-overlay" hidden>
+        <div class="modal-box olt-auth-box" role="dialog" aria-modal="true" aria-labelledby="olt-config-title">
+            <h3 id="olt-config-title">Change</h3>
+            <p class="olt-auth-where" id="olt-config-where"></p>
+            <form id="olt-config-form" class="panel-form olt-auth-form" novalidate autocomplete="off">
+                <div class="olt-config-fields olt-auth-wide" id="olt-config-fields"></div>
+                <p class="olt-config-preview olt-auth-wide" id="olt-config-preview"></p>
+                <p class="olt-config-warn olt-auth-wide" id="olt-config-warn"></p>
+                <div class="olt-auth-msg" id="olt-config-msg" role="alert" hidden></div>
+                <div class="modal-actions olt-auth-wide">
+                    <button type="button" class="btn-secondary" id="olt-config-cancel">Cancel</button>
+                    <button type="submit" class="btn-primary" id="olt-config-submit">Apply</button>
                 </div>
             </form>
         </div>

@@ -469,6 +469,7 @@ function renderOnu(o) {
         fact("VoIP service", o.voip_service),
         fact("CATV", o.catv),
         fact("Admin state", o.administrative_status),
+        fact("Config resync", o.resync_failed ? el("span", "olt-flag", "▲ Last resync failed") : "OK"),
     );
     $("olt-onu-speeds").innerHTML = "";
     const sp = o.service_ports || [];
@@ -953,6 +954,12 @@ function renderActionButtons(o) {
         if (!o.actions?.[a]) { b.disabled = true; b.title = "Switched off on this server"; }
         return b;
     }));
+    $("olt-config-buttons").replaceChildren(...Object.entries(CONFIG_TEXT).map(([k, t]) => {
+        const b = button(t.button, t.danger ? "btn-danger" : "btn-secondary", { onuConfig: k });
+        if (!o.actions?.[k]) { b.disabled = true; b.title = "Switched off on this server"; }
+        else if (k === "delete" && linkedTo(o)) { b.disabled = true; b.title = "Linked to a customer or site: unlink it on OLT → Links first"; }
+        return b;
+    }));
 }
 
 function actionStatus(text, tone = "") {
@@ -1008,12 +1015,302 @@ async function loadOnuActions(id) {
             const result = [el("span", `olt-badge ${cls}`, label)];
             if (a.response) result.push(el("div", "olt-dim", a.response));
             const tr = el("tr");
-            tr.append(cell("When", when(a.at), "olt-nowrap"), cell("Action", (ACTION_TEXT[a.action]?.verb) || a.action),
+            const what = [el("div", null, ACTION_TEXT[a.action]?.verb || CONFIG_TEXT[a.action]?.verb || a.action)];
+            if (a.summary && CONFIG_TEXT[a.action]) what.push(el("div", "olt-dim", a.summary));
+            tr.append(cell("When", when(a.at), "olt-nowrap"), cell("Action", what),
                       cell("By", a.by || "—"), cell("Result", result));
             return tr;
         }));
     } catch (e) {
         body.innerHTML = stateRow(4, "error", e.message);
+    }
+}
+
+// ---- Configuration changes on one ONU (6D) ----
+
+const CONFIG_TEXT = {
+    resync: { button: "Resync config", verb: "Resync config", title: "Resync config",
+              warn: "SmartOLT sends its saved configuration to the ONU again. Service may drop for a moment." },
+    speed: { button: "Speed…", verb: "Speed profiles", title: "Change speed profiles",
+             warn: "The ONU's ceiling changes at the OLT. The router's PPPoE plan still applies on top: a profile below the plan slows the customer down." },
+    port: { button: "Ethernet port…", verb: "Ethernet port", title: "Ethernet port mode",
+            warn: "Whatever is plugged into this port loses its connection if the mode or VLAN is wrong." },
+    onu_mode: { button: "ONU mode…", verb: "ONU mode", title: "ONU mode",
+                warn: "Routing ↔ Bridging changes who dials PPPoE. The customer is offline until the router behind it matches." },
+    wan_mode: { button: "WAN mode…", verb: "WAN mode", title: "WAN mode",
+                warn: "A wrong WAN setting takes the customer offline until it's put back." },
+    delete: { button: "Delete ONU…", verb: "Delete ONU", title: "Delete ONU", danger: true,
+              warn: "SmartOLT removes the ONU and all its configuration. While plugged in it shows under Unconfigured; authorizing it again starts from scratch." },
+};
+const WAN_LABEL = { pppoe: "PPPoE", dhcp: "DHCP", webpage: "Setup via ONU webpage" };
+const PORT_LABEL = { lan: "LAN", access: "Access", shutdown: "Shut down" };
+const DHCP_CHOICES = ["No control", "From ISP", "From ONU", "Forbidden"];
+
+const cfg = { kind: null, busy: false, speed: null };
+
+function linkedTo(o) {
+    return !!(o.customer && !o.customer.not_a_customer);
+}
+
+function field(label, control, wide = false) {
+    const l = el("label", wide ? "olt-auth-wide" : null);
+    l.append(document.createTextNode(label), control);
+    return l;
+}
+
+function selectOf(id, pairs, value) {
+    const s = el("select");
+    s.id = id;
+    s.replaceChildren(...pairs.map(([v, label]) => option(v, label)));
+    if (value != null) s.value = value;
+    return s;
+}
+
+function inputOf(id, type, value = "", attrs = {}) {
+    const i = el("input");
+    Object.assign(i, { id, type, value, autocomplete: "off", spellcheck: false, ...attrs });
+    return i;
+}
+
+const val = id => ($(id)?.value ?? "").trim();
+
+function configMessage(text, tone = "error") {
+    const box = $("olt-config-msg");
+    box.hidden = !text;
+    box.className = `olt-auth-msg ${tone === "error" ? "" : tone}`;
+    box.textContent = text || "";
+}
+
+function portText(p) {
+    if (!p) return "?";
+    return `${p.mode || "?"}${p.mode === "Access" && p.vlan ? ` ${p.vlan}` : ""}${p.admin_state === "Disabled" ? " (shut down)" : ""}`;
+}
+
+// What will be sent, and the before → after line. null = not ready yet.
+function configRequest() {
+    const o = state.onu;
+    switch (cfg.kind) {
+    case "speed": {
+        const up = val("cfg-up"), down = val("cfg-down"), cur = cfg.speed?.current || {};
+        const body = { change: "speed" };
+        const parts = [];
+        if (down && down !== cur.download) { body.download = down; parts.push(`Download ${cur.download || "?"} → ${down}`); }
+        if (up && up !== cur.upload) { body.upload = up; parts.push(`Upload ${cur.upload || "?"} → ${up}`); }
+        return parts.length ? { body, preview: parts.join(" · ") } : { body: null, preview: "No change yet." };
+    }
+    case "port": {
+        const name = val("cfg-port"), mode = val("cfg-mode"), p = (o.ethernet_ports || []).find(x => x.port === name);
+        const vlanBox = $("cfg-vlan-wrap"), dhcpBox = $("cfg-dhcp-wrap");
+        if (vlanBox) vlanBox.hidden = mode !== "access";
+        if (dhcpBox) dhcpBox.hidden = mode === "shutdown";
+        const body = { change: "port", port: name, mode };
+        if (mode === "access") {
+            if (!val("cfg-vlan")) return { body: null, preview: "Pick a VLAN." };
+            body.vlan = Number(val("cfg-vlan"));
+        }
+        if (mode !== "shutdown" && val("cfg-dhcp")) body.dhcp = val("cfg-dhcp");
+        if (p && !body.dhcp && (mode === "shutdown" ? p.admin_state === "Disabled"
+            : p.admin_state !== "Disabled" && p.mode === (mode === "lan" ? "LAN" : "Access") && (mode === "lan" || String(p.vlan) === String(body.vlan)))) {
+            return { body: null, preview: `${name} is already ${portText(p)}.` };
+        }
+        const to = mode === "access" ? `Access ${body.vlan}` : PORT_LABEL[mode];
+        return { body, preview: `${name}: ${portText(p)} → ${to}${body.dhcp ? `, DHCP ${body.dhcp}` : ""}` };
+    }
+    case "onu_mode": {
+        const mode = val("cfg-onu-mode");
+        return mode === o.mode ? { body: null, preview: `Already ${mode}.` }
+            : { body: { change: "onu_mode", onu_mode: mode }, preview: `ONU mode ${o.mode || "?"} → ${mode}` };
+    }
+    case "wan_mode": {
+        const mode = val("cfg-wan"), body = { change: "wan_mode", wan_mode: mode };
+        $("cfg-pppoe").hidden = mode !== "pppoe";
+        if (val("cfg-method")) body.configuration_method = val("cfg-method");
+        let extra = "";
+        if (mode === "pppoe") {
+            body.username = val("cfg-user");
+            body.password = $("cfg-pass").value;
+            if (!body.username || !body.password) return { body: null, preview: "Fill in the PPPoE username and password." };
+            extra = `, username ${body.username}`;
+        }
+        return { body, preview: `WAN mode ${o.wan_mode || "?"} → ${WAN_LABEL[mode]}${extra}` };
+    }
+    case "delete": {
+        if (linkedTo(o)) return { body: null, preview: "Linked to a customer or hotspot site: unlink it on OLT → Links first." };
+        const typed = val("cfg-sn").toUpperCase();
+        return typed === (o.sn || "").toUpperCase()
+            ? { body: { change: "delete", confirm_sn: typed }, preview: `Delete ONU ${o.sn} (${o.name || "no name"}) from SmartOLT.` }
+            : { body: null, preview: `Type ${o.sn} to confirm.` };
+    }
+    }
+    return { body: null, preview: "" };
+}
+
+function refreshConfig() {
+    const { body, preview } = configRequest();
+    $("olt-config-preview").textContent = preview;
+    $("olt-config-submit").disabled = !body || cfg.busy;
+}
+
+async function openConfig(kind) {
+    const o = state.onu;
+    if (!o) return;
+    if (kind === "resync") return runResync();
+    cfg.kind = kind;
+    const t = CONFIG_TEXT[kind];
+    configMessage("");
+    $("olt-config-title").textContent = t.title;
+    $("olt-config-where").textContent = `${whoIsOn(o)} · ${o.name || "—"} · ${o.sn || o.id}`;
+    $("olt-config-warn").textContent = t.warn;
+    $("olt-config-submit").textContent = kind === "delete" ? "Delete" : "Apply";
+    $("olt-config-submit").className = kind === "delete" ? "btn-danger" : "btn-primary";
+    $("olt-config-cancel").textContent = "Cancel";
+    const box = $("olt-config-fields");
+    box.replaceChildren();
+    $("olt-config-overlay").hidden = false;
+
+    if (kind === "speed") {
+        box.append(el("p", "olt-dim olt-auth-wide", "Loading SmartOLT's speed profiles…"));
+        refreshConfig();
+        try {
+            cfg.speed = await api(`/olt/onus/${encodeURIComponent(o.id)}/speed`);
+        } catch (e) {
+            box.replaceChildren();
+            configMessage(`Couldn't load speed profiles: ${e.message}`);
+            return;
+        }
+        if (cfg.kind !== "speed") return;
+        const { current, choices } = cfg.speed;
+        const pairs = list => list.map(n => [n, n]);
+        box.replaceChildren(
+            field(`Download (now ${current.download || "?"})`, selectOf("cfg-down", pairs(choices.download), current.download)),
+            field(`Upload (now ${current.upload || "?"})`, selectOf("cfg-up", pairs(choices.upload), current.upload)),
+        );
+    } else if (kind === "port") {
+        const ports = o.ethernet_ports || [];
+        const vlans = o.attached_vlans || [];
+        const vlanWrap = field("VLAN (attached to this ONU)", selectOf("cfg-vlan", [["", "Choose…"], ...vlans.map(v => [String(v), String(v)])]));
+        vlanWrap.id = "cfg-vlan-wrap";
+        const dhcpWrap = field("DHCP", selectOf("cfg-dhcp", [["", "Leave as is"], ...DHCP_CHOICES.map(d => [d, d])]));
+        dhcpWrap.id = "cfg-dhcp-wrap";
+        box.append(
+            field("Port", selectOf("cfg-port", ports.map(p => [p.port, `${p.port} - now ${portText(p)}`]))),
+            field("Mode", selectOf("cfg-mode", Object.entries(PORT_LABEL))),
+            vlanWrap, dhcpWrap,
+        );
+        const syncPort = () => {
+            const p = ports.find(x => x.port === val("cfg-port"));
+            if (!p) return;
+            $("cfg-mode").value = p.admin_state === "Disabled" ? "shutdown" : p.mode === "Access" ? "access" : "lan";
+            if (p.vlan && vlans.map(String).includes(p.vlan)) $("cfg-vlan").value = p.vlan;
+        };
+        $("cfg-port").addEventListener("change", () => { syncPort(); refreshConfig(); });
+        syncPort();
+    } else if (kind === "onu_mode") {
+        box.append(field(`ONU mode (now ${o.mode || "?"})`, selectOf("cfg-onu-mode", [["Routing", "Routing"], ["Bridging", "Bridging"]],
+                                                                      o.mode === "Routing" ? "Bridging" : "Routing")));
+    } else if (kind === "wan_mode") {
+        const now = Object.entries(WAN_LABEL).find(([, l]) => l === o.wan_mode)?.[0];
+        const pppoe = el("div", "olt-config-fields olt-auth-wide");
+        pppoe.id = "cfg-pppoe";
+        const user = o.pppoe_username || (o.customer && !o.customer.site && !o.customer.not_a_customer ? o.customer.username : "") || "";
+        pppoe.append(
+            field("PPPoE username", inputOf("cfg-user", "text", user, { maxLength: 64 })),
+            field("PPPoE password (sent to SmartOLT, never kept in OPS)", inputOf("cfg-pass", "password", "", { maxLength: 64, autocomplete: "new-password" })),
+        );
+        box.append(
+            field(`WAN mode (now ${o.wan_mode || "?"})`, selectOf("cfg-wan", Object.entries(WAN_LABEL), now || "pppoe")),
+            field("Configuration method", selectOf("cfg-method", [["", "SmartOLT's default"], ["OMCI", "OMCI"], ["TR069", "TR069"]])),
+            pppoe,
+        );
+    } else if (kind === "delete") {
+        box.append(field(`Type the serial (${o.sn}) to confirm`, inputOf("cfg-sn", "text", "", { maxLength: 64 }), true));
+    }
+    refreshConfig();
+    box.querySelector("select, input")?.focus();
+}
+
+function closeConfig() {
+    if (cfg.busy) return;
+    $("olt-config-overlay").hidden = true;
+    const pass = $("cfg-pass");
+    if (pass) pass.value = "";
+    cfg.kind = null;
+    cfg.speed = null;
+}
+
+async function sendConfig(body) {
+    const o = state.onu;
+    return api(`/olt/onus/${encodeURIComponent(o.id)}/config`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+}
+
+function showResult(kind, row) {
+    const [label] = RESULT[row.result] || [row.result, ""];
+    actionStatus(`${CONFIG_TEXT[kind].verb} - ${label}: ${row.response || ""}`, row.result === "succeeded" ? "good" : "bad");
+}
+
+async function afterConfig(kind, row, id) {
+    if (kind === "delete" && row.result === "succeeded") {
+        state.list = null;
+        setTimeout(() => navigate("olt"), 2500);
+        return;
+    }
+    loadOnuActions(id);
+    setTimeout(() => { if (state.onuId === id) openOnu(id, { keepStatus: true }); }, 1200);
+}
+
+async function submitConfig(e) {
+    e.preventDefault();
+    const o = state.onu, kind = cfg.kind;
+    const { body, preview } = configRequest();
+    if (!o || !body || cfg.busy) return;
+    const t = CONFIG_TEXT[kind];
+    const ok = await confirmDialog({
+        title: `${t.title}?`,
+        message: `${whoIsOn(o)}\nONU: ${o.name || "—"}\nSerial: ${o.sn || o.id}\n\n${preview}\n\n${t.warn}`,
+        confirmLabel: kind === "delete" ? "Delete" : "Apply",
+        danger: kind === "delete" || kind === "wan_mode" || kind === "onu_mode",
+    });
+    if (!ok) return;
+    cfg.busy = true;
+    $("olt-config-submit").disabled = true;
+    $("olt-config-cancel").disabled = true;
+    configMessage("Sending to SmartOLT… the OLT can take up to a minute.", "warn");
+    try {
+        const row = await sendConfig(body);
+        cfg.busy = false;
+        $("olt-config-cancel").disabled = false;
+        closeConfig();
+        showResult(kind, row);
+        afterConfig(kind, row, o.id);
+    } catch (err) {
+        cfg.busy = false;
+        $("olt-config-cancel").disabled = false;
+        configMessage(`Not done: ${err.message}`);
+        refreshConfig();
+        loadOnuActions(o.id);
+    }
+}
+
+async function runResync() {
+    const o = state.onu;
+    const t = CONFIG_TEXT.resync;
+    const ok = await confirmDialog({
+        title: "Resync this ONU's config?",
+        message: `${whoIsOn(o)}\nONU: ${o.name || "—"}\nSerial: ${o.sn || o.id}\n\n${o.resync_failed ? "SmartOLT says its last resync failed.\n\n" : ""}${t.warn}`,
+        confirmLabel: "Resync",
+    });
+    if (!ok) return;
+    document.querySelectorAll("#olt-config-buttons button, #olt-action-buttons button").forEach(b => { b.disabled = true; });
+    actionStatus("Resyncing… the OLT can take up to a minute.");
+    try {
+        const row = await sendConfig({ change: "resync" });
+        showResult("resync", row);
+        afterConfig("resync", row, o.id);
+    } catch (err) {
+        actionStatus(`Not done: ${err.message}`, "bad");
+        renderActionButtons(o);
+        loadOnuActions(o.id);
     }
 }
 
@@ -1148,6 +1445,14 @@ export function initOlt() {
         const b = e.target.closest("button[data-onu-action]");
         if (b && !b.disabled) runAction(b.dataset.onuAction);
     });
+    $("olt-config-buttons").addEventListener("click", e => {
+        const b = e.target.closest("button[data-onu-config]");
+        if (b && !b.disabled) openConfig(b.dataset.onuConfig);
+    });
+    $("olt-config-form").addEventListener("input", refreshConfig);
+    $("olt-config-form").addEventListener("change", refreshConfig);
+    $("olt-config-form").addEventListener("submit", submitConfig);
+    $("olt-config-cancel").addEventListener("click", closeConfig);
     $("olt-graph-range").addEventListener("click", e => {
         const b = e.target.closest("button[data-period]");
         if (!b || !state.onuId) return;
@@ -1173,6 +1478,7 @@ export function initOlt() {
         // The confirm dialog handles its own Escape first (capture phase).
         if (e.key === "Escape" && !$("olt-auth-overlay").hidden) closeAuthorize();
         if (e.key === "Escape" && !$("olt-link-overlay").hidden) closeLinkPicker();
+        if (e.key === "Escape" && !$("olt-config-overlay").hidden) closeConfig();
     });
 
     registerRoute("olt", (params) => {

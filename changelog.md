@@ -33,6 +33,27 @@ Started 2026-11-10 at the owner's request, after Phase 5 was merged to `main`.
   Status by customer, hotspot site or PON port. Needs migration
   `0036_onu_alert_deliveries.sql`.
 
+### 6D: Change an ONU's configuration from OPS (2026-11-11)
+- On an ONU's **View** page, admins get a **Configuration** row:
+  **Resync config**, **Speed…**, **Ethernet port…**, **ONU mode…**,
+  **WAN mode…** and **Delete ONU…**.
+- Each shows what changes before you apply it (for example
+  "eth_0/1: LAN → Access 51"), asks once more naming the customer and
+  serial, then checks SmartOLT really made the change before saying
+  **Done** (otherwise **Check** or **Failed**). Every change is listed on
+  the ONU's page with who did it.
+- **Speed** is picked by hand from SmartOLT's own profiles. Every ONU is at
+  1G today and the router's PPPoE plan sets the customer's real speed, so
+  OPS doesn't tie speed profiles to packages.
+- **WAN mode PPPoE** needs the customer's PPPoE password; it goes to
+  SmartOLT only and is never kept in OPS.
+- **Delete** only works on an ONU that isn't linked to a customer or site,
+  and you type its serial to confirm. It then shows under Unconfigured.
+- The ONU page flags **Last resync failed** when SmartOLT says so.
+- Each change can be switched off on its own (`SMARTOLT_ACTION_RESYNC`,
+  `_SPEED`, `_PORTS`, `_MODE`, `_DELETE`); all writes stop with
+  `SMARTOLT_WRITES_ENABLED=false`. No database change.
+
 ### 6C: Reboot, Disable and Enable an ONU (2026-11-11)
 - On an ONU's **View** page, admins get **Reboot** and **Disable ONU** (or
   **Enable ONU** when it's disabled). Each asks first, naming the customer

@@ -2045,6 +2045,23 @@ shape isn't in the docs. One action per ONU at a time (in-process set). A
 lost to a restart. The page polls `GET /olt/actions/{id}` every 3 s while
 it waits.
 
+**Configuration changes (6D)** are `db/onu_config.py`, behind
+`POST /olt/onus/{id}/config` (admin only; `GET /olt/onus/{id}/speed` feeds
+the speed dialog). Resync config, speed profiles, Ethernet port mode (LAN /
+Access on an attached VLAN / shut down), ONU mode, WAN mode (PPPoE / DHCP /
+Setup via ONU webpage) and delete. `change()` reads the ONU live, checks the
+request fits it (`plan()`: the port exists, the VLAN is attached, the speed
+profile is in SmartOLT's list, delete needs the typed serial and no customer
+or site link), writes a `pending` row to `onu_actions` with a one-line
+`summary` and the before state, sends one synchronous call (90 s timeout),
+then reads back (`check()`) and records `succeeded`, `mismatch` or `failed`.
+A deleted ONU counts as gone when SmartOLT answers "No ONU was found"; OPS
+then drops its `onu_state` row and any "not a customer" mark. A PPPoE
+password typed for a WAN change is sent to SmartOLT only: `plan()` keeps it
+out of the audit request and its errors never quote it. Shares 6C's
+one-action-per-ONU lock. Switches: `SMARTOLT_ACTION_RESYNC`, `_SPEED`,
+`_PORTS`, `_MODE`, `_DELETE`, all on by default.
+
 **LOS alerts** (`db/onu_alerts.py`, table `onu_alerts`, 0035) run from
 `tick()`: at most once a minute off the router heartbeat and the OLT page,
 and at once after a status poll or a status webhook — no scheduler, a

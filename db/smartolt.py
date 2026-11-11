@@ -524,6 +524,7 @@ def shape_details(d):
         "mgmt_ip_mode": parse_text(d.get("mgmt_ip_mode")), "mgmt_ip_address": parse_text(d.get("mgmt_ip_address")),
         "administrative_status": parse_text(d.get("administrative_status")),
         "catv": parse_text(d.get("catv")), "voip_service": parse_text(d.get("voip_service")),
+        "resync_failed": str(d.get("is_failed_resync_config") or "0") == "1",
         "attached_vlans": service_vlans(d),
         "service_ports": ports("service_ports", ("service_port", "vlan", "upload_speed", "download_speed", "tag_transform_mode")),
         "ethernet_ports": ports("ethernet_ports", ("port", "admin_state", "mode", "dhcp", "vlan", "allowed_vlans")),
@@ -754,11 +755,13 @@ def _action_row(r, now):
     if result == "pending" and r[5] and now - r[5] > STALE_PENDING:
         result = "unknown"
     return {"id": r[0], "action": r[1], "sn": r[2], "onu": r[3], "by": r[4], "at": _iso(r[5]),
-            "finished_at": _iso(r[6]), "result": result, "response": r[8], "name": r[9], "zone": r[10]}
+            "finished_at": _iso(r[6]), "result": result, "response": r[8], "name": r[9], "zone": r[10],
+            "summary": r[11]}
 
 
 ACTION_SELECT = """SELECT a.id, a.action, a.sn, a.unique_external_id, u.name, a.requested_at, a.finished_at,
-                          a.result, a.response, COALESCE(a.request->>'name', a.request->'before'->>'name'), a.request->>'zone'
+                          a.result, a.response, COALESCE(a.request->>'name', a.request->'before'->>'name'), a.request->>'zone',
+                          a.request->>'summary'
                    FROM onu_actions a LEFT JOIN users u ON u.id = a.requested_by"""
 
 

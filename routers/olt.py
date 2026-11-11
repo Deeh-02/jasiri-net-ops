@@ -15,7 +15,7 @@ from psycopg2 import errors as pg_errors
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from starlette.concurrency import run_in_threadpool
 
-from db import onu_alerts, onu_links, smartolt
+from db import onu_alerts, onu_config, onu_links, smartolt
 from db.activity import search_customers
 from routers.network import require_network_view
 from routers.permissions import require_admin
@@ -47,7 +47,8 @@ def configured_onus(current_user: dict = Depends(require_network_view)):
 def onu_details(onu_id: str, current_user: dict = Depends(require_network_view)):
     try:
         return {**smartolt.onu_details(onu_id), "customer": onu_links.onu_customer(onu_id),
-                "can_act": current_user["role"] == "admin", "actions": smartolt.actions_available()}
+                "can_act": current_user["role"] == "admin",
+                "actions": {**smartolt.actions_available(), **onu_config.available()}}
     except ValueError:
         raise HTTPException(status_code=404, detail="Unknown ONU")
     except smartolt.SmartOLTError as e:
@@ -183,6 +184,53 @@ class ActionRequest(BaseModel):
 def onu_action(onu_id: str, body: ActionRequest, current_user: dict = Depends(require_admin)):
     try:
         return smartolt.start_action(onu_id, body.action, current_user["id"])
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Unknown ONU")
+    except smartolt.WritesDisabled as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except smartolt.SmartOLTError as e:
+        _smartolt_failed(e)
+
+
+# 6D: configuration changes on one ONU. Admin only; the page shows the
+# before-and-after and asks for a confirm click (delete: the typed serial,
+# checked again in onu_config). The PPPoE password only passes through to
+# SmartOLT: it isn't stored or logged, and a bad one is refused by
+# onu_config without echoing it back.
+class ConfigRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    change: Literal["resync", "speed", "port", "onu_mode", "wan_mode", "delete"]
+    onu_mode: Optional[str] = Field(None, max_length=20)
+    wan_mode: Optional[str] = Field(None, max_length=20)
+    configuration_method: Optional[str] = Field(None, max_length=10)
+    username: Optional[str] = Field(None, max_length=200)
+    password: Optional[str] = Field(None, max_length=200)
+    port: Optional[str] = Field(None, max_length=20)
+    mode: Optional[str] = Field(None, max_length=20)
+    vlan: Optional[int] = Field(None, ge=1, le=4094)
+    dhcp: Optional[str] = Field(None, max_length=20)
+    upload: Optional[str] = Field(None, max_length=64)
+    download: Optional[str] = Field(None, max_length=64)
+    confirm_sn: Optional[str] = Field(None, max_length=64)
+
+
+@router.get("/olt/onus/{onu_id}/speed")
+def onu_speed(onu_id: str, current_user: dict = Depends(require_admin)):
+    try:
+        return onu_config.speed_info(onu_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Unknown ONU")
+    except smartolt.SmartOLTError as e:
+        _smartolt_failed(e)
+
+
+@router.post("/olt/onus/{onu_id}/config")
+def onu_change(onu_id: str, body: ConfigRequest, current_user: dict = Depends(require_admin)):
+    params = body.model_dump(exclude={"change"}, exclude_none=True)
+    try:
+        return onu_config.change(onu_id, body.change, params, current_user["id"])
+    except onu_config.ChangeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except ValueError:
         raise HTTPException(status_code=404, detail="Unknown ONU")
     except smartolt.WritesDisabled as e:
