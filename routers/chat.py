@@ -88,7 +88,8 @@ NUDGE = ("(Automatic check, not from the admin.) Your answer has figures but you
          "for this question. Call the right tool now. If no tool covers it, say you can't look that up "
          "here, without giving any figures.")
 NO_GUESS = ("I couldn't look that up, so I won't guess. I can check revenue, sites, the network, "
-            "monitoring and alerts, batteries, stock, packages, customers and the OLT.")
+            "monitoring and alerts, batteries, stock, packages, customers and the OLT, and explain "
+            "how to do things in the app.")
 NO_GUESS_STAFF = "I couldn't look that up, so I won't guess."
 
 # Added for anyone who isn't an admin, whatever the prompt file says.
@@ -205,7 +206,8 @@ AREAS = (("site status", {"get_site_status", "get_fleet_report", "get_site_histo
          ("batteries", {"get_batteries", "get_battery_history"}),
          ("inventory", {"get_stock", "get_stock_movements", "get_cable_stock"}),
          ("alerts", {"get_alert_log"}),
-         ("packages", {"get_packages"}))
+         ("packages", {"get_packages"}),
+         ("how to do things in the app", {"get_how_to"}))
 
 
 def neutral_reply(current_user):

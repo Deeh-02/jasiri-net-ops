@@ -72,8 +72,16 @@ QUESTIONS = [
     ("Ask the OLT about JS45's ONU.", {"get_onu_live"}),
     ("When did Redsoil's ONU last go down and why?", {"get_onu_live"}),
     ("What does the monthly package cost?", {"get_packages"}),
+    # How to use the app (the guide)
+    ("How do I send a broadcast?", {"get_how_to"}),
+    ("How do I move a battery to a site?", {"get_how_to"}),
+    ("Where do I issue cable for an installation?", {"get_how_to"}),
+    ("How do I reboot a customer's ONU?", {"get_how_to"}),
+    ("How can I change my password?", {"get_how_to"}),
+    ("What can I do in this app?", {"get_how_to"}),
+    # Asked to do something: it can't, but it can say how
+    ("Send an SMS to all customers saying the network is down.", {"get_how_to"}),
     # Things it must not look anything up for
-    ("Send an SMS to all customers saying the network is down.", NONE),
     ("What's the capital of France?", NONE),
 ]
 

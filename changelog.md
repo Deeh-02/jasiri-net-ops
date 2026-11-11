@@ -9,6 +9,17 @@ and in `phase.md`'s own per-phase writeups.
 
 Started 2026-11-10 at the owner's request, after Phase 5 was merged to `main`.
 
+### "How do I…?" in the Ask assistant (2026-11-11)
+- Ask the assistant how to do something ("how do I send a broadcast?",
+  "how do I move a battery?", "how do I issue cable?", "how do I reboot an
+  ONU?") and it gives the steps, with the menu and button names as they
+  appear in the app.
+- **It follows your role:** you only get steps for what your account can
+  do. If you ask about something you can't do, it says your account isn't
+  set up for it and an admin can switch it on in Roles.
+- Everyone now has the Ask button, even people with no lookups, so they can
+  at least ask how to use the app.
+
 ### OLT permissions per role (2026-11-11)
 - **Settings > Roles** has a new **Network & OLT** card (moved out of
   Sites). Its switch opens the Network pages and the OLT page; six ticks

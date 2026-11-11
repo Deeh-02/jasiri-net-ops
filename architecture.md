@@ -1523,6 +1523,25 @@ than going quietly stale. The comparison logic itself is untouched.
 
 ### Admin assistant — fixed read-only tools, enforced in code
 
+**Update 2026-11-11: "how do I…" app guide, per role.** (Owner's call.)
+- `db/app_guide.py` holds one short guide per task (send a broadcast, move
+  a battery, issue materials, submit a report, authorize / reboot /
+  configure an ONU, add users, roles, own password and alerts …), each
+  tied to the permission its page or button needs (`needs`, any of; `also`,
+  all of; `ADMIN` = built-in admin only; `None` = everyone).
+- Tool `get_how_to(topic)` is the one tool everyone has (`EVERYONE` in
+  `ACCESS`), so every logged-in user now gets the Ask button. It matches the
+  question against each guide's title and words (rarer words count more)
+  and returns steps only for guides that person can do. A match they can't
+  do comes back as `not_on_your_account` (the model says an admin can
+  switch it on in Roles), except `quiet` guides (revenue, package prices),
+  which are never mentioned to someone without them.
+- Steps use the sidebar's own names; `tests/test_app_guide.py` checks every
+  `where` against `static/index.html` and every permission against the
+  roles/route maps, so renaming a page or button means updating the guide.
+- Eval: 46/46, including "how do I…" questions and "send an SMS to
+  everyone" (now answered with the steps instead of nothing).
+
 **Update 2026-11-11: open to everyone, tools follow permissions; customers
 and the OLT.** (Owner's call.)
 - **Who gets what** is `ACCESS` in `db/assistant_tools.py`: each tool needs

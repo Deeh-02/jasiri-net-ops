@@ -52,14 +52,14 @@ function buildWidget() {
         <header class="chat-header">
             <div>
                 <div class="chat-title">Assistant</div>
-                <div class="chat-subtitle">Looks things up for you. Can't change anything.</div>
+                <div class="chat-subtitle">Looks things up and tells you how to do things. Can't change anything.</div>
             </div>
             <button type="button" class="chat-header-btn" data-chat="new" title="Start a new chat">New</button>
             <button type="button" class="chat-header-btn" data-chat="close" aria-label="Close the assistant">✕</button>
         </header>
         <div class="chat-feed" role="log" aria-live="polite"></div>
         <form class="chat-form">
-            <textarea class="chat-input" rows="1" maxlength="${MAX_CHARS}" placeholder="Ask about a customer, a site, the OLT, batteries…" aria-label="Your question"></textarea>
+            <textarea class="chat-input" rows="1" maxlength="${MAX_CHARS}" placeholder="Ask about a customer or a site, or how to do something…" aria-label="Your question"></textarea>
             <button type="submit" class="chat-send">Send</button>
         </form>`;
 

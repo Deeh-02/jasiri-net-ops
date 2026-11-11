@@ -36,7 +36,7 @@ import re
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
-from db import batteries, customers, inventory_reports, inventory_transactions, monitoring, network, smartolt
+from db import app_guide, batteries, customers, inventory_reports, inventory_transactions, monitoring, network, smartolt
 from db import revenue_config, revenue_daily, revenue_report, sites, sms_log
 from db.connection import EAT, db_cursor, now_eat
 from db.revenue_logic import MODES, compare, format_kes, slope_pct_of_mean, trend_label
@@ -59,6 +59,7 @@ class ToolArgumentError(ValueError):
 _viewer = contextvars.ContextVar("assistant_viewer", default=None)
 
 ADMIN_ONLY = "admin"
+EVERYONE = "everyone"
 
 
 def is_admin(user):
@@ -91,7 +92,7 @@ def allowed(current_user, name):
     access = ACCESS.get(name)
     if access is None or not current_user:
         return False
-    if is_admin(current_user):
+    if is_admin(current_user) or access == EVERYONE:
         return True
     if access == ADMIN_ONLY:
         return False
@@ -1037,6 +1038,12 @@ def get_cable_stock(args):
     }
 
 
+def get_how_to(args):
+    _no_extra_keys(args, {"topic"})
+    topic = _optional_text(args, "topic", 200) or ""
+    return app_guide.how_to(_viewer.get(), topic, has_permission, is_admin)
+
+
 def _schema(name, description, properties=None, required=()):
     return {"type": "function", "function": {
         "name": name, "description": description,
@@ -1206,11 +1213,19 @@ TOOLS = {
         "customer or site. Find by customer username or name, hotspot site, ONU name or serial.",
         {"onu": {"type": "string", "description": "customer username/name, hotspot site, ONU name or serial"}},
         required=("onu",))),
+    "get_how_to": (get_how_to, EVERYONE, _schema(
+        "get_how_to",
+        "How to do something in the OPS app, step by step: sending a broadcast, moving a battery, issuing "
+        "materials, submitting an activity report, authorizing or rebooting an ONU, adding users, changing a "
+        "password and so on. Only returns guides for what this person's account can do. With no topic: the list "
+        "of things they can do. Use it for any 'how do I…', 'where do I…' or 'can I…' question about the app.",
+        {"topic": {"type": "string", "description": "what they want to do, in their words"}})),
 }
 
 # Who may use each tool. Admins: all. Anyone else needs one of the listed
 # permissions, the same one the page behind the tool asks for. Revenue:
-# admins only (owner, 2026-11-11).
+# admins only (owner, 2026-11-11). The app guide: everyone (it filters
+# its own answers by permission).
 _STATUS = [("sites", "view_status")]
 _NETWORK = [("sites", "view_network")]
 ACCESS = {
@@ -1225,6 +1240,7 @@ ACCESS = {
     "get_batteries": [("batteries", "view")], "get_battery_history": [("batteries", "view")],
     "get_stock": [("inventory_items", "view")], "get_cable_stock": [("inventory_items", "view")],
     "get_stock_movements": [("inventory_transactions", "view")],
+    "get_how_to": EVERYONE,
 }
 
 
@@ -1239,6 +1255,7 @@ LABELS = {
     "get_battery_history": "battery history", "get_stock": "stock levels",
     "get_stock_movements": "inventory log", "get_cable_stock": "cable stock",
     "get_customer": "customer profile", "get_onus": "OLT ONU list", "get_onu_live": "OLT (live)",
+    "get_how_to": "app guide",
 }
 
 
