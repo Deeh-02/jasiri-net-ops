@@ -18,10 +18,34 @@ from starlette.concurrency import run_in_threadpool
 from db import onu_alerts, onu_config, onu_links, smartolt
 from db.activity import search_customers
 from routers.network import require_network_view
-from routers.permissions import require_admin
+from routers.auth import get_current_user
+from routers.permissions import user_has_permission
 
 router = APIRouter()
 log = logging.getLogger(__name__)
+
+
+# Who may change the OLT (owner, 2026-11-11): roles get these in Settings >
+# Roles, under Network, as section "olt". They only count together with the
+# Network page itself (sites:view_network); the built-in admin has all.
+OLT_ACTIONS = ("link", "authorize", "control", "configure", "delete", "view_password")
+
+
+def can_olt(user, action):
+    return user_has_permission(user, "sites", "view_network") and user_has_permission(user, "olt", action)
+
+
+def olt_permissions(user):
+    return {a: can_olt(user, a) for a in OLT_ACTIONS}
+
+
+def require_olt(*actions):
+    """Any one of these OLT permissions."""
+    def check(current_user: dict = Depends(get_current_user)):
+        if not any(can_olt(current_user, a) for a in actions):
+            raise HTTPException(status_code=403, detail="You don't have permission to do this on the OLT.")
+        return current_user
+    return check
 
 
 def _smartolt_failed(e):
@@ -40,14 +64,14 @@ def configured_onus(current_user: dict = Depends(require_network_view)):
         raise HTTPException(status_code=503, detail="The OLT tables aren't set up yet (migration 0032).")
     except pg_errors.UndefinedTable:
         raise HTTPException(status_code=503, detail="The OLT tables aren't set up yet (migrations 0031 and 0032).")
-    return {**data, "can_authorize": current_user["role"] == "admin"}
+    return {**data, "can_authorize": can_olt(current_user, "authorize")}
 
 
 @router.get("/olt/onus/{onu_id}")
 def onu_details(onu_id: str, current_user: dict = Depends(require_network_view)):
     try:
         return {**smartolt.onu_details(onu_id), "customer": onu_links.onu_customer(onu_id),
-                "can_act": current_user["role"] == "admin",
+                "can": olt_permissions(current_user),
                 "actions": {**smartolt.actions_available(), **onu_config.available()}}
     except ValueError:
         raise HTTPException(status_code=404, detail="Unknown ONU")
@@ -82,11 +106,12 @@ def unconfigured_onus(current_user: dict = Depends(require_network_view)):
         rows = smartolt.unconfigured()
     except smartolt.SmartOLTError as e:
         _smartolt_failed(e)
-    return {"onus": rows, "can_authorize": current_user["role"] == "admin", "writes_enabled": smartolt.writes_enabled()}
+    return {"onus": rows, "can_authorize": can_olt(current_user, "authorize"), "writes_enabled": smartolt.writes_enabled()}
 
 
 @router.get("/olt/authorize-options")
-def authorize_options(olt_id: int = 1, pon_type: str = "gpon", current_user: dict = Depends(require_admin)):
+def authorize_options(olt_id: int = 1, pon_type: str = "gpon",
+                      current_user: dict = Depends(require_olt("authorize", "configure"))):
     try:
         return smartolt.authorize_options(olt_id, pon_type)
     except smartolt.SmartOLTError as e:
@@ -94,7 +119,7 @@ def authorize_options(olt_id: int = 1, pon_type: str = "gpon", current_user: dic
 
 
 @router.get("/olt/zones/{zone_id}/odbs")
-def zone_odbs(zone_id: int, current_user: dict = Depends(require_admin)):
+def zone_odbs(zone_id: int, current_user: dict = Depends(require_olt("authorize", "configure"))):
     try:
         return {"odbs": smartolt.odbs(zone_id)}
     except smartolt.SmartOLTError as e:
@@ -148,7 +173,7 @@ class AuthorizeRequest(BaseModel):
 
 
 @router.post("/olt/authorize")
-def authorize(body: AuthorizeRequest, current_user: dict = Depends(require_admin)):
+def authorize(body: AuthorizeRequest, current_user: dict = Depends(require_olt("authorize"))):
     try:
         return smartolt.authorize(body.model_dump(), current_user["id"])
     except smartolt.WritesDisabled as e:
@@ -181,7 +206,7 @@ class ActionRequest(BaseModel):
 # 6C: one ONU at a time, admin only; the page has already shown a
 # confirmation with the customer, the serial and the action.
 @router.post("/olt/onus/{onu_id}/actions")
-def onu_action(onu_id: str, body: ActionRequest, current_user: dict = Depends(require_admin)):
+def onu_action(onu_id: str, body: ActionRequest, current_user: dict = Depends(require_olt("control"))):
     try:
         return smartolt.start_action(onu_id, body.action, current_user["id"])
     except ValueError:
@@ -239,7 +264,7 @@ class ConfigRequest(BaseModel):
 # from SmartOLT on each click, never cached or stored; every reveal is in
 # the ONU's action history.
 @router.get("/olt/onus/{onu_id}/pppoe-password")
-def onu_pppoe_password(onu_id: str, response: Response, current_user: dict = Depends(require_admin)):
+def onu_pppoe_password(onu_id: str, response: Response, current_user: dict = Depends(require_olt("view_password"))):
     response.headers["Cache-Control"] = "no-store"
     try:
         return {"password": onu_config.pppoe_password(onu_id, current_user["id"])}
@@ -250,7 +275,7 @@ def onu_pppoe_password(onu_id: str, response: Response, current_user: dict = Dep
 
 
 @router.get("/olt/onus/{onu_id}/speed")
-def onu_speed(onu_id: str, current_user: dict = Depends(require_admin)):
+def onu_speed(onu_id: str, current_user: dict = Depends(require_olt("configure"))):
     try:
         return onu_config.speed_info(onu_id)
     except ValueError:
@@ -260,7 +285,9 @@ def onu_speed(onu_id: str, current_user: dict = Depends(require_admin)):
 
 
 @router.post("/olt/onus/{onu_id}/config")
-def onu_change(onu_id: str, body: ConfigRequest, current_user: dict = Depends(require_admin)):
+def onu_change(onu_id: str, body: ConfigRequest, current_user: dict = Depends(require_olt("configure", "delete"))):
+    if not can_olt(current_user, "delete" if body.change == "delete" else "configure"):
+        raise HTTPException(status_code=403, detail="You don't have permission to do this on the OLT.")
     params = body.model_dump(exclude={"change"}, exclude_none=True)
     try:
         return onu_config.change(onu_id, body.change, params, current_user["id"])
@@ -303,11 +330,11 @@ def links_overview(current_user: dict = Depends(require_network_view)):
         data = onu_links.overview()
     except pg_errors.UndefinedTable:
         raise HTTPException(status_code=503, detail="Customer links aren't set up yet (migration 0033).")
-    return {**data, "can_edit": current_user["role"] == "admin"}
+    return {**data, "can_edit": can_olt(current_user, "link")}
 
 
 @router.get("/olt/customer-search")
-def customer_search(q: str = "", current_user: dict = Depends(require_admin)):
+def customer_search(q: str = "", current_user: dict = Depends(require_olt("link"))):
     return {"customers": search_customers(q)}
 
 
@@ -324,7 +351,7 @@ class OnuOnly(BaseModel):
 
 
 @router.post("/olt/links")
-def create_link(body: LinkRequest, current_user: dict = Depends(require_admin)):
+def create_link(body: LinkRequest, current_user: dict = Depends(require_olt("link"))):
     try:
         onu_links.link(body.onu_id, body.customer_id, body.matched_by, current_user["id"])
     except onu_links.LinkError as e:
@@ -333,7 +360,7 @@ def create_link(body: LinkRequest, current_user: dict = Depends(require_admin)):
 
 
 @router.post("/olt/links/not-a-customer")
-def not_a_customer(body: OnuOnly, current_user: dict = Depends(require_admin)):
+def not_a_customer(body: OnuOnly, current_user: dict = Depends(require_olt("link"))):
     try:
         onu_links.mark_not_customer(body.onu_id, current_user["id"])
     except onu_links.LinkError as e:
@@ -342,12 +369,12 @@ def not_a_customer(body: OnuOnly, current_user: dict = Depends(require_admin)):
 
 
 @router.post("/olt/links/accept-username-matches")
-def accept_username_matches(current_user: dict = Depends(require_admin)):
+def accept_username_matches(current_user: dict = Depends(require_olt("link"))):
     return {"linked": onu_links.accept_username_matches(current_user["id"])}
 
 
 @router.delete("/olt/links/{onu_id}")
-def remove_link(onu_id: str, current_user: dict = Depends(require_admin)):
+def remove_link(onu_id: str, current_user: dict = Depends(require_olt("link"))):
     try:
         onu_links.unlink(onu_id)
     except onu_links.LinkError as e:
@@ -363,7 +390,7 @@ class SiteLinkRequest(BaseModel):
 
 
 @router.post("/olt/links/site")
-def create_site_link(body: SiteLinkRequest, current_user: dict = Depends(require_admin)):
+def create_site_link(body: SiteLinkRequest, current_user: dict = Depends(require_olt("link"))):
     try:
         onu_links.link_site(body.onu_id, body.site_id, body.matched_by, current_user["id"])
     except onu_links.LinkError as e:
@@ -372,7 +399,7 @@ def create_site_link(body: SiteLinkRequest, current_user: dict = Depends(require
 
 
 @router.post("/olt/links/accept-site-matches")
-def accept_site_matches(current_user: dict = Depends(require_admin)):
+def accept_site_matches(current_user: dict = Depends(require_olt("link"))):
     return {"linked": onu_links.accept_site_matches(current_user["id"])}
 
 

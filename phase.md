@@ -315,17 +315,31 @@ OpenAPI file first; async changes count as done only on `succeeded`.
 8. A dedicated OPS API key, revocable on its own.
 9. Bulk batches capped at 20 ONUs to start.
 
+### OLT permissions (owner's call, 2026-11-11)
+
+What someone may change on the OLT is set per role in Settings > Roles, on
+the new **Network & OLT** card (its switch is the Network/OLT pages,
+`sites:view_network`; it moved out of the Sites card so it can be given on
+its own). Six ticks, section `olt`: `link` (OLT > Links), `authorize`,
+`control` (Reboot / Disable / Enable), `configure` (Resync, Speed, Ethernet
+port, Location, VLANs, ONU mode), `delete`, `view_password`. Each counts
+only with the Network switch on. The built-in admin has all. No schema
+change (`role_permissions` takes any section/action). `routers/olt.py`
+checks each endpoint (`require_olt`); the ONU page shows only the buttons a
+person may use (`can` in the ONU reply). The server switches
+(SMARTOLT_WRITES_ENABLED, SMARTOLT_ACTION_*) still apply to everyone.
+
 ### Open questions
 
 - [x] Cloud version? Yes: `https://jasiri.smartolt.com`. How many OLTs and ONUs: comes from the first sample.
 - [ ] Is the ONU name in SmartOLT the customer's account name or number? (decides 6B's suggestions)
 - [x] Signal levels: use SmartOLT's own grade for now (owner, 2026-11-10). OPS thresholds can come later.
-- [ ] In 6C, may technicians reboot an ONU, or only admins? (Admins only for now.)
+- [x] In 6C, may technicians reboot an ONU, or only admins? Owner's call 2026-11-11: per role, in Settings > Roles > Network & OLT (see "OLT permissions").
 - [x] Is OPS reachable over HTTPS? Yes (Render), so webhooks are in scope as 6A-W.
 - [ ] Chained ONTs: this phase, or the separate TR-069 investigation?
 - [x] For 6D: which speed profile matches each billing package? None: speed is set by hand per ONU (owner, 2026-11-11), the router's plan does the real limiting.
 - [ ] For 6D: a spare ONU and OLT port to test writes on? (Owner chose on from day one; first tries on a non-customer ONU.)
-- [x] For 6D: authorize, delete and speed changes admin only, or a technician role too? Admin only.
+- [x] For 6D: authorize, delete and speed changes admin only, or a technician role too? Per role since 2026-11-11 (see "OLT permissions"); admin has all.
 
 ### Done when
 

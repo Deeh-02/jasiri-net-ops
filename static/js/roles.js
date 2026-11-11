@@ -113,14 +113,26 @@ const PERM_SECTIONS = [
                     { label: "Customer Broadcasts", action: "send_broadcasts" },
                 ],
             },
-            // The Network page (CCR2116 uplink, gateway, PPPoE clients). Shows
-            // customer names, packages and expiry — never phones or payments.
-            {
-                id: "sites_view_network", key: "sites", label: "Network (CCR2116)",
-                toggleAction: "view_network",
-                actions: [],
-            },
         ]
+    },
+    // The Network section: Network Status, Network Analysis (CCR2116 uplink,
+    // gateway, PPPoE clients) and the OLT page. Its own card (switching
+    // sites:view_network), apart from Sites, like the sidebar. Shows customer
+    // names, packages and expiry — never phones or payments. The ticks are
+    // what someone may CHANGE on the OLT (section "olt", checked by
+    // routers/olt.py); without them the OLT page is look-only. The built-in
+    // admin always has all of them.
+    {
+        id: "sites_view_network", key: "sites", label: "Network & OLT",
+        toggleAction: "view_network",
+        actions: [
+            { label: "OLT: Link ONUs to customers and sites", section: "olt", action: "link" },
+            { label: "OLT: Authorize new ONUs", section: "olt", action: "authorize" },
+            { label: "OLT: Reboot, disable and enable ONUs", section: "olt", action: "control" },
+            { label: "OLT: Change ONU configuration (resync, speed, ports, location, VLANs, ONU mode)", section: "olt", action: "configure" },
+            { label: "OLT: Delete ONUs", section: "olt", action: "delete" },
+            { label: "OLT: See PPPoE passwords", section: "olt", action: "view_password" },
+        ],
     },
     { key: "users", label: "Users", actions: ["add", "edit", "delete"] },
     { key: "roles", label: "Roles", actions: ["add", "edit", "delete"] },
@@ -295,7 +307,12 @@ function renderPermGrid(permissions) {
     }
 
     grid.innerHTML = PERM_SECTIONS.map(section => {
-        const viewChecked = allowedSet.has(`${section.key}:view`);
+        // Like a child, a card may switch a different action than "view"
+        // (Network & OLT switches sites:view_network) and needs its own id
+        // then, so its menu doesn't clash with the Sites card's.
+        const toggleAction = section.toggleAction || "view";
+        const menuId = section.id || section.key;
+        const viewChecked = allowedSet.has(`${section.key}:${toggleAction}`);
         const noun = ACTION_NOUN[section.key];
 
         return `
@@ -303,12 +320,12 @@ function renderPermGrid(permissions) {
                 <div class="perm-section-header">
                     <span class="perm-section-name">${section.label}</span>
                     <label class="perm-toggle">
-                        <input type="checkbox" class="perm-view-toggle" data-section="${section.key}" data-action="view" data-menu="${section.key}" ${viewChecked ? "checked" : ""}>
+                        <input type="checkbox" class="perm-view-toggle" data-section="${section.key}" data-action="${toggleAction}" data-menu="${menuId}" ${viewChecked ? "checked" : ""}>
                         <span class="perm-toggle-track"></span>
                         <span class="perm-toggle-thumb"></span>
                     </label>
                 </div>
-                <div class="perm-menu" data-section-menu="${section.key}" ${viewChecked ? "" : "hidden"}>
+                <div class="perm-menu" data-section-menu="${menuId}" ${viewChecked ? "" : "hidden"}>
                     <div class="perm-checkbox-grid">${renderActionCheckboxes(section.key, section.actions, noun)}</div>
                     ${(section.children || []).map(renderChild).join("")}
                 </div>

@@ -2065,8 +2065,16 @@ shape isn't in the docs. One action per ONU at a time (in-process set). A
 lost to a restart. The page polls `GET /olt/actions/{id}` every 3 s while
 it waits.
 
+**OLT permissions (2026-11-11).** Every OLT write is gated per role, not
+admin-only: `routers/olt.py` `require_olt(action)` needs `sites:view_network`
+plus `olt:<action>` (link, authorize, control, configure, delete,
+view_password); `onu_change` additionally needs `delete` for a delete and
+`configure` for the rest. `GET /olt/onus/{id}` returns `can` (each action)
+and the page hides what the person can't do. Roles page: the Network & OLT
+card (`static/js/roles.js`; top-level cards now accept `toggleAction`/`id`).
+
 **Configuration changes (6D)** are `db/onu_config.py`, behind
-`POST /olt/onus/{id}/config` (admin only; `GET /olt/onus/{id}/speed` feeds
+`POST /olt/onus/{id}/config` (per role, see above; `GET /olt/onus/{id}/speed` feeds
 the speed dialog). Resync config, speed profiles, Ethernet port mode (LAN /
 Access on an attached VLAN / shut down), location details, attached VLANs,
 ONU mode (WAN VLAN-ID, Routing/Bridging, WAN mode incl. static IP, WAN

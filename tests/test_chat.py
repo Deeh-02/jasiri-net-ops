@@ -191,6 +191,24 @@ class ToolsByPermission(unittest.TestCase):
             admin = json.loads(assistant_tools.run_tool("get_site_status", "{}", ADMIN))
         self.assertEqual(admin["sites"][0]["revenue_today_kes"], 500)
 
+    def test_an_admins_only_answer_never_reaches_staff(self):
+        old = "I can't look up revenue figures for you. Revenue and sales data is for admins only."
+        with perms(("batteries", "view")):
+            body = request(("user", "How much did we make?"), ("assistant", old), ("user", "and today?"))
+            sent = chat.build_messages(body, TECHNICIAN)
+            self.assertNotIn("admins", sent[2]["content"])
+            self.assertTrue(sent[2]["content"].startswith("That isn't something I can look up here."))
+            got = chat.run_conversation(sent, TECHNICIAN, ask_model=lambda *a, **k: {"content": old})
+        self.assertNotIn("admin", got["reply"].lower())
+        self.assertIn("batteries", got["reply"])
+
+    def test_admin_state_and_admin_answers_are_left_alone(self):
+        self.assertFalse(chat._hides_sales("The ONU's admin state is Disabled."))
+        self.assertTrue(chat._hides_sales("Sales are for admins only."))
+        old = "Sales are for admins only."
+        sent = chat.build_messages(request(("user", "x"), ("assistant", old), ("user", "y")), ADMIN)
+        self.assertEqual(sent[2]["content"], old)
+
     def test_staff_get_a_plain_cant_look_that_up(self):
         staff = chat.build_messages(request(("user", "hi")), TECHNICIAN)[0]["content"]
         self.assertIn("isn't something you can look up here", staff)

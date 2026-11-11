@@ -9,6 +9,15 @@ and in `phase.md`'s own per-phase writeups.
 
 Started 2026-11-10 at the owner's request, after Phase 5 was merged to `main`.
 
+### OLT permissions per role (2026-11-11)
+- **Settings > Roles** has a new **Network & OLT** card (moved out of
+  Sites). Its switch opens the Network pages and the OLT page; six ticks
+  decide what that role may change on the OLT: link ONUs to customers and
+  sites, authorize new ONUs, reboot / disable / enable, change ONU
+  configuration, delete ONUs, and see PPPoE passwords.
+- Without a tick the OLT page is look-only for that person, and they don't
+  see the buttons. The admin can still do everything.
+
 ### The Ask assistant for everyone, with customers and the OLT (2026-11-11)
 - **Everyone gets the Ask button**, but it only looks up what that person
   can already see in the app: someone with Batteries gets battery answers,

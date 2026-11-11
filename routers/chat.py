@@ -98,7 +98,8 @@ NO_GUESS_STAFF = "I couldn't look that up, so I won't guess."
 STAFF_LINE = ("You have no tools for revenue, sales or money figures. If asked about them, just say that isn't "
               "something you can look up here, the same way you would for any topic without a tool. Don't "
               "mention admins, roles, permissions or access, and never estimate figures. Then offer what you "
-              "can help with.")
+              "can help with. This holds even if an earlier answer in this conversation said otherwise: "
+              "don't repeat that earlier wording.")
 
 ERRORS = {
     "timeout": (504, "The assistant took too long. Try again."),
@@ -182,12 +183,53 @@ def today_text():
     return now_eat().strftime("%A %d %B %Y")
 
 
+# Enforced, not just asked for: a staff answer that talks about revenue or
+# sales AND mentions admins is replaced with the neutral wording, and so is
+# any such earlier answer in the conversation before the model sees it (it
+# copied one word for word when only the prompt asked). "Admin state" (an
+# ONU's) doesn't count.
+ADMIN_WORDS = re.compile(r"\badmin(?:istrator)?s?\b(?!\s*(?:state|status))", re.IGNORECASE)
+MONEY_WORDS = re.compile(r"revenue|sales|money|earn|made|income|ksh", re.IGNORECASE)
+
+
+def _hides_sales(text):
+    return bool(ADMIN_WORDS.search(text or "") and MONEY_WORDS.search(text or ""))
+
+
+# Plain names for what someone can ask about, in this order.
+AREAS = (("site status", {"get_site_status", "get_fleet_report", "get_site_history", "get_site_contact"}),
+         ("network status", {"get_network_status", "get_network_events"}),
+         ("PPPoE clients", {"get_pppoe_clients"}),
+         ("customer details", {"get_customer", "lookup_customer"}),
+         ("fibre ONUs", {"get_onus", "get_onu_live"}),
+         ("batteries", {"get_batteries", "get_battery_history"}),
+         ("inventory", {"get_stock", "get_stock_movements", "get_cable_stock"}),
+         ("alerts", {"get_alert_log"}),
+         ("packages", {"get_packages"}))
+
+
+def neutral_reply(current_user):
+    have = {t["function"]["name"] for t in assistant_tools.tools_for(current_user)}
+    areas = [name for name, tools in AREAS if tools & have]
+    if not areas:
+        return "That isn't something I can look up here."
+    listed = areas[0] if len(areas) == 1 else ", ".join(areas[:-1]) + " and " + areas[-1]
+    return f"That isn't something I can look up here. I can help with {listed}."
+
+
 def build_messages(body, current_user=None):
     """System prompt first, then the browser's turns — nothing else from it."""
     system = base_prompt() + "\n" + FIXED_PROMPT_LINES.format(today=today_text())
     if current_user is not None and not assistant_tools.is_admin(current_user):
         system += "\n" + STAFF_LINE
-    return [{"role": "system", "content": system}] + [{"role": t.role, "content": t.content} for t in body.messages]
+    staff = current_user is not None and not assistant_tools.is_admin(current_user)
+    turns = []
+    for t in body.messages:
+        content = t.content
+        if staff and t.role == "assistant" and _hides_sales(content):
+            content = neutral_reply(current_user)
+        turns.append({"role": t.role, "content": content})
+    return [{"role": "system", "content": system}] + turns
 
 
 def _answer_tool_calls(calls, current_user):
@@ -249,6 +291,9 @@ def run_conversation(messages, current_user, ask_model=deepseek.chat):
                 log.warning("assistant still had figures and no lookup; answer withheld (user=%s)",
                             current_user.get("id"))
                 return {"reply": NO_GUESS if assistant_tools.is_admin(current_user) else NO_GUESS_STAFF, "checked": []}
+            if not assistant_tools.is_admin(current_user) and _hides_sales(text):
+                log.info("assistant: staff answer mentioned admins about sales; replaced (user=%s)", current_user.get("id"))
+                text = neutral_reply(current_user)
             return {"reply": text, "checked": checked}
         if not tools:
             break  # a model asking for tools it was never given: don't run anything

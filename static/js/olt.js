@@ -427,7 +427,7 @@ function signalBox(label, dbm, grade) {
 
 // A fact an admin can click to change (opens that change's dialog).
 function editFact(o, label, value, kind) {
-    if (!o.can_act || !o.actions?.[kind]) return fact(label, value);
+    if (!o.can?.configure || !o.actions?.[kind]) return fact(label, value);
     const b = el("button", "olt-fact-link", value == null || value === "" ? "—" : String(value));
     b.type = "button";
     b.dataset.onuConfig = kind;
@@ -439,7 +439,7 @@ function editFact(o, label, value, kind) {
 // (never kept in OPS; the reveal is recorded in the ONU's history).
 function passwordFact(o) {
     if (!o.pppoe_username) return fact("PPPoE password", "—");
-    if (!o.can_act) return fact("PPPoE password", "Admins only", { className: "olt-dim" });
+    if (!o.can?.view_password) return fact("PPPoE password", "••••••••", { className: "olt-dim" });
     const wrap = el("span", "olt-secret");
     const text = el("span", "olt-mono", "••••••••");
     text.id = "olt-pppoe-pass";
@@ -998,19 +998,26 @@ function whoIsOn(o) {
     return "Not linked to any customer";
 }
 
+// Each group shows only with its permission (Settings > Roles > Network):
+// olt:control for Reboot/Disable/Enable, olt:configure for the changes,
+// olt:delete for Delete. The server checks again.
 function renderActionButtons(o) {
+    const can = o.can || {};
     const box = $("olt-onu-actions");
-    box.hidden = !o.can_act;
-    if (!o.can_act) return;
+    box.hidden = !(can.control || can.configure || can.delete);
+    if (box.hidden) return;
+    $("olt-action-buttons").hidden = !can.control;
+    $("olt-config-heading").hidden = !(can.configure || can.delete);
+    $("olt-config-buttons").hidden = !(can.configure || can.delete);
     const disabled = (o.administrative_status || "").toLowerCase() === "disabled";
-    const list = ["reboot", disabled ? "enable" : "disable"];
+    const list = can.control ? ["reboot", disabled ? "enable" : "disable"] : [];
     $("olt-action-buttons").replaceChildren(...list.map(a => {
         const t = ACTION_TEXT[a];
         const b = button(t.label, t.danger ? "btn-danger" : "btn-secondary", { onuAction: a });
         if (!o.actions?.[a]) { b.disabled = true; b.title = "Switched off on this server"; }
         return b;
     }));
-    $("olt-config-buttons").replaceChildren(...Object.entries(CONFIG_TEXT).map(([k, t]) => {
+    $("olt-config-buttons").replaceChildren(...Object.entries(CONFIG_TEXT).filter(([k]) => (k === "delete" ? can.delete : can.configure)).map(([k, t]) => {
         const b = button(t.button, t.danger ? "btn-danger" : "btn-secondary", { onuConfig: k });
         if (!o.actions?.[k]) { b.disabled = true; b.title = "Switched off on this server"; }
         else if (k === "delete" && linkedTo(o)) { b.disabled = true; b.title = "Linked to a customer or site: unlink it on OLT → Links first"; }

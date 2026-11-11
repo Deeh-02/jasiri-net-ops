@@ -290,3 +290,52 @@ class Endpoint(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OltPermissions(unittest.TestCase):
+    """Settings > Roles > Network & OLT: what a role may change on the OLT."""
+    STAFF = {"id": 5, "role": "technician", "role_id": 3}
+
+    def grant(self, *pairs):
+        return mock.patch.object(api, "user_has_permission", side_effect=lambda u, s, a: u.get("role") == "admin" or (s, a) in pairs)
+
+    def test_needs_the_network_page_too(self):
+        with self.grant(("olt", "configure")):
+            self.assertFalse(api.can_olt(self.STAFF, "configure"))
+        with self.grant(("olt", "configure"), ("sites", "view_network")):
+            self.assertTrue(api.can_olt(self.STAFF, "configure"))
+            self.assertEqual({k for k, v in api.olt_permissions(self.STAFF).items() if v}, {"configure"})
+
+    def test_admin_has_all(self):
+        with self.grant():
+            self.assertTrue(all(api.olt_permissions({"id": 1, "role": "admin"}).values()))
+
+    def test_configure_does_not_allow_delete(self):
+        with self.grant(("olt", "configure"), ("sites", "view_network")), \
+             mock.patch.object(onu_config, "change", return_value={"result": "succeeded"}) as change:
+            api.onu_change(ONU, api.ConfigRequest(change="resync"), current_user=self.STAFF)
+            with self.assertRaises(HTTPException) as e:
+                api.onu_change(ONU, api.ConfigRequest(change="delete", confirm_sn=ONU), current_user=self.STAFF)
+        self.assertEqual(e.exception.status_code, 403)
+        change.assert_called_once()
+
+    def test_dependency_refuses_without_the_permission(self):
+        check = api.require_olt("control")
+        with self.grant(("sites", "view_network"), ("olt", "configure")):
+            with self.assertRaises(HTTPException) as e:
+                check(current_user=self.STAFF)
+        self.assertEqual(e.exception.status_code, 403)
+        with self.grant(("sites", "view_network"), ("olt", "control")):
+            self.assertIs(check(current_user=self.STAFF), self.STAFF)
+
+    def test_every_write_endpoint_is_guarded(self):
+        guarded = {"/olt/authorize", "/olt/onus/{onu_id}/actions", "/olt/onus/{onu_id}/config", "/olt/onus/{onu_id}/speed",
+                   "/olt/onus/{onu_id}/pppoe-password", "/olt/links", "/olt/links/not-a-customer", "/olt/links/site",
+                   "/olt/links/accept-username-matches", "/olt/links/accept-site-matches", "/olt/links/{onu_id}",
+                   "/olt/customer-search", "/olt/authorize-options", "/olt/zones/{zone_id}/odbs"}
+        editor_reads = {"/olt/onus/{onu_id}/speed", "/olt/onus/{onu_id}/pppoe-password", "/olt/customer-search",
+                        "/olt/authorize-options", "/olt/zones/{zone_id}/odbs"}
+        for route in api.router.routes:
+            if route.path in guarded and (route.methods - {"GET", "HEAD"} or route.path in editor_reads):
+                names = [getattr(d.call, "__qualname__", "") for d in route.dependant.dependencies]
+                self.assertTrue(any("require_olt" in n for n in names), (route.path, names))

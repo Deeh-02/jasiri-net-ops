@@ -212,13 +212,14 @@
                         <tbody id="olt-onu-history"></tbody>
                     </table>
                 </div>
-                <!-- 6C: reboot, disable, enable. 6D: resync, speed, port, ONU and
-                     WAN mode, delete. Admin only, one at a time, each confirmed
+                <!-- 6C: reboot, disable, enable. 6D: resync, speed, port, location,
+                     VLANs, ONU mode, delete. Each group needs its OLT permission
+                     (Settings > Roles > Network); one at a time, each confirmed
                      with the customer, the serial and the before and after. -->
                 <div id="olt-onu-actions" hidden>
                     <h2 class="olt-h2">Actions</h2>
                     <div class="olt-actions olt-actions-start" id="olt-action-buttons"></div>
-                    <h3 class="olt-h3">Configuration</h3>
+                    <h3 class="olt-h3" id="olt-config-heading">Configuration</h3>
                     <div class="olt-actions olt-actions-start" id="olt-config-buttons"></div>
                     <div class="olt-action-status" id="olt-action-status" role="status" hidden></div>
                 </div>
