@@ -153,9 +153,17 @@
 .olt-secret { display: inline-flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .olt-eye { background: none; border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--accent);
            font: inherit; font-size: 12px; padding: 2px 8px; cursor: pointer; }
-.olt-vlan-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px 12px;
-                 max-height: 280px; overflow-y: auto; padding: 4px 2px; }
-.olt-vlan { display: flex; align-items: center; gap: 6px; font-size: 13.5px; color: var(--text); flex-direction: row !important; }
+.olt-vlan-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px;
+                 max-height: 300px; overflow-y: auto; padding: 2px; }
+/* One tick-box per VLAN, number right beside it (beats the form's
+   full-width input rule). */
+.olt-auth-form label.olt-vlan { display: flex; flex-direction: row; align-items: center; justify-content: flex-start; gap: 8px;
+                                padding: 7px 10px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+                                font-size: 13.5px; color: var(--text); cursor: pointer; white-space: nowrap; min-width: 0; }
+.olt-auth-form label.olt-vlan input { width: auto; flex: none; margin: 0; accent-color: var(--accent); }
+.olt-auth-form label.olt-vlan span { overflow: hidden; text-overflow: ellipsis; }
+.olt-auth-form label.olt-vlan:has(input:checked) { border-color: var(--accent); }
+.olt-auth-form label.olt-vlan:has(input:disabled) { cursor: not-allowed; opacity: .75; }
 @media (max-width: 600px) { .olt-config-fields { grid-template-columns: 1fr; } }
 .olt-action-status { margin-top: 12px; font-size: 13.5px; padding: 10px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); color: var(--text); }
 .olt-action-status.good { border-color: var(--accent); color: var(--accent); }

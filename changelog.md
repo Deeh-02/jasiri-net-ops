@@ -28,6 +28,13 @@ Started 2026-11-10 at the owner's request, after Phase 5 was merged to `main`.
   longest, so the same battery isn't picked again and again.
 - **Settings > Profile** saves again, without ever blanking the phone number.
 - The current sidebar section and the OLT back link are green.
+- **A hotspot site down because of LOS** now gets the LOS messages only,
+  not "site is down" as well: no down / still down reminders, no battery
+  suggestion, and no "back online" once "fibre signal back" has been sent.
+  If the fibre comes back but the site stays down, the site's own messages
+  pick up again. A power cut (Power fail) still gets the normal site
+  messages.
+- **VLANs dialog** tidied: each VLAN is a neat tick-box with its number.
 - **LOS messages on SMS Status:** every LOS message is now recorded like
   site alerts are, failed ones included, and listed on Reports > SMS
   Status by customer, hotspot site or PON port. Needs migration

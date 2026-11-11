@@ -179,6 +179,16 @@ shows on Reports > SMS Status named by customer, hotspot site or PON
 port: migration 0036 (approved 2026-11-11) makes `monitored_site_id`
 optional and adds `onu_alert_id`.
 
+A hotspot site that is down because its linked ONU is LOS gets only the
+LOS messages (owner, 2026-11-11): no site down / still down / twice-daily
+/ flapping message, no place in a bundled "sites down" message or its
+battery picks (a fibre cut needs no battery), and no "back online" when the
+LOS "signal back" message already closed it. The site's episode is still
+tracked. If the fibre returns but the site stays down, its own schedule
+resumes with one catch-up "still down" (and a "back online" later). A power
+cut shows as "Power fail", not LOS, so it keeps the normal site messages.
+Off with ONU_LOS_ALERTS_ENABLED=false, or when ONU status is stale.
+
 ### 6B — Customer linking
 
 Each fibre customer links to exactly one ONU. A person confirms every link;

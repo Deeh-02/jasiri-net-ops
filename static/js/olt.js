@@ -1389,7 +1389,9 @@ function buildVlans(box, o, opts) {
         cb.checked = have.includes(v.vlan);
         const wan = Number(o.vlan) === v.vlan;
         if (wan) { cb.disabled = true; cb.title = "The WAN VLAN: change it under ONU mode first"; }
-        l.append(cb, document.createTextNode(` ${vlanLabel(v)}${wan ? " (WAN)" : ""}`));
+        const text = el("span", null, `${vlanLabel(v)}${wan ? " (WAN)" : ""}`);
+        text.title = text.textContent;
+        l.append(cb, text);
         list.append(l);
     }
     box.append(el("p", "olt-dim olt-auth-wide", "Tick every VLAN this ONU should carry."), list);

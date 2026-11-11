@@ -128,7 +128,7 @@ import json
 import logging
 from datetime import datetime, timedelta, timezone
 
-from db import alert_settings
+from db import alert_settings, onu_alerts
 from db.alert_channels import send_sms, send_whatsapp
 from db.alert_templates import load_all as load_templates, render as render_template
 from db.connection import db_cursor, now_eat
@@ -675,6 +675,13 @@ def _evaluate():
         acked = set(acked_at)
 
         recipients = load_recipients(cur)
+        # Hotspot sites down because their fibre ONU is LOS: the LOS alert
+        # speaks for them (owner, 2026-11-11), so they get no down, still
+        # down, reminder or flapping message, and stay out of bundles and
+        # battery picks. The episode is still opened and tracked; if the
+        # fibre comes back while the site stays down, its own schedule
+        # resumes with one catch-up "still down".
+        los = onu_alerts.los_sites(cur)
 
         pending_down = []    # sites whose OWN escalation clock fires this pass
         daily_reminders = [] # sites due their 08:00 / 16:00 reminder this pass
@@ -701,6 +708,9 @@ def _evaluate():
                     episode = {"id": cur.fetchone()[0], "opened_at": st["since"], "state": "down",
                                "flap_count": 0, "down_alert_sent_at": None, "flapping_alert_sent_at": None,
                                "escalation_step": 0}
+
+                if site_id in los:
+                    continue
 
                 flap_count = _count_recent_transitions(cur, site_id, now - FLAP_WINDOW)
                 if flap_count >= FLAP_THRESHOLD and episode["state"] != "flapping":
@@ -783,6 +793,9 @@ def _evaluate():
                     (st["since"], episode["id"]),
                 )
                 should_notify = episode["down_alert_sent_at"] is not None or episode["state"] == "flapping"
+                last_message = episode["down_alert_sent_at"] or episode["opened_at"]
+                if should_notify and onu_alerts.site_outage_was_los(cur, site_id, last_message, st["since"]):
+                    should_notify = False      # the LOS "signal back" message closes it
                 if should_notify and not quiet:
                     downtime = st["since"] - episode["opened_at"]
                     title = f"{info['name']} is back online"

@@ -134,6 +134,64 @@ def _open_alerts(cur):
              "last_sent_at": r[6], "acked_at": r[7]} for r in cur.fetchall()]
 
 
+# ---- Hotspot sites whose fibre is the cause (read by monitoring_alerts) ----
+# When a hotspot site goes offline because its ONU lost signal, the LOS
+# alert is the only message (owner, 2026-11-11): the site-down messages
+# stand aside. Both helpers fail soft (empty / False) inside the caller's
+# transaction, so the site alerts carry on as before if anything is amiss.
+
+def los_sites(cur, now=None):
+    """Site ids whose linked ONU is LOS right now, as the LOS alerts see it:
+    switched on, ONU status fresh, ONU not disabled."""
+    if not enabled():
+        return set()
+    now = now or datetime.now(timezone.utc)
+    try:
+        cur.execute("SAVEPOINT los_sites")
+        if not _status_fresh(cur, now):
+            cur.execute("RELEASE SAVEPOINT los_sites")
+            return set()
+        cur.execute("""SELECT l.site_id FROM onu_customer_links l
+                       JOIN onu_state s ON s.unique_external_id = l.unique_external_id
+                       WHERE l.site_id IS NOT NULL AND s.status = 'LOS'
+                         AND COALESCE(s.details->>'administrative_status', 'Enabled') <> 'Disabled'""")
+        out = {r[0] for r in cur.fetchall()}
+        cur.execute("RELEASE SAVEPOINT los_sites")
+        return out
+    except Exception:
+        log.exception("onu_alerts: couldn't read LOS sites")
+        cur.execute("ROLLBACK TO SAVEPOINT los_sites")
+        return set()
+
+
+def site_outage_was_los(cur, site_id, last_site_message, until):
+    """True when an LOS alert that actually sent something (for the site's
+    own ONU, or a whole-port alert on its PON) was still running at the
+    site's own last message. Then the LOS "signal back" message closes the
+    outage, not the site's "back online". A site that sent "still down"
+    after its fibre came back gets its "back online" as usual.
+    last_site_message / until are naive UTC (site_alert_episodes' zone)."""
+    if not enabled():
+        return False
+    try:
+        cur.execute("SAVEPOINT los_cover")
+        cur.execute("""SELECT 1 FROM onu_customer_links l
+                       JOIN onu_state s ON s.unique_external_id = l.unique_external_id
+                       JOIN onu_alerts a ON a.unique_external_id = l.unique_external_id
+                                         OR (a.pon IS NOT NULL AND a.pon = s.board || '/' || s.port)
+                       WHERE l.site_id = %s AND a.last_sent_at IS NOT NULL
+                         AND a.started_at <= (%s::timestamp AT TIME ZONE 'UTC')
+                         AND (a.ended_at IS NULL OR a.ended_at >= (%s::timestamp AT TIME ZONE 'UTC'))
+                       LIMIT 1""", (site_id, until, last_site_message))
+        found = cur.fetchone() is not None
+        cur.execute("RELEASE SAVEPOINT los_cover")
+        return found
+    except Exception:
+        log.exception("onu_alerts: couldn't check LOS cover for site %s", site_id)
+        cur.execute("ROLLBACK TO SAVEPOINT los_cover")
+        return False
+
+
 # ---- Sending ----
 
 def _recipients(cur):

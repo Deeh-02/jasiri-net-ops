@@ -98,5 +98,29 @@ class Deliveries(unittest.TestCase):
             self.assertEqual(onu_alerts._message(t, dict(a, pon="0/1"), m, True, T0)[0], "pon_los")
 
 
+class SitesWithLos(unittest.TestCase):
+    """Hotspot sites down because of LOS: the LOS alert speaks for them. The
+    real queries were run against Postgres; here, the switches and failures."""
+    def test_switched_off_means_site_alerts_as_before(self):
+        cur = mock.MagicMock()
+        with mock.patch.dict("os.environ", {"ONU_LOS_ALERTS_ENABLED": "false"}):
+            self.assertEqual(onu_alerts.los_sites(cur), set())
+            self.assertFalse(onu_alerts.site_outage_was_los(cur, 1, T0, T0))
+        cur.execute.assert_not_called()
+
+    def test_stale_onu_status_means_site_alerts_as_before(self):
+        cur = mock.MagicMock()
+        cur.fetchone.return_value = (T0 - timedelta(hours=1),)
+        self.assertEqual(onu_alerts.los_sites(cur, now=T0), set())
+
+    def test_a_failure_falls_back_to_site_alerts(self):
+        cur = mock.MagicMock()
+        cur.execute.side_effect = lambda q, *a: (_ for _ in ()).throw(RuntimeError("db")) if "onu_customer_links" in q else None
+        cur.fetchone.return_value = (T0,)
+        self.assertEqual(onu_alerts.los_sites(cur, now=T0), set())
+        self.assertFalse(onu_alerts.site_outage_was_los(cur, 1, T0, T0))
+        self.assertIn("ROLLBACK TO SAVEPOINT los_sites", [c.args[0] for c in cur.execute.call_args_list])
+
+
 if __name__ == "__main__":
     unittest.main()
