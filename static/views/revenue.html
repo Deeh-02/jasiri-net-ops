@@ -32,6 +32,22 @@
         <!-- 2. Headline cards -->
         <div class="rev-cards" id="rev-cards"></div>
 
+        <!-- 2b. Income overview: each day (week, month) against the average -->
+        <div class="rev-section-head">
+            <h2 class="rev-h2">Income overview</h2>
+            <label class="rev-field">Show
+                <select id="rev-income-series" aria-label="Income overview period">
+                    <option value="daily_7">Last 7 days</option>
+                    <option value="daily_14" selected>Last 14 days</option>
+                    <option value="daily_30">Last 30 days</option>
+                    <option value="weekly_12">Last 12 weeks</option>
+                    <option value="monthly_12">Last 12 months</option>
+                    <option value="year_current">This year, by month</option>
+                </select>
+            </label>
+        </div>
+        <div class="rev-income" id="rev-income"></div>
+
         <!-- 3. Key findings -->
         <h2 class="rev-h2">Key findings</h2>
         <div class="rev-findings" id="rev-findings"></div>

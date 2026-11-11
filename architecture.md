@@ -1521,6 +1521,19 @@ once on return. "updated HH:MM" is the last *successful* fetch; a failed
 poll keeps the old figures and says "offline, last updated HH:MM" rather
 than going quietly stale. The comparison logic itself is untouched.
 
+### Revenue → Income overview (2026-11-11)
+
+`revenue_report.trend()` now also returns `overview` (from
+`income_overview(points, granularity)`): total, average (to the
+shilling), highest and lowest of the completed periods, formatted on the
+server like every other figure on the page, and sets each point's `name`
+("Wed 11 Nov") and `vs_average_pct`. The period still in progress is shown
+but never counted. New series `daily_14`. The page (`renderIncome` in
+`revenue.js`) only draws: tiles, a bar chart drawn at the width it's shown
+at (redrawn on resize), and a newest-first table; on phones the Progress
+column is hidden. Same endpoint, permission (`sites:view_revenue`) and
+polling as the Trend chart.
+
 ### Admin assistant — fixed read-only tools, enforced in code
 
 **Update 2026-11-11: "how do I…" app guide, per role.** (Owner's call.)

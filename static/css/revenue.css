@@ -5,7 +5,8 @@
 #view-revenue.is-loading .rev-cards,
 #view-revenue.is-loading .rev-findings,
 #view-revenue.is-loading .table-scroll,
-#view-revenue.is-loading .rev-rankings {
+#view-revenue.is-loading .rev-rankings,
+#view-revenue.is-loading .rev-income {
     opacity: 0.5;
     transition: opacity 0.15s ease;
 }
@@ -225,6 +226,64 @@
 .rev-trend-rule { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
 .rev-legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 11.5px; color: var(--text-dim); margin-top: 8px; }
 
+/* ---- Income overview ----
+   Green = at or above the average, orange = below, each also with ▲/▼;
+   today (this week, this month) so far is hatched and not counted. */
+.rev-section-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+                    margin: calc(var(--section-gap) + 6px) 0 12px; }
+.rev-section-head .rev-h2 { margin: 0; }
+.rev-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
+.rev-tile { background: var(--surface); border: 1px solid var(--border); border-top: 3px solid var(--border);
+            border-radius: 8px; padding: 12px 14px; text-align: center; min-width: 0; }
+.rev-tile.total { border-top-color: var(--info); }
+.rev-tile.average { border-top-color: var(--accent); }
+.rev-tile.highest { border-top-color: var(--accent); }
+.rev-tile.lowest { border-top-color: var(--warn); }
+.rev-tile-label { font-size: 12px; color: var(--text-dim); }
+.rev-tile-value { font-family: 'Space Grotesk', sans-serif; font-size: 24px; font-weight: 600; color: var(--text);
+                  margin-top: 4px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.rev-tile-sub { font-size: 11.5px; color: var(--text-dim); margin-top: 2px; }
+
+.rev-income-chart-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+                         padding: 12px 12px 10px; margin-bottom: 14px; }
+.rev-income-chart .bar.above { fill: var(--accent); }
+.rev-income-chart .bar.below { fill: var(--warn); }
+.rev-income-chart .bar.partial { fill: url(#rev-hatch); stroke: var(--accent); stroke-width: 1.5; }
+.rev-income-chart .hatch { stroke: var(--accent); stroke-width: 2; opacity: .55; }
+.rev-income-chart .hit { fill: transparent; }
+.rev-income-chart .slot:hover .bar { opacity: .8; }
+.rev-income-chart .slot:hover .hit { fill: var(--text); opacity: .05; }
+.rev-income-chart .avg-line { stroke: var(--text); stroke-width: 1.5; stroke-dasharray: 5 4; opacity: .7; }
+.rev-income-chart .base { stroke: var(--text-dim); stroke-width: 1; }
+
+.rev-key { display: inline-block; width: 12px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+.rev-key.above { background: var(--accent); }
+.rev-key.below { background: var(--warn); }
+.rev-key.avg { height: 0; border-top: 2px dashed var(--text); opacity: .7; border-radius: 0; vertical-align: 3px; }
+.rev-key.partial { border: 1.5px solid var(--accent);
+                   background: repeating-linear-gradient(45deg, transparent 0 3px, rgba(61, 220, 151, .5) 3px 5px); }
+
+.rev-income-table tbody tr { cursor: default; }
+.rev-income-table .rev-rank { color: var(--text-dim); width: 3ch; }
+.rev-progress-cell { width: 34%; min-width: 120px; }
+.rev-income-table th.rev-progress-cell { min-width: 0; }
+.rev-progress { height: 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.rev-progress-fill { height: 100%; border-radius: 6px; }
+.rev-progress-fill.above { background: var(--accent); }
+.rev-progress-fill.below { background: var(--warn); }
+.rev-progress-fill.partial { background: repeating-linear-gradient(45deg, var(--accent) 0 4px, transparent 4px 7px); }
+.rev-vs { display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 6px; white-space: nowrap;
+          border: 1px solid currentColor; }
+.rev-vs.above { color: var(--accent); }
+.rev-vs.below { color: var(--warn); }
+.rev-so-far { font-size: 12px; color: var(--text-dim); font-style: italic; }
+
+@media (max-width: 760px) {
+    .rev-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
 @media (max-width: 640px) {
     .rev-card-value { font-size: 21px; }
+    .rev-tile-value { font-size: 19px; }
+    .rev-income-table .rev-progress-cell { display: none; }
 }

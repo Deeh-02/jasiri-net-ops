@@ -9,6 +9,17 @@ and in `phase.md`'s own per-phase writeups.
 
 Started 2026-11-10 at the owner's request, after Phase 5 was merged to `main`.
 
+### Revenue: Income overview (2026-11-11)
+- New **Income overview** at the top of Reports → Revenue: Total, Average,
+  Highest and Lowest, a bar for each day (or week or month) in green when
+  it beat the average and orange when it didn't, with the average as a
+  dashed line, and a table of every period with its income, a progress bar
+  and how far it was above or below the average (▲ +11% / ▼ −14%).
+- Pick the range: last 7, 14 or 30 days, 12 weeks, 12 months, or this year
+  by month. Today (this week, this month) so far is shown hatched and is
+  left out of the total, average, highest and lowest, so a half day never
+  shows up as the lowest.
+
 ### "How do I…?" in the Ask assistant (2026-11-11)
 - Ask the assistant how to do something ("how do I send a broadcast?",
   "how do I move a battery?", "how do I issue cable?", "how do I reboot an
