@@ -19,6 +19,10 @@ Started 2026-11-10 at the owner's request, after Phase 5 was merged to `main`.
   set up for it and an admin can switch it on in Roles.
 - Everyone now has the Ask button, even people with no lookups, so they can
   at least ask how to use the app.
+- Specific questions work too ("how do I change the splitter?", "how do I
+  put an ONU in bridge mode?", "how do I mark a router faulty?"): each ONU
+  dialog has its own steps, and the assistant always checks the guide
+  before saying something isn't covered.
 
 ### OLT permissions per role (2026-11-11)
 - **Settings > Roles** has a new **Network & OLT** card (moved out of

@@ -112,6 +112,15 @@ class ByRole(unittest.TestCase):
             "how do I return leftover materials": "return_materials",
             "how do I mark a battery arrived": "track_movement",
             "how do I link an onu to a customer": "olt_link",
+            "how do I change the splitter of an ONU": "olt_location",
+            "how do I rename an onu": "olt_location",
+            "how do I add a vlan to an onu": "olt_vlans",
+            "how do I upgrade a customer's speed": "olt_speed",
+            "how do I put an onu in bridge mode": "olt_mode",
+            "how do I change the pppoe username on the onu": "olt_mode",
+            "how do I shut down a lan port": "olt_port",
+            "the onu says resync failed": "olt_resync",
+            "how do I mark a router as faulty": "edit_unit",
         }
         for question, guide_id in cases.items():
             self.assertEqual(titles(ask(ADMIN, question))[0], app_guide.BY_ID[guide_id]["title"], question)

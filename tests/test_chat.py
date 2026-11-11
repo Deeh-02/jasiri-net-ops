@@ -802,5 +802,49 @@ class PromptFile(unittest.TestCase):
             self.assertIn(area, text, area)
 
 
+
+class HowToGoesThroughTheGuide(unittest.TestCase):
+    """The model once answered "I don't have a guide for changing the
+    splitter" without asking the guide. It's sent back to check once."""
+
+    def run_with(self, question, replies):
+        seen = []
+
+        def fake_model(messages, tools=None, timeout_seconds=30):
+            seen.append([dict(m) for m in messages])
+            return next(replies)
+        with perms():
+            reply = chat.run_conversation(chat.build_messages(request(("user", question)), TECHNICIAN),
+                                          TECHNICIAN, ask_model=fake_model)
+        return reply, seen
+
+    def test_a_how_to_answered_without_the_guide_is_sent_back(self):
+        replies = iter([{"content": "I don't have a guide for that."},
+                        {"content": "", "tool_calls": [tool_call("get_how_to", '{"topic": "change splitter"}')]},
+                        {"content": "Here's how."}])
+        reply, seen = self.run_with("How do I change the splitter of an ONU?", replies)
+        self.assertEqual(reply["reply"], "Here's how.")
+        self.assertEqual(reply["checked"], ["app guide"])
+        self.assertIn("get_how_to", seen[1][-1]["content"])
+
+    def test_only_once(self):
+        replies = iter([{"content": "No guide."}, {"content": "Still no guide."}])
+        reply, seen = self.run_with("how do I fly to the moon", replies)
+        self.assertEqual(reply["reply"], "Still no guide.")
+        self.assertEqual(len(seen), 2)
+
+    def test_not_for_other_questions(self):
+        reply, seen = self.run_with("hello there", iter([{"content": "Hi!"}]))
+        self.assertEqual(reply["reply"], "Hi!")
+        self.assertEqual(len(seen), 1)
+
+    def test_the_pattern(self):
+        for q in ("How do I change the splitter?", "how to add a user", "Where do I find stock?",
+                  "can I reboot an ONU from here", "what do I click to send sms", "is there a way to export"):
+            self.assertTrue(chat.HOW_TO.search(q), q)
+        for q in ("Which sites are down?", "Tell me about JS45", "How much did we make?", "how many batteries"):
+            self.assertFalse(chat.HOW_TO.search(q), q)
+
+
 if __name__ == "__main__":
     unittest.main()

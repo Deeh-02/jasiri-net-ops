@@ -1215,10 +1215,12 @@ TOOLS = {
         required=("onu",))),
     "get_how_to": (get_how_to, EVERYONE, _schema(
         "get_how_to",
-        "How to do something in the OPS app, step by step: sending a broadcast, moving a battery, issuing "
-        "materials, submitting an activity report, authorizing or rebooting an ONU, adding users, changing a "
-        "password and so on. Only returns guides for what this person's account can do. With no topic: the list "
-        "of things they can do. Use it for any 'how do I…', 'where do I…' or 'can I…' question about the app.",
+        "The OPS user guide: step-by-step instructions for every page, button and dialog in the app "
+        "(batteries, sites, network status, the OLT and every ONU setting, activity reports, inventory, "
+        "reports, alerts and broadcasts, customers, users and roles, your own account). Always call it for "
+        "any 'how do I…', 'where do I…', 'can I…' or 'what do I click' question, however specific, before "
+        "answering; never decide yourself that a task isn't covered. Only returns steps for what this "
+        "person's account can do. With no topic: the list of things they can do.",
         {"topic": {"type": "string", "description": "what they want to do, in their words"}})),
 }
 

@@ -79,6 +79,9 @@ QUESTIONS = [
     ("How do I reboot a customer's ONU?", {"get_how_to"}),
     ("How can I change my password?", {"get_how_to"}),
     ("What can I do in this app?", {"get_how_to"}),
+    ("How do I change the splitter of an ONU?", {"get_how_to"}),
+    ("How do I mark a router as faulty?", {"get_how_to"}),
+    ("Where do I set the reorder level?", {"get_how_to"}),
     # Asked to do something: it can't, but it can say how
     ("Send an SMS to all customers saying the network is down.", {"get_how_to"}),
     # Things it must not look anything up for

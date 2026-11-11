@@ -1539,7 +1539,12 @@ than going quietly stale. The comparison logic itself is untouched.
 - Steps use the sidebar's own names; `tests/test_app_guide.py` checks every
   `where` against `static/index.html` and every permission against the
   roles/route maps, so renaming a page or button means updating the guide.
-- Eval: 46/46, including "how do I…" questions and "send an SMS to
+- **The guide is always consulted** (`HOW_TO` in `routers/chat.py`): a
+  "how do I / where do I / can I" question answered with no lookup at all
+  goes back once with `HOW_TO_NUDGE` (the model had said "no guide for
+  changing the splitter" without asking). ONU settings are one guide per
+  dialog (location, VLANs, speed, ethernet port, ONU mode, resync).
+- Eval: 49/49, including "how do I…" questions and "send an SMS to
   everyone" (now answered with the steps instead of nothing).
 
 **Update 2026-11-11: open to everyone, tools follow permissions; customers

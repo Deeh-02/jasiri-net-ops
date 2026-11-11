@@ -87,6 +87,13 @@ FIGURE = re.compile(r"\d[\d,.:]*")
 NUDGE = ("(Automatic check, not from the admin.) Your answer has figures but you didn't look anything up "
          "for this question. Call the right tool now. If no tool covers it, say you can't look that up "
          "here, without giving any figures.")
+# "How do I…" questions must go through the app guide: the model once said
+# "I don't have a guide for changing the splitter" without asking it.
+HOW_TO = re.compile(r"\b(how (do|can|should|would|to)\b|where (do|can|is|are)\b.*\b(i|we)\b|can (i|we)\b|"
+                    r"steps? (to|for)\b|is there a way|what do i (click|press))", re.I)
+HOW_TO_NUDGE = ("(Automatic check, not from the user.) This is a question about using the app and you didn't "
+                "check the app guide. Call get_how_to with their question now and answer from what it returns. "
+                "Only say there's no guide for it if get_how_to returns none.")
 NO_GUESS = ("I couldn't look that up, so I won't guess. I can check revenue, sites, the network, "
             "monitoring and alerts, batteries, stock, packages, customers and the OLT, and explain "
             "how to do things in the app.")
@@ -276,12 +283,20 @@ def run_conversation(messages, current_user, ask_model=deepseek.chat):
     timeout = _setting("CHAT_TIMEOUT_SECONDS", 30)
     question = next((m["content"] for m in reversed(messages) if m.get("role") == "user"), "")
     today = today_text()
-    checked, nudged = [], False
+    checked, nudged, guide_nudged, called = [], False, False, set()
+    has_guide = any(t["function"]["name"] == "get_how_to" for t in tools)
     for _round in range(_setting("CHAT_MAX_TOOL_ROUNDS", 4) + 1):
         reply = ask_model(messages, tools=tools or None, timeout_seconds=timeout)
         calls = reply.get("tool_calls") or []
         if not calls:
             text = (reply.get("content") or "").strip() or "Sorry, I don't have an answer for that."
+            if has_guide and not called and not guide_nudged and HOW_TO.search(question or ""):
+                guide_nudged = True
+                log.info("assistant answered a how-to without the guide; asked it to check (user=%s)",
+                         current_user.get("id"))
+                messages.append({"role": "assistant", "content": text})
+                messages.append({"role": "user", "content": HOW_TO_NUDGE})
+                continue
             if not checked and _ungrounded_figures(text, question, today):
                 if tools and not nudged:
                     nudged = True
@@ -300,6 +315,7 @@ def run_conversation(messages, current_user, ask_model=deepseek.chat):
         if not tools:
             break  # a model asking for tools it was never given: don't run anything
         messages.append({"role": "assistant", "content": reply.get("content") or "", "tool_calls": calls})
+        called.update((c.get("function") or {}).get("name") for c in calls)
         answers = _answer_tool_calls(calls, current_user)
         messages.extend(answers)
         for call, answer in zip(calls, answers):
