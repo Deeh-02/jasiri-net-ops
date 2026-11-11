@@ -1532,7 +1532,9 @@ and the OLT.** (Owner's call.)
   `tools_for(user)` sends the model only those; `run_tool()` checks again.
   `POST /chat` needs at least one tool (`require_assistant`, else 403);
   `GET /chat/access` tells the Ask button whether to show. Staff get a
-  fixed prompt line saying revenue is admins only.
+  fixed prompt line (`STAFF_LINE`) so a revenue question gets a plain
+  "that isn't something I can look up here", never a mention of admins or
+  access (owner's call: it shouldn't read as sales being hidden).
 - **New tools (21 in all):** `get_customer` (one customer: account, linked
   ONU with status/signal/open LOS, connected now, last 5 technician visits
   if the person can see the activity log), `get_onus` (OPS's ONU list by

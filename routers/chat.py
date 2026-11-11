@@ -92,9 +92,13 @@ NO_GUESS = ("I couldn't look that up, so I won't guess. I can check revenue, sit
 NO_GUESS_STAFF = "I couldn't look that up, so I won't guess."
 
 # Added for anyone who isn't an admin, whatever the prompt file says.
-STAFF_LINE = ("This person is a staff member, not an admin. Revenue and sales figures are for admins only: "
-              "if asked, say so and don't estimate them. Some areas may not be open to them; if there is no "
-              "tool for what they ask, say it isn't available to them here.")
+# Worded so the answer to a revenue question is the same plain "I can't
+# look that up here" as any topic without a tool: no mention of admins,
+# permissions or anything being kept from them (owner, 2026-11-11).
+STAFF_LINE = ("You have no tools for revenue, sales or money figures. If asked about them, just say that isn't "
+              "something you can look up here, the same way you would for any topic without a tool. Don't "
+              "mention admins, roles, permissions or access, and never estimate figures. Then offer what you "
+              "can help with.")
 
 ERRORS = {
     "timeout": (504, "The assistant took too long. Try again."),

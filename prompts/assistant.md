@@ -2,7 +2,8 @@
 The assistant's instructions (the "Ask" button). Everyone can use it since
 2026-11-11; the tools each person gets follow their permissions (revenue is
 admins only) and are decided in db/assistant_tools.py, not here. For staff
-the code also adds a line saying revenue is admins only. Read by routers/chat.py
+the code also adds a line (STAFF_LINE in routers/chat.py) so a revenue
+question gets a plain "I can't look that up here", with no mention of admins. Read by routers/chat.py
 on every question, so an edit here takes effect on the next question after a
 deploy. The comment block you're reading is removed before the model sees it.
 

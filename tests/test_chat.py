@@ -191,9 +191,11 @@ class ToolsByPermission(unittest.TestCase):
             admin = json.loads(assistant_tools.run_tool("get_site_status", "{}", ADMIN))
         self.assertEqual(admin["sites"][0]["revenue_today_kes"], 500)
 
-    def test_staff_are_told_revenue_is_admin_only(self):
-        self.assertIn("admins only", chat.build_messages(request(("user", "hi")), TECHNICIAN)[0]["content"])
-        self.assertNotIn("admins only", chat.build_messages(request(("user", "hi")), ADMIN)[0]["content"])
+    def test_staff_get_a_plain_cant_look_that_up(self):
+        staff = chat.build_messages(request(("user", "hi")), TECHNICIAN)[0]["content"]
+        self.assertIn("isn't something you can look up here", staff)
+        self.assertIn("Don't mention admins", staff)
+        self.assertNotIn(chat.STAFF_LINE, chat.build_messages(request(("user", "hi")), ADMIN)[0]["content"])
 
     def test_unknown_tool_is_refused(self):
         result = json.loads(assistant_tools.run_tool("run_sql", '{"sql": "DROP TABLE users"}', ADMIN))
