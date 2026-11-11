@@ -170,7 +170,11 @@ alert per PON port when 3+ ONUs go LOS within 2 minutes. Migration 0035
 `onu_alerts` (approved). The site-down schedule moved to the same shape
 (5, 15, 30 min, 1, 3, 6, 8 h, then twice a day), replacing 16 messages in
 12 h, at the owner's call ("feels like crying wolf"). Switch:
-ONU_LOS_ALERTS_ENABLED.
+ONU_LOS_ALERTS_ENABLED. Every LOS message (in-app, SMS, WhatsApp) is
+logged in `alert_deliveries` against its LOS alert, failures included, and
+shows on Reports > SMS Status named by customer, hotspot site or PON
+port: migration 0036 (approved 2026-11-11) makes `monitored_site_id`
+optional and adds `onu_alert_id`.
 
 ### 6B — Customer linking
 
@@ -240,8 +244,9 @@ Enable, disable or reboot one ONU at a time.
   the ONU page lists its action history. Switches: SMARTOLT_WRITES_ENABLED
   (all writes) and SMARTOLT_ACTION_REBOOT / _DISABLE / _ENABLE (each on
   unless set to false). Tested end to end against a local fake SmartOLT,
-  not yet on a real ONU: first real use should be a Reboot on a
-  non-customer ONU (for example the office).
+  and then on a real non-customer ONU by the owner (2026-11-11: all good).
+  Webhooks confirmed live ("live updates on") and the hotspot-site links
+  accepted on OLT > Links the same day.
 
 ### 6D — Provisioning and configuration
 

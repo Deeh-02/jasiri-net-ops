@@ -22,6 +22,7 @@ opened or closed while OPS's ONU status is stale (older than 15 minutes):
 silence then means "OPS doesn't know", never "everything is fine".
 Switched off with ONU_LOS_ALERTS_ENABLED=false.
 """
+import json
 import logging
 import os
 import threading
@@ -140,15 +141,36 @@ def _recipients(cur):
     return load_recipients(cur)
 
 
-def _send(recipients, title, message, link):
+def _log(cur, alert_id, user_id, channel, kind, recipient, status, response):
+    """One row in alert_deliveries (Reports > SMS Status), like site alerts.
+    Never stops a message going out: a failed log row is rolled back to its
+    own savepoint and only written to the server log."""
+    try:
+        cur.execute("SAVEPOINT onu_delivery")
+        cur.execute("""INSERT INTO alert_deliveries
+                           (onu_alert_id, user_id, channel, kind, recipient, status, provider_response)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+                    (alert_id, user_id, channel, kind, recipient, status,
+                     json.dumps(response) if response is not None else None))
+        cur.execute("RELEASE SAVEPOINT onu_delivery")
+    except Exception:
+        log.exception("onu_alerts: couldn't log a %s delivery for alert %s", channel, alert_id)
+        cur.execute("ROLLBACK TO SAVEPOINT onu_delivery")
+
+
+def _send(cur, alert_id, kind, recipients, title, message, link):
+    """Sends to every recipient and records each message, failures too."""
     for r in recipients:
         try:
             if r["in_app"]:
                 create_notification(r["id"], "onu_los", title, message, link=link)
+                _log(cur, alert_id, r["id"], "in_app", kind, None, "sent", None)
             if r["sms"] and r["phone"]:
-                send_sms(r["phone"], message)
+                ok, resp = send_sms(r["phone"], message)
+                _log(cur, alert_id, r["id"], "sms", kind, r["phone"], "sent" if ok else "failed", resp)
             if r["whatsapp"] and r["phone"]:
-                send_whatsapp(r["phone"], message)
+                ok, resp = send_whatsapp(r["phone"], message)
+                _log(cur, alert_id, r["id"], "whatsapp", kind, r["phone"], "sent" if ok else "not_configured", resp)
         except Exception:
             log.exception("onu_alerts: couldn't deliver to user %s", r.get("id"))
 
@@ -217,7 +239,7 @@ def evaluate(now=None):
                                LEFT JOIN locations loc ON loc.id = m.location_id""", (a["onu"], a["onu"]))
                 who = cur.fetchone()[0]
             message = render(t["onu_los_recovered"], {"WHO": who, "DURATION": duration(now - a["started_at"])})
-            _send(people(), f"{who}: fibre signal back", message, f"olt/onu/{a['onu']}")
+            _send(cur, a["id"], "onu_los_recovered", people(), f"{who}: fibre signal back", message, f"olt/onu/{a['onu']}")
         alerts = [a for a in alerts if not a.get("ended")]
 
         # 2. Open new ones: one per cut port, one per other LOS ONU.
@@ -251,9 +273,9 @@ def evaluate(now=None):
                     if not alert_settings.daily_slot_due(since, now):
                         continue
                     first, new_step = False, a["step"]
-                title, message, link = _message(t, a, members, first, now)
+                kind, title, message, link = _message(t, a, members, first, now)
                 cur.execute("UPDATE onu_alerts SET step = %s, last_sent_at = %s WHERE id = %s", (new_step, now, a["id"]))
-                _send(people(), title, message, link)
+                _send(cur, a["id"], kind, people(), title, message, link)
         conn.commit()
 
 
@@ -278,13 +300,13 @@ def _message(t, a, members, first, now):
                   "WHO_LIST": _who_list(members)}
         kind = "pon_los" if first else "pon_los_still"
         title = f"PON {a['pon']}: {onus(len(members))} without fibre"
-        return title, render(t[kind], values), "olt"
+        return kind, title, render(t[kind], values), "olt"
     m = members[0]
     values = {"WHO": m["who"], "ONU": m["name"] or m["sn"] or m["id"], "PORT": m["location"] or "?",
               "SINCE": since, "DURATION": lasted}
     kind = "onu_los" if first else "onu_los_still"
     title = f"{m['who']}: LOS" if first else f"{m['who']} still LOS"
-    return title, render(t[kind], values), f"olt/onu/{m['id']}"
+    return kind, title, render(t[kind], values), f"olt/onu/{m['id']}"
 
 
 # ---- Ticking (no scheduler) ----

@@ -4,6 +4,7 @@ fires. Pure rules, no database. Run:
   venv/bin/python -m unittest tests.test_onu_alerts -v
 """
 import unittest
+from unittest import mock
 from datetime import datetime, timedelta, timezone
 
 from db import alert_settings, monitoring_alerts, onu_alerts
@@ -56,6 +57,45 @@ class Schedule(unittest.TestCase):
 
     def test_durations(self):
         self.assertEqual([onu_alerts.duration(timedelta(minutes=m)) for m in (2, 60, 75, 1500)], ["2m", "1h", "1h 15m", "1d 1h"])
+
+
+class Deliveries(unittest.TestCase):
+    """Every LOS message is logged for Reports > SMS Status, failures too."""
+    def run_send(self, sms=(True, {"id": 1}), whatsapp=(False, {"error": "off"})):
+        cur = mock.MagicMock()
+        people = [{"id": 7, "in_app": True, "sms": True, "whatsapp": True, "phone": "0700000000"}]
+        with mock.patch.object(onu_alerts, "create_notification"), \
+             mock.patch.object(onu_alerts, "send_sms", return_value=sms), \
+             mock.patch.object(onu_alerts, "send_whatsapp", return_value=whatsapp):
+            onu_alerts._send(cur, 42, "onu_los", people, "t", "m", "olt")
+        return [c.args[1] for c in cur.execute.call_args_list if "INSERT INTO alert_deliveries" in c.args[0]]
+
+    def test_each_channel_logged_against_the_alert(self):
+        rows = self.run_send()
+        self.assertEqual([(r[0], r[1], r[2], r[3], r[5]) for r in rows],
+                         [(42, 7, "in_app", "onu_los", "sent"), (42, 7, "sms", "onu_los", "sent"),
+                          (42, 7, "whatsapp", "onu_los", "not_configured")])
+
+    def test_a_log_failure_never_stops_the_sms(self):
+        cur = mock.MagicMock()
+        cur.execute.side_effect = lambda q, *a: (_ for _ in ()).throw(RuntimeError("db")) if "INSERT" in q else None
+        people = [{"id": 7, "in_app": True, "sms": True, "whatsapp": False, "phone": "0700000000"}]
+        with mock.patch.object(onu_alerts, "create_notification"), \
+             mock.patch.object(onu_alerts, "send_sms", return_value=(True, {})) as sms:
+            onu_alerts._send(cur, 42, "onu_los", people, "t", "m", "olt")
+        sms.assert_called_once()
+
+    def test_failed_sms_is_logged_as_failed(self):
+        self.assertEqual(self.run_send(sms=(False, {"error": "x"}))[1][5], "failed")
+
+    def test_message_kinds(self):
+        t = {k: "{{WHO}}" for k in ("onu_los", "onu_los_still", "pon_los", "pon_los_still")}
+        a = {"pon": None, "started_at": T0}
+        m = [{"who": "Jane (JS1)", "name": "ONU1", "sn": "S", "id": "X", "location": "0/1/2"}]
+        with mock.patch.object(onu_alerts, "render", side_effect=lambda tpl, v: tpl):
+            self.assertEqual(onu_alerts._message(t, a, m, True, T0)[0], "onu_los")
+            self.assertEqual(onu_alerts._message(t, a, m, False, T0)[0], "onu_los_still")
+            self.assertEqual(onu_alerts._message(t, dict(a, pon="0/1"), m, True, T0)[0], "pon_los")
 
 
 if __name__ == "__main__":

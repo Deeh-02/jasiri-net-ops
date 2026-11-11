@@ -3,10 +3,18 @@ import json
 from db.connection import db_cursor, utc_iso
 
 # Reports > SMS Status: a read-only view over alert_deliveries (written by
-# db/monitoring_alerts.py). No schema of its own — this file only reads.
+# db/monitoring_alerts.py for sites and db/onu_alerts.py for ONU LOS). No
+# schema of its own — this file only reads.
 
 DEFAULT_LIMIT = 200
 CHANNELS = ("sms", "whatsapp", "in_app")
+
+# What an ONU LOS row is about: the whole PON port, else whoever the ONU is
+# linked to on OLT > Links, else the ONU itself.
+ONU_NAME = """CASE WHEN oa.pon IS NOT NULL THEN 'PON ' || oa.pon
+     ELSE COALESCE(oc.name || ' (' || oc.username || ')', oc.username,
+                   'Hotspot site ' || COALESCE(oml.name, om.name),
+                   'ONU ' || COALESCE(os.name, os.sn, oa.unique_external_id)) END"""
 
 
 def list_deliveries(since, until, channel=None, status=None, limit=DEFAULT_LIMIT):
@@ -24,11 +32,17 @@ def list_deliveries(since, until, channel=None, status=None, limit=DEFAULT_LIMIT
         cur.execute(
             f"""
             SELECT d.id, d.channel, d.kind, d.status, d.recipient, d.provider_response, d.sent_at,
-                   u.name, COALESCE(l.name, ms.name, 'VLAN ' || ms.vlan_id)
+                   u.name, COALESCE(l.name, ms.name, 'VLAN ' || ms.vlan_id, {ONU_NAME})
             FROM alert_deliveries d
             LEFT JOIN users u ON u.id = d.user_id
             LEFT JOIN monitored_sites ms ON ms.id = d.monitored_site_id
             LEFT JOIN locations l ON l.id = ms.location_id
+            LEFT JOIN onu_alerts oa ON oa.id = d.onu_alert_id
+            LEFT JOIN onu_state os ON os.unique_external_id = oa.unique_external_id
+            LEFT JOIN onu_customer_links ol ON ol.unique_external_id = oa.unique_external_id
+            LEFT JOIN ppp_customers oc ON oc.id = ol.customer_id
+            LEFT JOIN monitored_sites om ON om.id = ol.site_id
+            LEFT JOIN locations oml ON oml.id = om.location_id
             WHERE {" AND ".join(where)}
             ORDER BY d.sent_at DESC, d.id DESC
             LIMIT %s
