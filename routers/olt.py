@@ -199,19 +199,54 @@ def onu_action(onu_id: str, body: ActionRequest, current_user: dict = Depends(re
 # onu_config without echoing it back.
 class ConfigRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    change: Literal["resync", "speed", "port", "onu_mode", "wan_mode", "delete"]
+    change: Literal["resync", "speed", "port", "location", "vlans", "mode", "delete"]
+    # port
+    port: Optional[str] = Field(None, max_length=20)
+    mode: Optional[str] = Field(None, max_length=20)
+    dhcp: Optional[str] = Field(None, max_length=20)
+    # port (access VLAN) and mode (WAN VLAN-ID)
+    vlan: Optional[int] = Field(None, ge=1, le=4094)
+    # speed
+    upload: Optional[str] = Field(None, max_length=64)
+    download: Optional[str] = Field(None, max_length=64)
+    # location
+    zone: Optional[str] = Field(None, max_length=64)
+    odb: Optional[str] = Field(None, max_length=64)
+    odb_port: Optional[int] = Field(None, ge=1, le=128)
+    seal_number: Optional[str] = Field(None, max_length=64)
+    name: Optional[str] = Field(None, max_length=120)
+    address_or_comment: Optional[str] = Field(None, max_length=120)
+    contact: Optional[str] = Field(None, max_length=120)
+    # vlans
+    vlans: Optional[list[int]] = Field(None, max_length=64)
+    # mode
     onu_mode: Optional[str] = Field(None, max_length=20)
     wan_mode: Optional[str] = Field(None, max_length=20)
     configuration_method: Optional[str] = Field(None, max_length=10)
     username: Optional[str] = Field(None, max_length=200)
     password: Optional[str] = Field(None, max_length=200)
-    port: Optional[str] = Field(None, max_length=20)
-    mode: Optional[str] = Field(None, max_length=20)
-    vlan: Optional[int] = Field(None, ge=1, le=4094)
-    dhcp: Optional[str] = Field(None, max_length=20)
-    upload: Optional[str] = Field(None, max_length=64)
-    download: Optional[str] = Field(None, max_length=64)
+    ipv4_address: Optional[str] = Field(None, max_length=40)
+    subnet_mask: Optional[str] = Field(None, max_length=40)
+    gateway: Optional[str] = Field(None, max_length=40)
+    dns1: Optional[str] = Field(None, max_length=40)
+    dns2: Optional[str] = Field(None, max_length=40)
+    remote_access: Optional[str] = Field(None, max_length=10)
+    # delete
     confirm_sn: Optional[str] = Field(None, max_length=64)
+
+
+# The owner asked to see PPPoE passwords (2026-11-11). Admin only, read live
+# from SmartOLT on each click, never cached or stored; every reveal is in
+# the ONU's action history.
+@router.get("/olt/onus/{onu_id}/pppoe-password")
+def onu_pppoe_password(onu_id: str, response: Response, current_user: dict = Depends(require_admin)):
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        return {"password": onu_config.pppoe_password(onu_id, current_user["id"])}
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Unknown ONU")
+    except smartolt.SmartOLTError as e:
+        _smartolt_failed(e)
 
 
 @router.get("/olt/onus/{onu_id}/speed")

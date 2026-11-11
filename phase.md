@@ -108,7 +108,10 @@ the original order:
 - Migration 0032 (approved 2026-11-11): `onu_state.details` jsonb and
   `details_polled_at`, and the `onu_actions` audit table.
 - SmartOLT returns PPPoE and Wi-Fi passwords in plain text in its details
-  replies; OPS strips them from every reply and never shows them.
+  replies; OPS strips them from every reply. Since 2026-11-11 (owner's
+  call) an admin can click to see an ONU's PPPoE password: read live from
+  SmartOLT on that click, never cached or stored, and each reveal is in
+  the ONU's action history.
 
 ### 6A-W — Webhooks (added at the owner's call, 2026-11-10)
 
@@ -264,9 +267,8 @@ OpenAPI file first; async changes count as done only on `succeeded`.
     speed, so a package→profile table would only add a second, riskier
     limit. Admin picks upload/download from SmartOLT's internet profiles.
   - **Actions:** Resync config, Speed, Ethernet port (LAN / Access on an
-    attached VLAN / shut down), ONU mode (Routing / Bridging), WAN mode
-    (PPPoE / DHCP / Setup via ONU webpage), Delete (typed serial; refused
-    while linked to a customer or site).
+    attached VLAN / shut down), ONU mode, Delete (typed serial; refused
+    while linked to a customer or site). Location and VLANs added below.
   - **On from day one**, admin only. Switches SMARTOLT_ACTION_RESYNC /
     _SPEED / _PORTS / _MODE / _DELETE, plus SMARTOLT_WRITES_ENABLED.
 - Every change: live read first, checked against the ONU (port, attached
@@ -278,8 +280,19 @@ OpenAPI file first; async changes count as done only on `succeeded`.
   delete); not yet on a real ONU. First real use should be on a
   non-customer ONU: Resync on one of the two ONUs SmartOLT flags as
   "resync failed" is the lowest-risk start.
-- Not built: bulk changes (scope said "bulk changes last"), static-IP WAN,
-  Wi-Fi settings, restore factory defaults, CATV/VoIP.
+- **Added the same day, from the owner's SmartOLT screenshots:** Update
+  location details (zone, splitter and port, seal number, name, address or
+  comment, contact; opened by clicking any of those on the ONU page),
+  Update attached VLANs (tick the VLANs; the WAN VLAN can't be removed),
+  and one Update ONU mode dialog replacing the separate ONU/WAN mode ones:
+  WAN VLAN-ID, Routing/Bridging, WAN mode (Setup via ONU webpage, DHCP,
+  Static IP, PPPoE; a new PPPoE username can keep the current password)
+  and WAN remote access, sent as up to four calls in SmartOLT's order; if
+  one fails, the message says which steps were already done. Address and
+  contact are never kept in the audit row ("changed" only). PPPoE password
+  reveal for admins (see 6A). Switches SMARTOLT_ACTION_LOCATION, _VLANS.
+- Not built: bulk changes (scope said "bulk changes last"), latitude and
+  longitude, Wi-Fi settings, restore factory defaults, CATV/VoIP.
 
 **Safety rules for every write (6C and 6D):**
 1. Kill switch `SMARTOLT_WRITES_ENABLED`: false refuses every write; reads keep working.

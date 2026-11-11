@@ -425,6 +425,61 @@ function signalBox(label, dbm, grade) {
     return box;
 }
 
+// A fact an admin can click to change (opens that change's dialog).
+function editFact(o, label, value, kind) {
+    if (!o.can_act || !o.actions?.[kind]) return fact(label, value);
+    const b = el("button", "olt-fact-link", value == null || value === "" ? "—" : String(value));
+    b.type = "button";
+    b.dataset.onuConfig = kind;
+    b.title = `Change ${label.toLowerCase()}`;
+    return fact(label, b);
+}
+
+// PPPoE password: starred; an admin's click reads it live from SmartOLT
+// (never kept in OPS; the reveal is recorded in the ONU's history).
+function passwordFact(o) {
+    if (!o.pppoe_username) return fact("PPPoE password", "—");
+    if (!o.can_act) return fact("PPPoE password", "Admins only", { className: "olt-dim" });
+    const wrap = el("span", "olt-secret");
+    const text = el("span", "olt-mono", "••••••••");
+    text.id = "olt-pppoe-pass";
+    const b = el("button", "olt-eye", "Show");
+    b.type = "button";
+    b.id = "olt-pppoe-eye";
+    b.setAttribute("aria-label", "Show the PPPoE password");
+    wrap.append(text, b);
+    return fact("PPPoE password", wrap);
+}
+
+let passwordTimer = null;
+async function togglePassword() {
+    const text = $("olt-pppoe-pass"), b = $("olt-pppoe-eye"), o = state.onu;
+    if (!text || !b || !o) return;
+    clearTimeout(passwordTimer);
+    if (b.dataset.shown) {
+        text.textContent = "••••••••";
+        b.textContent = "Show";
+        delete b.dataset.shown;
+        return;
+    }
+    b.disabled = true;
+    b.textContent = "…";
+    try {
+        const { password } = await api(`/olt/onus/${encodeURIComponent(o.id)}/pppoe-password`);
+        if (state.onu?.id !== o.id) return;
+        text.textContent = password || "(none set)";
+        b.textContent = "Hide";
+        b.dataset.shown = "1";
+        passwordTimer = setTimeout(() => { if (b.dataset.shown) togglePassword(); }, 30000);
+        loadOnuActions(o.id);
+    } catch (e) {
+        b.textContent = "Show";
+        actionStatus(`Couldn't read the password: ${e.message}`, "bad");
+    } finally {
+        b.disabled = false;
+    }
+}
+
 function renderOnu(o) {
     $("olt-onu-title").textContent = o.name || o.sn || "ONU";
     $("olt-onu-facts").replaceChildren(
@@ -435,11 +490,12 @@ function renderOnu(o) {
         fact("GPON channel", (o.gpon_channel || o.pon_type || "").toUpperCase()),
         fact("SN", o.sn, { className: "olt-mono" }),
         fact("ONU type", o.onu_type),
-        fact("Zone", o.zone),
-        fact("Splitter", o.odb || "None"),
-        fact("Name", o.name),
-        fact("Address or comment", o.address || "None"),
-        fact("Contact", o.contact || "None"),
+        editFact(o, "Zone", o.zone, "location"),
+        editFact(o, "Splitter", o.odb ? `${o.odb}${o.odb_port ? ` · port ${o.odb_port}` : ""}` : "None", "location"),
+        editFact(o, "Seal number", o.seal_number || "None", "location"),
+        editFact(o, "Name", o.name, "location"),
+        editFact(o, "Address or comment", o.address || "None", "location"),
+        editFact(o, "Contact", o.contact || "None", "location"),
         fact("Authorization date", when(o.authorization_date)),
         fact("ONU external ID", o.id, { className: "olt-mono" }),
     );
@@ -461,11 +517,11 @@ function renderOnu(o) {
     $("olt-onu-service").replaceChildren(
         fact("TR069 profile", o.tr069 === "Enabled" ? (o.tr069_profile || "Enabled") : (o.tr069 || "Inactive")),
         fact("Mgmt IP", o.mgmt_ip_address || (o.mgmt_ip_mode ? `${o.mgmt_ip_mode}` : "Inactive")),
-        fact("Attached VLANs", o.attached_vlans.length ? o.attached_vlans.join(", ") : "—"),
-        fact("ONU mode", o.mode ? `${o.mode}${o.vlan ? ` - WAN vlan: ${o.vlan}` : ""}` : null),
-        fact("WAN setup mode", wan),
+        editFact(o, "Attached VLANs", o.attached_vlans.length ? o.attached_vlans.join(", ") : "—", "vlans"),
+        editFact(o, "ONU mode", o.mode ? `${o.mode}${o.vlan ? ` - WAN vlan: ${o.vlan}` : ""}` : null, "mode"),
+        editFact(o, "WAN setup mode", wan, "mode"),
         fact("PPPoE username", o.pppoe_username),
-        fact("PPPoE password", "Not shown in OPS", { className: "olt-dim" }),
+        passwordFact(o),
         fact("VoIP service", o.voip_service),
         fact("CATV", o.catv),
         fact("Admin state", o.administrative_status),
@@ -1015,7 +1071,7 @@ async function loadOnuActions(id) {
             const result = [el("span", `olt-badge ${cls}`, label)];
             if (a.response) result.push(el("div", "olt-dim", a.response));
             const tr = el("tr");
-            const what = [el("div", null, ACTION_TEXT[a.action]?.verb || CONFIG_TEXT[a.action]?.verb || a.action)];
+            const what = [el("div", null, ACTION_TEXT[a.action]?.verb || CONFIG_TEXT[a.action]?.verb || OTHER_VERB[a.action] || a.action)];
             if (a.summary && CONFIG_TEXT[a.action]) what.push(el("div", "olt-dim", a.summary));
             tr.append(cell("When", when(a.at), "olt-nowrap"), cell("Action", what),
                       cell("By", a.by || "—"), cell("Result", result));
@@ -1035,14 +1091,17 @@ const CONFIG_TEXT = {
              warn: "The ONU's ceiling changes at the OLT. The router's PPPoE plan still applies on top: a profile below the plan slows the customer down." },
     port: { button: "Ethernet port…", verb: "Ethernet port", title: "Ethernet port mode",
             warn: "Whatever is plugged into this port loses its connection if the mode or VLAN is wrong." },
-    onu_mode: { button: "ONU mode…", verb: "ONU mode", title: "ONU mode",
-                warn: "Routing ↔ Bridging changes who dials PPPoE. The customer is offline until the router behind it matches." },
-    wan_mode: { button: "WAN mode…", verb: "WAN mode", title: "WAN mode",
-                warn: "A wrong WAN setting takes the customer offline until it's put back." },
+    location: { button: "Location…", verb: "Location details", title: "Update location details",
+                warn: "" },
+    vlans: { button: "VLANs…", verb: "Attached VLANs", title: "Update attached VLANs",
+             warn: "After changing the VLANs, check the Ethernet ports and assign VLANs as needed." },
+    mode: { button: "ONU mode…", verb: "ONU mode", title: "Update ONU mode",
+            warn: "A wrong WAN VLAN, mode or login takes the customer offline until it's put back. After changing the WAN VLAN-ID, check the Ethernet ports." },
     delete: { button: "Delete ONU…", verb: "Delete ONU", title: "Delete ONU", danger: true,
               warn: "SmartOLT removes the ONU and all its configuration. While plugged in it shows under Unconfigured; authorizing it again starts from scratch." },
 };
-const WAN_LABEL = { pppoe: "PPPoE", dhcp: "DHCP", webpage: "Setup via ONU webpage" };
+const WAN_LABEL = { webpage: "Setup via ONU webpage", dhcp: "DHCP", static: "Static IP", pppoe: "PPPoE" };
+const OTHER_VERB = { view_password: "Viewed PPPoE password" };
 const PORT_LABEL = { lan: "LAN", access: "Access", shutdown: "Shut down" };
 const DHCP_CHOICES = ["No control", "From ISP", "From ONU", "Forbidden"];
 
@@ -1089,6 +1148,7 @@ function portText(p) {
 // What will be sent, and the before → after line. null = not ready yet.
 function configRequest() {
     const o = state.onu;
+    if (!$("olt-config-fields").querySelector("select, input")) return { body: null, preview: "" };   // still loading
     switch (cfg.kind) {
     case "speed": {
         const up = val("cfg-up"), down = val("cfg-down"), cur = cfg.speed?.current || {};
@@ -1116,23 +1176,72 @@ function configRequest() {
         const to = mode === "access" ? `Access ${body.vlan}` : PORT_LABEL[mode];
         return { body, preview: `${name}: ${portText(p)} → ${to}${body.dhcp ? `, DHCP ${body.dhcp}` : ""}` };
     }
-    case "onu_mode": {
-        const mode = val("cfg-onu-mode");
-        return mode === o.mode ? { body: null, preview: `Already ${mode}.` }
-            : { body: { change: "onu_mode", onu_mode: mode }, preview: `ONU mode ${o.mode || "?"} → ${mode}` };
-    }
-    case "wan_mode": {
-        const mode = val("cfg-wan"), body = { change: "wan_mode", wan_mode: mode };
-        $("cfg-pppoe").hidden = mode !== "pppoe";
-        if (val("cfg-method")) body.configuration_method = val("cfg-method");
-        let extra = "";
-        if (mode === "pppoe") {
-            body.username = val("cfg-user");
-            body.password = $("cfg-pass").value;
-            if (!body.username || !body.password) return { body: null, preview: "Fill in the PPPoE username and password." };
-            extra = `, username ${body.username}`;
+    case "location": {
+        const now = { zone: o.zone || "", odb: o.odb || "", odb_port: o.odb_port ?? null, seal_number: o.seal_number || "",
+                      name: o.name || "", address_or_comment: o.address || "", contact: o.contact || "" };
+        const body = { change: "location" }, parts = [];
+        const zone = val("cfg-zone"), odb = val("cfg-odb"), port = val("cfg-odb-port");
+        if (zone && zone !== now.zone) { body.zone = zone; parts.push(`Zone ${now.zone || "none"} → ${zone}`); }
+        if (!odb && now.odb && !body.zone) return { body: null, preview: "SmartOLT's API can't take a splitter off; do that in SmartOLT." };
+        if (odb && odb !== now.odb) { body.odb = odb; parts.push(`Splitter ${now.odb || "none"} → ${odb}`); }
+        if (port && (Number(port) !== now.odb_port || body.odb)) { body.odb_port = Number(port); parts.push(`Splitter port ${now.odb_port ?? "none"} → ${port}`); }
+        for (const [id, key, label] of [["cfg-seal", "seal_number", "Seal number"], ["cfg-name", "name", "Name"],
+                                         ["cfg-address", "address_or_comment", "Address or comment"], ["cfg-contact", "contact", "Contact"]]) {
+            const v = val(id);
+            if (v === now[key]) continue;
+            if (key === "name" && !v) return { body: null, preview: "Name can't be empty." };
+            body[key] = v;
+            parts.push(`${label} ${now[key] || "none"} → ${v || "none"}`);
         }
-        return { body, preview: `WAN mode ${o.wan_mode || "?"} → ${WAN_LABEL[mode]}${extra}` };
+        return parts.length ? { body, preview: parts.join(" · ") } : { body: null, preview: "No change yet." };
+    }
+    case "vlans": {
+        const want = [...document.querySelectorAll("#olt-config-fields input[data-vlan]:checked")].map(i => Number(i.dataset.vlan));
+        const have = o.attached_vlans || [];
+        const add = want.filter(v => !have.includes(v)), remove = have.filter(v => !want.includes(v));
+        if (!add.length && !remove.length) return { body: null, preview: "No change yet." };
+        const parts = [];
+        if (add.length) parts.push(`Add VLAN ${add.join(", ")}`);
+        if (remove.length) parts.push(`Remove VLAN ${remove.join(", ")}`);
+        const used = (o.ethernet_ports || []).filter(p => p.mode === "Access" && remove.includes(Number(p.vlan)));
+        if (used.length) parts.push(`⚠ ${used.map(p => p.port).join(", ")} use${used.length === 1 ? "s" : ""} a removed VLAN`);
+        return { body: { change: "vlans", vlans: want }, preview: parts.join(" · ") };
+    }
+    case "mode": {
+        const body = { change: "mode" }, parts = [];
+        const vlan = Number(val("cfg-wan-vlan"));
+        if (vlan && vlan !== Number(o.vlan)) { body.vlan = vlan; parts.push(`WAN VLAN ${o.vlan || "?"} → ${vlan}`); }
+        const mode = val("cfg-onu-mode");
+        body.onu_mode = mode;
+        if (mode !== o.mode) parts.push(`ONU mode ${o.mode || "?"} → ${mode}`);
+        $("cfg-wan-block").hidden = mode !== "Routing";
+        if (mode === "Routing") {
+            const wan = val("cfg-wan"), method = val("cfg-method");
+            $("cfg-pppoe").hidden = wan !== "pppoe";
+            $("cfg-static").hidden = wan !== "static";
+            const wanBody = { wan_mode: wan };
+            if (method) wanBody.configuration_method = method;
+            let changes = WAN_LABEL[wan] !== o.wan_mode || !!method, extra = "";
+            if (wan === "pppoe") {
+                const user = val("cfg-user"), pass = $("cfg-pass").value;
+                if (!user) return { body: null, preview: "Fill in the PPPoE username." };
+                if (!pass && o.wan_mode !== "PPPoE") return { body: null, preview: "Type the PPPoE password." };
+                if (user !== (o.pppoe_username || "") || pass) changes = true;
+                Object.assign(wanBody, { username: user }, pass ? { password: pass } : {});
+                extra = `, username ${user}${pass ? "" : " (same password)"}`;
+            } else if (wan === "static") {
+                const f = { ipv4_address: val("cfg-ip"), subnet_mask: val("cfg-mask"), gateway: val("cfg-gw"), dns1: val("cfg-dns1") };
+                if (Object.values(f).some(v => !v)) return { body: null, preview: "Fill in IP address, subnet mask, gateway and DNS 1." };
+                if (val("cfg-dns2")) f.dns2 = val("cfg-dns2");
+                Object.assign(wanBody, f);
+                changes = true;
+                extra = `, ${f.ipv4_address}/${f.subnet_mask} via ${f.gateway}`;
+            }
+            if (changes) { Object.assign(body, wanBody); parts.push(`WAN mode ${o.wan_mode || "?"} → ${WAN_LABEL[wan]}${extra}`); }
+        }
+        const remote = val("cfg-remote");
+        if (remote) { body.remote_access = remote; parts.push(`WAN remote access ${remote === "enable" ? "on" : "off"}`); }
+        return parts.length ? { body, preview: parts.join(" · ") } : { body: null, preview: "No change yet." };
     }
     case "delete": {
         if (linkedTo(o)) return { body: null, preview: "Linked to a customer or hotspot site: unlink it on OLT → Links first." };
@@ -1205,28 +1314,122 @@ async function openConfig(kind) {
         };
         $("cfg-port").addEventListener("change", () => { syncPort(); refreshConfig(); });
         syncPort();
-    } else if (kind === "onu_mode") {
-        box.append(field(`ONU mode (now ${o.mode || "?"})`, selectOf("cfg-onu-mode", [["Routing", "Routing"], ["Bridging", "Bridging"]],
-                                                                      o.mode === "Routing" ? "Bridging" : "Routing")));
-    } else if (kind === "wan_mode") {
-        const now = Object.entries(WAN_LABEL).find(([, l]) => l === o.wan_mode)?.[0];
-        const pppoe = el("div", "olt-config-fields olt-auth-wide");
-        pppoe.id = "cfg-pppoe";
-        const user = o.pppoe_username || (o.customer && !o.customer.site && !o.customer.not_a_customer ? o.customer.username : "") || "";
-        pppoe.append(
-            field("PPPoE username", inputOf("cfg-user", "text", user, { maxLength: 64 })),
-            field("PPPoE password (sent to SmartOLT, never kept in OPS)", inputOf("cfg-pass", "password", "", { maxLength: 64, autocomplete: "new-password" })),
-        );
-        box.append(
-            field(`WAN mode (now ${o.wan_mode || "?"})`, selectOf("cfg-wan", Object.entries(WAN_LABEL), now || "pppoe")),
-            field("Configuration method", selectOf("cfg-method", [["", "SmartOLT's default"], ["OMCI", "OMCI"], ["TR069", "TR069"]])),
-            pppoe,
-        );
+    } else if (kind === "location" || kind === "vlans" || kind === "mode") {
+        box.append(el("p", "olt-dim olt-auth-wide", "Loading SmartOLT's lists…"));
+        refreshConfig();
+        let opts;
+        try {
+            opts = await api(`/olt/authorize-options?olt_id=${encodeURIComponent(o.olt_id || 1)}&pon_type=${encodeURIComponent((o.pon_type || "gpon").toLowerCase())}`);
+        } catch (e) {
+            box.replaceChildren();
+            configMessage(`Couldn't load SmartOLT's lists: ${e.message}`);
+            return;
+        }
+        if (cfg.kind !== kind) return;
+        box.replaceChildren();
+        if (kind === "location") buildLocation(box, o, opts);
+        else if (kind === "vlans") buildVlans(box, o, opts);
+        else buildMode(box, o, opts);
     } else if (kind === "delete") {
         box.append(field(`Type the serial (${o.sn}) to confirm`, inputOf("cfg-sn", "text", "", { maxLength: 64 }), true));
     }
     refreshConfig();
     box.querySelector("select, input")?.focus();
+}
+
+function vlanLabel(v) {
+    return `${v.vlan}${v.description ? ` - ${v.description}` : ""}`;
+}
+
+function buildLocation(box, o, opts) {
+    const zones = opts.zones || [];
+    const zoneSel = selectOf("cfg-zone", [...(o.zone && !zones.some(z => z.name === o.zone) ? [[o.zone, o.zone]] : []),
+                                          ...zones.map(z => [z.name, z.name])], o.zone || "");
+    const odbSel = selectOf("cfg-odb", [["", "None"]]);
+    const portSel = selectOf("cfg-odb-port", [["", "None"]]);
+    let splitters = [];
+    const fillPorts = keep => {
+        const sp = splitters.find(x => x.name === val("cfg-odb"));
+        const n = sp?.ports || 0;
+        portSel.replaceChildren(option("", "None"), ...Array.from({ length: n }, (_, i) => option(String(i + 1), String(i + 1))));
+        if (keep && o.odb_port) portSel.value = String(o.odb_port);
+    };
+    const loadSplitters = async keep => {
+        const z = zones.find(x => x.name === val("cfg-zone"));
+        odbSel.replaceChildren(option("", "Loading…"));
+        try { splitters = z ? (await api(`/olt/zones/${z.id}/odbs`)).odbs || [] : []; } catch { splitters = []; }
+        odbSel.replaceChildren(option("", "None"), ...splitters.map(x => option(x.name, x.name)));
+        if (keep && o.odb && splitters.some(x => x.name === o.odb)) odbSel.value = o.odb;
+        fillPorts(keep);
+        refreshConfig();
+    };
+    zoneSel.addEventListener("change", () => loadSplitters(false));
+    odbSel.addEventListener("change", () => fillPorts(false));
+    box.append(
+        field("Zone", zoneSel), field("Splitter", odbSel), field("Splitter port", portSel),
+        field("Seal number", inputOf("cfg-seal", "text", o.seal_number || "", { maxLength: 64 })),
+        field("Name", inputOf("cfg-name", "text", o.name || "", { maxLength: 120 })),
+        field("Address or comment", inputOf("cfg-address", "text", o.address || "", { maxLength: 120 })),
+        field("Contact", inputOf("cfg-contact", "text", o.contact || "", { maxLength: 120 }), true),
+    );
+    loadSplitters(true);
+}
+
+function buildVlans(box, o, opts) {
+    const have = o.attached_vlans || [];
+    const all = [...(opts.vlans || [])];
+    for (const v of have) if (!all.some(x => x.vlan === v)) all.push({ vlan: v });
+    all.sort((a, b) => a.vlan - b.vlan);
+    const list = el("div", "olt-vlan-list olt-auth-wide");
+    for (const v of all) {
+        const l = el("label", "olt-vlan");
+        const cb = el("input");
+        cb.type = "checkbox";
+        cb.dataset.vlan = String(v.vlan);
+        cb.checked = have.includes(v.vlan);
+        const wan = Number(o.vlan) === v.vlan;
+        if (wan) { cb.disabled = true; cb.title = "The WAN VLAN: change it under ONU mode first"; }
+        l.append(cb, document.createTextNode(` ${vlanLabel(v)}${wan ? " (WAN)" : ""}`));
+        list.append(l);
+    }
+    box.append(el("p", "olt-dim olt-auth-wide", "Tick every VLAN this ONU should carry."), list);
+}
+
+function buildMode(box, o, opts) {
+    const vlans = [...(opts.vlans || [])];
+    if (o.vlan && !vlans.some(v => v.vlan === Number(o.vlan))) vlans.push({ vlan: Number(o.vlan) });
+    vlans.sort((a, b) => a.vlan - b.vlan);
+    const now = Object.entries(WAN_LABEL).find(([, l]) => l === o.wan_mode)?.[0] || "webpage";
+    const wanBlock = el("div", "olt-config-fields olt-auth-wide");
+    wanBlock.id = "cfg-wan-block";
+    const pppoe = el("div", "olt-config-fields olt-auth-wide");
+    pppoe.id = "cfg-pppoe";
+    const user = o.pppoe_username || (o.customer && !o.customer.site && !o.customer.not_a_customer ? o.customer.username : "") || "";
+    pppoe.append(
+        field("PPPoE username", inputOf("cfg-user", "text", user, { maxLength: 64 })),
+        field("PPPoE password", inputOf("cfg-pass", "password", "", { maxLength: 64, autocomplete: "new-password",
+              placeholder: o.wan_mode === "PPPoE" ? "Leave empty to keep the current one" : "" })),
+    );
+    const stat = el("div", "olt-config-fields olt-auth-wide");
+    stat.id = "cfg-static";
+    stat.append(
+        field("IP address", inputOf("cfg-ip", "text", o.wan_mode === "Static IP" ? (o.ip_address || "") : "", { maxLength: 40 })),
+        field("Subnet mask", inputOf("cfg-mask", "text", "", { maxLength: 40, placeholder: "255.255.255.0" })),
+        field("Gateway", inputOf("cfg-gw", "text", "", { maxLength: 40 })),
+        field("DNS 1", inputOf("cfg-dns1", "text", "", { maxLength: 40 })),
+        field("DNS 2 (optional)", inputOf("cfg-dns2", "text", "", { maxLength: 40 })),
+    );
+    wanBlock.append(
+        field(`WAN mode (now ${o.wan_mode || "?"})`, selectOf("cfg-wan", Object.entries(WAN_LABEL), now)),
+        field("Configuration method", selectOf("cfg-method", [["", "SmartOLT's default"], ["OMCI", "OMCI"], ["TR069", "TR069"]])),
+        pppoe, stat,
+    );
+    box.append(
+        field("WAN VLAN-ID", selectOf("cfg-wan-vlan", vlans.map(v => [String(v.vlan), vlanLabel(v)]), o.vlan ? String(Number(o.vlan)) : "")),
+        field("ONU mode", selectOf("cfg-onu-mode", [["Routing", "Routing"], ["Bridging", "Bridging"]], o.mode || "Routing")),
+        wanBlock,
+        field("WAN remote access", selectOf("cfg-remote", [["", "Leave as is"], ["enable", "Enabled"], ["disable", "Disabled"]])),
+    );
 }
 
 function closeConfig() {
@@ -1269,7 +1472,7 @@ async function submitConfig(e) {
         title: `${t.title}?`,
         message: `${whoIsOn(o)}\nONU: ${o.name || "—"}\nSerial: ${o.sn || o.id}\n\n${preview}\n\n${t.warn}`,
         confirmLabel: kind === "delete" ? "Delete" : "Apply",
-        danger: kind === "delete" || kind === "wan_mode" || kind === "onu_mode",
+        danger: kind === "delete" || kind === "mode",
     });
     if (!ok) return;
     cfg.busy = true;
@@ -1449,6 +1652,13 @@ export function initOlt() {
         const b = e.target.closest("button[data-onu-config]");
         if (b && !b.disabled) openConfig(b.dataset.onuConfig);
     });
+    for (const id of ["olt-onu-facts", "olt-onu-service"]) {
+        $(id).addEventListener("click", e => {
+            const b = e.target.closest("button[data-onu-config]");
+            if (b) openConfig(b.dataset.onuConfig);
+            if (e.target.closest("#olt-pppoe-eye")) togglePassword();
+        });
+    }
     $("olt-config-form").addEventListener("input", refreshConfig);
     $("olt-config-form").addEventListener("change", refreshConfig);
     $("olt-config-form").addEventListener("submit", submitConfig);

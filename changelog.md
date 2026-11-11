@@ -50,8 +50,17 @@ Started 2026-11-10 at the owner's request, after Phase 5 was merged to `main`.
 - **Delete** only works on an ONU that isn't linked to a customer or site,
   and you type its serial to confirm. It then shows under Unconfigured.
 - The ONU page flags **Last resync failed** when SmartOLT says so.
+- **Location…** (zone, splitter and port, seal number, name, address or
+  comment, contact), **VLANs…** (tick the VLANs the ONU carries) and one
+  **ONU mode…** dialog (WAN VLAN-ID, Routing/Bridging, WAN mode including
+  Static IP, WAN remote access), laid out like SmartOLT's. Click Zone,
+  Splitter, Name, Address, Contact, Attached VLANs, ONU mode or WAN setup
+  mode on the ONU page to open the right one.
+- **PPPoE password:** admins can click **Show** to see it. It's read from
+  SmartOLT at that moment, hides again after 30 seconds, is never kept in
+  OPS, and each look is listed in the ONU's history.
 - Each change can be switched off on its own (`SMARTOLT_ACTION_RESYNC`,
-  `_SPEED`, `_PORTS`, `_MODE`, `_DELETE`); all writes stop with
+  `_SPEED`, `_PORTS`, `_LOCATION`, `_VLANS`, `_MODE`, `_DELETE`); all writes stop with
   `SMARTOLT_WRITES_ENABLED=false`. No database change.
 
 ### 6C: Reboot, Disable and Enable an ONU (2026-11-11)

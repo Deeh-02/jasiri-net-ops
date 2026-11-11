@@ -2048,8 +2048,13 @@ it waits.
 **Configuration changes (6D)** are `db/onu_config.py`, behind
 `POST /olt/onus/{id}/config` (admin only; `GET /olt/onus/{id}/speed` feeds
 the speed dialog). Resync config, speed profiles, Ethernet port mode (LAN /
-Access on an attached VLAN / shut down), ONU mode, WAN mode (PPPoE / DHCP /
-Setup via ONU webpage) and delete. `change()` reads the ONU live, checks the
+Access on an attached VLAN / shut down), location details, attached VLANs,
+ONU mode (WAN VLAN-ID, Routing/Bridging, WAN mode incl. static IP, WAN
+remote access: up to four calls in SmartOLT's order, the error naming the
+steps already done) and delete. `plan()` returns a list of steps.
+Address and contact are compared live but stored only as "changed".
+`GET /olt/onus/{id}/pppoe-password` (admin, no-store) reads the password
+live for the reveal on the ONU page and records a `view_password` row. `change()` reads the ONU live, checks the
 request fits it (`plan()`: the port exists, the VLAN is attached, the speed
 profile is in SmartOLT's list, delete needs the typed serial and no customer
 or site link), writes a `pending` row to `onu_actions` with a one-line
@@ -2060,7 +2065,7 @@ then drops its `onu_state` row and any "not a customer" mark. A PPPoE
 password typed for a WAN change is sent to SmartOLT only: `plan()` keeps it
 out of the audit request and its errors never quote it. Shares 6C's
 one-action-per-ONU lock. Switches: `SMARTOLT_ACTION_RESYNC`, `_SPEED`,
-`_PORTS`, `_MODE`, `_DELETE`, all on by default.
+`_PORTS`, `_LOCATION`, `_VLANS`, `_MODE`, `_DELETE`, all on by default.
 
 **LOS alerts** (`db/onu_alerts.py`, table `onu_alerts`, 0035) run from
 `tick()`: at most once a minute off the router heartbeat and the OLT page,
