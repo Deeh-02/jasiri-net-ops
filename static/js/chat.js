@@ -1,9 +1,10 @@
 import { authHeaders, getCurrentUser, registerAppShownHandler, registerLogoutHandler } from "./common.js";
 
-// The admin assistant: a floating "Ask" button on every page that opens a
-// chat panel. Admin only — the button isn't even created for anyone else,
-// and POST /chat refuses them too. The browser only talks to /chat; the
-// DeepSeek key and address live on the server.
+// The assistant: a floating "Ask" button on every page that opens a chat
+// panel. Shown to anyone the server says has something to ask about
+// (GET /chat/access: their permissions decide which lookups they get, and
+// revenue is admins only); POST /chat checks again. The browser only talks
+// to /chat; the DeepSeek key and address live on the server.
 //
 // The conversation is a plain array of {role, content} (user/assistant turns
 // only), sent in full with each question and mirrored to sessionStorage so a
@@ -51,14 +52,14 @@ function buildWidget() {
         <header class="chat-header">
             <div>
                 <div class="chat-title">Assistant</div>
-                <div class="chat-subtitle">Reads revenue, sites, packages and customers. Can't change anything.</div>
+                <div class="chat-subtitle">Looks things up for you. Can't change anything.</div>
             </div>
             <button type="button" class="chat-header-btn" data-chat="new" title="Start a new chat">New</button>
             <button type="button" class="chat-header-btn" data-chat="close" aria-label="Close the assistant">✕</button>
         </header>
         <div class="chat-feed" role="log" aria-live="polite"></div>
         <form class="chat-form">
-            <textarea class="chat-input" rows="1" maxlength="${MAX_CHARS}" placeholder="Ask about revenue, sites, packages, customers…" aria-label="Your question"></textarea>
+            <textarea class="chat-input" rows="1" maxlength="${MAX_CHARS}" placeholder="Ask about a customer, a site, the OLT, batteries…" aria-label="Your question"></textarea>
             <button type="submit" class="chat-send">Send</button>
         </form>`;
 
@@ -216,11 +217,16 @@ export function initChat() {
     });
     els.input.addEventListener("input", autoGrow);
 
-    registerAppShownHandler(() => {
-        const isAdmin = getCurrentUser()?.role === "admin";
-        els.launcher.hidden = !isAdmin;
+    registerAppShownHandler(async () => {
+        els.launcher.hidden = true;
         els.panel.hidden = true;
-        if (isAdmin) loadHistory();
+        let available = false;
+        try {
+            const res = await fetch("/chat/access", { headers: authHeaders() });
+            available = res.ok && (await res.json()).available === true;
+        } catch { /* offline: no button */ }
+        els.launcher.hidden = !available;
+        if (available) loadHistory();
     });
     registerLogoutHandler(() => {
         try { sessionStorage.removeItem(storageKey()); } catch { /* nothing stored */ }

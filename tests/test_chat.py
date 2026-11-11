@@ -14,7 +14,6 @@ from pydantic import ValidationError
 
 from db import assistant_tools, deepseek
 from routers import chat
-from routers.permissions import require_admin
 
 RECORDS_START = date(2026, 9, 21)
 _records_patch = mock.patch.object(assistant_tools, "_records_start", return_value=RECORDS_START)
@@ -101,44 +100,100 @@ class RequestChecks(unittest.TestCase):
         self.assertIn("call the tool again now", system)
 
 
-class AdminOnly(unittest.TestCase):
-    def test_only_admin_passes(self):
-        self.assertIs(require_admin(ADMIN), ADMIN)
-        for user in (TECHNICIAN, CUSTOM_ROLE, {"id": 4, "role": "", "role_id": None}):
-            with self.assertRaises(HTTPException) as caught:
-                require_admin(user)
-            self.assertEqual(caught.exception.status_code, 403)
+def perms(*granted):
+    """user_has_permission for a staff member who has exactly these."""
+    return mock.patch("routers.permissions.user_has_permission",
+                      side_effect=lambda user, section, action: (section, action) in granted)
 
-    def test_the_chat_route_is_guarded(self):
+
+class Access(unittest.TestCase):
+    """Since 2026-11-11 everyone may ask; each tool follows the permission of
+    the page it reads, and revenue is admins only."""
+    def test_the_chat_route_needs_at_least_one_tool(self):
         route = next(r for r in chat.router.routes if r.path == "/chat")
-        self.assertIn(require_admin, [d.call for d in route.dependant.dependencies])
+        self.assertIn(chat.require_assistant, [d.call for d in route.dependant.dependencies])
+        self.assertIs(chat.require_assistant(ADMIN), ADMIN)
+        with perms():
+            with self.assertRaises(HTTPException) as caught:
+                chat.require_assistant(TECHNICIAN)
+        self.assertEqual(caught.exception.status_code, 403)
+        with perms(("batteries", "view")):
+            self.assertIs(chat.require_assistant(TECHNICIAN), TECHNICIAN)
+
+    def test_access_endpoint(self):
+        with perms(("sites", "view_network")):
+            got = chat.chat_access(current_user=TECHNICIAN)
+        self.assertTrue(got["available"])
+        self.assertIn("OLT (live)", got["areas"])
+        with perms():
+            self.assertEqual(chat.chat_access(current_user=TECHNICIAN), {"available": False, "areas": []})
 
 
-class ToolsByRole(unittest.TestCase):
+class ToolsByPermission(unittest.TestCase):
+    def names(self, user):
+        return {t["function"]["name"] for t in assistant_tools.tools_for(user)}
+
     def test_admin_gets_every_tool(self):
-        names = {t["function"]["name"] for t in assistant_tools.tools_for(assistant_tools.role_for(ADMIN))}
-        self.assertEqual(names, {
+        self.assertEqual(self.names(ADMIN), set(assistant_tools.TOOLS))
+        self.assertEqual(set(assistant_tools.TOOLS), {
             "get_revenue_summary", "get_revenue_history", "get_site_performance", "get_site_status",
-            "get_site_contact", "get_packages", "lookup_customer",
-            "get_network_status", "get_pppoe_clients", "get_network_events",
+            "get_site_contact", "get_packages", "lookup_customer", "get_customer",
+            "get_network_status", "get_pppoe_clients", "get_network_events", "get_onus", "get_onu_live",
             "get_fleet_report", "get_site_history", "get_alert_log",
             "get_batteries", "get_battery_history", "get_stock", "get_stock_movements", "get_cable_stock"})
+
+    def test_every_tool_has_an_access_rule(self):
+        self.assertEqual(set(assistant_tools.ACCESS), set(assistant_tools.TOOLS))
 
     def test_every_schema_is_strict_and_named_after_its_key(self):
         for key, (_fn, _roles, schema) in assistant_tools.TOOLS.items():
             self.assertEqual(schema["function"]["name"], key)
             self.assertIs(schema["function"]["parameters"]["additionalProperties"], False, key)
 
-    def test_everyone_else_gets_none(self):
-        for user in (TECHNICIAN, CUSTOM_ROLE, {}, {"role": None}, {"role": "Admin"}):
-            self.assertEqual(assistant_tools.tools_for(assistant_tools.role_for(user)), [], user)
+    def test_staff_never_get_revenue(self):
+        everything = [(sec, act) for rule in assistant_tools.ACCESS.values() if rule != "admin" for sec, act in rule]
+        with perms(*everything, ("sites", "view_revenue")):
+            names = self.names(CUSTOM_ROLE)
+        self.assertFalse(names & {"get_revenue_summary", "get_revenue_history", "get_site_performance"})
+        self.assertIn("get_onu_live", names)
 
-    def test_dispatcher_refuses_a_non_admin_and_never_runs_the_tool(self):
+    def test_tools_follow_page_permissions(self):
+        with perms(("batteries", "view")):
+            self.assertEqual(self.names(TECHNICIAN), {"get_batteries", "get_battery_history"})
+        with perms(("sites", "view_network")):
+            self.assertEqual(self.names(TECHNICIAN), {"lookup_customer", "get_customer", "get_network_status",
+                                                      "get_pppoe_clients", "get_network_events", "get_onus", "get_onu_live"})
+
+    def test_no_permissions_no_tools(self):
+        with perms():
+            for user in (TECHNICIAN, CUSTOM_ROLE, {"role": "Admin"}):
+                self.assertEqual(assistant_tools.tools_for(user), [], user)
+        self.assertEqual(assistant_tools.tools_for({}), [])
+
+    def test_dispatcher_refuses_staff_revenue_and_never_runs_the_tool(self):
         spy = mock.Mock(return_value={"secret": "revenue"})
-        with mock.patch.dict(assistant_tools.TOOLS, {"get_revenue_summary": (spy, {"admin"}, {})}):
+        with mock.patch.dict(assistant_tools.TOOLS, {"get_revenue_summary": (spy, None, {})}), perms(("sites", "view_revenue")):
             result = json.loads(assistant_tools.run_tool("get_revenue_summary", "{}", TECHNICIAN))
         self.assertEqual(result, {"error": "not authorized"})
         spy.assert_not_called()
+
+    def test_site_status_has_no_revenue_for_staff(self):
+        sites = [{"name": "ACK", "state": "online", "state_since": None, "sessions": 3, "sessions_at_drop": None,
+                  "uptime_30d_pct": 99, "ack": None, "revenue_today_kes": 500}]
+        with mock.patch.object(assistant_tools.monitoring, "get_site_statuses", return_value=sites) as get, \
+             mock.patch.object(assistant_tools.monitoring, "get_last_ingest_at", return_value=None), \
+             perms(("sites", "view_status")):
+            staff = json.loads(assistant_tools.run_tool("get_site_status", "{}", TECHNICIAN))
+        get.assert_called_with(include_revenue=False)
+        self.assertNotIn("revenue_today_kes", staff["sites"][0])
+        with mock.patch.object(assistant_tools.monitoring, "get_site_statuses", return_value=sites), \
+             mock.patch.object(assistant_tools.monitoring, "get_last_ingest_at", return_value=None):
+            admin = json.loads(assistant_tools.run_tool("get_site_status", "{}", ADMIN))
+        self.assertEqual(admin["sites"][0]["revenue_today_kes"], 500)
+
+    def test_staff_are_told_revenue_is_admin_only(self):
+        self.assertIn("admins only", chat.build_messages(request(("user", "hi")), TECHNICIAN)[0]["content"])
+        self.assertNotIn("admins only", chat.build_messages(request(("user", "hi")), ADMIN)[0]["content"])
 
     def test_unknown_tool_is_refused(self):
         result = json.loads(assistant_tools.run_tool("run_sql", '{"sql": "DROP TABLE users"}', ADMIN))

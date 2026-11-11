@@ -9,6 +9,19 @@ and in `phase.md`'s own per-phase writeups.
 
 Started 2026-11-10 at the owner's request, after Phase 5 was merged to `main`.
 
+### The Ask assistant for everyone, with customers and the OLT (2026-11-11)
+- **Everyone gets the Ask button**, but it only looks up what that person
+  can already see in the app: someone with Batteries gets battery answers,
+  someone with the Network page gets network and OLT answers, and so on.
+  **Revenue stays admins only.**
+- **"Tell me about JS45"**: the assistant describes the customer: plan,
+  active or expired, their fibre ONU (online, signal, any LOS), whether
+  they're connected right now, and the last technician visits. It points
+  out anything that looks wrong.
+- **Ask the OLT**: "which customers are on LOS", "who has a weak signal",
+  or live details about one customer's ONU straight from SmartOLT (last
+  down cause, distance, recent ups and downs, ports).
+
 ### LOS alerts, a calmer site-down schedule, and fixes (2026-11-11)
 - **LOS alerts:** when a customer's or hotspot site's ONU loses fibre, the
   people who get site alerts are told after 2 minutes, then at 15 min, 30

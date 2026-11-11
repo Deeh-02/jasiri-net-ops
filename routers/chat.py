@@ -1,8 +1,10 @@
-"""The admin assistant: POST /chat.
+"""The assistant: POST /chat (and GET /chat/access for the Ask button).
 
 The browser only ever talks to this endpoint; this endpoint talks to
 DeepSeek (db/deepseek.py) with the server's key. The model gets the
-read-only tools in db/assistant_tools.py and nothing else. Admin only.
+read-only tools in db/assistant_tools.py and nothing else. Since 2026-11-11
+anyone signed in may use it, with only the tools their permissions allow
+(see ACCESS there); revenue stays admin only. Someone with no tools gets 403.
 
 The browser sends the whole conversation each time (user and assistant turns
 only). Tool calls and their results exist only inside one request here, are
@@ -20,7 +22,7 @@ Settings (environment, all optional):
   CHAT_MAX_CHARS              characters per turn, default 4000
   CHAT_MAX_TOOL_ROUNDS        model -> tools -> model loops per question, default 4
   CHAT_TIMEOUT_SECONDS        wait for each DeepSeek reply, default 30
-  CHAT_RATE_LIMIT_PER_MINUTE  questions per admin per minute, default 20
+  CHAT_RATE_LIMIT_PER_MINUTE  questions per person per minute, default 20
 """
 import json
 import logging
@@ -37,7 +39,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from db import assistant_tools, deepseek
 from db.connection import now_eat
-from routers.permissions import require_admin
+from routers.auth import get_current_user
 
 router = APIRouter()
 log = logging.getLogger(__name__)
@@ -86,7 +88,13 @@ NUDGE = ("(Automatic check, not from the admin.) Your answer has figures but you
          "for this question. Call the right tool now. If no tool covers it, say you can't look that up "
          "here, without giving any figures.")
 NO_GUESS = ("I couldn't look that up, so I won't guess. I can check revenue, sites, the network, "
-            "monitoring and alerts, batteries, stock, packages and customers.")
+            "monitoring and alerts, batteries, stock, packages, customers and the OLT.")
+NO_GUESS_STAFF = "I couldn't look that up, so I won't guess."
+
+# Added for anyone who isn't an admin, whatever the prompt file says.
+STAFF_LINE = ("This person is a staff member, not an admin. Revenue and sales figures are for admins only: "
+              "if asked, say so and don't estimate them. Some areas may not be open to them; if there is no "
+              "tool for what they ask, say it isn't available to them here.")
 
 ERRORS = {
     "timeout": (504, "The assistant took too long. Try again."),
@@ -170,9 +178,11 @@ def today_text():
     return now_eat().strftime("%A %d %B %Y")
 
 
-def build_messages(body):
+def build_messages(body, current_user=None):
     """System prompt first, then the browser's turns — nothing else from it."""
     system = base_prompt() + "\n" + FIXED_PROMPT_LINES.format(today=today_text())
+    if current_user is not None and not assistant_tools.is_admin(current_user):
+        system += "\n" + STAFF_LINE
     return [{"role": "system", "content": system}] + [{"role": t.role, "content": t.content} for t in body.messages]
 
 
@@ -214,7 +224,7 @@ def run_conversation(messages, current_user, ask_model=deepseek.chat):
     Grounding is enforced here: an answer with figures and no successful
     lookup goes back to the model once with NUDGE; if it still has none,
     the admin gets NO_GUESS instead of numbers from nowhere."""
-    tools = assistant_tools.tools_for(assistant_tools.role_for(current_user))
+    tools = assistant_tools.tools_for(current_user)
     timeout = _setting("CHAT_TIMEOUT_SECONDS", 30)
     question = next((m["content"] for m in reversed(messages) if m.get("role") == "user"), "")
     today = today_text()
@@ -234,7 +244,7 @@ def run_conversation(messages, current_user, ask_model=deepseek.chat):
                     continue
                 log.warning("assistant still had figures and no lookup; answer withheld (user=%s)",
                             current_user.get("id"))
-                return {"reply": NO_GUESS, "checked": []}
+                return {"reply": NO_GUESS if assistant_tools.is_admin(current_user) else NO_GUESS_STAFF, "checked": []}
             return {"reply": text, "checked": checked}
         if not tools:
             break  # a model asking for tools it was never given: don't run anything
@@ -250,12 +260,26 @@ def run_conversation(messages, current_user, ask_model=deepseek.chat):
             "checked": checked}
 
 
+def require_assistant(current_user: dict = Depends(get_current_user)):
+    """Anyone with at least one tool. Checked again per tool in run_tool()."""
+    if not assistant_tools.tools_for(current_user):
+        raise HTTPException(status_code=403, detail="The assistant has nothing you're allowed to look up.")
+    return current_user
+
+
+@router.get("/chat/access")
+def chat_access(current_user: dict = Depends(get_current_user)):
+    """For the Ask button: whether to show it, and what this person can ask about."""
+    names = [t["function"]["name"] for t in assistant_tools.tools_for(current_user)]
+    return {"available": bool(names), "areas": sorted({assistant_tools.label_for(n) for n in names})}
+
+
 @router.post("/chat")
-def chat(body: ChatRequest, current_user: dict = Depends(require_admin)):
+def chat(body: ChatRequest, current_user: dict = Depends(require_assistant)):
     _check_request(body)
     _check_rate_limit(current_user["id"])
     try:
-        result = run_conversation(build_messages(body), current_user)
+        result = run_conversation(build_messages(body, current_user), current_user)
     except deepseek.DeepSeekError as e:
         log.warning("assistant: DeepSeek call failed (%s) for user=%s", e.kind, current_user.get("id"))
         status, message = ERRORS.get(e.kind, (502, "The assistant had a problem. Try again."))

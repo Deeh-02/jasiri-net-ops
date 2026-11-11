@@ -1523,6 +1523,24 @@ than going quietly stale. The comparison logic itself is untouched.
 
 ### Admin assistant — fixed read-only tools, enforced in code
 
+**Update 2026-11-11: open to everyone, tools follow permissions; customers
+and the OLT.** (Owner's call.)
+- **Who gets what** is `ACCESS` in `db/assistant_tools.py`: each tool needs
+  the permission of the page it reads (batteries:view, sites:view_network,
+  sites:view_status, inventory_items:view, ...). Revenue tools are admins
+  only, and `get_site_status` leaves today's revenue out for anyone else.
+  `tools_for(user)` sends the model only those; `run_tool()` checks again.
+  `POST /chat` needs at least one tool (`require_assistant`, else 403);
+  `GET /chat/access` tells the Ask button whether to show. Staff get a
+  fixed prompt line saying revenue is admins only.
+- **New tools (21 in all):** `get_customer` (one customer: account, linked
+  ONU with status/signal/open LOS, connected now, last 5 technician visits
+  if the person can see the activity log), `get_onus` (OPS's ONU list by
+  status / weak signal / search, with who each belongs to) and
+  `get_onu_live` (asks SmartOLT now: details plus the OLT's full status,
+  cached 30 s / 60 s). None returns phone, address, contact or passwords.
+- `tools/assistant_eval.py`: 40 questions, 40/40 after this change.
+
 **Update 2026-11-04: one tool per page, grounding enforced, instructions in a file.**
 - **18 tools, one per page or report** (not one per question): the original
   seven plus the Network page (status, PPPoE clients, events), monitoring

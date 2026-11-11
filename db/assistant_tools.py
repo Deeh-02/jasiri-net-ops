@@ -1,4 +1,4 @@
-"""The admin assistant's tools — the ONLY way the model can see data.
+"""The assistant's tools — the ONLY way the model can see data.
 
 Each tool is one fixed, read-only lookup that calls the same function a page
 of the app uses (the Revenue Report, Site Status, Trends, the Network page,
@@ -7,14 +7,20 @@ so the assistant sees the same numbers the page shows. One tool per page or
 report, not per question. The model picks a tool and fills in a few checked arguments; it never
 writes SQL, never names a table, and cannot change anything.
 
-WHO GETS WHAT is decided here in code, never by the prompt. Every tool lists
-the roles allowed to use it. Today that's admins only — the chat endpoint
-itself is admin-only too, and run_tool() checks again before running
-anything, so a mistake in one layer is caught by the other.
+WHO GETS WHAT is decided here in code, never by the prompt. Since
+2026-11-11 (owner's call) everyone can use the assistant, but each tool
+needs the same permission as the page it reads (ACCESS below): batteries
+tools need batteries:view, the network and OLT tools sites:view_network,
+and so on. The revenue tools are admins only, and get_site_status leaves
+today's revenue out for anyone else. The model is only ever given the tools
+the person may use, and run_tool() checks again before running anything,
+so a mistake in one layer is caught by the other.
 
 WHAT LEAVES. DeepSeek receives every tool result, so results are trimmed to
 what an answer needs: revenue is totals only (no individual sales), and the
-customer lookup returns plan/status/expiry but not phone numbers, the alert
+customer lookup returns plan/status/expiry but not phone numbers, the
+customer profile and ONU tools leave out phone, address, contact and every
+password, the alert
 log leaves out who an SMS went to, and the PPPoE list leaves out customers'
 IP addresses and device IDs. The one
 phone number that does go out is a SITE's contact (get_site_contact): giving
@@ -23,13 +29,14 @@ it is that tool's whole purpose.
 Every call is written to the log (time, user, role, tool, allowed or not,
 outcome) — never the arguments' values or the result.
 """
+import contextvars
 import json
 import logging
 import re
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
-from db import batteries, customers, inventory_reports, inventory_transactions, monitoring, network
+from db import batteries, customers, inventory_reports, inventory_transactions, monitoring, network, smartolt
 from db import revenue_config, revenue_daily, revenue_report, sites, sms_log
 from db.connection import EAT, db_cursor, now_eat
 from db.revenue_logic import MODES, compare, format_kes, slope_pct_of_mean, trend_label
@@ -47,10 +54,48 @@ class ToolArgumentError(ValueError):
     to the model so it can correct itself."""
 
 
+# The person asking, for the few tools whose answer depends on who it is
+# (revenue left out of site status, technician visits on the profile).
+_viewer = contextvars.ContextVar("assistant_viewer", default=None)
+
+ADMIN_ONLY = "admin"
+
+
+def is_admin(user):
+    return bool(user) and user.get("role") == "admin"
+
+
+def has_permission(user, section, action):
+    if not user:
+        return False
+    if is_admin(user):
+        return True
+    from routers.permissions import user_has_permission    # late: routers import this module
+    try:
+        return user_has_permission(user, section, action)
+    except Exception:
+        log.exception("assistant: permission check failed")
+        return False
+
+
 def role_for(current_user):
-    """Maps the app's user to the assistant's role. Only the built-in admin
-    is recognised; anything else gets no tools at all (deny by default)."""
-    return "admin" if current_user.get("role") == "admin" else None
+    """A label for the logs: admin, staff (some tools) or None (no tools)."""
+    if is_admin(current_user):
+        return "admin"
+    return "staff" if any(allowed(current_user, n) for n in TOOLS) else None
+
+
+def allowed(current_user, name):
+    """Whether this person may use this tool: admins everything; anyone else
+    needs one of the permissions in ACCESS. Unknown tool: no."""
+    access = ACCESS.get(name)
+    if access is None or not current_user:
+        return False
+    if is_admin(current_user):
+        return True
+    if access == ADMIN_ONLY:
+        return False
+    return any(has_permission(current_user, section, action) for section, action in access)
 
 
 # ---- Argument checking ----
@@ -373,7 +418,8 @@ def get_site_status(args):
     """Which sites are up or down right now, people connected, 30-day uptime."""
     _no_extra_keys(args, ("site",))
     name_filter = _optional_text(args, "site", 60)
-    sites = monitoring.get_site_statuses(include_revenue=True)
+    with_revenue = is_admin(_viewer.get())
+    sites = monitoring.get_site_statuses(include_revenue=with_revenue)
     if name_filter:
         sites = [s for s in sites if _name_key(name_filter) in _name_key(s["name"])]
     counts = {}
@@ -386,7 +432,7 @@ def get_site_status(args):
             "site": s["name"], "state": s["state"], "state_since": _nairobi(s["state_since"]),
             "people_connected": s["sessions"], "people_when_it_dropped": s["sessions_at_drop"],
             "uptime_30d_pct": s["uptime_30d_pct"], "acknowledged": s["ack"] is not None,
-            "revenue_today_kes": s.get("revenue_today_kes"),
+            **({"revenue_today_kes": s.get("revenue_today_kes")} if with_revenue else {}),
         } for s in sites[:MAX_ROWS * 2]],
     }
 
@@ -432,6 +478,186 @@ def lookup_customer(args):
     matches = [{**m, "expiry": _nairobi(m["expiry"])} for m in customers.search_customers(query, limit=10)]
     return {"matches": matches, "match_count": len(matches),
             "note": "at most 10 matches are returned; ask for something more specific if needed"}
+
+
+# ---- Customers and fibre (OLT) ----
+
+def _when(dt):
+    return _nairobi(smartolt._iso(dt)) if isinstance(dt, datetime) else _nairobi(dt)
+
+
+def _find_customers(query, limit=6):
+    pattern = "%" + query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+    phone = customers.normalize_phone(query)
+    with db_cursor() as (_, cur):
+        cur.execute("""SELECT c.id, r.name, c.username, c.name, c.plan, c.expiry, c.account_status, c.enabled
+                       FROM ppp_customers c JOIN ppp_routers r ON r.id = c.router_id
+                       WHERE c.username ILIKE %s OR c.name ILIKE %s OR c.phone ILIKE %s
+                       ORDER BY (lower(c.username) = lower(%s)) DESC, c.username LIMIT %s""",
+                    (pattern, pattern, f"%{phone}%" if phone else pattern, query, limit))
+        return [{"id": r[0], "router": r[1], "username": r[2], "name": r[3], "plan": r[4], "expiry": r[5],
+                 "account_status": r[6], "enabled": r[7]} for r in cur.fetchall()]
+
+
+ONU_SELECT = """SELECT s.unique_external_id, s.name, s.sn, s.status, s.last_status_change, s.signal_quality,
+                       s.signal_1490_dbm, s.signal_1310_dbm, s.board, s.port, s.onu, s.details->>'zone_name',
+                       s.details->>'odb_name', COALESCE(s.details->>'administrative_status', 'Enabled'),
+                       s.status_polled_at, c.name, c.username, COALESCE(m.name, loc.name), l.not_a_customer
+                FROM onu_state s
+                LEFT JOIN onu_customer_links l ON l.unique_external_id = s.unique_external_id
+                LEFT JOIN ppp_customers c ON c.id = l.customer_id
+                LEFT JOIN monitored_sites m ON m.id = l.site_id
+                LEFT JOIN locations loc ON loc.id = m.location_id"""
+
+
+def _onu_row(r, now):
+    belongs = (f"customer {r[15] or r[16]} ({r[16]})" if r[16] else f"hotspot site {r[17]}" if r[17]
+               else "not a customer" if r[18] else "not linked to anyone yet")
+    return {"onu": r[1] or r[2], "serial": r[2], "belongs_to": belongs, "status": r[3],
+            "status_since": _when(r[4]), "signal_grade": r[5],
+            "rx_dbm_at_onu": float(r[6]) if r[6] is not None else None,
+            "rx_dbm_at_olt": float(r[7]) if r[7] is not None else None,
+            "pon_location": "/".join(str(v) for v in (r[8], r[9], r[10]) if v is not None) or None,
+            "zone": r[11], "splitter": r[12], "admin_state": r[13],
+            "status_may_be_out_of_date": r[14] is None or now - r[14] > timedelta(minutes=15)}
+
+
+def _open_los(cur, onu_id):
+    cur.execute("""SELECT a.started_at, a.pon, a.onu_count, a.acked_at IS NOT NULL
+                   FROM onu_alerts a JOIN onu_state s ON s.unique_external_id = %s
+                   WHERE a.ended_at IS NULL AND (a.unique_external_id = %s OR a.pon = s.board || '/' || s.port)
+                   ORDER BY a.started_at LIMIT 1""", (onu_id, onu_id))
+    r = cur.fetchone()
+    if not r:
+        return None
+    return {"since": _when(r[0]), "whole_pon_port": r[1], "onus_on_that_port": r[2] if r[1] else None,
+            "acknowledged": r[3]}
+
+
+def get_customer(args):
+    """Everything OPS knows about one PPPoE customer, in one place."""
+    _no_extra_keys(args, ("customer",))
+    query = _optional_text(args, "customer", 60)
+    if not query or len(query) < 2:
+        raise ToolArgumentError("customer must be at least 2 characters")
+    found = _find_customers(query)
+    if not found:
+        return {"found": 0, "note": "no customer matches that username, name or phone"}
+    exact = [c for c in found if (c["username"] or "").lower() == query.lower()]
+    if len(found) > 1 and not exact:
+        return {"found": len(found), "note": "several customers match; ask which one",
+                "matches": [{"username": c["username"], "name": c["name"], "plan": c["plan"]} for c in found]}
+    c = exact[0] if exact else found[0]
+    now = datetime.now(timezone.utc)
+    expiry = c["expiry"]
+    profile = {"account": {"name": c["name"], "username": c["username"], "router": c["router"], "plan": c["plan"],
+                           "account_status": c["account_status"], "enabled": c["enabled"], "expiry": _when(expiry),
+                           "expired": bool(expiry and expiry < datetime.utcnow())}}
+    with db_cursor() as (_, cur):
+        try:
+            cur.execute(ONU_SELECT + " WHERE l.customer_id = %s", (c["id"],))
+            r = cur.fetchone()
+            if r:
+                profile["fibre_onu"] = _onu_row(r, now)
+                profile["fibre_onu"]["open_los_alert"] = _open_los(cur, r[0])
+            else:
+                profile["fibre_onu"] = None
+                profile["fibre_note"] = "no ONU linked to this customer on OLT > Links"
+        except Exception:
+            log.warning("assistant: couldn't read the customer's ONU", exc_info=True)
+            cur.connection.rollback()
+            profile["fibre_onu"] = None
+            profile["fibre_note"] = "the fibre (OLT) information couldn't be read"
+        if has_permission(_viewer.get(), "activity_log", "view"):
+            cur.execute("""SELECT r.activity_date, t.name, r.outcome, u.name, r.description
+                           FROM activity_reports r JOIN activity_types t ON t.id = r.type_id
+                           JOIN users u ON u.id = r.submitted_by
+                           WHERE NOT r.is_deleted AND r.details @> jsonb_build_object('customer', jsonb_build_object('id', %s))
+                           ORDER BY r.activity_date DESC, r.id DESC LIMIT 5""", (c["id"],))
+            profile["technician_visits"] = [{"date": str(v[0]), "type": v[1], "outcome": v[2], "by": v[3],
+                                             "notes": (v[4] or "")[:200] or None} for v in cur.fetchall()]
+    data = network.pppoe(NETWORK_ROUTER)
+    if data is not None:
+        session = next((x for x in data["sessions"] if (x["username"] or "").lower() == (c["username"] or "").lower()), None)
+        profile["online_now"] = {"connected": session is not None,
+                                 "connected_for": _duration(session["uptime_s"]) if session else None,
+                                 "list_received_at": _nairobi(data["received_at"]), "list_is_stale": data["is_stale"]}
+    return profile
+
+
+ONU_STATES = ("Online", "Offline", "LOS", "Power fail")
+
+
+def get_onus(args):
+    """OPS's copy of the OLT's ONU list (refreshed every few minutes), by state."""
+    _no_extra_keys(args, ("status", "search", "weak_signal_only"))
+    status = _optional_choice(args, "status", ONU_STATES)
+    search = _optional_text(args, "search", 60)
+    weak = _optional_bool(args, "weak_signal_only")
+    now = datetime.now(timezone.utc)
+    with db_cursor() as (_, cur):
+        cur.execute(ONU_SELECT + " ORDER BY s.status, s.name")
+        rows = [_onu_row(r, now) for r in cur.fetchall()]
+    counts = {}
+    for r in rows:
+        counts[r["status"] or "unknown"] = counts.get(r["status"] or "unknown", 0) + 1
+    rows = [r for r in rows if (not status or r["status"] == status)
+            and (not weak or (r["signal_grade"] or "").lower() in ("warning", "critical"))
+            and (not search or _matches(search, r["onu"], r["serial"], r["belongs_to"], r["zone"], r["splitter"]))]
+    return {"total_onus_by_status": counts, "matching": len(rows), "onus": rows[:MAX_ROWS * 2],
+            "note": "status and signal are OPS's copy from SmartOLT, refreshed every few minutes; "
+                    "get_onu_live asks the OLT directly about one ONU"}
+
+
+def _resolve_onu(query):
+    """ONU id for a customer username/name, hotspot site, ONU name or serial."""
+    pattern = "%" + query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+    with db_cursor() as (_, cur):
+        cur.execute(ONU_SELECT + """ WHERE s.sn ILIKE %s OR s.name ILIKE %s OR c.username ILIKE %s OR c.name ILIKE %s
+                                     OR m.name ILIKE %s OR loc.name ILIKE %s
+                                     ORDER BY (lower(c.username) = lower(%s) OR lower(s.sn) = lower(%s)) DESC NULLS LAST, s.name
+                                     LIMIT 6""", (pattern,) * 6 + (query, query))
+        return cur.fetchall()
+
+
+def get_onu_live(args):
+    """Asks SmartOLT (the OLT) right now about one ONU."""
+    _no_extra_keys(args, ("onu",))
+    query = _optional_text(args, "onu", 60)
+    if not query or len(query) < 2:
+        raise ToolArgumentError("onu must be at least 2 characters")
+    found = _resolve_onu(query)
+    now = datetime.now(timezone.utc)
+    if not found:
+        return {"found": 0, "note": "no ONU matches that customer, site, ONU name or serial"}
+    exact = [r for r in found if query.lower() in ((r[16] or "").lower(), (r[2] or "").lower())]
+    if len(found) > 1 and not exact:
+        return {"found": len(found), "note": "several ONUs match; ask which one",
+                "matches": [_onu_row(r, now) for r in found]}
+    r = exact[0] if exact else found[0]
+    out = {"onu": _onu_row(r, now)}
+    try:
+        d = smartolt.onu_details(r[0])
+        out["from_smartolt_now"] = {
+            "status": d["status"], "status_since": _nairobi(d["last_status_change"]), "signal_grade": d["signal_quality"],
+            "rx_dbm_at_onu": d["signal_1490_dbm"], "rx_dbm_at_olt": d["signal_1310_dbm"], "distance_m": d["distance_m"],
+            "admin_state": d["administrative_status"], "onu_type": d["onu_type"], "zone": d["zone"], "splitter": d["odb"],
+            "onu_mode": d["mode"], "wan_mode": d["wan_mode"], "wan_vlan": d["vlan"], "attached_vlans": d["attached_vlans"],
+            "pppoe_username": d["pppoe_username"], "authorized_on": _nairobi(d["authorization_date"]),
+            "last_config_resync_failed": d.get("resync_failed"),
+            "ethernet_ports": [{"port": p["port"], "admin_state": p["admin_state"], "mode": p["mode"], "vlan": p["vlan"]}
+                               for p in d["ethernet_ports"]],
+        }
+    except smartolt.SmartOLTError as e:
+        out["from_smartolt_now"] = {"error": f"SmartOLT didn't answer: {e}"}
+    try:
+        live = smartolt.onu_live_status(r[0])
+        out["from_the_olt_now"] = {"optical": live.get("optical"), "onu": live.get("onu"),
+                                   "recent_ups_and_downs": (live.get("history") or [])[:5],
+                                   "lan_ports": live.get("lan_ports")}
+    except smartolt.SmartOLTError as e:
+        out["from_the_olt_now"] = {"error": f"the OLT didn't answer: {e}"}
+    return out
 
 
 # ---- Shared helpers for the page-mapped tools ----
@@ -820,7 +1046,7 @@ def _schema(name, description, properties=None, required=()):
 
 ALL_MODES = sorted({m for modes in MODES.values() for m in modes if m != "custom"})
 
-# name -> (function, roles allowed, schema sent to the model)
+# name -> (function, access, schema sent to the model); access: ADMIN_ONLY or any of (section, action)
 TOOLS = {
     "get_revenue_summary": (get_revenue_summary, {"admin"}, _schema(
         "get_revenue_summary",
@@ -953,6 +1179,52 @@ TOOLS = {
     "get_cable_stock": (get_cable_stock, {"admin"}, _schema(
         "get_cable_stock",
         "Cable reels in stock per cable spec with metres remaining, and offcuts per spec.")),
+
+    # ---- Customers and fibre (OLT, Phase 6) ----
+    "get_customer": (get_customer, {"admin"}, _schema(
+        "get_customer",
+        "Everything about ONE PPPoE customer: account (plan, status, expiry, expired or not), their fibre ONU "
+        "(status, since when, signal grade and dBm, splitter, zone, any open LOS alert), whether they are "
+        "connected right now and for how long, and recent technician visits. Use for 'tell me about JS45', "
+        "'who is Mark', 'why is X offline', 'what's going on with customer Y'. Find by username, name or phone.",
+        {"customer": {"type": "string", "description": "username (e.g. JS45), name or phone"}},
+        required=("customer",))),
+    "get_onus": (get_onus, {"admin"}, _schema(
+        "get_onus",
+        "The fibre ONUs on the OLT with who each belongs to (customer, hotspot site or not linked), status "
+        "(Online, Offline, LOS = fibre signal lost, Power fail = power cut at the customer), signal grade and "
+        "dBm, splitter and zone, plus counts by status. Use for 'who is on LOS', 'which customers are offline "
+        "on fibre', 'weak signals', 'ONUs on splitter DRD'.",
+        {"status": {"type": "string", "enum": list(ONU_STATES)},
+         "search": {"type": "string", "description": "part of a customer, site, ONU name, serial, zone or splitter"},
+         "weak_signal_only": {"type": "boolean", "description": "only ONUs SmartOLT grades Warning or Critical"}})),
+    "get_onu_live": (get_onu_live, {"admin"}, _schema(
+        "get_onu_live",
+        "Asks the OLT (SmartOLT) RIGHT NOW about one ONU: live status, optical levels, distance, how long it "
+        "has been online, last down cause and time, recent ups and downs, LAN port links, ONU and WAN mode, "
+        "VLANs. Slower than get_onus; use it when someone wants live or detailed fibre information about one "
+        "customer or site. Find by customer username or name, hotspot site, ONU name or serial.",
+        {"onu": {"type": "string", "description": "customer username/name, hotspot site, ONU name or serial"}},
+        required=("onu",))),
+}
+
+# Who may use each tool. Admins: all. Anyone else needs one of the listed
+# permissions, the same one the page behind the tool asks for. Revenue:
+# admins only (owner, 2026-11-11).
+_STATUS = [("sites", "view_status")]
+_NETWORK = [("sites", "view_network")]
+ACCESS = {
+    "get_revenue_summary": ADMIN_ONLY, "get_revenue_history": ADMIN_ONLY, "get_site_performance": ADMIN_ONLY,
+    "get_site_status": _STATUS, "get_fleet_report": _STATUS, "get_site_history": _STATUS,
+    "get_site_contact": [("sites", "view")], "get_packages": [("sites", "view")],
+    "lookup_customer": [("sites", "send_broadcasts"), ("sites", "view_network")],
+    "get_customer": [("sites", "send_broadcasts"), ("sites", "view_network")],
+    "get_network_status": _NETWORK, "get_pppoe_clients": _NETWORK, "get_network_events": _NETWORK,
+    "get_onus": _NETWORK, "get_onu_live": _NETWORK,
+    "get_alert_log": [("reports", "view")],
+    "get_batteries": [("batteries", "view")], "get_battery_history": [("batteries", "view")],
+    "get_stock": [("inventory_items", "view")], "get_cable_stock": [("inventory_items", "view")],
+    "get_stock_movements": [("inventory_transactions", "view")],
 }
 
 
@@ -966,6 +1238,7 @@ LABELS = {
     "get_site_history": "site history", "get_alert_log": "alert log", "get_batteries": "batteries",
     "get_battery_history": "battery history", "get_stock": "stock levels",
     "get_stock_movements": "inventory log", "get_cable_stock": "cable stock",
+    "get_customer": "customer profile", "get_onus": "OLT ONU list", "get_onu_live": "OLT (live)",
 }
 
 
@@ -973,9 +1246,9 @@ def label_for(name):
     return LABELS.get(name) or (name or "lookup").replace("_", " ")
 
 
-def tools_for(role):
-    """The tool list sent to the model for this role — nothing it can't use."""
-    return [schema for _fn, roles, schema in TOOLS.values() if role in roles]
+def tools_for(current_user):
+    """The tool list sent to the model for this person — nothing they can't use."""
+    return [schema for name, (_fn, _access, schema) in TOOLS.items() if allowed(current_user, name)]
 
 
 def _audit(current_user, role, tool, allowed, outcome):
@@ -986,11 +1259,19 @@ def _audit(current_user, role, tool, allowed, outcome):
 def run_tool(name, raw_arguments, current_user):
     """Run one tool call from the model, as `current_user`. Always returns a
     JSON string for the model — an error is a result too, so the chat goes on."""
-    role = role_for(current_user)
+    role = "admin" if is_admin(current_user) else "staff"
     tool = TOOLS.get(name)
-    if tool is None or role not in tool[1]:
+    if tool is None or not allowed(current_user, name):
         _audit(current_user, role, name if tool else "unknown", False, "denied")
         return json.dumps({"error": "not authorized"})
+    token = _viewer.set(current_user)
+    try:
+        return _run(name, tool, raw_arguments, current_user, role)
+    finally:
+        _viewer.reset(token)
+
+
+def _run(name, tool, raw_arguments, current_user, role):
     try:
         args = json.loads(raw_arguments or "{}")
         if not isinstance(args, dict):

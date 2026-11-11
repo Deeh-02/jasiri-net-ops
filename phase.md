@@ -363,7 +363,9 @@ building anything. *(2026-11-04: an admin-only, read-only data assistant
 request and sits on the Phase 4 branch; see ARCHITECTURE.md's "Admin
 assistant". It answers the owner's questions from the app's data; it is
 NOT customer chat, which still needs a customer login and remains this
-phase's open question.)*
+phase's open question. 2026-11-11, owner's call during Phase 6: opened to
+all staff with tools following each person's permissions, revenue admins
+only, plus customer-profile and OLT lookups.)*
 
 Each phase runs in its own branch (one branch per phase — see CLAUDE.md).
 Before confirming any phase done, the owner checks it out locally
