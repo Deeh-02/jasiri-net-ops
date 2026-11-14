@@ -843,12 +843,22 @@ export function initShell() {
         const btn = document.getElementById("login-password-toggle");
         const isPassword = input.type === "password";
         input.type = isPassword ? "text" : "password";
-        btn.querySelector(".eye-open").hidden = isPassword;
-        btn.querySelector(".eye-closed").hidden = !isPassword;
+        // toggleAttribute, not .hidden: an <svg> has no "hidden" property, so setting it did nothing.
+        btn.querySelector(".eye-open").toggleAttribute("hidden", isPassword);
+        btn.querySelector(".eye-closed").toggleAttribute("hidden", !isPassword);
         btn.classList.toggle("is-visible", isPassword);
+        btn.setAttribute("aria-label", isPassword ? "Hide password" : "Show password");
     });
 
     // (The login card's turning glow is CSS: .login-frame in common.css.)
+
+    // "Forgot password?": there's no self-service reset, so say who can help.
+    document.getElementById("login-forgot").addEventListener("click", e => {
+        e.preventDefault();
+        const hint = document.getElementById("login-hint");
+        hint.hidden = !hint.hidden;
+        e.currentTarget.setAttribute("aria-expanded", String(!hint.hidden));
+    });
 
     // ---- Login ----
     document.getElementById("login-form").addEventListener("submit", async (e) => {
@@ -856,21 +866,28 @@ export function initShell() {
         const email = document.getElementById("login-email").value;
         const password = document.getElementById("login-password").value;
 
-        const response = await fetch("/login", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ email, password })
-        });
+        // (The button's busy state while this is in flight is trackFormSubmits, above.)
+        try {
+            const response = await fetch("/login", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ email, password })
+            });
 
-        if (response.ok) {
-            const data = await response.json();
-            authToken = data.access_token;
-            currentUser = data.user;
-            localStorage.setItem("authToken", authToken);
-            localStorage.setItem("currentUser", JSON.stringify(currentUser));
-            showApp();
-        } else {
-            showMessage("login-msg", "Invalid email or password", true);
+            if (response.ok) {
+                const data = await response.json();
+                authToken = data.access_token;
+                currentUser = data.user;
+                localStorage.setItem("authToken", authToken);
+                localStorage.setItem("currentUser", JSON.stringify(currentUser));
+                showApp();
+            } else if (response.status === 401 || response.status === 400 || response.status === 403) {
+                showMessage("login-msg", "Invalid email or password", true);
+            } else {
+                showMessage("login-msg", "Couldn't sign you in just now. Try again in a moment.", true);
+            }
+        } catch (err) {
+            showMessage("login-msg", "Couldn't reach the server. Check your connection and try again.", true);
         }
     });
 

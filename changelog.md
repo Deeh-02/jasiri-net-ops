@@ -9,6 +9,21 @@ and in `phase.md`'s own per-phase writeups.
 
 Started 2026-11-10 at the owner's request, after Phase 5 was merged to `main`.
 
+### Login page and phone polish (2026-11-14)
+- **Login page** redesigned: labelled Email and Password fields with icons,
+  a larger card on a softly lit background, and the turning glow round the
+  card is now green only. A saved login no longer turns the fields yellow.
+- The **eye** in a password field sits in the middle of the field (here and
+  in Settings → Password), and it now changes to a crossed-out eye while
+  the password is showing.
+- **Forgot password?** now tells you what to do (ask an admin to set a new
+  one) instead of doing nothing.
+- **Phone top bar**: your initials button is no longer cut off. On narrow
+  phones the bar shows the logo without the name, and the buttons sit
+  together on the right.
+- **On phones**, pages now blur in and out when you move between them, as
+  they do on a computer, and the light / dark switch is smoother.
+
 ### A real Dashboard (2026-11-14)
 - **Dashboard** is the new first page (Operations → Dashboard): headline
   figures across the top, then a card of charts for each area: revenue over

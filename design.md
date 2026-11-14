@@ -162,7 +162,8 @@ what is truly its own.
   blurs away (`.view-ghost`, a stripped copy), then the new one opens by
   blurring in from heavy blur, block after block, then cards and table rows (`.view.is-entering`, set by
   `static/js/motion.js` for ~2.6s after arriving, so live refreshes never
-  replay it; no blur on phones); the current item's highlight slides to it
+  replay it; on phones the same blur with a smaller radius,
+  `blur-in-phone`); the current item's highlight slides to it
   instead of jumping (sidebar row, tab underline including across pages
   that share a tab bar, the pressed button of a `.fleet-range`/`.sr-range`
   toggle), drawn by one `.slide-indicator` per container; cards lift 5px on
@@ -172,11 +173,26 @@ what is truly its own.
   refresh changes them; income bars and progress bars grow in. All of it is
   off when animations are switched off in Settings, and without the script
   every item keeps its own highlight.
-- **Login card (2026-11-14):** `.login-frame` carries a conic gradient
-  (accent, with a fainter blue lobe opposite) turning once every 7s, drawn
+- **Login page (2026-11-14):** the page is the app's dot grid fading out
+  towards the edges (`.login-screen::before`, masked) under a soft green
+  light from above. The card (`.login-box`, 400px, 22px corners) sits in
+  `.login-frame`, which carries a conic gradient (accent green only: a
+  bright lobe and a fainter one opposite) turning once every 7s, drawn
   twice from one angle (`--glow-angle`, an `@property`): a 1.5px stroke on
   the card's edge and the same gradient blurred 30px behind the card as the
-  bloom. Still when animations are off.
+  bloom. Still when animations are off. Fields are `.login-field`: a
+  visible label above, then one box holding an icon, a bare input and (for
+  the password) the eye, so focus draws a single ring round the whole
+  field. A saved login keeps the theme's colours (the browser's own
+  autofill tint is suppressed). "Forgot password?" opens a line saying an
+  admin can set a new one (there is no self-service reset).
+- **Phone top bar (2026-11-14):** menu and logo on the left; search, theme,
+  bell and avatar grouped on the right at 36px, none of which may shrink.
+  The brand gives way instead: "— OPS" goes at 600px, the name under 400px.
+- **Theme switch on touch screens (2026-11-14):** the pour is one swaying
+  oval (`ovalFrames` in `theme.js`), not the many-cornered blob, because a
+  phone clips an oval cheaply. On every screen, `.theme-switching` turns
+  off each control's own colour transitions for the length of the pour.
 - **Dashboard (2026-11-14, `home.css`):** headline tiles (`.home-kpi`) over
   a 12-column grid of cards (`.home-card`, `--span`). Colour there means
   state only (`.tone-good/warn/bad/info/idle` set `--tone`), always beside

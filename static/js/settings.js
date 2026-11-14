@@ -79,13 +79,14 @@ export function initSettings() {
     // Mirrors the login screen's password show/hide toggle (initShell in
     // common.js) — same .password-field/.eye-open/.eye-closed markup and
     // behavior, just wired here since these three fields live in this view.
-    document.querySelectorAll(".password-toggle-btn").forEach(btn => {
+    document.querySelectorAll("#view-settings .password-toggle-btn").forEach(btn => {
         btn.addEventListener("click", () => {
             const input = document.getElementById(btn.dataset.target);
             const isPassword = input.type === "password";
             input.type = isPassword ? "text" : "password";
-            btn.querySelector(".eye-open").hidden = isPassword;
-            btn.querySelector(".eye-closed").hidden = !isPassword;
+            // toggleAttribute, not .hidden: an <svg> has no "hidden" property, so setting it did nothing.
+            btn.querySelector(".eye-open").toggleAttribute("hidden", isPassword);
+            btn.querySelector(".eye-closed").toggleAttribute("hidden", !isPassword);
             btn.classList.toggle("is-visible", isPassword);
         });
     });

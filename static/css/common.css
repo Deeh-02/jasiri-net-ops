@@ -1066,14 +1066,23 @@ button.summary-item:active:not(:disabled) { transform: scale(0.98); }
     animation-delay: calc(var(--enter-delay, 0s) + 0.4s);
 }
 
-/* Phones: the same order and timing without the blur (it's the costly part). */
+/* Phones: the same blur-in, with a smaller blur radius (the radius is what
+   costs a phone's graphics chip, not the number of blocks). Table rows stay
+   a plain rise and fade, as on a computer. */
+@keyframes blur-in-phone {
+    from { opacity: 0; transform: translateY(12px); filter: blur(10px); }
+    60% { filter: blur(1px); }
+    to { opacity: 1; transform: none; filter: none; }
+}
+@keyframes blur-out-phone {
+    from { opacity: 1; filter: none; }
+    to { opacity: 0; filter: blur(9px); }
+}
 @media (max-width: 760px) {
     .view.is-entering > *:not(.modal-overlay):not([hidden]),
-    .view.is-entering :is(.stat-grid, .rev-cards, .rev-tiles, .summary-strip, .olt-signals, .rev-findings, .rev-rankings, .fleet-kpis, .sr-kpis, .home-kpis, .home-grid) > *,
-    .view.is-entering tbody > tr:nth-child(-n+14) { animation-name: rise-in; }
-    .view-ghost { animation-name: fade-out; }
+    .view.is-entering :is(.stat-grid, .rev-cards, .rev-tiles, .summary-strip, .olt-signals, .rev-findings, .rev-rankings, .fleet-kpis, .sr-kpis, .home-kpis, .home-grid) > * { animation-name: blur-in-phone; }
+    .view-ghost { animation-name: blur-out-phone; }
 }
-@keyframes fade-out { to { opacity: 0; } }
 
 /* Cards lift towards you when you point at them. */
 @media (hover: hover) {
@@ -1967,20 +1976,34 @@ button[aria-busy="true"]::after {
     position: fixed;
     inset: 0;
     display: flex;
-    align-items: center;
-    justify-content: center;
+    overflow-y: auto;            /* a short screen can still reach the button */
+    padding: 24px 0;
     z-index: 300;
     background: var(--bg);
 }
 
 .login-screen[hidden] { display: none; }
 
+/* The card, and the staff-only line under it. margin:auto (not
+   align/justify center) so a card taller than the screen scrolls from its
+   top instead of being cut off above it. */
+.login-stage {
+    margin: auto;
+    width: 340px;
+    max-width: 90vw;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 18px;
+}
+
 /* The card sits in a frame that carries the light: a conic gradient turning
    round the card, drawn twice. ::after is the thin stroke on the card's edge
    (the gradient masked down to a ring); ::before is the same gradient blurred
    wide behind the card, which is the bloom. One angle (--glow-angle) drives
    both, so the bright part of the stroke and the brightest part of the bloom
-   travel together. Animations off (Settings) leaves it still. */
+   travel together. One colour: the accent green, a bright lobe and a fainter
+   one opposite. Animations off (Settings) leaves it still. */
 @property --glow-angle { syntax: "<angle>"; inherits: true; initial-value: 0deg; }
 
 .login-frame {
@@ -1991,13 +2014,12 @@ button[aria-busy="true"]::after {
         color-mix(in srgb, var(--accent) 45%, #ffffff) 96deg,
         transparent 128deg,
         transparent 180deg,
-        color-mix(in srgb, var(--info) 45%, transparent) 236deg,
-        color-mix(in srgb, var(--info) 80%, transparent) 262deg,
+        color-mix(in srgb, var(--accent) 30%, transparent) 236deg,
+        color-mix(in srgb, var(--accent) 55%, transparent) 262deg,
         transparent 300deg,
         transparent 360deg);
     position: relative;
-    width: 340px;
-    max-width: 90vw;
+    width: 100%;
     border-radius: var(--radius);
     animation: loginBoxIn 0.5s var(--enter-ease, ease) both, login-glow-turn 7s linear infinite;
 }
@@ -2083,13 +2105,20 @@ button[aria-busy="true"]::after {
     gap: 12px;
 }
 
-.login-screen .panel-form button {
+/* Sign In: the arrow slides forward when you point at it. */
+.login-screen .login-submit {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
     margin-top: 10px;
 }
-
-.login-screen .panel-form button:hover {
+.login-screen .login-submit:hover {
     box-shadow: 0 0 16px color-mix(in srgb, var(--accent) 30%, transparent);
 }
+.login-submit svg { width: 15px; height: 15px; transition: transform 0.25s var(--enter-ease, ease); }
+.login-submit:hover svg, .login-submit:focus-visible svg { transform: translateX(4px); }
+.login-submit[aria-busy="true"] svg { display: none; }
 
 .login-screen .form-msg {
     text-align: center;
@@ -2110,7 +2139,26 @@ button[aria-busy="true"]::after {
 
 .login-forgot:hover { color: var(--accent); }
 
-/* ---- Password field with eye toggle (login) ---- */
+.login-hint {
+    position: relative;
+    z-index: 1;
+    margin: 8px 0 0;
+    font-family: 'Inter', sans-serif;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text-dim);
+}
+.login-hint:not([hidden]) { animation: appear 0.18s ease; }
+
+.login-foot {
+    margin: 0;
+    font-family: 'Inter', sans-serif;
+    font-size: 12px;
+    color: var(--text-dim);
+    opacity: 0.8;
+}
+
+/* ---- Password field with eye toggle (login and Settings) ---- */
 .password-field {
     display: flex;
     align-items: center;
@@ -2136,26 +2184,36 @@ button[aria-busy="true"]::after {
     font-size: 14px;
 }
 
-.password-field input:focus {
+/* The field's ring is the wrapper's (above); the input inside draws none of
+   its own, so focus shows one box, not a box inside a box. */
+.password-field input:focus,
+.password-field input:focus-visible {
     outline: none;
+    box-shadow: none;
 }
 
+/* margin:0 and the stretch: a form's button rule gives its submit button a
+   top margin, which was landing on the eye too and pushing it below the
+   middle of the field. */
 .password-field .password-toggle-btn {
     display: flex;
     align-items: center;
     justify-content: center;
+    align-self: stretch;
+    margin: 0;
     background: none;
     border: none;
+    box-shadow: none;
     padding: 0 12px;
-    height: 100%;
     color: var(--text-dim);
     cursor: pointer;
     transition: color 0.15s ease, transform 0.1s ease;
 }
 
-.password-field .password-toggle-btn:hover { color: var(--text); }
+.password-field .password-toggle-btn:hover { color: var(--text); box-shadow: none; }
 .password-field .password-toggle-btn:active { transform: scale(0.9); }
-.password-field .password-toggle-btn svg { width: 16px; height: 16px; }
+.password-field .password-toggle-btn svg { width: 16px; height: 16px; display: block; }
+.password-field .password-toggle-btn svg[hidden] { display: none; }
 
 .password-field .password-toggle-btn.is-visible {
     color: var(--accent);
@@ -2573,7 +2631,11 @@ button[aria-busy="true"]::after {
     .notifications-panel { position: fixed; top: 56px; right: 8px; left: 8px; width: auto; }
 }
 
-/* ---- Mobile top bar fix ---- */
+/* ---- Phone top bar ----
+   Menu and brand on the left; search, theme, bell and you grouped on the
+   right, none of which may shrink or be pushed off the edge. The brand is
+   what gives way as the screen narrows: first "— OPS" goes, then the name
+   (the logo already says Jasiri Net). */
 @media (max-width: 760px) {
     .global-topbar {
         width: 100%;
@@ -2581,7 +2643,8 @@ button[aria-busy="true"]::after {
         box-sizing: border-box;
         /* Same side padding as the page content below it. */
         padding: 10px var(--page-pad-x);
-        gap: 10px;
+        gap: 8px;
+        justify-content: flex-start;
         /* overflow-x, not overflow:hidden — the profile menu is a topbar
            descendant that intentionally renders BELOW the topbar's own box
            (top: calc(100% + 8px)), and overflow:hidden was clipping it
@@ -2593,18 +2656,17 @@ button[aria-busy="true"]::after {
         overflow-y: visible;
     }
 
-    /* The brand name is the one thing that must never be clipped here — the
-       topbar's overflow:hidden used to eat it once the row ran out of room,
-       so it holds its width and the search trigger gives way instead. */
     .global-topbar-brand {
-        min-width: auto;
-        flex-shrink: 0;
+        min-width: 0;
+        flex: 0 1 auto;
         gap: 8px;
+        margin-left: 2px;
     }
 
     .global-topbar-logo {
         height: 32px;
         width: 32px;
+        flex-shrink: 0;
     }
 
     .global-topbar-name {
@@ -2613,15 +2675,17 @@ button[aria-busy="true"]::after {
     }
 
     /* Icon-only trigger — the palette it opens is already a full-width
-       search input, so a labeled bar here was redundant, and dropping it
-       is what frees enough room for the brand name above to never shrink. */
+       search input, so a labeled bar here was redundant. margin-left:auto
+       is what sends it and the buttons after it to the right edge. */
     .topbar-search {
-        width: 34px;
-        height: 34px;
+        width: 36px;
+        height: 36px;
         padding: 0;
         gap: 0;
         justify-content: center;
         flex-shrink: 0;
+        margin-left: auto;
+        border-radius: 50%;
     }
 
     .topbar-search span:nth-child(2),
@@ -2629,10 +2693,14 @@ button[aria-busy="true"]::after {
         display: none;
     }
 
-    .topbar-actions {
-        flex-shrink: 0;
-    }
+    .topbar-notif-wrap { gap: 8px; flex-shrink: 0; }
+    .topbar-icon-btn, .topbar-avatar { width: 36px; height: 36px; flex-shrink: 0; }
+    .topbar-icon-btn { border-radius: 50%; }
+    .topbar-avatar-wrap { flex-shrink: 0; }
+    .nav-toggle-btn { flex-shrink: 0; margin-left: -4px; }
 }
+@media (max-width: 600px) { .global-topbar-name span { display: none; } }
+@media (max-width: 399px) { .global-topbar-name { display: none; } }
 
 /* ---- Polish pass (2026-11-13) ----
    Panels get a lit top edge so they lift off the black page (a shadow does
@@ -2658,6 +2726,11 @@ button[aria-busy="true"]::after {
    underneath. */
 .theme-switching::view-transition-old(root),
 .theme-switching::view-transition-new(root) { animation: none; mix-blend-mode: normal; }
+/* Every colour on the page changes at once here. Without this, each control
+   would also fade its own colours for a moment, and the page under the pour
+   would be repainted on every frame of it (which is what made it stutter on
+   phones). The pour is the transition; the page itself switches at once. */
+.theme-switching *, .theme-switching *::before, .theme-switching *::after { transition: none !important; }
 .theme-switching::view-transition-old(root) { z-index: 0; }
 .theme-switching::view-transition-new(root) { z-index: 1; }
 

@@ -11,7 +11,7 @@
 // Switching theme pours the new one across the screen from the button: a blob
 // with a soft, wobbling edge that grows until it covers the page (the
 // browser's View Transitions; without them, or with animations off, it just
-// switches).
+// switches). Phones and tablets get a simpler blob (see ovalFrames).
 
 const META = { dark: "#000000", light: "#f2f3f5" };
 const SWEEP_MS = 1100;
@@ -74,6 +74,26 @@ export function blobFrames(x, y, reach, steps = 44, corners = 96) {
     return frames;
 }
 
+// The same pour for touch screens: one oval that grows from the button,
+// swaying between wide and tall as it goes. A phone's graphics chip clips an
+// oval for free, where the many-cornered blob above has to be redrawn as a
+// full-screen mask on every frame, which is what made the switch stutter
+// there. The last oval is past the farthest corner in both directions.
+export function ovalFrames(x, y, reach, steps = 16) {
+    const SWAY = 0.14;
+    const full = (reach * 1.03) / (1 - SWAY);
+    const frames = [];
+    for (let s = 0; s <= steps; s++) {
+        const t = s / steps;
+        const radius = full * (0.12 * t + 0.88 * Math.pow(t, 2.3));
+        const sway = SWAY * Math.sin(0.9 + 4.2 * t);
+        frames.push(`ellipse(${(radius * (1 + sway)).toFixed(1)}px ${(radius * (1 - sway)).toFixed(1)}px at ${x.toFixed(1)}px ${y.toFixed(1)}px)`);
+    }
+    return frames;
+}
+
+const touchScreen = () => window.matchMedia?.("(pointer: coarse)").matches || window.innerWidth <= 760;
+
 export function setTheme(theme, from = null) {
     if (theme === currentTheme()) return;
     if (!document.startViewTransition || !motionOn()) { apply(theme); return; }
@@ -90,7 +110,7 @@ export function setTheme(theme, from = null) {
     const transition = document.startViewTransition(() => apply(theme));
     transition.ready.then(() => {
         root.animate(
-            { clipPath: blobFrames(x, y, reach) },
+            { clipPath: touchScreen() ? ovalFrames(x, y, reach) : blobFrames(x, y, reach) },
             { duration: SWEEP_MS, easing: "linear", fill: "both", pseudoElement: "::view-transition-new(root)" },
         );
     }).catch(() => {});
