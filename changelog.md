@@ -17,6 +17,12 @@ Started 2026-11-10 at the owner's request, after Phase 5 was merged to `main`.
   press during the pour is ignored instead of restarting it. On phones the status bar changes
   colour when the pour finishes, not at the start.
 - **Phones get the liquid pour back** (they had a plain growing circle).
+- **Bigger name** in the top bar: JASIRI NET — OPS is larger on computers,
+  and on phones both lines (JASIRI NET and the OPS under it) are larger.
+- **Light / dark switch on phones** no longer glitches on the second and
+  later switches: the new theme could show across the whole screen for a
+  moment before the pour began. The toggle also can't get stuck if the
+  phone locks in the middle of a switch.
 - **Dashboard tiles**: a large figure such as "KSh 10,450" now shrinks to
   fit its tile instead of being cut off with "…".
 

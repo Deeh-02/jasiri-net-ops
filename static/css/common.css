@@ -2254,7 +2254,8 @@ button[aria-busy="true"]::after {
 
 .global-topbar-name {
     font-family: 'Space Grotesk', sans-serif;
-    font-size: 16px;
+    font-size: 20px;
+    letter-spacing: 0.01em;
     font-weight: 700;
     color: var(--text);
 }
@@ -2677,15 +2678,15 @@ button[aria-busy="true"]::after {
         justify-content: center;
         white-space: nowrap;
         line-height: 1.1;
-        /* 12px on a 340px screen up to 14px on a 410px one. */
-        font-size: clamp(12px, 3.4vw, 14px);
+        /* About 14px on a 340px screen, up to 17px from 405px wide. */
+        font-size: clamp(13px, 4.2vw, 17px);
         letter-spacing: 0.01em;
     }
     .global-topbar-name .brand-dash { display: none; }
     .global-topbar-name .brand-ops {
-        font-size: 9.5px;
+        font-size: 11px;
         font-weight: 700;
-        letter-spacing: 0.32em;
+        letter-spacing: 0.34em;
         margin-top: 1px;
     }
 

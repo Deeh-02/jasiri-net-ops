@@ -190,12 +190,17 @@ what is truly its own.
   bell and avatar grouped on the right at 36px, none of which may shrink.
   The name stays on screen by stacking: JASIRI NET on top, a small
   spaced-out OPS in accent under it (`.brand-main` / `.brand-ops`; the
-  "— " is hidden on phones). It fits a 340px screen; under 340px only the
-  logo shows.
+  "— " is hidden on phones). Name 13–17px with the screen width (4.2vw),
+  OPS 11px; 20px on one line on larger screens. It fits a 340px screen;
+  under 340px only the logo shows.
 - **Theme switch on touch screens (2026-11-14):** the same liquid blob as
   on a computer (96 corners; fewer show as straight segments). A swaying
   oval was tried on phones and dropped: the owner prefers the liquid edge. On every screen, `.theme-switching` turns
   off each control's own colour transitions for the length of the pour.
+  The pour's animation is cancelled when the switch ends: it has
+  `fill: both`, and if left in place it applied to the next switch's new
+  snapshot, which then showed in full before the new pour started. A
+  watchdog clears the switch if the browser never reports it finished.
 - **Dashboard tile figures (2026-11-14):** `.home-kpi-value` sizes itself to
   the tile (container units, `--chars` set by `home.js`), so "KSh 10,450"
   fits instead of ending in "…"; short figures stay at 30px.

@@ -100,22 +100,42 @@ export function setTheme(theme, from = null) {
     const y = usable ? r.top + r.height / 2 : 0;
     const reach = Math.hypot(Math.max(x, window.innerWidth - x), Math.max(y, window.innerHeight - y));
 
+    // Worked out before the switch starts, not when the pour has to begin: on
+    // a slow phone building ~4,000 points took long enough to cost the first
+    // frames of the pour.
+    const frames = blobFrames(x, y, reach);
+
     const root = document.documentElement;
     root.classList.add("theme-switching");
+    let sweep = null;
+    let done = false;
+    const finish = () => {
+        if (done) return;
+        done = true;
+        clearTimeout(watchdog);
+        // A finished pour has to be removed, not left holding its last frame.
+        // Left in place it stayed attached to the page, and the next switch
+        // began with the new theme already covering the whole screen for a
+        // frame or two before its own pour took over (the phone glitch).
+        sweep?.cancel();
+        root.classList.remove("theme-switching");
+        paintStatusBar(currentTheme());
+        pouring = false;
+    };
+    // If the browser never reports the switch finished (seen when a phone
+    // locks or the tab is put away mid-pour), the toggle must not stay dead.
+    const watchdog = setTimeout(finish, SWEEP_MS + 2500);
+
     // (The new theme starts fully hidden in CSS, so there is no frame where
     // it shows across the whole screen before this animation takes over.)
     const transition = document.startViewTransition(() => apply(theme, false));
     transition.ready.then(() => {
-        root.animate(
-            { clipPath: blobFrames(x, y, reach) },
+        sweep = root.animate(
+            { clipPath: frames },
             { duration: SWEEP_MS, easing: "linear", fill: "both", pseudoElement: "::view-transition-new(root)" },
         );
     }).catch(() => {});
-    transition.finished.finally(() => {
-        root.classList.remove("theme-switching");
-        paintStatusBar(currentTheme());
-        pouring = false;
-    });
+    transition.finished.finally(finish);
 }
 
 export function initTheme() {
