@@ -58,7 +58,7 @@
     background: var(--surface);
     border: 1px solid var(--border);
     border-left: 3px solid var(--accent);
-    border-radius: 10px;
+    border-radius: var(--radius);
     padding: 18px 22px;
     margin-bottom: 20px;
 }
@@ -181,7 +181,7 @@
     background: var(--surface);
     border: 1px solid var(--border);
     border-left: 4px solid var(--danger);
-    border-radius: 10px;
+    border-radius: var(--radius);
     padding: 16px 18px;
 }
 
@@ -255,7 +255,7 @@
     background: var(--surface-2);
     color: var(--text);
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: var(--radius);
     font-family: 'Inter', sans-serif;
     font-size: 14px;
     font-weight: 600;
@@ -268,9 +268,9 @@
     min-height: 44px;
     padding: 8px 14px;
     background: var(--text);
-    color: #000;
+    color: var(--on-accent);
     border: none;
-    border-radius: 8px;
+    border-radius: var(--radius);
     font-family: 'Inter', sans-serif;
     font-size: 14px;
     font-weight: 600;
@@ -294,7 +294,7 @@
     background: var(--bg);
     color: var(--text);
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: var(--radius);
     font-family: 'Inter', sans-serif;
     font-size: 14px;
 }
@@ -326,7 +326,7 @@
     flex-wrap: wrap;
     padding: 10px 16px;
     border: 1px dashed var(--border);
-    border-radius: 9px;
+    border-radius: var(--radius);
     background: var(--surface);
 }
 
@@ -385,10 +385,10 @@
 .stat-grid.is-four { grid-template-columns: repeat(4, 1fr); }
 
 /* ---- Status pills (base .status-pill lives in common.css) ---- */
-.status-pill.st-online   { color: var(--accent);   background: rgba(61, 220, 151, 0.12); }
-.status-pill.st-offline  { color: var(--danger);   background: rgba(239, 91, 91, 0.14); }
-.status-pill.st-flapping { color: var(--warn);     background: rgba(245, 166, 35, 0.12); }
-.status-pill.st-unknown  { color: var(--text-dim); background: rgba(139, 150, 165, 0.10); }
+.status-pill.st-online   { color: var(--accent);   background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.status-pill.st-offline  { color: var(--danger);   background: color-mix(in srgb, var(--danger) 14%, transparent); }
+.status-pill.st-flapping { color: var(--warn);     background: color-mix(in srgb, var(--warn) 12%, transparent); }
+.status-pill.st-unknown  { color: var(--text-dim); background: color-mix(in srgb, var(--text-dim) 10%, transparent); }
 
 .status-pill .st-shape {
     margin-right: 5px;
@@ -468,7 +468,7 @@
     background: var(--surface);
     border: 1px solid var(--border);
     border-left: 3px solid var(--warn);
-    border-radius: 10px;
+    border-radius: var(--radius);
     padding: 14px 18px;
     margin-bottom: 20px;
 }

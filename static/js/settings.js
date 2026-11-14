@@ -1,4 +1,5 @@
 import { authHeaders, showMessage, getCurrentUser, updateCurrentUser, replaceAuthToken, showView, registerRoute } from "./common.js";
+import { currentTheme, setTheme, motionOn, setMotion } from "./theme.js";
 
 function fillProfileForm(currentUser) {
     const parts = (currentUser.name || "").trim().split(/\s+/);
@@ -52,9 +53,28 @@ export function initSettings() {
             document.getElementById("settings-tab-profile").hidden = target !== "profile";
             document.getElementById("settings-tab-password").hidden = target !== "password";
             document.getElementById("settings-tab-notifications").hidden = target !== "notifications";
+            document.getElementById("settings-tab-appearance").hidden = target !== "appearance";
             if (target === "notifications") populateNotificationsForm();
         });
     });
+
+    // Appearance: theme and animations, both per browser (theme.js). The
+    // buttons follow the real state, so the top bar's theme button and these
+    // never disagree.
+    const themeBox = document.getElementById("appearance-theme");
+    const motionBox = document.getElementById("appearance-motion");
+    const press = (box, choice) => box.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.choice === choice)));
+    const showAppearance = () => { press(themeBox, currentTheme()); press(motionBox, motionOn() ? "on" : "off"); };
+    themeBox.addEventListener("click", e => {
+        const btn = e.target.closest("button[data-choice]");
+        if (btn) setTheme(btn.dataset.choice, btn);
+    });
+    motionBox.addEventListener("click", e => {
+        const btn = e.target.closest("button[data-choice]");
+        if (btn) setMotion(btn.dataset.choice === "on");
+    });
+    document.addEventListener("appearancechange", showAppearance);
+    showAppearance();
 
     // Mirrors the login screen's password show/hide toggle (initShell in
     // common.js) — same .password-field/.eye-open/.eye-closed markup and

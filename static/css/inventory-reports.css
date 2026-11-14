@@ -2,7 +2,7 @@
 
 .status-pill.low-stock {
     color: var(--danger);
-    background: rgba(239, 91, 91, 0.14);
+    background: color-mix(in srgb, var(--danger) 14%, transparent);
     margin-left: 6px;
 }
 

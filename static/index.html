@@ -4,6 +4,18 @@
     <title>JASIRI NET — Battery Tracker</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#000000">
+    <!-- The saved theme and animations choice, set before the first paint so
+         a light-mode user never sees a dark flash. static/js/theme.js owns
+         the rest. -->
+    <script>
+        try {
+            if (localStorage.getItem("theme") === "light") {
+                document.documentElement.dataset.theme = "light";
+                document.querySelector('meta[name="theme-color"]').content = "#f2f3f5";
+            }
+            if (localStorage.getItem("motion") === "off") document.documentElement.dataset.motion = "off";
+        } catch (e) { /* private mode: stay dark, animations on */ }
+    </script>
     <link rel="manifest" href="/manifest.webmanifest">
     <link rel="icon" type="image/png" href="/static/icons/favicon.png">
     <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
@@ -26,6 +38,7 @@
         }
     </style>
     <link rel="stylesheet" href="/static/css/common.css">
+    <link rel="stylesheet" href="/static/css/home.css">
     <link rel="stylesheet" href="/static/css/dashboard.css">
     <link rel="stylesheet" href="/static/css/sites.css">
     <link rel="stylesheet" href="/static/css/movements.css">
@@ -58,7 +71,7 @@
     <div class="auth-loading" id="auth-loading"></div>
 
     <div class="login-screen" id="login-screen" hidden>
-        <div class="login-box">
+        <div class="login-frame"><div class="login-box">
             <img src="/static/jn-logo.png" alt="Jasiri Net" class="login-logo">
             <h1 class="login-title">JASIRI NET <span>— OPS</span></h1>
             <p class="login-subtitle">Sign in to continue</p>
@@ -83,7 +96,7 @@
             </form>
             <a href="#" class="login-forgot">Forgot password?</a>
             <div class="form-msg" id="login-msg"></div>
-        </div>
+        </div></div>
     </div>
 
     <div class="cmdk-overlay" id="cmdk-overlay" hidden>
@@ -115,6 +128,10 @@
         </button>
 
         <div class="topbar-notif-wrap">
+            <button type="button" class="topbar-icon-btn theme-toggle" id="theme-toggle" title="Switch to light mode" aria-label="Switch to light mode" aria-pressed="false">
+                <svg class="theme-icon-moon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13.5 9.5A5.5 5.5 0 016.5 2.5a5.5 5.5 0 107 7z"/></svg>
+                <svg class="theme-icon-sun" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="3"/><path d="M8 1.5v1.5M8 13v1.5M1.5 8H3M13 8h1.5M3.4 3.4l1.1 1.1M11.5 11.5l1.1 1.1M3.4 12.6l1.1-1.1M11.5 4.5l1.1-1.1"/></svg>
+            </button>
             <button type="button" class="topbar-icon-btn" id="notifications-btn" title="Notifications">
                 <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
                     <path d="M8 2C6 2 4.5 3.5 4.5 5.5V8L3 10.5H13L11.5 8V5.5C11.5 3.5 10 2 8 2Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
@@ -174,6 +191,7 @@
                 </button>
                 <div class="nav-subitems" id="ops-nav-subitems">
                     <div class="nav-subitems-inner">
+                        <button type="button" class="nav-link sub" data-view="home" data-label="Dashboard"><svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="2" width="5" height="6" rx="1.2"/><rect x="9" y="2" width="5" height="3.5" rx="1.2"/><rect x="9" y="7.5" width="5" height="6.5" rx="1.2"/><rect x="2" y="10" width="5" height="4" rx="1.2"/></svg><span class="nav-link-text">Dashboard</span></button>
                         <button type="button" class="nav-link sub" data-view="dashboard" data-label="Batteries"><svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="1" y="4" width="12" height="8" rx="1.5"/><rect x="13.5" y="6.5" width="1.5" height="3" rx="0.5" fill="currentColor" stroke="none"/><rect x="3" y="6" width="4" height="4" fill="currentColor" stroke="none"/></svg><span class="nav-link-text">Batteries</span><span class="nav-badge" id="battery-nav-badge" hidden>0</span></button>
                         <button type="button" class="nav-link sub" data-view="sites" data-label="Sites"><svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 14S13 9.5 13 6a5 5 0 10-10 0c0 3.5 5 8 5 8z"/><circle cx="8" cy="6" r="1.6"/></svg><span class="nav-link-text">Sites</span></button>
                     </div>
@@ -268,6 +286,7 @@
         </nav>
 
         <main class="content">
+            <div data-view-mount="home"></div>
             <div data-view-mount="dashboard"></div>
             <div data-view-mount="sites"></div>
             <div data-view-mount="movements"></div>
@@ -289,6 +308,7 @@
             <div data-view-mount="broadcast"></div>
             <div data-view-mount="sms-status"></div>
             <div data-view-mount="revenue"></div>
+            <div data-view-mount="revenue-overview"></div>
             <div data-view-mount="network"></div>
             <div data-view-mount="olt"></div>
             <div data-view-mount="activity-overview"></div>

@@ -7,6 +7,23 @@ already in use, not new proposals.
 
 ## Accent / color theme
 
+**Two themes since 2026-11-14 (owner's call).** Dark stays the default;
+light is `data-theme="light"` on `<html>`, switched with the sun/moon button
+in the top bar (`static/js/theme.js`, remembered in `localStorage.theme`,
+applied before first paint by an inline script in `index.html`). Both are
+one set of token names defined twice at the top of `common.css`; a view
+must never write a hex or `rgba()` of its own: use a token, or
+`color-mix(in srgb, var(--accent) 12%, transparent)` for a tint. Light uses
+darker green/amber/red/blue so they pass as text on white, white cards on a
+grey page, and a soft shadow for `--edge` instead of a lit edge. Switching
+pours the new theme out from the button as a growing blob with a wobbling,
+liquid edge, 1.1s (`blobFrames` in `theme.js`: clip-path polygons on the
+View Transition's new snapshot; instant without View Transitions or with
+animations off). Shapes are
+rounder in both: `--radius` 16px for cards, panels, tables and dialogs,
+`--radius-sm` 10px for buttons, inputs and chips. The values listed below
+are the dark ones.
+
 Dark theme, defined once as CSS custom properties in `common.css`'s `:root`
 (every view's CSS reads these, never redefines its own palette):
 
@@ -66,9 +83,15 @@ what is truly its own.
   `:focus-visible`; text fields keep the accent border and add `--ring`
   (a box-shadow, so a view's `outline: none` can't remove it). Mouse focus
   on a button shows nothing.
-- **Motion:** `prefers-reduced-motion: reduce` turns every animation and
-  transition into an instant change and removes lifts/scales. Keep new
-  motion subtle (≤ 0.3s, opacity/transform only).
+- **Motion is on unless the person turns it off** (owner's call,
+  2026-11-14): Settings → Appearance → Animations, saved per browser
+  (`localStorage.motion`, `data-motion="off"` on `<html>`, applied before
+  first paint). Off turns every animation and transition into an instant
+  change and removes lifts/scales. The device's own
+  `prefers-reduced-motion` is deliberately NOT followed: Windows has
+  "Animation effects" off on many PCs, and the app then showed no motion at
+  all. Never gate motion on the media query; use
+  `:root[data-motion="off"]` in CSS and `motionOn()` (`theme.js`) in JS.
 - **Filters above a table:** `.toolbar` (wraps, sits directly above the
   table or its summary) with `.toolbar-field` (small mono uppercase label
   span + control) and `.control` for inputs/selects (drawn chevron,
@@ -114,7 +137,7 @@ what is truly its own.
   (a filter in the URL) doesn't replay its entrance.
 - **Motion:** menus, pop-overs, dialogs and form messages appear with a
   ~150ms fade and 4px drop; buttons, summary filters and cards have a
-  pressed state. Nothing moves that isn't changing; reduced motion turns
+  pressed state. Nothing moves that isn't changing; animations off turns
   all of it off.
 - **Sidebar (sectioned, 2026-11-09):** seven titled sections — Operations
   (Batteries, Sites), Network (Network Status, Network Analysis, OLT;
@@ -134,6 +157,43 @@ what is truly its own.
   Activity Types, Inventory Report); the full names stay in `data-label` for
   the command palette. Unread alerts use an amber count bubble.
 
+
+- **Motion (2026-11-14, owner's reference clip):** the page you leave
+  blurs away (`.view-ghost`, a stripped copy), then the new one opens by
+  blurring in from heavy blur, block after block, then cards and table rows (`.view.is-entering`, set by
+  `static/js/motion.js` for ~2.6s after arriving, so live refreshes never
+  replay it; no blur on phones); the current item's highlight slides to it
+  instead of jumping (sidebar row, tab underline including across pages
+  that share a tab bar, the pressed button of a `.fleet-range`/`.sr-range`
+  toggle), drawn by one `.slide-indicator` per container; cards lift 5px on
+  hover (mouse screens only); headline figures
+  (`.stat-value`, `.rev-card-value`, `.rev-tile-value`, `.summary-item
+  strong`) count up when their page opens and roll from old to new when a
+  refresh changes them; income bars and progress bars grow in. All of it is
+  off when animations are switched off in Settings, and without the script
+  every item keeps its own highlight.
+- **Login card (2026-11-14):** `.login-frame` carries a conic gradient
+  (accent, with a fainter blue lobe opposite) turning once every 7s, drawn
+  twice from one angle (`--glow-angle`, an `@property`): a 1.5px stroke on
+  the card's edge and the same gradient blurred 30px behind the card as the
+  bloom. Still when animations are off.
+- **Dashboard (2026-11-14, `home.css`):** headline tiles (`.home-kpi`) over
+  a 12-column grid of cards (`.home-card`, `--span`). Colour there means
+  state only (`.tone-good/warn/bad/info/idle` set `--tone`), always beside
+  a written label and a count; a "how many of each" is a split bar with a
+  2px gap between slices and its legend; rankings and over-time charts are
+  one hue (download and upload keep Network Analysis's green and blue).
+  Charts are drawn at the width they are shown at; hovering shows a
+  floating label (`.home-tip`), and a line chart a rule with a dot per
+  line. A reading nobody took is a gap in the line, never a zero.
+- **Polish pass (2026-11-13):** panels carry `--edge` (a lit top edge via
+  `box-shadow`, since a drop shadow does nothing on black); the primary
+  button has a soft top-to-bottom gradient and glows on hover; the top bar
+  is translucent with a blur; the page has a faint accent glow behind the
+  dot grid. A pressed toggle (`.fleet-range`, `.sr-range`) is an accent
+  tint with an accent ring, never a white pill. Forms use a visible label
+  (`label.form-field`, optional `.form-hint`) rather than a placeholder as
+  the label. Table cells holding one fact (date, plan, phone) don't wrap.
 
 - **Buttons:** 6px border radius everywhere. Primary = solid `--accent`
   fill with dark text (`#10141a`); secondary = `--surface-2` fill with a

@@ -1,4 +1,5 @@
 import { loadViewFragments, initShell, resolveAuthUI, bootAuth } from "./common.js";
+import { initHome } from "./home.js";
 import { initDashboard } from "./dashboard.js";
 import { initSites } from "./sites.js";
 import { initMovements } from "./movements.js";
@@ -29,12 +30,16 @@ import { initActivitySubmit } from "./activity-submit.js";
 import { initActivityReports } from "./activity-reports.js";
 import { initActivityOverview } from "./activity-overview.js";
 import { initActivityManage } from "./activity-manage.js";
+import { initMotion } from "./motion.js";
+import { initTheme } from "./theme.js";
 
 async function boot() {
+    initTheme();
     initShell();
     resolveAuthUI();
     await loadViewFragments();
 
+    initHome();
     initDashboard();
     initSites();
     initMovements();
@@ -65,6 +70,7 @@ async function boot() {
     initActivityReports();
     initActivityOverview();
     initActivityManage();
+    initMotion();
 
     bootAuth();
 }

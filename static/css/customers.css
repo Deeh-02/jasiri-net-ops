@@ -24,7 +24,7 @@
     background: var(--surface-2);
     color: var(--text);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
     padding: 5px 10px;
     margin-right: 10px;
     font-family: 'Inter', sans-serif;
@@ -54,7 +54,7 @@
     background: var(--surface);
     border: 1px solid var(--border);
     color: var(--text);
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
     padding: 4px 12px;
     font-family: 'Inter', sans-serif;
     font-size: 12.5px;
@@ -71,3 +71,12 @@
 .customer-onu { font-size: 13px; font-weight: 600; white-space: nowrap; }
 .customer-onu.good { color: var(--accent); }
 .customer-onu.bad { color: var(--danger); }
+
+/* One line per fact: a date or a plan never breaks over three lines. */
+.cust-nowrap { white-space: nowrap; }
+.cust-user { font-family: 'JetBrains Mono', monospace; font-size: 13px; white-space: nowrap; }
+.status-pill.acct-active { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.status-pill.acct-expired { color: var(--danger); background: color-mix(in srgb, var(--danger) 14%, transparent); }
+.status-pill.acct-inactive { color: var(--text-dim); background: color-mix(in srgb, var(--text-dim) 14%, transparent); }
+.cust-router { max-width: 110px; font-size: 13px; }
+.cust-onu { min-width: 150px; }

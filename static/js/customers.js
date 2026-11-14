@@ -113,16 +113,22 @@ async function loadCustomers() {
         rows.innerHTML = stateRow(9, "empty", "Import an export above to fill this list.", "No customers yet");
         return;
     }
+    // The date on one line, the time small under it.
+    const expiryCell = iso => {
+        const text = formatDate(iso) || "";
+        const cut = text.lastIndexOf(", ");
+        return cut < 0 ? esc(text || "—") : `${esc(text.slice(0, cut))}<div class="cell-sub">${esc(text.slice(cut + 2))}</div>`;
+    };
     rows.innerHTML = customers.map(c => `
         <tr>
-            <td>${esc(c.router)}</td>
-            <td>${esc(c.username)}</td>
+            <td class="muted cust-router">${esc(c.router)}</td>
+            <td class="cust-user">${esc(c.username)}</td>
             <td>${esc(c.name || "—")}</td>
-            <td>${esc(c.phone || "no valid number")}</td>
-            <td>${esc(c.plan || "—")}</td>
-            <td>${esc(formatDate(c.expiry))}</td>
-            <td>${esc(c.account_status)}${c.enabled ? "" : " (disabled)"}</td>
-            <td>${onuCell(c.onu)}</td>
+            <td class="cust-nowrap">${esc(c.phone || "no valid number")}</td>
+            <td class="cust-nowrap">${esc(c.plan || "—")}</td>
+            <td class="cust-nowrap">${expiryCell(c.expiry)}</td>
+            <td><span class="status-pill acct-${esc(c.account_status)}">${esc(c.account_status)}</span>${c.enabled ? "" : ` <span class="cell-sub">disabled</span>`}</td>
+            <td class="cust-onu">${onuCell(c.onu)}</td>
             <td><button type="button" class="customer-edit-btn" data-id="${c.id}">Edit</button></td>
         </tr>`).join("");
     // ONU data older than 15 minutes is labelled, never shown as current.

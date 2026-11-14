@@ -10,16 +10,26 @@
             <button type="button" class="settings-tab tab active" data-settings-tab="profile">Profile</button>
             <button type="button" class="settings-tab tab" data-settings-tab="password">Password</button>
             <button type="button" class="settings-tab tab" data-settings-tab="notifications">Notifications</button>
+            <button type="button" class="settings-tab tab" data-settings-tab="appearance">Appearance</button>
         </div>
 
         <div class="settings-panel" id="settings-tab-profile">
             <form id="profile-form" class="panel-form settings-form">
                 <div class="settings-form-row-2">
-                    <input type="text" id="profile-first-name" placeholder="First name" required>
-                    <input type="text" id="profile-last-name" placeholder="Last name">
+                    <label class="form-field">First name
+                        <input type="text" id="profile-first-name" required autocomplete="given-name">
+                    </label>
+                    <label class="form-field">Last name
+                        <input type="text" id="profile-last-name" autocomplete="family-name">
+                    </label>
                 </div>
-                <input type="tel" id="profile-phone" placeholder="Phone number">
-                <input type="email" id="profile-email" placeholder="Email" required>
+                <label class="form-field">Phone number
+                    <input type="tel" id="profile-phone" placeholder="e.g. 0712345678" autocomplete="tel">
+                    <span class="form-hint">Alert SMS and WhatsApp go to this number.</span>
+                </label>
+                <label class="form-field">Email
+                    <input type="email" id="profile-email" required autocomplete="email">
+                </label>
                 <button type="submit" class="btn-primary settings-save-btn">Save Changes</button>
             </form>
             <div class="form-msg" id="profile-form-msg"></div>
@@ -100,5 +110,29 @@
                 <button type="submit" class="btn-primary settings-save-btn">Save Changes</button>
             </form>
             <div class="form-msg" id="notifications-form-msg"></div>
+        </div>
+
+        <div class="settings-panel settings-appearance" id="settings-tab-appearance" hidden>
+            <p class="settings-panel-intro">How the app looks on this device. These two choices are saved in this browser, so your phone and your computer can differ.</p>
+            <div class="appearance-row">
+                <div class="appearance-text">
+                    <div class="appearance-name" id="appearance-theme-label">Theme</div>
+                    <div class="form-hint">Also on the sun and moon button at the top of every page.</div>
+                </div>
+                <div class="fleet-range" role="group" aria-labelledby="appearance-theme-label" id="appearance-theme">
+                    <button type="button" data-choice="dark" aria-pressed="false">Dark</button>
+                    <button type="button" data-choice="light" aria-pressed="false">Light</button>
+                </div>
+            </div>
+            <div class="appearance-row">
+                <div class="appearance-text">
+                    <div class="appearance-name" id="appearance-motion-label">Animations</div>
+                    <div class="form-hint">Pages easing in, highlights that slide, numbers that count up. Turn off if the movement bothers you or this device feels slow.</div>
+                </div>
+                <div class="fleet-range" role="group" aria-labelledby="appearance-motion-label" id="appearance-motion">
+                    <button type="button" data-choice="on" aria-pressed="false">On</button>
+                    <button type="button" data-choice="off" aria-pressed="false">Off</button>
+                </div>
+            </div>
         </div>
     </section>

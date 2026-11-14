@@ -1,3 +1,4 @@
+import { enteringView, leavingView } from "./motion.js";
 // ---- Auth state ----
 let authToken = localStorage.getItem("authToken");
 let currentUser = JSON.parse(localStorage.getItem("currentUser") || "null");
@@ -64,6 +65,10 @@ async function loadPermissions() {
     }
 }
 
+// "home" (the Dashboard) is deliberately not here: everyone who signs in gets
+// it, and what it shows is decided per card on the server (routers/home.py).
+// The route called "dashboard" is the Batteries page: it was the app's first
+// screen and kept its name when the real Dashboard arrived (2026-11-14).
 const ROUTE_PERMISSION_MAP = {
     dashboard: ["batteries", "view"],
     sites: ["sites", "view"],
@@ -105,6 +110,8 @@ const ROUTE_PERMISSION_MAP = {
     // Status and Trends. Sits in the Reports group but doesn't need
     // reports:view (the group shows if any child is allowed).
     revenue: ["sites", "view_revenue"],
+    // Revenue's graphs tab: the same figures, the same gate.
+    "revenue-overview": ["sites", "view_revenue"],
     "inventory-manage": ["inventory_categories", "view"],
     // Alerts group. "notifications" has no entry on purpose — it's the
     // user's own inbox, same as the bell, so everyone logged in gets it
@@ -397,8 +404,12 @@ export function deleteIconSvg() {
 export function showView(viewId) {
     const view = document.getElementById(viewId);
     const arriving = view.hidden;
+    // Motion (static/js/motion.js): remember the tab we're leaving so the next
+    // page's underline can slide from it.
+    if (arriving) leavingView(document.querySelector(".view:not([hidden])"));
     document.querySelectorAll(".view").forEach(v => { if (v !== view) v.hidden = true; });
     view.hidden = false;
+    if (arriving) enteringView(view);
     // A different page starts at its top (on a phone the whole window
     // scrolls, on desktop the content pane does); staying on the same page
     // (a filter in the URL changing) keeps its place.
@@ -442,7 +453,7 @@ export function registerRouteResetter(fn) {
 
 function parseRoute(hash) {
     const parts = hash.replace(/^#\/?/, "").split("/").filter(Boolean);
-    return { name: parts[0] || "dashboard", params: parts.slice(1) };
+    return { name: parts[0] || "home", params: parts.slice(1) };
 }
 
 // The sidebar is a list of titled sections (Operations, Network, Technical
@@ -451,18 +462,19 @@ function parseRoute(hash) {
 // per browser) until you open it again or land on one of its pages, which
 // opens it so the current page is always visible.
 const NAV_GROUP_ROUTES = {
-    ops: ["dashboard", "sites"],
+    ops: ["home", "dashboard", "sites"],
     network: ["status", "trends", "site-detail", "manage-sites", "packages", "network", "olt"],
     system: ["users", "roles"],
     inventory: ["inventory", "stock", "inventory-log", "inventory-manage"],
     alerts: ["notifications", "alert-templates", "customers", "broadcast"],
-    reports: ["inventory-reports", "sms-status", "revenue"],
+    reports: ["inventory-reports", "sms-status", "revenue", "revenue-overview"],
     activity: ["activity-overview", "activity-reports", "activity-submit", "activity-manage"],
 };
 
 // Pages reached from inside another page light up that page's sidebar row:
 // Trends, one site, Manage sites and Packages all open from Network Status.
-const NAV_ACTIVE_ALIAS = { trends: "status", "site-detail": "status", "manage-sites": "status", packages: "status" };
+const NAV_ACTIVE_ALIAS = { trends: "status", "site-detail": "status", "manage-sites": "status", packages: "status",
+                           "revenue-overview": "revenue" };
 
 function setActiveNav(name) {
     const row = NAV_ACTIVE_ALIAS[name] || name;
@@ -808,7 +820,7 @@ function renderCmdkResults(query) {
 // ---- Fragment loader: fetches every view's HTML and injects it into its
 // mount point. Loaded eagerly, all at once, at startup — the app is small
 // enough that lazy-per-nav loading isn't worth the added state-tracking. ----
-const VIEW_NAMES = ["dashboard", "sites", "movements", "status", "site-detail", "trends", "manage-sites", "packages", "notifications", "alert-templates", "customers", "broadcast", "users", "roles", "settings", "inventory", "stock", "inventory-log", "issue-materials", "return-materials", "inventory-reports", "sms-status", "revenue", "inventory-manage", "network", "olt", "activity-overview", "activity-reports", "activity-submit", "activity-manage"];
+const VIEW_NAMES = ["home", "dashboard", "sites", "movements", "status", "site-detail", "trends", "manage-sites", "packages", "notifications", "alert-templates", "customers", "broadcast", "users", "roles", "settings", "inventory", "stock", "inventory-log", "issue-materials", "return-materials", "inventory-reports", "sms-status", "revenue", "revenue-overview", "inventory-manage", "network", "olt", "activity-overview", "activity-reports", "activity-submit", "activity-manage"];
 
 export async function loadViewFragments() {
     await Promise.all(VIEW_NAMES.map(async (name) => {
@@ -836,26 +848,7 @@ export function initShell() {
         btn.classList.toggle("is-visible", isPassword);
     });
 
-    // ---- Login: animated traveling border on the login card ----
-    (function animateLoginBorder() {
-        const box = document.querySelector(".login-box");
-        if (!box) return;
-
-        function sizeTrace() {
-            const size = Math.max(box.offsetWidth, box.offsetHeight) * 1.6;
-            box.style.setProperty("--trace-size", size + "px");
-        }
-        sizeTrace();
-        window.addEventListener("resize", sizeTrace);
-
-        let angle = 0;
-        function tick() {
-            angle = (angle + 0.6) % 360;
-            box.style.setProperty("--border-angle", angle + "deg");
-            requestAnimationFrame(tick);
-        }
-        requestAnimationFrame(tick);
-    })();
+    // (The login card's turning glow is CSS: .login-frame in common.css.)
 
     // ---- Login ----
     document.getElementById("login-form").addEventListener("submit", async (e) => {

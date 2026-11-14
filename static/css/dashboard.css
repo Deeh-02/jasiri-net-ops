@@ -42,7 +42,7 @@
     gap: 8px;
     background: var(--surface-2);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
     padding: 6px 10px;
     color: var(--text);
     font-family: 'JetBrains Mono', monospace;
@@ -68,8 +68,8 @@
     z-index: 20;
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 8px;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+    border-radius: var(--radius);
+    box-shadow: 0 10px 30px color-mix(in srgb, var(--shadow) 40%, transparent);
     min-width: 140px;
     overflow: hidden;
 }
@@ -123,8 +123,8 @@
     z-index: 20;
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 8px;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+    border-radius: var(--radius);
+    box-shadow: 0 10px 30px color-mix(in srgb, var(--shadow) 40%, transparent);
     max-height: 180px;
     overflow-y: auto;
 }
@@ -169,7 +169,7 @@
     width: 100%;
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
     padding: 10px 12px;
     color: var(--text);
     font-family: 'Inter', sans-serif;
@@ -204,8 +204,8 @@
     z-index: 20;
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 8px;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+    border-radius: var(--radius);
+    box-shadow: 0 10px 30px color-mix(in srgb, var(--shadow) 40%, transparent);
 }
 
 .move-reason-option {
@@ -225,13 +225,13 @@
    Pending/In Transit reuse the same colors as their Movements-page
    equivalents (.movement-pending/.movement-in-transit in movements.css) for
    visual consistency across the two views. ---- */
-.status-pill.deployed { color: var(--warn); background: rgba(245, 166, 35, 0.12); }
-.status-pill.at-base { color: var(--accent); background: rgba(61, 220, 151, 0.12); }
-.status-pill.pending { color: var(--text-dim); background: rgba(139, 150, 165, 0.14); }
-.status-pill.in-transit { color: var(--info); background: rgba(79, 168, 255, 0.12); }
+.status-pill.deployed { color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
+.status-pill.at-base { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.status-pill.pending { color: var(--text-dim); background: color-mix(in srgb, var(--text-dim) 14%, transparent); }
+.status-pill.in-transit { color: var(--info); background: color-mix(in srgb, var(--info) 12%, transparent); }
 /* Still reads "Deployed" — just the red variant, for a battery sitting at a
    site confirmed offline. */
-.status-pill.deployed-flagged { color: var(--danger); background: rgba(239, 91, 91, 0.14); }
+.status-pill.deployed-flagged { color: var(--danger); background: color-mix(in srgb, var(--danger) 14%, transparent); }
 
 /* ---- Row accent for a battery sitting at a confirmed-offline site, used
    in the stat-detail modal's table (see openStatDetail) — same visual as
@@ -253,7 +253,7 @@
     justify-content: center;
     background: var(--surface-2);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
     width: 32px;
     height: 32px;
     color: var(--text-dim);
@@ -272,7 +272,7 @@
     justify-content: center;
     background: var(--surface-2);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
     width: 30px;
     height: 30px;
     color: var(--text-dim);
@@ -292,7 +292,7 @@
     justify-content: center;
     background: var(--surface-2);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
     width: 30px;
     height: 30px;
     color: var(--text-dim);

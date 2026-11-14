@@ -4,9 +4,9 @@
    .summary-strip (tap one to show only that status). */
 
 /* A status that needs a look reads in colour in the table too. */
-.sms-status-pill.sent { color: var(--accent); background: rgba(61, 220, 151, 0.12); }
-.sms-status-pill.failed { color: var(--danger); background: rgba(239, 91, 91, 0.12); }
-.sms-status-pill.other { color: var(--warn); background: rgba(245, 166, 35, 0.12); }
+.sms-status-pill.sent { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.sms-status-pill.failed { color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, transparent); }
+.sms-status-pill.other { color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
 
 .sms-status-response {
     max-width: 320px;

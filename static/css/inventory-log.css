@@ -51,8 +51,8 @@
     z-index: 20;
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 8px;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+    border-radius: var(--radius);
+    box-shadow: 0 10px 30px color-mix(in srgb, var(--shadow) 40%, transparent);
     max-height: 220px;
     overflow-y: auto;
 }

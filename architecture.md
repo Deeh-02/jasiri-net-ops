@@ -1534,6 +1534,40 @@ at (redrawn on resize), and a newest-first table; on phones the Progress
 column is hidden. Same endpoint, permission (`sites:view_revenue`) and
 polling as the Trend chart.
 
+**2026-11-12: its own tab.** Revenue is two routes on one module, like
+Status / Trends: `#/revenue` (Report) and `#/revenue-overview` (Overview:
+the income overview and the trend line, `static/views/revenue-overview.html`).
+Same permission; `state.screen` decides what a load or a poll fetches, so
+each tab only asks for what it shows.
+
+### Dashboard — one small summary per area, each behind its page's own permission (2026-11-14)
+
+The landing page is `#/home` (`static/js/home.js`, `views/home.html`,
+`home.css`). **The route called `dashboard` is still the Batteries page**: it
+was the app's first screen and kept its route, view id and file names;
+renaming them would have touched every battery link for no gain. `home` has
+no entry in `ROUTE_PERMISSION_MAP`, so everyone who signs in lands on it.
+
+`GET /home` lists the sections the viewer may see; `GET /home/{section}`
+returns one (`routers/home.py`, `SECTIONS`). A section is gated by the same
+permission as the area's own page (revenue: `sites:view_revenue`; customers:
+`sites:send_broadcasts`; fibre and uplink: `sites:view_network`; stock:
+`inventory_items:view` plus one of its two pages), so the Dashboard can't
+show a figure its viewer couldn't already look up. No new tables: each
+summary is reduced in `db/home.py` (pure functions, `tests/test_home.py`)
+from the function the area's page already calls, so the two can't disagree.
+Only counts, site and item names and series leave the server; customers go
+out as counts, and money as the strings `revenue_report` formatted.
+
+One request per section, and the page loads them **two at a time**: every
+query opens its own database connection and the pooler allows 15 in all, so
+nine in parallel per viewer would have been a real risk. It also means one
+slow or failing area never blanks the rest. The page re-reads every two
+minutes while open and visible, and redraws only cards whose reply changed.
+The fibre section calls `smartolt.poll_if_due()` like the OLT page does
+(non-blocking, rate-limited by its own schedule), since this is now the
+page people actually land on.
+
 ### Admin assistant — fixed read-only tools, enforced in code
 
 **Update 2026-11-11: "how do I…" app guide, per role.** (Owner's call.)

@@ -9,8 +9,54 @@ and in `phase.md`'s own per-phase writeups.
 
 Started 2026-11-10 at the owner's request, after Phase 5 was merged to `main`.
 
+### A real Dashboard (2026-11-14)
+- **Dashboard** is the new first page (Operations → Dashboard): headline
+  figures across the top, then a card of charts for each area: revenue over
+  14 days, sites up and down, people online through the week, the internet
+  uplink over 24 hours, fibre ONUs by status and signal, customers by state
+  and package, batteries by place and charge, technician reports per day,
+  and stock at or under its reorder level.
+- You only see the cards for areas your role can already open; each card
+  has a button to its full page. It refreshes itself every two minutes.
+- **Batteries** is still where it was in the menu; it just isn't the first
+  page any more.
+
+### Animations: always on, with an off switch (2026-11-14)
+- The app's animations now play on every device. Before, they were silently
+  switched off wherever the computer had "Animation effects" turned off in
+  Windows, which is why some screens saw none.
+- **Settings → Appearance** has an Animations On / Off choice (and the
+  light / dark choice), saved on that device.
+- Switching between light and dark now pours across the screen like liquid
+  from the button, and takes about a second.
+- The login card has a soft light turning around its edge.
+
+### Light mode and a rounder look (2026-11-14)
+- **Light mode:** a sun/moon button at the top right (next to the bell)
+  switches the whole app between dark and light. Light is white cards on a
+  soft grey page with darker greens so text stays readable. Your choice is
+  remembered on that device; dark is still the default.
+- Cards, tables, dialogs, buttons and inputs are rounder in both modes.
+
+### Motion and polish across the app (2026-11-14)
+- **Pages blur in:** opening a page sharpens its content into place, one
+  block after another.
+- **The highlight slides:** the green highlight in the sidebar, the
+  underline under tabs and the pressed Day / Week / Live button glide to
+  where you clicked instead of jumping.
+- **Numbers count up** when a page opens, and roll to the new value when a
+  live refresh changes them. Revenue bars grow from the baseline.
+- **Polish:** green toggles instead of white ones, a lit edge on cards,
+  buttons that glow on hover, a see-through top bar, labelled fields in
+  Settings and a tidier Customers table.
+
+### Revenue: Report and Overview tabs (2026-11-12)
+- Revenue now has two tabs, like Network Status and Trends: **Report**
+  (what the sidebar opens: the cards, findings, sites and rankings) and
+  **Overview** (the graphs: the Income overview and the trend line).
+
 ### Revenue: Income overview (2026-11-11)
-- New **Income overview** at the top of Reports → Revenue: Total, Average,
+- New **Income overview** on Reports → Revenue (now on the Overview tab): Total, Average,
   Highest and Lowest, a bar for each day (or week or month) in green when
   it beat the average and orange when it didn't, with the average as a
   dashed line, and a table of every period with its income, a progress bar

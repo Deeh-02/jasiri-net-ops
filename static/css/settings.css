@@ -10,10 +10,12 @@
     gap: 10px;
 }
 
-.settings-form-row-2 input {
+.settings-form-row-2 input,
+.settings-form-row-2 .form-field {
     flex: 1;
     min-width: 0;
 }
+.settings-form { gap: 16px; }
 
 .settings-save-btn {
     align-self: flex-start;
@@ -26,4 +28,22 @@
     font-size: 14px;
     line-height: 1.5;
     margin: 0 0 16px;
+}
+
+/* ---- Appearance tab: a name and a hint on the left, the choice on the right ---- */
+.settings-appearance { max-width: 560px; }
+.appearance-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    padding: 16px 0;
+    border-top: 1px solid var(--border);
+}
+.appearance-text { min-width: 0; }
+.appearance-name { font-size: 14px; font-weight: 600; color: var(--text); margin-bottom: 5px; }
+.appearance-text .form-hint { display: block; line-height: 1.45; }
+.appearance-row .fleet-range { flex-shrink: 0; }
+@media (max-width: 520px) {
+    .appearance-row { flex-direction: column; align-items: flex-start; gap: 12px; }
 }

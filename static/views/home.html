@@ -1,0 +1,22 @@
+    <section class="view" id="view-home" hidden>
+        <div class="page-header-row">
+            <div>
+                <h1 class="page-title" id="home-greeting">Dashboard</h1>
+                <p class="page-subtitle" id="home-sub">Jasiri Net at a glance.</p>
+            </div>
+            <div class="home-updated" id="home-updated" aria-live="polite"></div>
+        </div>
+
+        <!-- One tile per headline figure, then one card per area. Both are
+             built by static/js/home.js from what GET /home says this person
+             may see; each card fills in when its own summary arrives. -->
+        <div class="home-kpis" id="home-kpis"></div>
+        <div class="home-grid" id="home-grid"></div>
+
+        <div class="home-nothing" id="home-nothing" hidden>
+            <h2>Nothing to chart yet</h2>
+            <p>Your role doesn't include an area with figures to show here. Use the menu to get to your pages.</p>
+        </div>
+
+        <div class="home-tip" id="home-tip" role="status" hidden></div>
+    </section>

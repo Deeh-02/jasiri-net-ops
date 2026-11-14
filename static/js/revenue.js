@@ -40,6 +40,7 @@ const state = {
     sort: "largest_loss",  // a preset button
     col: null,             // a clicked column header overrides the preset
     colDir: 1,
+    screen: "report",    // "report" or "overview" (the two tabs)
     series: "daily_30",
     incomeSeries: "daily_14",
     cardModes: {},
@@ -132,16 +133,18 @@ function nairobiTime(date) {
 // poll failed the old figures stay on screen and this says so, instead of
 // letting them go quietly stale.
 function renderMeta() {
-    const meta = $("rev-header-meta");
     const stamp = !lastOkAt ? null : isOffline
         ? `offline, last updated ${nairobiTime(lastOkAt)}`
         : `updated ${nairobiTime(lastOkAt)}`;
-    meta.textContent = [
+    const text = [
         "Hotspot sales only · Nairobi time",
         historyStart ? `history from ${shortDay(historyStart)}` : null,
         stamp,
     ].filter(Boolean).join(" · ");
-    meta.classList.toggle("rev-offline", isOffline);
+    for (const meta of [$("rev-header-meta"), $("rev-ov-meta")]) {
+        meta.textContent = text;
+        meta.classList.toggle("rev-offline", isOffline);
+    }
 }
 
 function markFetched(ok) {
@@ -455,7 +458,7 @@ let incomeWidth = 0;
 // The chart is drawn for its width: redraw when that changes (phone turned).
 window.addEventListener("resize", () => {
     const box = $("rev-income");
-    if (!lastIncome || !box || $("view-revenue").hidden) return;
+    if (!lastIncome || !box || $("view-revenue-overview").hidden) return;
     if (Math.abs(box.clientWidth - incomeWidth) < 40) return;
     incomeWidth = box.clientWidth;
     delete lastDrawn.income;
@@ -480,7 +483,9 @@ function snugTop(v) {
     return 10 * mag;
 }
 
-function incomeBars(pts, avg, width) {
+// `hatchId` names the stripe pattern for the unfinished period: two charts on
+// one page (this one and the Dashboard's) each need their own.
+export function incomeBars(pts, avg, width, hatchId = "rev-hatch") {
     // Drawn at the width it is shown at, so the text stays readable on a phone.
     const W = Math.max(300, Math.min(960, Math.round(width || 720))), H = W < 520 ? 220 : 250;
     const L = 40, R = 8, T = 14, B = 28;
@@ -499,18 +504,18 @@ function incomeBars(pts, avg, width) {
         const h = Math.max(0, y(0) - y(p.value)), r = Math.min(4, bw / 2, h);
         const cls = p.partial ? "partial" : (p.vs_average_pct ?? 0) >= 0 ? "above" : "below";
         // Rounded top, square on the baseline.
-        const bar = h > 0 ? `<path class="bar ${cls}" d="M${x},${y(0)} V${y(p.value) + r} Q${x},${y(p.value)} ${x + r},${y(p.value)} H${x + bw - r} Q${x + bw},${y(p.value)} ${x + bw},${y(p.value) + r} V${y(0)} Z"/>` : "";
+        const bar = h > 0 ? `<path class="bar ${cls}"${p.partial ? ` style="fill:url(#${hatchId})"` : ""} d="M${x},${y(0)} V${y(p.value) + r} Q${x},${y(p.value)} ${x + r},${y(p.value)} H${x + bw - r} Q${x + bw},${y(p.value)} ${x + bw},${y(p.value) + r} V${y(0)} Z"/>` : "";
         const tip = `${p.name}: ${p.display}${p.partial ? " so far (not counted)" : p.vs_average_pct != null ? ` · ${vsText(p.vs_average_pct)} vs average` : ""}`;
         // Every step-th day, and always the last one (with room before it).
         const last = pts.length - 1;
         const show = i === last || (i % step === 0 && last - i >= step);
         const anchor = cx - labelWidth / 2 < L - 6 ? ["start", x] : cx + labelWidth / 2 > W - R ? ["end", x + bw] : ["middle", cx];
         const label = show ? `<text x="${anchor[1]}" y="${H - 9}" text-anchor="${anchor[0]}">${esc(p.label)}</text>` : "";
-        return `<g class="slot"><title>${esc(tip)}</title><rect class="hit" x="${L + slot * i}" y="${T}" width="${slot}" height="${y(0) - T}"/>${bar}</g>${label}`;
+        return `<g class="slot" style="--i:${i}"><title>${esc(tip)}</title><rect class="hit" x="${L + slot * i}" y="${T}" width="${slot}" height="${y(0) - T}"/>${bar}</g>${label}`;
     }).join("");
     const avgLine = avg ? `<line class="avg-line" x1="${L}" x2="${W - R}" y1="${y(avg)}" y2="${y(avg)}"/>` : "";
     return `<svg class="rev-chart rev-income-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Income per period against the average">
-        <defs><pattern id="rev-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+        <defs><pattern id="${hatchId}" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
             <line x1="0" y1="0" x2="0" y2="6" class="hatch"/></pattern></defs>
         ${grid}${bars}${avgLine}<line class="base" x1="${L}" x2="${W - R}" y1="${y(0)}" y2="${y(0)}"/></svg>`;
 }
@@ -588,41 +593,49 @@ function fail(id, err) {
     $(id).innerHTML = `<div class="rev-empty">${esc(err.message || "Couldn't load.")}</div>`;
 }
 
-// The five requests that make up the page. Used by both the first load and
-// every poll, so a poll can never show something the page itself wouldn't.
-function fetchPageData() {
-    const trend = api(`/monitoring/revenue-report/trend?series=${state.series}`);
-    const findingsTrend = state.series === "daily_30" ? trend : api("/monitoring/revenue-report/trend?series=daily_30");
-    const income = state.incomeSeries === state.series ? trend
-        : state.incomeSeries === "daily_30" ? findingsTrend
-        : api(`/monitoring/revenue-report/trend?series=${state.incomeSeries}`);
+// What each tab fetches. Report: the cards, the site table and the findings
+// (which read the last 30 days). Overview: the two graphs. Used by both the
+// first load and every poll, so a poll can never show something the page
+// itself wouldn't.
+function fetchPageData(screen) {
+    if (screen === "overview") {
+        const trend = api(`/monitoring/revenue-report/trend?series=${state.series}`);
+        const income = state.incomeSeries === state.series ? trend
+            : api(`/monitoring/revenue-report/trend?series=${state.incomeSeries}`);
+        return { trend, income };
+    }
     return {
         overview: api(`/monitoring/revenue-report/overview?${overviewQuery()}`),
         sites: api(`/monitoring/revenue-report/sites?${reportQuery()}`),
         alerts: api("/monitoring/revenue-report/alerts"),
-        trend,
-        findingsTrend,
-        income,
+        findingsTrend: api("/monitoring/revenue-report/trend?series=daily_30"),
     };
 }
 
-async function loadReport() {
+function startLoad(viewId) {
     const token = ++loadToken;
-    const view = $("view-revenue");
+    const view = $(viewId);
     view.classList.add("is-loading");
-    const guard = fn => d => { if (token === loadToken) fn(d); };
-    // A fresh load (period, comparison or series changed) redraws everything.
+    // A fresh load (tab, period, comparison or series changed) redraws everything.
     Object.keys(lastDrawn).forEach(k => delete lastDrawn[k]);
+    const done = ok => {
+        if (token !== loadToken) return;
+        view.classList.remove("is-loading");
+        markFetched(ok);
+    };
+    return { token, guard: fn => d => { if (token === loadToken) fn(d); }, done };
+}
+
+async function loadReport() {
+    const { token, guard, done } = startLoad("view-revenue");
     let allOk = true;
     const noteFailure = () => { allOk = false; };
 
-    const { overview, sites, alerts, trend, findingsTrend, income } = fetchPageData();
+    const { overview, sites, alerts, findingsTrend } = fetchPageData("report");
 
     overview.then(guard(o => { renderCards(o); applyPollInterval(o.poll_seconds); }))
         .catch(e => { noteFailure(); fail("rev-cards", e); $("rev-header-line").textContent = "Revenue report unavailable"; });
     alerts.then(guard(renderAttention)).catch(e => { noteFailure(); fail("rev-attention", e); });
-    trend.then(guard(renderTrend)).catch(e => { noteFailure(); fail("rev-trend", e); });
-    income.then(guard(renderIncome)).catch(e => { noteFailure(); fail("rev-income", e); });
 
     try {
         const [report, ft] = await Promise.all([sites, findingsTrend.catch(() => null)]);
@@ -636,12 +649,19 @@ async function loadReport() {
         fail("rev-findings", e);
         $("rev-sites-body").innerHTML = stateRow(8, "error", e.message);
     } finally {
-        await Promise.allSettled([overview, alerts, trend, income]);
-        if (token === loadToken) {
-            view.classList.remove("is-loading");
-            markFetched(allOk);
-        }
+        await Promise.allSettled([overview, alerts]);
+        done(allOk);
     }
+}
+
+async function loadOverview() {
+    const { guard, done } = startLoad("view-revenue-overview");
+    let allOk = true;
+    const { trend, income } = fetchPageData("overview");
+    trend.then(guard(renderTrend)).catch(e => { allOk = false; fail("rev-trend", e); });
+    income.then(guard(renderIncome)).catch(e => { allOk = false; fail("rev-income", e); });
+    await Promise.allSettled([trend, income]);
+    done(allOk);
 }
 
 // ---- Polling ----
@@ -651,19 +671,25 @@ async function refreshQuietly() {
     pollBusy = true;
     const token = loadToken;
     try {
-        const data = fetchPageData();
-        const [overview, report, alerts, trend, findingsTrend, income] = await Promise.all([
-            data.overview, data.sites, data.alerts, data.trend, data.findingsTrend.catch(() => null), data.income]);
-        if (token !== loadToken) return;   // the user changed something mid-flight; that load wins
-        renderCards(overview, true);
-        renderAttention(alerts);
-        renderTrend(trend);
-        renderIncome(income);
-        renderPeriod(report);
-        renderSites(report);
-        renderRankings(report);
-        renderFindings(report, findingsTrend);
-        applyPollInterval(overview.poll_seconds);
+        if (state.screen === "overview") {
+            const data = fetchPageData("overview");
+            const [trend, income] = await Promise.all([data.trend, data.income]);
+            if (token !== loadToken) return;
+            renderTrend(trend);
+            renderIncome(income);
+        } else {
+            const data = fetchPageData("report");
+            const [overview, report, alerts, findingsTrend] = await Promise.all([
+                data.overview, data.sites, data.alerts, data.findingsTrend.catch(() => null)]);
+            if (token !== loadToken) return;   // the user changed something mid-flight; that load wins
+            renderCards(overview, true);
+            renderAttention(alerts);
+            renderPeriod(report);
+            renderSites(report);
+            renderRankings(report);
+            renderFindings(report, findingsTrend);
+            applyPollInterval(overview.poll_seconds);
+        }
         markFetched(true);
     } catch (e) {
         // Keep what is on screen and say so; the next tick tries again.
@@ -673,7 +699,7 @@ async function refreshQuietly() {
     }
 }
 
-const revenueViewIsOpen = () => !$("view-revenue").hidden;
+const revenueViewIsOpen = () => !$("view-revenue").hidden || !$("view-revenue-overview").hidden;
 
 function stopPolling() {
     clearInterval(pollTimer);
@@ -741,8 +767,8 @@ export function initRevenue() {
         if (state.mode !== "custom") loadReport();
     });
     $("rev-custom").addEventListener("change", e => { state.custom = e.target.value; if (state.custom) loadReport(); });
-    $("rev-series").addEventListener("change", e => { state.series = e.target.value; loadReport(); });
-    $("rev-income-series").addEventListener("change", e => { state.incomeSeries = e.target.value; loadReport(); });
+    $("rev-series").addEventListener("change", e => { state.series = e.target.value; loadOverview(); });
+    $("rev-income-series").addEventListener("change", e => { state.incomeSeries = e.target.value; loadOverview(); });
 
     $("rev-cards").addEventListener("change", e => {
         const sel = e.target.closest("select[data-card]");
@@ -775,9 +801,20 @@ export function initRevenue() {
     };
     ["rev-sites-body", "rev-attention", "rev-rankings"].forEach(id => $(id).addEventListener("click", goLink));
 
+    // The tabs (same as Network Status / Trends).
+    document.querySelectorAll("#view-revenue [data-tab-route], #view-revenue-overview [data-tab-route]")
+        .forEach(b => b.addEventListener("click", () => navigate(b.dataset.tabRoute)));
+
     registerRoute("revenue", () => {
+        state.screen = "report";
         showView("view-revenue");
         loadReport();
+        startPolling();
+    });
+    registerRoute("revenue-overview", () => {
+        state.screen = "overview";
+        showView("view-revenue-overview");
+        loadOverview();
         startPolling();
     });
 }
