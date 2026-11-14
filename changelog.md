@@ -9,6 +9,17 @@ and in `phase.md`'s own per-phase writeups.
 
 Started 2026-11-10 at the owner's request, after Phase 5 was merged to `main`.
 
+### Theme switch and phone name (2026-11-14)
+- **Phone top bar** keeps the name: JASIRI NET with a small OPS under it,
+  next to the logo, on all but the very narrowest phones (under 340px).
+- **Light / dark switch** no longer flickers on a computer: the new theme
+  can't flash across the whole screen before the pour starts, a second
+  press during the pour is ignored instead of restarting it. On phones the status bar changes
+  colour when the pour finishes, not at the start.
+- **Phones get the liquid pour back** (they had a plain growing circle).
+- **Dashboard tiles**: a large figure such as "KSh 10,450" now shrinks to
+  fit its tile instead of being cut off with "…".
+
 ### Login page and phone polish (2026-11-14)
 - **Login page** redesigned: labelled Email and Password fields with icons,
   a larger card on a softly lit background, and the turning glow round the

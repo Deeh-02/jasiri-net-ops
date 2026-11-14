@@ -11,7 +11,7 @@
 // Switching theme pours the new one across the screen from the button: a blob
 // with a soft, wobbling edge that grows until it covers the page (the
 // browser's View Transitions; without them, or with animations off, it just
-// switches). Phones and tablets get a simpler blob (see ovalFrames).
+// switches). Phones and computers get the same blob.
 
 const META = { dark: "#000000", light: "#f2f3f5" };
 const SWEEP_MS = 1100;
@@ -21,10 +21,14 @@ export const motionOn = () => document.documentElement.dataset.motion !== "off";
 
 const changed = () => document.dispatchEvent(new CustomEvent("appearancechange"));
 
-function apply(theme) {
+const paintStatusBar = theme => document.querySelector('meta[name="theme-color"]')?.setAttribute("content", META[theme]);
+
+// statusBar=false: leave the phone's status bar alone for now (the pour
+// repaints it when it has covered the screen, see setTheme).
+function apply(theme, statusBar = true) {
     if (theme === "light") document.documentElement.dataset.theme = "light";
     else delete document.documentElement.dataset.theme;
-    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", META[theme]);
+    if (statusBar) paintStatusBar(theme);
     try { localStorage.setItem("theme", theme); } catch (e) { /* private mode: lasts for this visit */ }
     label();
     changed();
@@ -53,6 +57,11 @@ function label() {
 // `reach` is the distance to the farthest corner of the screen; the last
 // outline is past it on every side, so the new theme always ends up covering
 // everything.
+// 96 corners keep the edge a curve even when the blob is wider than a big
+// monitor; fewer showed as straight segments near the end of the pour, and
+// saved little, since the cost is repainting the screen, not the points.
+// Phones use it too: they had a plain swaying oval for a while, and the
+// owner preferred the liquid edge.
 export function blobFrames(x, y, reach, steps = 44, corners = 96) {
     const WOBBLE = 0.2;
     const waves = [[2, 0.55, 0.9, 2.4], [3, 0.3, 2.1, -1.7], [5, 0.15, 4.0, 3.1]];   // [lobes, share, phase, drift]
@@ -74,29 +83,15 @@ export function blobFrames(x, y, reach, steps = 44, corners = 96) {
     return frames;
 }
 
-// The same pour for touch screens: one oval that grows from the button,
-// swaying between wide and tall as it goes. A phone's graphics chip clips an
-// oval for free, where the many-cornered blob above has to be redrawn as a
-// full-screen mask on every frame, which is what made the switch stutter
-// there. The last oval is past the farthest corner in both directions.
-export function ovalFrames(x, y, reach, steps = 16) {
-    const SWAY = 0.14;
-    const full = (reach * 1.03) / (1 - SWAY);
-    const frames = [];
-    for (let s = 0; s <= steps; s++) {
-        const t = s / steps;
-        const radius = full * (0.12 * t + 0.88 * Math.pow(t, 2.3));
-        const sway = SWAY * Math.sin(0.9 + 4.2 * t);
-        frames.push(`ellipse(${(radius * (1 + sway)).toFixed(1)}px ${(radius * (1 - sway)).toFixed(1)}px at ${x.toFixed(1)}px ${y.toFixed(1)}px)`);
-    }
-    return frames;
-}
-
-const touchScreen = () => window.matchMedia?.("(pointer: coarse)").matches || window.innerWidth <= 760;
+// One pour at a time. A second click while one is running used to start a
+// new transition, which makes the browser drop the running one mid-pour: the
+// screen jumped straight to the end and then poured again (the flicker).
+let pouring = false;
 
 export function setTheme(theme, from = null) {
-    if (theme === currentTheme()) return;
+    if (theme === currentTheme() || pouring) return;
     if (!document.startViewTransition || !motionOn()) { apply(theme); return; }
+    pouring = true;
 
     // Where the pour starts, and how far it has to reach to cover the screen.
     const r = from?.getBoundingClientRect();
@@ -107,14 +102,20 @@ export function setTheme(theme, from = null) {
 
     const root = document.documentElement;
     root.classList.add("theme-switching");
-    const transition = document.startViewTransition(() => apply(theme));
+    // (The new theme starts fully hidden in CSS, so there is no frame where
+    // it shows across the whole screen before this animation takes over.)
+    const transition = document.startViewTransition(() => apply(theme, false));
     transition.ready.then(() => {
         root.animate(
-            { clipPath: touchScreen() ? ovalFrames(x, y, reach) : blobFrames(x, y, reach) },
+            { clipPath: blobFrames(x, y, reach) },
             { duration: SWEEP_MS, easing: "linear", fill: "both", pseudoElement: "::view-transition-new(root)" },
         );
     }).catch(() => {});
-    transition.finished.finally(() => root.classList.remove("theme-switching"));
+    transition.finished.finally(() => {
+        root.classList.remove("theme-switching");
+        paintStatusBar(currentTheme());
+        pouring = false;
+    });
 }
 
 export function initTheme() {

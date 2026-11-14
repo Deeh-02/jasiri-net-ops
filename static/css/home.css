@@ -37,12 +37,18 @@
     font: inherit;
     cursor: pointer;
     min-width: 0;
+    container-type: inline-size;   /* the value's size below is a share of this tile's width */
 }
 .home-kpi[hidden] { display: none; }
 .home-kpi-label { font-size: 12px; font-weight: 500; color: var(--text-dim); }
 .home-kpi-value {
     font-family: 'Space Grotesk', sans-serif;
     font-size: 30px;
+    /* Fits the tile: home.js sets --chars to the value's length, and each
+       character takes about 0.6em, so a short figure stays at 30px and a
+       long one ("KSh 10,450", "KSh 1,204,300") shrinks to fit the width
+       instead of ending in "…". The ellipsis below stays as a last resort. */
+    font-size: clamp(16px, calc(100cqi / (var(--chars, 1) * 0.6)), 30px);
     font-weight: 700;
     line-height: 1.1;
     letter-spacing: -0.01em;
@@ -268,7 +274,7 @@
 @media (max-width: 760px) {
     .home-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
     .home-kpi { padding: 14px; }
-    .home-kpi-value { font-size: 24px; min-height: 27px; }
+    .home-kpi-value { font-size: clamp(14px, calc(100cqi / (var(--chars, 1) * 0.6)), 24px); min-height: 27px; }
     .home-grid { gap: 10px; }
     .home-card, .home-card[style*="--span"] { grid-column: 1 / -1; padding: 16px; }
     .home-two { grid-template-columns: minmax(0, 1fr); gap: 18px; }

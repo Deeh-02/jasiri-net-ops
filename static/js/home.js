@@ -352,7 +352,9 @@ function drawSection(name) {
         const made = d ? k.make(d) : null;
         el.classList.remove("is-loading");
         if (!made) { el.hidden = true; return; }
-        el.querySelector(".home-kpi-value").textContent = made.value;
+        const value = el.querySelector(".home-kpi-value");
+        value.style.setProperty("--chars", String(made.value).length);   // sizes it to fit (home.css)
+        value.textContent = made.value;
         el.querySelector(".home-kpi-sub").innerHTML = esc(made.sub) +
             (made.flag ? `<span class="home-flag tone-${made.flag[1]}"><i class="home-dot"></i>${esc(made.flag[0])}</span>` : "");
     });

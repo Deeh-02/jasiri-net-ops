@@ -188,11 +188,17 @@ what is truly its own.
   admin can set a new one (there is no self-service reset).
 - **Phone top bar (2026-11-14):** menu and logo on the left; search, theme,
   bell and avatar grouped on the right at 36px, none of which may shrink.
-  The brand gives way instead: "— OPS" goes at 600px, the name under 400px.
-- **Theme switch on touch screens (2026-11-14):** the pour is one swaying
-  oval (`ovalFrames` in `theme.js`), not the many-cornered blob, because a
-  phone clips an oval cheaply. On every screen, `.theme-switching` turns
+  The name stays on screen by stacking: JASIRI NET on top, a small
+  spaced-out OPS in accent under it (`.brand-main` / `.brand-ops`; the
+  "— " is hidden on phones). It fits a 340px screen; under 340px only the
+  logo shows.
+- **Theme switch on touch screens (2026-11-14):** the same liquid blob as
+  on a computer (96 corners; fewer show as straight segments). A swaying
+  oval was tried on phones and dropped: the owner prefers the liquid edge. On every screen, `.theme-switching` turns
   off each control's own colour transitions for the length of the pour.
+- **Dashboard tile figures (2026-11-14):** `.home-kpi-value` sizes itself to
+  the tile (container units, `--chars` set by `home.js`), so "KSh 10,450"
+  fits instead of ending in "…"; short figures stay at 30px.
 - **Dashboard (2026-11-14, `home.css`):** headline tiles (`.home-kpi`) over
   a 12-column grid of cards (`.home-card`, `--span`). Colour there means
   state only (`.tone-good/warn/bad/info/idle` set `--tone`), always beside
