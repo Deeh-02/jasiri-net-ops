@@ -1,6 +1,8 @@
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from pydantic import BaseModel
+from typing import Optional
+
+from pydantic import BaseModel, Field
 from jose import jwt, JWTError
 from datetime import datetime, timedelta
 import os
@@ -47,7 +49,11 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
 
 @router.get("/me")
 def read_current_user(current_user: dict = Depends(get_current_user)):
-    return current_user
+    # Name, email and phone as stored now (the token only has what was true
+    # at login, and no phone), so Settings > Profile never saves a blank phone
+    # over a real one.
+    profile = db_users.get_profile(current_user["id"]) or {}
+    return {**current_user, **profile}
 
 @router.get("/me/permissions")
 def get_my_permissions(current_user: dict = Depends(get_current_user)):
@@ -72,3 +78,27 @@ def change_own_password(
         raise HTTPException(status_code=400, detail="Current password is incorrect")
     db_users.update_user_password(current_user["id"], body.new_password)
     return {"success": True}
+
+class ProfileUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    email: str = Field(min_length=3, max_length=200, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+    phone: Optional[str] = Field(default=None, max_length=30)
+
+
+# Settings > Profile. The page always called PATCH /me but the route was never
+# written, so saving answered 405 (fixed 2026-11-11). The token carries the
+# name and email, so a fresh one comes back for the page to keep; otherwise a
+# changed email would break "change password" until the next login.
+@router.patch("/me")
+def update_own_profile(body: ProfileUpdate, current_user: dict = Depends(get_current_user)):
+    name, email = body.name.strip(), body.email.strip()
+    phone = (body.phone or "").strip() or None
+    if not name:
+        raise HTTPException(status_code=400, detail="Name is required")
+    other = db_users.get_user_by_email(email)
+    if other is not None and other["id"] != current_user["id"]:
+        raise HTTPException(status_code=400, detail="That email is already used by someone else")
+    db_users.update_own_profile(current_user["id"], name, email, phone)
+    token = create_access_token(current_user["id"], email, current_user["role"], name, current_user.get("role_id"))
+    return {"access_token": token,
+            "user": {"id": current_user["id"], "name": name, "email": email, "phone": phone, "role": current_user["role"]}}

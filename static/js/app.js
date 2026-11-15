@@ -1,4 +1,5 @@
 import { loadViewFragments, initShell, resolveAuthUI, bootAuth } from "./common.js";
+import { initHome } from "./home.js";
 import { initDashboard } from "./dashboard.js";
 import { initSites } from "./sites.js";
 import { initMovements } from "./movements.js";
@@ -24,16 +25,21 @@ import { initCustomers } from "./customers.js";
 import { initBroadcast } from "./broadcast.js";
 import { initChat } from "./chat.js";
 import { initNetwork } from "./network.js";
+import { initOlt } from "./olt.js";
 import { initActivitySubmit } from "./activity-submit.js";
 import { initActivityReports } from "./activity-reports.js";
 import { initActivityOverview } from "./activity-overview.js";
 import { initActivityManage } from "./activity-manage.js";
+import { initMotion } from "./motion.js";
+import { initTheme } from "./theme.js";
 
 async function boot() {
+    initTheme();
     initShell();
     resolveAuthUI();
     await loadViewFragments();
 
+    initHome();
     initDashboard();
     initSites();
     initMovements();
@@ -59,10 +65,12 @@ async function boot() {
     initBroadcast();
     initChat();
     initNetwork();
+    initOlt();
     initActivitySubmit();
     initActivityReports();
     initActivityOverview();
     initActivityManage();
+    initMotion();
 
     bootAuth();
 }

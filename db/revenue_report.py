@@ -9,7 +9,7 @@ pre-formatted 'KSh 10,810' string, so the client never formats or rounds.
 """
 import re
 from datetime import date, datetime, timedelta
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 from db import revenue_config
 from db.connection import db_cursor, now_eat
@@ -32,7 +32,7 @@ CARDS = [
 ]
 
 TREND_SERIES = {
-    "daily_7": ("day", 7), "daily_30": ("day", 30), "daily_90": ("day", 90),
+    "daily_7": ("day", 7), "daily_14": ("day", 14), "daily_30": ("day", 30), "daily_90": ("day", 90),
     "weekly_12": ("week", 12), "monthly_12": ("month", 12),
     "year_current": ("year", 0), "year_previous": ("year", -1),
 }
@@ -293,6 +293,47 @@ def _year_points(cur, year, today, hist):
     return points
 
 
+def _name(point, granularity):
+    """The period as the overview table writes it: Wed 11 Nov, Week of 02 Nov, November 2026."""
+    d = date.fromisoformat(point["start"])
+    if granularity == "day":
+        return f"{d:%a %d %b}"
+    if granularity == "week":
+        return f"Week of {d:%d %b}"
+    return f"{d:%B %Y}"
+
+
+def income_overview(points, granularity):
+    """Total, average, highest and lowest of the COMPLETED periods, and each
+    point's difference from that average. The period still in progress is
+    shown but left out of all of it: half a day isn't a low day. Sets
+    `name` and `vs_average_pct` on every point; returns None with no
+    completed period."""
+    for p in points:
+        p["name"] = _name(p, granularity)
+        p["vs_average_pct"] = None
+    done = [p for p in points if not p["partial"]]
+    if not done:
+        return None
+    values = [Decimal(str(p["value"])) for p in done]
+    total = sum(values, Decimal(0))
+    average = total / len(values)
+    if average:
+        for p, v in zip(done, values):
+            p["vs_average_pct"] = int(((v - average) / average * 100).quantize(Decimal("1"), ROUND_HALF_UP))
+    # Ties: the most recent one.
+    highest = max(reversed(done), key=lambda p: p["value"])
+    lowest = min(reversed(done), key=lambda p: p["value"])
+    whole = average.quantize(Decimal("1"), ROUND_HALF_UP)
+    return {
+        "periods": len(done), "total": format_kes(total),
+        "average": format_kes(whole), "average_value": _num(whole),
+        "highest": {"name": highest["name"], "display": highest["display"]},
+        "lowest": {"name": lowest["name"], "display": lowest["display"]},
+        "partial_left_out": any(p["partial"] for p in points),
+    }
+
+
 def trend(series, now=None):
     if series not in TREND_SERIES:
         raise ValueError(f"Unknown series {series!r}")
@@ -318,8 +359,9 @@ def trend(series, now=None):
 
     slope = slope_pct_of_mean([p["value"] for p in completed])
     label, rule = trend_label(slope, cfg["flat_band_pct"])
+    overview = income_overview(points, "month" if granularity == "year" else granularity)
     return {
-        "series": series, "granularity": granularity, "as_of": as_of, "points": points,
+        "series": series, "granularity": granularity, "as_of": as_of, "points": points, "overview": overview,
         "trend": {"label": label, "slope_pct_per_period": None if slope is None else float(round(slope, 2)),
                   "rule": rule, "based_on": len(completed)},
         "unusual_count": sum(1 for p in points if p["unusual"]),

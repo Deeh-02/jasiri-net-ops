@@ -5,6 +5,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPExcepti
 from pydantic import BaseModel, Field
 
 from db import customers as db
+from db import onu_links
 from db.customer_import import ImportFileError, normalize_phone, parse_customer_file
 from routers.auth import get_current_user
 from routers.permissions import user_has_permission
@@ -37,7 +38,9 @@ def get_routers(current_user: dict = Depends(require_broadcast_access)):
 
 @router.get("/customers")
 def get_customers(router_id: int | None = None, current_user: dict = Depends(require_broadcast_access)):
-    return db.list_customers(router_id)
+    # Each customer's linked ONU (Phase 6B), or none. Empty when 0033 isn't run.
+    onus = onu_links.customer_onus()
+    return [{**c, "onu": onus.get(c["id"])} for c in db.list_customers(router_id)]
 
 
 class CustomerFields(BaseModel):

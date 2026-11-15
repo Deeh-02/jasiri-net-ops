@@ -850,11 +850,48 @@ function renderEvents(d) {
 
 /* ---- Load / route ---- */
 
+// The site's fibre ONU, when one is linked: status and what it suggests,
+// both signal levels, and a way into the ONU's own page.
+const ONU_STATE = { Online: ["●", "is-up"], LOS: ["▼", "is-down"], Offline: ["▼", "is-down"], "Power fail": ["◆", "is-down"] };
+const ONU_HINT = {
+    "Power fail": "The site has lost power. Check power and the battery.",
+    LOS: "The fibre is cut or unplugged.",
+    Offline: "The ONU isn't answering the OLT.",
+    Online: "The fibre is fine.",
+};
+function renderOnu(o) {
+    const box = document.getElementById("sr-onu");
+    box.hidden = !o;
+    if (!o) return;
+    const [glyph, cls] = ONU_STATE[o.status] || ["○", ""];
+    const since = o.last_status_change
+        ? new Date(o.last_status_change).toLocaleString("en-GB", { timeZone: "Africa/Nairobi", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
+    const dbm = v => (v == null ? "no reading" : `${v.toFixed(2)} dBm`);
+    const weak = o.signal_quality === "Warning" || o.signal_quality === "Critical";
+    box.innerHTML = `
+        <div class="sr-card-head">
+            <div class="sr-card-title">Fibre ONU <span class="sr-onu-name">${esc(o.name || o.id)}</span></div>
+            <a class="sr-onu-open" href="#/olt/onu/${encodeURIComponent(o.id)}">Open ONU</a>
+        </div>
+        <div class="sr-onu-row">
+            <span class="sr-onu-state ${cls}">${glyph} ${esc(o.status || "Unknown")}</span>
+            ${since ? `<span class="sr-onu-since">since ${esc(since)}</span>` : ""}
+            ${o.stale ? `<span class="sr-onu-stale">not current: SmartOLT hasn't updated for over 15 minutes</span>` : ""}
+        </div>
+        ${!o.stale && ONU_HINT[o.status] ? `<div class="sr-onu-hint">${esc(ONU_HINT[o.status])}</div>` : ""}
+        <div class="sr-onu-signals">
+            <span>At the ONU (1490) <strong class="${weak ? "is-weak" : ""}">${esc(dbm(o.signal_1490_dbm))}</strong></span>
+            <span>At the OLT (1310) <strong class="${weak ? "is-weak" : ""}">${esc(dbm(o.signal_1310_dbm))}</strong></span>
+            ${o.signal_quality ? `<span>SmartOLT grade <strong class="${weak ? "is-weak" : ""}">${esc(o.signal_quality)}</strong></span>` : ""}
+        </div>`;
+}
+
 function render(d, canRevenue) {
     const windowStart = new Date(d.since);
     document.getElementById("site-detail-body").hidden = false;
     document.getElementById("site-detail-notfound").hidden = true;
     renderHeader(d);
+    renderOnu(d.onu);
     renderRangeNote(d);
     renderLocked(canRevenue);
     renderKpis(d, canRevenue, windowStart);

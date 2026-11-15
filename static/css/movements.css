@@ -1,12 +1,12 @@
 /* ---- Movements view ---- */
 
 /* ---- Movement status pills (base .status-pill is in common.css) ---- */
-.status-pill.movement-pending { color: var(--text-dim); background: rgba(139, 150, 165, 0.14); }
-.status-pill.movement-in-transit { color: var(--info); background: rgba(79, 168, 255, 0.12); }
-.status-pill.movement-arrived { color: var(--warn); background: rgba(245, 166, 35, 0.12); }
-.status-pill.movement-confirmed { color: var(--accent); background: rgba(61, 220, 151, 0.12); }
-.status-pill.movement-down { color: var(--danger); background: rgba(239, 91, 91, 0.12); }
-.status-pill.movement-cancelled { color: var(--text-dim); background: rgba(139, 150, 165, 0.08); text-decoration: line-through; }
+.status-pill.movement-pending { color: var(--text-dim); background: color-mix(in srgb, var(--text-dim) 14%, transparent); }
+.status-pill.movement-in-transit { color: var(--info); background: color-mix(in srgb, var(--info) 12%, transparent); }
+.status-pill.movement-arrived { color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
+.status-pill.movement-confirmed { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.status-pill.movement-down { color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, transparent); }
+.status-pill.movement-cancelled { color: var(--text-dim); background: color-mix(in srgb, var(--text-dim) 8%, transparent); text-decoration: line-through; }
 
 /* ---- Movement action buttons ---- */
 .movement-action-btn,
@@ -14,7 +14,7 @@
 .confirm-site-btn {
     background: var(--surface-2);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
     padding: 6px 10px;
     color: var(--text);
     font-family: 'JetBrains Mono', monospace;
@@ -48,13 +48,13 @@
 .movement-site-check-btn.suggested[data-answer="true"] {
     border-color: var(--accent);
     color: var(--accent);
-    background: rgba(61, 220, 151, 0.08);
+    background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 
 .movement-site-check-btn.suggested[data-answer="false"] {
     border-color: var(--danger);
     color: var(--danger);
-    background: rgba(239, 91, 91, 0.08);
+    background: color-mix(in srgb, var(--danger) 8%, transparent);
 }
 
 .movement-cancel-btn {
@@ -63,7 +63,7 @@
     justify-content: center;
     background: var(--surface-2);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
     width: 30px;
     height: 30px;
     color: var(--text-dim);

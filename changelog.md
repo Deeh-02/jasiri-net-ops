@@ -5,6 +5,304 @@ Phase-based, not version-based — this project ships in named phases (see
 concise, user-facing summary; full technical detail lives in the git log
 and in `phase.md`'s own per-phase writeups.
 
+## Phase 6 — SmartOLT (on `phase-6-smartolt`)
+
+Started 2026-11-10 at the owner's request, after Phase 5 was merged to `main`.
+Completed 2026-11-15 (owner's confirmation).
+
+### Top bar, charge menu, revenue hover card (2026-11-15)
+- **Top bar on a computer**: the search sits in the middle, and the light /
+  dark button and the bell are now next to your initials on the right.
+- **Batteries: the charge menu** opens where you can see it. On the last
+  rows it used to open below the table's edge, so you had to scroll to
+  find the options; it now opens upward when there's no room below. It
+  closes if you scroll.
+- **Dashboard: hovering (or tapping) a day on the Revenue chart** shows a
+  small card with the day, its income and how it compares with the
+  average, like the other charts. It also no longer appears in the wrong
+  place for the first few seconds after you open the Dashboard.
+- **Dashboard hover cards stay inside their card**: near the right edge
+  they open to the left of the pointer instead of spilling over the next
+  card (Revenue, People online, Internet uplink, Fibre, Customers).
+- **Side menu**: the green highlight could stay on the page you'd left
+  (Dashboard) while another page (Batteries) was open. It now always moves.
+- **Network → Hotspot Status** (was Network Status), with a hotspot icon,
+  and Network Analysis now comes first in the Network section. Its Trends
+  tab is titled Hotspot Trends to match.
+
+### Cleaner dark mode (2026-11-15)
+- **Dark mode is built like light mode now**: cards and the side menu are a
+  shade lighter than the page and sit on a soft shadow, instead of black
+  boxes outlined in grey on a black page. Less clutter, same colours for
+  text and the green.
+
+### Theme switch and phone name (2026-11-14)
+- **Phone top bar** keeps the name: JASIRI NET with a small OPS under it,
+  next to the logo, on all but the very narrowest phones (under 340px).
+- **Light / dark switch** no longer flickers on a computer: the new theme
+  can't flash across the whole screen before the pour starts, a second
+  press during the pour is ignored instead of restarting it. On phones the status bar changes
+  colour when the pour finishes, not at the start.
+- **Phones get the liquid pour back** (they had a plain growing circle).
+- **Bigger name** in the top bar: JASIRI NET — OPS is larger on computers,
+  and on phones both lines (JASIRI NET and the OPS under it) are larger.
+- **Light / dark switch on phones** no longer glitches on the second and
+  later switches: the new theme could show across the whole screen for a
+  moment before the pour began. The toggle also can't get stuck if the
+  phone locks in the middle of a switch.
+- **Dashboard tiles**: a large figure such as "KSh 10,450" now shrinks to
+  fit its tile instead of being cut off with "…".
+
+### Login page and phone polish (2026-11-14)
+- **Login page** redesigned: labelled Email and Password fields with icons,
+  a larger card on a softly lit background, and the turning glow round the
+  card is now green only. A saved login no longer turns the fields yellow.
+- The **eye** in a password field sits in the middle of the field (here and
+  in Settings → Password), and it now changes to a crossed-out eye while
+  the password is showing.
+- **Forgot password?** now tells you what to do (ask an admin to set a new
+  one) instead of doing nothing.
+- **Phone top bar**: your initials button is no longer cut off. On narrow
+  phones the bar shows the logo without the name, and the buttons sit
+  together on the right.
+- **On phones**, pages now blur in and out when you move between them, as
+  they do on a computer, and the light / dark switch is smoother.
+
+### A real Dashboard (2026-11-14)
+- **Dashboard** is the new first page (Operations → Dashboard): headline
+  figures across the top, then a card of charts for each area: revenue over
+  14 days, sites up and down, people online through the week, the internet
+  uplink over 24 hours, fibre ONUs by status and signal, customers by state
+  and package, batteries by place and charge, technician reports per day,
+  and stock at or under its reorder level.
+- You only see the cards for areas your role can already open; each card
+  has a button to its full page. It refreshes itself every two minutes.
+- **Batteries** is still where it was in the menu; it just isn't the first
+  page any more.
+
+### Animations: always on, with an off switch (2026-11-14)
+- The app's animations now play on every device. Before, they were silently
+  switched off wherever the computer had "Animation effects" turned off in
+  Windows, which is why some screens saw none.
+- **Settings → Appearance** has an Animations On / Off choice (and the
+  light / dark choice), saved on that device.
+- Switching between light and dark now pours across the screen like liquid
+  from the button, and takes about a second.
+- The login card has a soft light turning around its edge.
+
+### Light mode and a rounder look (2026-11-14)
+- **Light mode:** a sun/moon button at the top right (next to the bell)
+  switches the whole app between dark and light. Light is white cards on a
+  soft grey page with darker greens so text stays readable. Your choice is
+  remembered on that device; dark is still the default.
+- Cards, tables, dialogs, buttons and inputs are rounder in both modes.
+
+### Motion and polish across the app (2026-11-14)
+- **Pages blur in:** opening a page sharpens its content into place, one
+  block after another.
+- **The highlight slides:** the green highlight in the sidebar, the
+  underline under tabs and the pressed Day / Week / Live button glide to
+  where you clicked instead of jumping.
+- **Numbers count up** when a page opens, and roll to the new value when a
+  live refresh changes them. Revenue bars grow from the baseline.
+- **Polish:** green toggles instead of white ones, a lit edge on cards,
+  buttons that glow on hover, a see-through top bar, labelled fields in
+  Settings and a tidier Customers table.
+
+### Revenue: Report and Overview tabs (2026-11-12)
+- Revenue now has two tabs, like Network Status and Trends: **Report**
+  (what the sidebar opens: the cards, findings, sites and rankings) and
+  **Overview** (the graphs: the Income overview and the trend line).
+
+### Revenue: Income overview (2026-11-11)
+- New **Income overview** on Reports → Revenue (now on the Overview tab): Total, Average,
+  Highest and Lowest, a bar for each day (or week or month) in green when
+  it beat the average and orange when it didn't, with the average as a
+  dashed line, and a table of every period with its income, a progress bar
+  and how far it was above or below the average (▲ +11% / ▼ −14%).
+- Pick the range: last 7, 14 or 30 days, 12 weeks, 12 months, or this year
+  by month. Today (this week, this month) so far is shown hatched and is
+  left out of the total, average, highest and lowest, so a half day never
+  shows up as the lowest.
+
+### "How do I…?" in the Ask assistant (2026-11-11)
+- Ask the assistant how to do something ("how do I send a broadcast?",
+  "how do I move a battery?", "how do I issue cable?", "how do I reboot an
+  ONU?") and it gives the steps, with the menu and button names as they
+  appear in the app.
+- **It follows your role:** you only get steps for what your account can
+  do. If you ask about something you can't do, it says your account isn't
+  set up for it and an admin can switch it on in Roles.
+- Everyone now has the Ask button, even people with no lookups, so they can
+  at least ask how to use the app.
+- Specific questions work too ("how do I change the splitter?", "how do I
+  put an ONU in bridge mode?", "how do I mark a router faulty?"): each ONU
+  dialog has its own steps, and the assistant always checks the guide
+  before saying something isn't covered.
+
+### OLT permissions per role (2026-11-11)
+- **Settings > Roles** has a new **Network & OLT** card (moved out of
+  Sites). Its switch opens the Network pages and the OLT page; six ticks
+  decide what that role may change on the OLT: link ONUs to customers and
+  sites, authorize new ONUs, reboot / disable / enable, change ONU
+  configuration, delete ONUs, and see PPPoE passwords.
+- Without a tick the OLT page is look-only for that person, and they don't
+  see the buttons. The admin can still do everything.
+
+### The Ask assistant for everyone, with customers and the OLT (2026-11-11)
+- **Everyone gets the Ask button**, but it only looks up what that person
+  can already see in the app: someone with Batteries gets battery answers,
+  someone with the Network page gets network and OLT answers, and so on.
+  **Revenue stays admins only.**
+- **"Tell me about JS45"**: the assistant describes the customer: plan,
+  active or expired, their fibre ONU (online, signal, any LOS), whether
+  they're connected right now, and the last technician visits. It points
+  out anything that looks wrong.
+- **Ask the OLT**: "which customers are on LOS", "who has a weak signal",
+  or live details about one customer's ONU straight from SmartOLT (last
+  down cause, distance, recent ups and downs, ports).
+
+### LOS alerts, a calmer site-down schedule, and fixes (2026-11-11)
+- **LOS alerts:** when a customer's or hotspot site's ONU loses fibre, the
+  people who get site alerts are told after 2 minutes, then at 15 min, 30
+  min, 1 h, 3 h, 6 h and 8 h, then twice a day (08:00 and 16:00) until it's
+  back; acknowledging skips straight to twice a day. When 3 or more ONUs
+  on one PON port go LOS within 2 minutes, it's one "likely fibre cut"
+  alert for the port instead of one per customer. A "signal back" message
+  closes it. Same people, channels and alert hours as site alerts; five new
+  editable messages on SMS Templates. The OLT page lists **LOS now** with
+  Acknowledge, and the ONU's page shows its LOS. Switch:
+  `ONU_LOS_ALERTS_ENABLED`. Needs migration `0035_onu_alerts.sql`.
+- **Site down:** reminders are now 15 min, 30 min, 1 h, 3 h, 6 h and 8 h,
+  then twice a day (08:00 and 16:00) until the site is back — down from up
+  to 16 messages in 12 hours. An acknowledged site now gets the twice-a-day
+  reminders instead of none.
+- **Battery recommendation:** ties go to the battery that has rested
+  longest, so the same battery isn't picked again and again.
+- **Settings > Profile** saves again, without ever blanking the phone number.
+- The current sidebar section and the OLT back link are green.
+- **A hotspot site down because of LOS** now gets the LOS messages only,
+  not "site is down" as well: no down / still down reminders, no battery
+  suggestion, and no "back online" once "fibre signal back" has been sent.
+  If the fibre comes back but the site stays down, the site's own messages
+  pick up again. A power cut (Power fail) still gets the normal site
+  messages.
+- **VLANs dialog** tidied: each VLAN is a neat tick-box with its number.
+- **LOS messages on SMS Status:** every LOS message is now recorded like
+  site alerts are, failed ones included, and listed on Reports > SMS
+  Status by customer, hotspot site or PON port. Needs migration
+  `0036_onu_alert_deliveries.sql`.
+
+### 6D: Change an ONU's configuration from OPS (2026-11-11)
+- On an ONU's **View** page, admins get a **Configuration** row:
+  **Resync config**, **Speed…**, **Ethernet port…**, **ONU mode…**,
+  **WAN mode…** and **Delete ONU…**.
+- Each shows what changes before you apply it (for example
+  "eth_0/1: LAN → Access 51"), asks once more naming the customer and
+  serial, then checks SmartOLT really made the change before saying
+  **Done** (otherwise **Check** or **Failed**). Every change is listed on
+  the ONU's page with who did it.
+- **Speed** is picked by hand from SmartOLT's own profiles. Every ONU is at
+  1G today and the router's PPPoE plan sets the customer's real speed, so
+  OPS doesn't tie speed profiles to packages.
+- **WAN mode PPPoE** needs the customer's PPPoE password; it goes to
+  SmartOLT only and is never kept in OPS.
+- **Delete** only works on an ONU that isn't linked to a customer or site,
+  and you type its serial to confirm. It then shows under Unconfigured.
+- The ONU page flags **Last resync failed** when SmartOLT says so.
+- **Location…** (zone, splitter and port, seal number, name, address or
+  comment, contact), **VLANs…** (tick the VLANs the ONU carries) and one
+  **ONU mode…** dialog (WAN VLAN-ID, Routing/Bridging, WAN mode including
+  Static IP, WAN remote access), laid out like SmartOLT's. Click Zone,
+  Splitter, Name, Address, Contact, Attached VLANs, ONU mode or WAN setup
+  mode on the ONU page to open the right one.
+- **PPPoE password:** admins can click **Show** to see it. It's read from
+  SmartOLT at that moment, hides again after 30 seconds, is never kept in
+  OPS, and each look is listed in the ONU's history.
+- Each change can be switched off on its own (`SMARTOLT_ACTION_RESYNC`,
+  `_SPEED`, `_PORTS`, `_LOCATION`, `_VLANS`, `_MODE`, `_DELETE`); all writes stop with
+  `SMARTOLT_WRITES_ENABLED=false`. No database change.
+
+### 6C: Reboot, Disable and Enable an ONU (2026-11-11)
+- On an ONU's **View** page, admins get **Reboot** and **Disable ONU** (or
+  **Enable ONU** when it's disabled). Each asks first, naming the customer
+  or hotspot site, the ONU and its serial.
+- Disable and Enable wait for SmartOLT to report the job finished, then
+  check the ONU really changed before saying **Done**; anything else is
+  shown as **Failed** or **Check**. The page shows progress while it waits.
+- Every action, successful or not, is listed on the ONU's page with who did
+  it and when. The Configured list marks disabled ONUs.
+- Each action can be switched off on the server on its own
+  (`SMARTOLT_ACTION_REBOOT`, `_DISABLE`, `_ENABLE`), and all of them with
+  `SMARTOLT_WRITES_ENABLED=false`.
+
+### 6B: ONUs linked to customers (2026-11-11)
+- **OLT → Customers** tab: OPS suggests which customer each ONU belongs to
+  (same PPPoE username, or the customer's username in the ONU's name); an
+  admin accepts or rejects each one, or links all exact username matches at
+  once after a confirmation. ONUs that aren't customers (hotspots, sites)
+  can be marked so. ONUs with no customer and active customers with no ONU
+  are listed so the gaps are easy to close.
+- The **Customers** page has a **Fibre ONU** column: status, signal at the
+  ONU and since when, marked "not current" when SmartOLT data is old.
+- An ONU's **View** page shows its customer, plan and expiry.
+- On an **installation report**, picking a customer whose ONU is linked fills
+  in the optical signal reading from SmartOLT; the technician can change it.
+- Needs migration `0033_onu_customer_links.sql`.
+- **Hotspot sites:** an ONU can be linked to a Network Status site instead
+  of a customer (suggested from the site's name in the ONU's name, accepted
+  by an admin). Network Status gets a **Fibre ONU** column, a down site's
+  card says what its fibre reports (power fail, LOS, or fine), and each
+  site's page has a Fibre ONU card. The OLT tab is now called **Links**.
+  Needs migration `0034_onu_site_links.sql`.
+
+### OLT page, and authorizing ONUs from OPS (2026-11-11)
+- The sidebar has a new **Network** section: **Network Status** (the
+  hotspot sites' status and trends, which used to be a button on the Sites
+  page), **Network Analysis** (the CCR2116 page, renamed) and **OLT**.
+  Batteries and Sites stay under Operations.
+- **OLT → Configured:** every ONU, like SmartOLT's list: status, name, serial,
+  board/port/ONU, zone, splitter, signal (coloured by SmartOLT's grade),
+  Bridge / R: PPPoE / Router, VLANs, ONU type and authorization date. Status
+  chips filter it (Online, LOS, Offline, Power fail, Weak signal), plus search,
+  zone and PON port. The Fibre ONUs section moved here from Network Analysis.
+- **View** opens one ONU, like SmartOLT's View page: where it is, its status
+  and distance, both signal levels, TR069, management IP, VLANs, ONU and WAN
+  mode, PPPoE username, speed profiles and Ethernet ports, plus a live read
+  from the OLT (uptime, last down cause, optical levels, temperature, up and
+  down history) and SmartOLT's traffic and signal graphs (hour, day, week,
+  month). The PPPoE password is never shown. Reboot, resync, disable and
+  delete aren't in OPS yet.
+- **OLT → Unconfigured:** ONUs the OLT sees but hasn't authorized. Admins can
+  **Authorize** one: ONU type, mode, VLAN, zone, splitter, name, comment and
+  speed profiles, all chosen from SmartOLT's own lists, then a confirmation
+  showing exactly what will be written. OPS reads the ONU back from SmartOLT
+  afterwards and flags anything that differs. Every attempt, failures
+  included, is in **Recent authorizations**. `SMARTOLT_WRITES_ENABLED=false`
+  switches authorizing off instantly.
+- Needs migration `0032_onu_details_and_actions.sql`.
+- **Network Analysis** no longer says "CCR2116" in its title.
+- **Webhook receiver** (built, off until a signing secret is set): SmartOLT
+  can push ONU status and signal changes to OPS the moment they happen.
+  Forged deliveries are refused; polling keeps running as the safety net.
+
+### 6A: Fibre ONUs on the Network page (read only)
+- New **Fibre ONUs** section on the Network page, from SmartOLT: a count per
+  status (Online, LOS, Offline, Power fail), a **Not online** list (newest
+  first, with how long each has been down, its board/port/ONU and serial),
+  and a **Weak signal** list using SmartOLT's own grade (Critical first),
+  showing the reading at the ONU and at the OLT.
+- OPS asks SmartOLT for statuses every 6 minutes and signals every 20,
+  triggered by the router's 15-second report and by anyone opening the
+  panel. No scheduler, no new service, about 13 calls an hour.
+- Data older than 15 minutes (status) or 45 minutes (signal) is labelled as
+  not current instead of being shown as live.
+- SmartOLT's address and phone fields are never stored.
+- Needs migration `0031_onu_state.sql` and `SMARTOLT_URL` / `SMARTOLT_API_KEY`
+  on the server.
+- On phones, the Network page's tables (ONUs and PPPoE clients) show each row
+  as a full card again instead of cutting values off with "…".
+
 ## Phase 5 — UI Consistency (on `phase-5-ui-consistency`)
 
 Started 2026-11-09 at the owner's request, after Phase 4 was merged to `main`.

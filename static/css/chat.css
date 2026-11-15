@@ -18,7 +18,7 @@
     font-size: 14px;
     font-weight: 600;
     cursor: pointer;
-    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+    box-shadow: 0 6px 20px color-mix(in srgb, var(--shadow) 50%, transparent);
 }
 .chat-launcher:hover { background: var(--surface-2); }
 
@@ -34,7 +34,7 @@
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 12px;
-    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+    box-shadow: 0 12px 40px color-mix(in srgb, var(--shadow) 60%, transparent);
     overflow: hidden;
 }
 
@@ -52,7 +52,7 @@
     background: var(--surface-2);
     color: var(--text);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
     padding: 4px 9px;
     font-size: 12.5px;
     cursor: pointer;
@@ -71,7 +71,7 @@
 .chat-bubble {
     max-width: 85%;
     padding: 9px 12px;
-    border-radius: 10px;
+    border-radius: var(--radius);
     font-size: 14px;
     line-height: 1.5;
     white-space: pre-wrap;
@@ -79,8 +79,8 @@
 }
 .chat-user {
     align-self: flex-end;
-    background: rgba(61, 220, 151, 0.14);
-    border: 1px solid rgba(61, 220, 151, 0.35);
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
     color: var(--text);
     border-bottom-right-radius: 3px;
 }
@@ -98,7 +98,7 @@
     max-width: none;
     border: 1px solid var(--danger);
     color: var(--danger);
-    background: rgba(239, 91, 91, 0.08);
+    background: color-mix(in srgb, var(--danger) 8%, transparent);
 }
 .chat-retry {
     display: block;
@@ -106,7 +106,7 @@
     background: transparent;
     color: var(--text);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
     padding: 4px 10px;
     font-size: 12.5px;
     cursor: pointer;
@@ -136,7 +136,7 @@
     background: var(--surface-2);
     color: var(--text);
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: var(--radius);
     padding: 8px 10px;
     font-family: 'Inter', sans-serif;
     font-size: 14px;
@@ -147,9 +147,9 @@
 .chat-send {
     align-self: flex-end;
     background: var(--accent);
-    color: #000;
+    color: var(--on-accent);
     border: none;
-    border-radius: 8px;
+    border-radius: var(--radius);
     padding: 9px 14px;
     font-weight: 600;
     font-size: 14px;

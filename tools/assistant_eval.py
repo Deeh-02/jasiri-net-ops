@@ -45,7 +45,7 @@ QUESTIONS = [
     ("Is Veenet working?", {"get_network_status"}),
     ("What was today's peak bandwidth and when?", {"get_network_status"}),
     ("Who is expired but still connected?", {"get_pppoe_clients"}),
-    ("Is JS32 online?", {"get_pppoe_clients", "lookup_customer"}),
+    ("Is JS32 online?", {"get_pppoe_clients", "lookup_customer", "get_customer"}),
     ("When was the last network outage?", {"get_network_events", "get_network_status"}),
     ("Did the core router restart today?", {"get_network_events", "get_network_status"}),
     # Alerts
@@ -62,10 +62,29 @@ QUESTIONS = [
     ("What was issued to Jeff this month?", {"get_stock_movements"}),
     ("How many cable reels are left?", {"get_cable_stock", "get_stock"}),
     # Customers and packages
-    ("When does JS10's account expire?", {"lookup_customer", "get_pppoe_clients"}),
+    ("When does JS10's account expire?", {"lookup_customer", "get_pppoe_clients", "get_customer"}),
+    ("Tell me about JS45.", {"get_customer"}),
+    ("Who is Mark Dre?", {"get_customer", "lookup_customer"}),
+    ("Why is JS23 not browsing?", {"get_customer", "get_onu_live"}),
+    # Fibre / OLT
+    ("Which customers are on LOS right now?", {"get_onus"}),
+    ("Who has a weak fibre signal?", {"get_onus"}),
+    ("Ask the OLT about JS45's ONU.", {"get_onu_live"}),
+    ("When did Redsoil's ONU last go down and why?", {"get_onu_live"}),
     ("What does the monthly package cost?", {"get_packages"}),
+    # How to use the app (the guide)
+    ("How do I send a broadcast?", {"get_how_to"}),
+    ("How do I move a battery to a site?", {"get_how_to"}),
+    ("Where do I issue cable for an installation?", {"get_how_to"}),
+    ("How do I reboot a customer's ONU?", {"get_how_to"}),
+    ("How can I change my password?", {"get_how_to"}),
+    ("What can I do in this app?", {"get_how_to"}),
+    ("How do I change the splitter of an ONU?", {"get_how_to"}),
+    ("How do I mark a router as faulty?", {"get_how_to"}),
+    ("Where do I set the reorder level?", {"get_how_to"}),
+    # Asked to do something: it can't, but it can say how
+    ("Send an SMS to all customers saying the network is down.", {"get_how_to"}),
     # Things it must not look anything up for
-    ("Send an SMS to all customers saying the network is down.", NONE),
     ("What's the capital of France?", NONE),
 ]
 
@@ -73,7 +92,7 @@ QUESTIONS = [
 def first_step(question):
     """The tools the model asks for first, for one question."""
     body = chat.ChatRequest(messages=[{"role": "user", "content": question}])
-    reply = deepseek.chat(chat.build_messages(body), tools=assistant_tools.tools_for("admin"), timeout_seconds=60)
+    reply = deepseek.chat(chat.build_messages(body), tools=assistant_tools.tools_for({"role": "admin"}), timeout_seconds=60)
     return {(c.get("function") or {}).get("name") for c in reply.get("tool_calls") or []}
 
 

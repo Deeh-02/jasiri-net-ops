@@ -20,6 +20,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from db import activity as db
+from db import onu_links
 from db import activity_catalog as catalog
 from db import activity_logic as logic
 from db.connection import now_eat, to_eat
@@ -88,7 +89,12 @@ def get_filter_options(current_user: dict = Depends(require_activity("view"))):
 
 @router.get("/activity/customers")
 def search_customers(q: str = "", current_user: dict = Depends(require_activity("submit"))):
-    return db.search_customers(q)
+    # A linked ONU's current reading at the ONU (1490) pre-fills an
+    # installation report's optical signal (Phase 6B); the technician can change it.
+    found = db.search_customers(q)
+    onus = onu_links.customer_onus([c["id"] for c in found]) if found else {}
+    return [{**c, "onu_signal_dbm": (onus.get(c["id"]) or {}).get("signal_1490_dbm"),
+             "onu_signal_at": (onus.get(c["id"]) or {}).get("signal_at")} for c in found]
 
 
 @router.get("/activity/unfinished")

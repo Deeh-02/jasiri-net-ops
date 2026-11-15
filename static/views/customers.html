@@ -30,6 +30,7 @@
         </div>
         <div class="summary-strip" id="customers-summary" aria-label="Customers at a glance"></div>
 
+        <div class="net-stale" id="customers-onu-stale" hidden></div>
         <div class="table-scroll table-compact">
             <table id="customers-table">
                 <thead>
@@ -41,10 +42,11 @@
                         <th>Plan</th>
                         <th>Expiry</th>
                         <th>Account</th>
+                        <th>Fibre ONU</th>
                         <th>Manage</th>
                     </tr>
                 </thead>
-                <tbody id="customers-rows" data-skeleton="8"></tbody>
+                <tbody id="customers-rows" data-skeleton="9"></tbody>
             </table>
         </div>
     </section>

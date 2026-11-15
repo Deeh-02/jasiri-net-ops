@@ -4,7 +4,11 @@ function esc(s) {
     return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
-const KIND_LABEL = { down: "Site down", recovered: "Recovered", flapping: "Flapping" };
+const KIND_LABEL = {
+    down: "Site down", recovered: "Recovered", flapping: "Flapping",
+    onu_los: "ONU LOS", onu_los_still: "ONU still LOS", onu_los_recovered: "ONU back",
+    pon_los: "PON cut", pon_los_still: "PON still cut",
+};
 const STATUS_LABEL = {
     sent: "Sent", failed: "Failed", not_configured: "Not configured",
     rate_limited: "Rate limited", skipped_quiet_hours: "Quiet hours",

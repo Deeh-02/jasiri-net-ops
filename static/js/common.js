@@ -1,3 +1,4 @@
+import { enteringView, leavingView } from "./motion.js";
 // ---- Auth state ----
 let authToken = localStorage.getItem("authToken");
 let currentUser = JSON.parse(localStorage.getItem("currentUser") || "null");
@@ -64,6 +65,10 @@ async function loadPermissions() {
     }
 }
 
+// "home" (the Dashboard) is deliberately not here: everyone who signs in gets
+// it, and what it shows is decided per card on the server (routers/home.py).
+// The route called "dashboard" is the Batteries page: it was the app's first
+// screen and kept its name when the real Dashboard arrived (2026-11-14).
 const ROUTE_PERMISSION_MAP = {
     dashboard: ["batteries", "view"],
     sites: ["sites", "view"],
@@ -105,6 +110,8 @@ const ROUTE_PERMISSION_MAP = {
     // Status and Trends. Sits in the Reports group but doesn't need
     // reports:view (the group shows if any child is allowed).
     revenue: ["sites", "view_revenue"],
+    // Revenue's graphs tab: the same figures, the same gate.
+    "revenue-overview": ["sites", "view_revenue"],
     "inventory-manage": ["inventory_categories", "view"],
     // Alerts group. "notifications" has no entry on purpose — it's the
     // user's own inbox, same as the bell, so everyone logged in gets it
@@ -115,6 +122,9 @@ const ROUTE_PERMISSION_MAP = {
     // The CCR2116 page: customer names and expiry, so its own switch rather
     // than riding on view_status (which is about the hotspot sites).
     network: ["sites", "view_network"],
+    // The OLT page (SmartOLT): the same switch as Network Analysis. Authorize
+    // is admin only, enforced by the server.
+    olt: ["sites", "view_network"],
     // Technical Activity Log: Reports is the group's base permission (your own
     // reports, plus everyone's with view_all), Submit and Overview each have
     // their own switch. The group shows when any of them is allowed.
@@ -225,9 +235,6 @@ function applyPermissionVisibility() {
     const movementsLinkBtn = document.getElementById("movements-link-btn");
     if (movementsLinkBtn) movementsLinkBtn.hidden = !can("movements", "view");
 
-    const statusLinkBtn = document.getElementById("status-link-btn");
-    if (statusLinkBtn) statusLinkBtn.hidden = !can("sites", "view_status");
-
     const manageSitesLinkBtn = document.getElementById("manage-sites-link-btn");
     if (manageSitesLinkBtn) manageSitesLinkBtn.hidden = !can("sites", "manage_monitoring");
 
@@ -260,6 +267,14 @@ export function getCurrentUser() {
 // Single source of truth for the logged-in user's profile fields — mutates
 // the shared in-memory copy (the same one `can()` reads), persists it, and
 // re-renders the topbar so avatar initials stay in sync.
+// After a profile change the server issues a new token (it carries the name
+// and email); keep it so later requests use the current details.
+export function replaceAuthToken(token) {
+    if (!token) return;
+    authToken = token;
+    localStorage.setItem("authToken", token);
+}
+
 export function updateCurrentUser(patch) {
     currentUser = { ...currentUser, ...patch };
     localStorage.setItem("currentUser", JSON.stringify(currentUser));
@@ -389,8 +404,12 @@ export function deleteIconSvg() {
 export function showView(viewId) {
     const view = document.getElementById(viewId);
     const arriving = view.hidden;
+    // Motion (static/js/motion.js): remember the tab we're leaving so the next
+    // page's underline can slide from it.
+    if (arriving) leavingView(document.querySelector(".view:not([hidden])"));
     document.querySelectorAll(".view").forEach(v => { if (v !== view) v.hidden = true; });
     view.hidden = false;
+    if (arriving) enteringView(view);
     // A different page starts at its top (on a phone the whole window
     // scrolls, on desktop the content pane does); staying on the same page
     // (a filter in the URL changing) keeps its place.
@@ -434,25 +453,32 @@ export function registerRouteResetter(fn) {
 
 function parseRoute(hash) {
     const parts = hash.replace(/^#\/?/, "").split("/").filter(Boolean);
-    return { name: parts[0] || "dashboard", params: parts.slice(1) };
+    return { name: parts[0] || "home", params: parts.slice(1) };
 }
 
-// The sidebar is a list of titled sections (Operations, Technical Activity
-// Log, Inventory, Reports, Alerts, System), each page a row with its own
+// The sidebar is a list of titled sections (Operations, Network, Technical
+// Activity Log, Inventory, Reports, Alerts, System), each page a row with its own
 // icon. Sections start open; a section you fold shut stays shut (remembered
 // per browser) until you open it again or land on one of its pages, which
 // opens it so the current page is always visible.
 const NAV_GROUP_ROUTES = {
-    ops: ["dashboard", "sites", "network"],
+    ops: ["home", "dashboard", "sites"],
+    network: ["status", "trends", "site-detail", "manage-sites", "packages", "network", "olt"],
     system: ["users", "roles"],
     inventory: ["inventory", "stock", "inventory-log", "inventory-manage"],
     alerts: ["notifications", "alert-templates", "customers", "broadcast"],
-    reports: ["inventory-reports", "sms-status", "revenue"],
+    reports: ["inventory-reports", "sms-status", "revenue", "revenue-overview"],
     activity: ["activity-overview", "activity-reports", "activity-submit", "activity-manage"],
 };
 
+// Pages reached from inside another page light up that page's sidebar row:
+// Trends, one site, Manage sites and Packages all open from Hotspot Status.
+const NAV_ACTIVE_ALIAS = { trends: "status", "site-detail": "status", "manage-sites": "status", packages: "status",
+                           "revenue-overview": "revenue" };
+
 function setActiveNav(name) {
-    document.querySelectorAll("[data-view]").forEach(l => l.classList.toggle("active", l.dataset.view === name));
+    const row = NAV_ACTIVE_ALIAS[name] || name;
+    document.querySelectorAll("[data-view]").forEach(l => l.classList.toggle("active", l.dataset.view === row));
 
     // The current page's section title turns white, and the section opens if
     // it was folded; no section is ever folded shut from here.
@@ -794,7 +820,7 @@ function renderCmdkResults(query) {
 // ---- Fragment loader: fetches every view's HTML and injects it into its
 // mount point. Loaded eagerly, all at once, at startup — the app is small
 // enough that lazy-per-nav loading isn't worth the added state-tracking. ----
-const VIEW_NAMES = ["dashboard", "sites", "movements", "status", "site-detail", "trends", "manage-sites", "packages", "notifications", "alert-templates", "customers", "broadcast", "users", "roles", "settings", "inventory", "stock", "inventory-log", "issue-materials", "return-materials", "inventory-reports", "sms-status", "revenue", "inventory-manage", "network", "activity-overview", "activity-reports", "activity-submit", "activity-manage"];
+const VIEW_NAMES = ["home", "dashboard", "sites", "movements", "status", "site-detail", "trends", "manage-sites", "packages", "notifications", "alert-templates", "customers", "broadcast", "users", "roles", "settings", "inventory", "stock", "inventory-log", "issue-materials", "return-materials", "inventory-reports", "sms-status", "revenue", "revenue-overview", "inventory-manage", "network", "olt", "activity-overview", "activity-reports", "activity-submit", "activity-manage"];
 
 export async function loadViewFragments() {
     await Promise.all(VIEW_NAMES.map(async (name) => {
@@ -817,31 +843,22 @@ export function initShell() {
         const btn = document.getElementById("login-password-toggle");
         const isPassword = input.type === "password";
         input.type = isPassword ? "text" : "password";
-        btn.querySelector(".eye-open").hidden = isPassword;
-        btn.querySelector(".eye-closed").hidden = !isPassword;
+        // toggleAttribute, not .hidden: an <svg> has no "hidden" property, so setting it did nothing.
+        btn.querySelector(".eye-open").toggleAttribute("hidden", isPassword);
+        btn.querySelector(".eye-closed").toggleAttribute("hidden", !isPassword);
         btn.classList.toggle("is-visible", isPassword);
+        btn.setAttribute("aria-label", isPassword ? "Hide password" : "Show password");
     });
 
-    // ---- Login: animated traveling border on the login card ----
-    (function animateLoginBorder() {
-        const box = document.querySelector(".login-box");
-        if (!box) return;
+    // (The login card's turning glow is CSS: .login-frame in common.css.)
 
-        function sizeTrace() {
-            const size = Math.max(box.offsetWidth, box.offsetHeight) * 1.6;
-            box.style.setProperty("--trace-size", size + "px");
-        }
-        sizeTrace();
-        window.addEventListener("resize", sizeTrace);
-
-        let angle = 0;
-        function tick() {
-            angle = (angle + 0.6) % 360;
-            box.style.setProperty("--border-angle", angle + "deg");
-            requestAnimationFrame(tick);
-        }
-        requestAnimationFrame(tick);
-    })();
+    // "Forgot password?": there's no self-service reset, so say who can help.
+    document.getElementById("login-forgot").addEventListener("click", e => {
+        e.preventDefault();
+        const hint = document.getElementById("login-hint");
+        hint.hidden = !hint.hidden;
+        e.currentTarget.setAttribute("aria-expanded", String(!hint.hidden));
+    });
 
     // ---- Login ----
     document.getElementById("login-form").addEventListener("submit", async (e) => {
@@ -849,21 +866,28 @@ export function initShell() {
         const email = document.getElementById("login-email").value;
         const password = document.getElementById("login-password").value;
 
-        const response = await fetch("/login", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ email, password })
-        });
+        // (The button's busy state while this is in flight is trackFormSubmits, above.)
+        try {
+            const response = await fetch("/login", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ email, password })
+            });
 
-        if (response.ok) {
-            const data = await response.json();
-            authToken = data.access_token;
-            currentUser = data.user;
-            localStorage.setItem("authToken", authToken);
-            localStorage.setItem("currentUser", JSON.stringify(currentUser));
-            showApp();
-        } else {
-            showMessage("login-msg", "Invalid email or password", true);
+            if (response.ok) {
+                const data = await response.json();
+                authToken = data.access_token;
+                currentUser = data.user;
+                localStorage.setItem("authToken", authToken);
+                localStorage.setItem("currentUser", JSON.stringify(currentUser));
+                showApp();
+            } else if (response.status === 401 || response.status === 400 || response.status === 403) {
+                showMessage("login-msg", "Invalid email or password", true);
+            } else {
+                showMessage("login-msg", "Couldn't sign you in just now. Try again in a moment.", true);
+            }
+        } catch (err) {
+            showMessage("login-msg", "Couldn't reach the server. Check your connection and try again.", true);
         }
     });
 

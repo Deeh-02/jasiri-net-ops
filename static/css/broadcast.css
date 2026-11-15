@@ -33,7 +33,7 @@
 .broadcast-field textarea {
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
     padding: 10px 12px;
     color: var(--text);
     font-family: 'Inter', sans-serif;
@@ -73,7 +73,7 @@
 
 .broadcast-actions button {
     border: none;
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
     padding: 10px 18px;
     font-family: 'Space Grotesk', sans-serif;
     font-weight: 700;
@@ -84,7 +84,7 @@
     border: 1px solid var(--border);
 }
 
-#broadcast-send-btn { background: var(--accent); color: #10141a; border-color: var(--accent); }
+#broadcast-send-btn { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
 .broadcast-actions button:disabled { opacity: 0.45; cursor: default; }
 
 .broadcast-history-title {
@@ -103,7 +103,7 @@
 .broadcast-recipients {
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: var(--radius);
     padding: 12px;
 }
 
@@ -118,7 +118,7 @@
     flex: 1 1 200px;
     background: var(--bg, var(--surface));
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
     padding: 8px 10px;
     color: var(--text);
     font-family: 'Inter', sans-serif;
@@ -129,7 +129,7 @@
     background: var(--surface);
     border: 1px solid var(--border);
     color: var(--text);
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
     padding: 6px 12px;
     font-family: 'Inter', sans-serif;
     font-size: 12.5px;

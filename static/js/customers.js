@@ -79,12 +79,26 @@ async function runImport(commit) {
     }
 }
 
+// The customer's fibre ONU (OLT → Customers links it), from SmartOLT.
+// Glyph + word for every status, never colour alone.
+const ONU_GLYPH = { Online: ["●", "good"], LOS: ["▼", "bad"], Offline: ["▼", "bad"], "Power fail": ["◆", "bad"] };
+function onuCell(o) {
+    if (!o) return `<span class="cell-muted">—</span>`;
+    const [glyph, tone] = ONU_GLYPH[o.status] || ["○", ""];
+    const since = o.last_status_change
+        ? new Date(o.last_status_change).toLocaleString("en-GB", { timeZone: "Africa/Nairobi", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
+    const signal = o.signal_1490_dbm != null ? `${o.signal_1490_dbm.toFixed(2)} dBm` : "no reading";
+    const grade = o.signal_quality === "Warning" || o.signal_quality === "Critical" ? ` · ${esc(o.signal_quality)}` : "";
+    return `<span class="customer-onu ${tone}">${glyph} ${esc(o.status || "Unknown")}</span>${o.stale ? ` <span class="cell-muted">(not current)</span>` : ""}
+        <div class="cell-muted">${esc(signal)}${grade}${since ? ` · since ${esc(since)}` : ""}</div>`;
+}
+
 async function loadCustomers() {
     const routerId = document.getElementById("customers-filter-router").value;
     const rows = document.getElementById("customers-rows");
     const res = await fetch(`/customers${routerId ? `?router_id=${routerId}` : ""}`, { headers: authHeaders() });
     if (!res.ok) {
-        rows.innerHTML = stateRow(8, "error", "Couldn't load customers. Try again in a moment.");
+        rows.innerHTML = stateRow(9, "error", "Couldn't load customers. Try again in a moment.");
         return;
     }
     const customers = await res.json();
@@ -96,20 +110,32 @@ async function loadCustomers() {
         `<span class="summary-item"><strong>${customers.length}</strong> customers</span>` +
         Object.entries(counts).map(([s, n]) => `<span class="summary-item ${tone(s)}"><strong>${n}</strong> ${esc(s)}</span>`).join("");
     if (!customers.length) {
-        rows.innerHTML = stateRow(8, "empty", "Import an export above to fill this list.", "No customers yet");
+        rows.innerHTML = stateRow(9, "empty", "Import an export above to fill this list.", "No customers yet");
         return;
     }
+    // The date on one line, the time small under it.
+    const expiryCell = iso => {
+        const text = formatDate(iso) || "";
+        const cut = text.lastIndexOf(", ");
+        return cut < 0 ? esc(text || "—") : `${esc(text.slice(0, cut))}<div class="cell-sub">${esc(text.slice(cut + 2))}</div>`;
+    };
     rows.innerHTML = customers.map(c => `
         <tr>
-            <td>${esc(c.router)}</td>
-            <td>${esc(c.username)}</td>
+            <td class="muted cust-router">${esc(c.router)}</td>
+            <td class="cust-user">${esc(c.username)}</td>
             <td>${esc(c.name || "—")}</td>
-            <td>${esc(c.phone || "no valid number")}</td>
-            <td>${esc(c.plan || "—")}</td>
-            <td>${esc(formatDate(c.expiry))}</td>
-            <td>${esc(c.account_status)}${c.enabled ? "" : " (disabled)"}</td>
+            <td class="cust-nowrap">${esc(c.phone || "no valid number")}</td>
+            <td class="cust-nowrap">${esc(c.plan || "—")}</td>
+            <td class="cust-nowrap">${expiryCell(c.expiry)}</td>
+            <td><span class="status-pill acct-${esc(c.account_status)}">${esc(c.account_status)}</span>${c.enabled ? "" : ` <span class="cell-sub">disabled</span>`}</td>
+            <td class="cust-onu">${onuCell(c.onu)}</td>
             <td><button type="button" class="customer-edit-btn" data-id="${c.id}">Edit</button></td>
         </tr>`).join("");
+    // ONU data older than 15 minutes is labelled, never shown as current.
+    const stale = customers.some(c => c.onu?.stale);
+    const note = document.getElementById("customers-onu-stale");
+    note.hidden = !stale;
+    note.textContent = stale ? "Fibre ONU status hasn't updated from SmartOLT for over 15 minutes; it may not be current." : "";
 }
 
 async function loadPage() {

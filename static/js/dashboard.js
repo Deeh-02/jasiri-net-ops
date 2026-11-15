@@ -270,6 +270,7 @@ function bindChargeDropdown(dropdown) {
         const isOpen = !menu.hidden;
         closeAllChargeMenus();
         menu.hidden = isOpen;
+        if (!isOpen) placeChargeMenu(btn, menu);
     });
 
     menu.querySelectorAll(".charge-option").forEach(opt => {
@@ -349,6 +350,26 @@ function renderTable(batteries) {
 function closeAllChargeMenus() {
     document.querySelectorAll(".charge-menu").forEach(m => m.hidden = true);
 }
+
+// The menu is placed against the screen, not inside the table: the table
+// scrolls in its own box, and a menu opened on one of the last rows used to
+// open below that box's edge, out of sight until you scrolled the table
+// (2026-11-15). It opens upward when there isn't room under the button, and
+// closes on any scroll (it would otherwise be left behind as the row moves).
+function placeChargeMenu(btn, menu) {
+    const r = btn.getBoundingClientRect();
+    const h = menu.offsetHeight, w = menu.offsetWidth, gap = 6, edge = 8;
+    const up = window.innerHeight - r.bottom < h + gap + edge && r.top > h + gap + edge;
+    menu.classList.toggle("opens-up", up);
+    menu.style.top = `${up ? r.top - gap - h : r.bottom + gap}px`;
+    menu.style.left = `${Math.max(edge, Math.min(r.left, window.innerWidth - w - edge))}px`;
+}
+const closeChargeMenusOnScroll = (e) => {
+    if (e.target.closest?.(".charge-menu")) return;
+    if (document.querySelector(".charge-menu:not([hidden])")) closeAllChargeMenus();
+};
+window.addEventListener("scroll", closeChargeMenusOnScroll, true);
+window.addEventListener("resize", closeAllChargeMenus);
 
 async function deactivateBattery(id, number) {
     if (!(await confirmDialog({ title: `Deactivate battery "${number}"?`, message: "It will be hidden from the list.", confirmLabel: "Deactivate", danger: true }))) return;

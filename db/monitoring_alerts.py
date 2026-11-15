@@ -99,7 +99,8 @@ still draws.
 BATTERY RECOMMENDATION (Task 3, 2026-09-23). At escalation step 1 (the
 15-minute "still down" reminder — SCHEDULE_MINUTES[1]), a down alert
 names which battery to bring: the confirmed-charged, currently-At-Base
-battery with the lowest recent removal count. This is the ONE place
+battery that has worked least (fewest trips in 30 days, then rested
+longest, then fewest trips ever; see least_used_first). This is the ONE place
 monitoring reads outside its own domain — `batteries`/`battery_movements`
 — a deliberate, documented amendment to the isolation invariant (see
 PHASES.md, 2026-09-23 and ARCHITECTURE.md's matching section), not drift:
@@ -127,7 +128,7 @@ import json
 import logging
 from datetime import datetime, timedelta, timezone
 
-from db import alert_settings
+from db import alert_settings, onu_alerts
 from db.alert_channels import send_sms, send_whatsapp
 from db.alert_templates import load_all as load_templates, render as render_template
 from db.connection import db_cursor, now_eat
@@ -140,11 +141,13 @@ log = logging.getLogger(__name__)
 # sent. Each later checkpoint crossed sends exactly one reminder (never a
 # range, never repeated) and advances site_alert_episodes.escalation_step
 # (migration 0013) by one, so this list is also literally "how many sends
-# an episode can ever produce": len(SCHEDULE_MINUTES) = 16, i.e. at most 16
-# alerts over the life of one continuous outage, tapering from every few
-# minutes in hour one to hourly by hour six, and nothing at all past 12h —
-# the episode stays open and logged, it just stops paging anyone.
-SCHEDULE_MINUTES = [5, 15, 30, 60, 90, 120, 180, 240, 300, 360, 420, 480, 540, 600, 660, 720]
+# the fast schedule can produce": len(SCHEDULE_MINUTES) = 7. After that
+# the twice-daily reminders take over (see below the list).
+# 2026-11-11 (owner): the old 16-step list (every 30–60 min up to 12 h) was
+# crying wolf. Now 7 messages over 8 hours, then — or as soon as someone
+# acknowledges the site — one reminder at each of
+# alert_settings.DAILY_REMINDER_TIMES (08:00 and 16:00 EAT) until it's back.
+SCHEDULE_MINUTES = [5, 15, 30, 60, 180, 360, 480]
 
 # A site that changes state this many times within this window is flapping,
 # not down — one alert, then silence until it settles (leaves the window
@@ -476,19 +479,39 @@ def _deliver_bundle(cur, episodes, message, recipients):
 REMOVAL_COUNT_WINDOW = timedelta(days=30)
 
 
-def _recent_removal_counts(cur, battery_ids):
+def _usage(cur, battery_ids):
+    """{battery_id: (removals in the last 30 days, removals ever, last move
+    time or None)} — every input to "which battery has worked least"."""
     if not battery_ids:
         return {}
     cur.execute(
         """
-        SELECT battery_id, count(*) FROM battery_movements
-        WHERE battery_id = ANY(%s) AND from_location_id IS NOT NULL
-          AND status != 'cancelled' AND created_at > now() - %s
+        SELECT battery_id,
+               count(*) FILTER (WHERE from_location_id IS NOT NULL AND created_at > now() - %s),
+               count(*) FILTER (WHERE from_location_id IS NOT NULL),
+               max(created_at)
+        FROM battery_movements
+        WHERE battery_id = ANY(%s) AND status != 'cancelled'
         GROUP BY battery_id
         """,
-        (battery_ids, REMOVAL_COUNT_WINDOW),
+        (REMOVAL_COUNT_WINDOW, battery_ids),
     )
-    return dict(cur.fetchall())
+    return {r[0]: (r[1], r[2], r[3]) for r in cur.fetchall()}
+
+
+def least_used_first(candidates, usage):
+    """Fewest trips out in the last 30 days first. Ties (common: several at
+    0) go to the battery that has RESTED LONGEST (oldest last move; never
+    moved counts as rested longest), then the fewest trips ever, and only
+    then the battery number. Before 2026-11-11 ties went straight to the
+    lowest number, so the same battery kept being picked without anyone
+    noticing (owner's report)."""
+    oldest = datetime.min
+
+    def key(b):
+        recent, ever, last = usage.get(b["id"], (0, 0, None))
+        return (recent, last or oldest, ever, b["battery_number"])
+    return sorted(candidates, key=key)
 
 
 def _available_batteries(cur):
@@ -498,14 +521,13 @@ def _available_batteries(cur):
     lowest recent removal count first, battery_number as a deterministic
     tiebreak. Reuses db.batteries.get_all_batteries()'s own status
     computation rather than re-deriving "At Base" here a second time in a
-    way that could quietly drift from the Batteries page's own definition."""
+    way that could quietly drift from the Batteries page's own definition.
+    Ordered by least_used_first()."""
     from db.batteries import get_all_batteries
     candidates = [b for b in get_all_batteries() if b["status"] == "At Base" and b["charge_status"] == "charged"]
     if not candidates:
         return []
-    removals = _recent_removal_counts(cur, [b["id"] for b in candidates])
-    candidates.sort(key=lambda b: (removals.get(b["id"], 0), b["battery_number"]))
-    return candidates
+    return least_used_first(candidates, _usage(cur, [b["id"] for b in candidates]))
 
 
 def _eat_day_start_utc():
@@ -648,12 +670,21 @@ def _evaluate():
             for r in cur.fetchall()
         }
 
-        cur.execute("SELECT monitored_site_id FROM site_acknowledgements WHERE cleared_at IS NULL")
-        acked = {r[0] for r in cur.fetchall()}
+        cur.execute("SELECT monitored_site_id, acknowledged_at FROM site_acknowledgements WHERE cleared_at IS NULL")
+        acked_at = dict(cur.fetchall())
+        acked = set(acked_at)
 
         recipients = load_recipients(cur)
+        # Hotspot sites down because their fibre ONU is LOS: the LOS alert
+        # speaks for them (owner, 2026-11-11), so they get no down, still
+        # down, reminder or flapping message, and stay out of bundles and
+        # battery picks. The episode is still opened and tracked; if the
+        # fibre comes back while the site stays down, its own schedule
+        # resumes with one catch-up "still down".
+        los = onu_alerts.los_sites(cur)
 
         pending_down = []    # sites whose OWN escalation clock fires this pass
+        daily_reminders = [] # sites due their 08:00 / 16:00 reminder this pass
         currently_down = {}  # every non-flapping down site, fired or not — see BUNDLING
 
         for site_id, info in sites.items():
@@ -677,6 +708,9 @@ def _evaluate():
                     episode = {"id": cur.fetchone()[0], "opened_at": st["since"], "state": "down",
                                "flap_count": 0, "down_alert_sent_at": None, "flapping_alert_sent_at": None,
                                "escalation_step": 0}
+
+                if site_id in los:
+                    continue
 
                 flap_count = _count_recent_transitions(cur, site_id, now - FLAP_WINDOW)
                 if flap_count >= FLAP_THRESHOLD and episode["state"] != "flapping":
@@ -722,6 +756,21 @@ def _evaluate():
                 # suppress sending without ever advancing step, so the
                 # reminder due while muted still fires the moment the mute
                 # lifts rather than being silently skipped forever.
+                # Twice-daily reminder: the fast schedule is used up, or the
+                # site is acknowledged. Never inside the 5-minute debounce, never
+                # muted, and measured from the later of the last message and the
+                # acknowledgement, so acknowledging never triggers one at once.
+                slow = step >= len(SCHEDULE_MINUTES) or site_id in acked
+                if slow and not quiet and down_for >= timedelta(minutes=SCHEDULE_MINUTES[0]):
+                    since = max(d for d in (episode["down_alert_sent_at"], acked_at.get(site_id), episode["opened_at"]) if d)
+                    if alert_settings.daily_slot_due(since, now):
+                        daily_reminders.append({
+                            "site_id": site_id, "episode_id": episode["id"], "name": info["name"],
+                            "sessions_at_drop": sessions_at_drop,
+                            "opened_at_eat": episode["opened_at"] + timedelta(hours=3), "downtime": down_for,
+                        })
+                    continue
+
                 if (step < len(SCHEDULE_MINUTES) and down_for >= timedelta(minutes=SCHEDULE_MINUTES[step])
                         and site_id not in acked and not quiet):
                     # Checkpoints already crossed. Normally step + 1; larger
@@ -744,6 +793,9 @@ def _evaluate():
                     (st["since"], episode["id"]),
                 )
                 should_notify = episode["down_alert_sent_at"] is not None or episode["state"] == "flapping"
+                last_message = episode["down_alert_sent_at"] or episode["opened_at"]
+                if should_notify and onu_alerts.site_outage_was_los(cur, site_id, last_message, st["since"]):
+                    should_notify = False      # the LOS "signal back" message closes it
                 if should_notify and not quiet:
                     downtime = st["since"] - episode["opened_at"]
                     title = f"{info['name']} is back online"
@@ -807,5 +859,10 @@ def _evaluate():
                         (p["next_step"], p["episode_id"]),
                     )
                     _deliver(cur, p["episode_id"], p["site_id"], "down", title, message, recipients)
+
+        for d in daily_reminders:
+            message = _down_message(t, d["name"], d["sessions_at_drop"], d["opened_at_eat"], 1, d["downtime"])
+            cur.execute("UPDATE site_alert_episodes SET down_alert_sent_at = now() WHERE id = %s", (d["episode_id"],))
+            _deliver(cur, d["episode_id"], d["site_id"], "down", f"{d['name']} still down", message, recipients)
 
         conn.commit()

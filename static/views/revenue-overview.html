@@ -1,0 +1,44 @@
+    <section class="view" id="view-revenue-overview" hidden>
+        <div class="page-header-row">
+            <h1 class="page-title">Revenue <span>Overview</span></h1>
+        </div>
+
+        <div class="sites-tabs tabs" role="tablist">
+            <button type="button" class="sites-tab tab" role="tab" aria-selected="false" data-tab-route="revenue">Report</button>
+            <button type="button" class="sites-tab tab is-active" role="tab" aria-selected="true">Overview</button>
+        </div>
+        <div class="rev-header-meta rev-ov-meta" id="rev-ov-meta"></div>
+
+        <!-- Income overview: each day (week, month) against the average -->
+        <div class="rev-section-head">
+            <h2 class="rev-h2">Income overview</h2>
+            <label class="rev-field">Show
+                <select id="rev-income-series" aria-label="Income overview period">
+                    <option value="daily_7">Last 7 days</option>
+                    <option value="daily_14" selected>Last 14 days</option>
+                    <option value="daily_30">Last 30 days</option>
+                    <option value="weekly_12">Last 12 weeks</option>
+                    <option value="monthly_12">Last 12 months</option>
+                    <option value="year_current">This year, by month</option>
+                </select>
+            </label>
+        </div>
+        <div class="rev-income" id="rev-income"></div>
+
+        <!-- Trend: the line with the usual range -->
+        <h2 class="rev-h2">Trend</h2>
+        <div class="rev-controls">
+            <label class="rev-field">Series
+                <select id="rev-series" aria-label="Trend series">
+                    <option value="daily_7">Last 7 days</option>
+                    <option value="daily_30" selected>Last 30 days</option>
+                    <option value="daily_90">Last 90 days</option>
+                    <option value="weekly_12">Last 12 weeks</option>
+                    <option value="monthly_12">Last 12 months</option>
+                    <option value="year_current">This year, by month</option>
+                    <option value="year_previous">Last year, by month</option>
+                </select>
+            </label>
+        </div>
+        <div class="rev-trend" id="rev-trend"></div>
+    </section>

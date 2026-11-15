@@ -7,11 +7,36 @@ already in use, not new proposals.
 
 ## Accent / color theme
 
+**Two themes since 2026-11-14 (owner's call).** Dark stays the default;
+light is `data-theme="light"` on `<html>`, switched with the sun/moon button
+in the top bar (`static/js/theme.js`, remembered in `localStorage.theme`,
+applied before first paint by an inline script in `index.html`). Both are
+one set of token names defined twice at the top of `common.css`; a view
+must never write a hex or `rgba()` of its own: use a token, or
+`color-mix(in srgb, var(--accent) 12%, transparent)` for a tint. Light uses
+darker green/amber/red/blue so they pass as text on white, white cards on a
+grey page, and a soft shadow for `--edge` instead of a lit edge. Switching
+pours the new theme out from the button as a growing blob with a wobbling,
+liquid edge, 1.1s (`blobFrames` in `theme.js`: clip-path polygons on the
+View Transition's new snapshot; instant without View Transitions or with
+animations off). Shapes are
+rounder in both: `--radius` 16px for cards, panels, tables and dialogs,
+`--radius-sm` 10px for buttons, inputs and chips. The values listed below
+are the dark ones.
+
 Dark theme, defined once as CSS custom properties in `common.css`'s `:root`
 (every view's CSS reads these, never redefines its own palette):
 
-- `--bg` `#000000`, `--surface` `#0a0a0a`, `--surface-2` `#141414`,
-  `--border` `#262626` — background layers, darkest to lightest.
+- `--bg` `#08090b`, `--surface` `#111316`, `--surface-2` `#181b1f`,
+  `--border` `#202328` — background layers, darkest to lightest.
+  **Dark is built like light (2026-11-15):** a near-black page with cards
+  and the sidebar a step lighter, lifted by a shadow in `--edge`, so a card
+  shows by its fill and not only its outline. It was pure black cards
+  (`#0a0a0a`) on a pure black page (`#000`), where every card needed its
+  grey border to be seen and the page read as a grid of outlined boxes;
+  the owner found light cleaner. Phone status bar `#08090b`. The installed
+  app's splash and `offline.html` stay `#000` (the splash image is on
+  black).
 - `--text` `#e9edf2`, `--text-dim` `#8b96a5` — primary vs. secondary text.
 - `--accent` `#3ddc97` (green) — the one brand/action color: primary
   buttons, active nav state, "charged"/"at base"/"online" states, focus
@@ -66,9 +91,15 @@ what is truly its own.
   `:focus-visible`; text fields keep the accent border and add `--ring`
   (a box-shadow, so a view's `outline: none` can't remove it). Mouse focus
   on a button shows nothing.
-- **Motion:** `prefers-reduced-motion: reduce` turns every animation and
-  transition into an instant change and removes lifts/scales. Keep new
-  motion subtle (≤ 0.3s, opacity/transform only).
+- **Motion is on unless the person turns it off** (owner's call,
+  2026-11-14): Settings → Appearance → Animations, saved per browser
+  (`localStorage.motion`, `data-motion="off"` on `<html>`, applied before
+  first paint). Off turns every animation and transition into an instant
+  change and removes lifts/scales. The device's own
+  `prefers-reduced-motion` is deliberately NOT followed: Windows has
+  "Animation effects" off on many PCs, and the app then showed no motion at
+  all. Never gate motion on the media query; use
+  `:root[data-motion="off"]` in CSS and `motionOn()` (`theme.js`) in JS.
 - **Filters above a table:** `.toolbar` (wraps, sits directly above the
   table or its summary) with `.toolbar-field` (small mono uppercase label
   span + control) and `.control` for inputs/selects (drawn chevron,
@@ -114,24 +145,107 @@ what is truly its own.
   (a filter in the URL) doesn't replay its entrance.
 - **Motion:** menus, pop-overs, dialogs and form messages appear with a
   ~150ms fade and 4px drop; buttons, summary filters and cards have a
-  pressed state. Nothing moves that isn't changing; reduced motion turns
+  pressed state. Nothing moves that isn't changing; animations off turns
   all of it off.
-- **Sidebar (sectioned, 2026-11-09):** six titled sections — Operations
-  (Batteries, Sites, Network), Technical Activity Log, Inventory, Reports,
+- **Sidebar (sectioned, 2026-11-09):** seven titled sections — Operations
+  (Batteries, Sites), Network (Network Status, Network Analysis, OLT;
+  added 2026-11-11; Network Status used to be a button on the Sites page),
+  Technical Activity Log, Inventory, Reports,
   Alerts, System (Users, Roles). Section titles are 11px (12px in the
   phone drawer) uppercase JetBrains Mono, grey, with a fold chevron; space,
-  not a divider line, separates sections. A title turns white only while
+  not a divider line, separates sections. A title (and its chevron) turns green only while
   one of its pages is open — hover just lifts the grey slightly (never on
   touch screens, where hover sticks after a tap). Every page is its own row: a 16px outline icon and a title-case
   JetBrains Mono 13px label, hanging off a thin guide line down the left
   of the section. The current page carries the accent tint and its stretch
-  of the guide line turns green; its section's title turns white
+  of the guide line turns green; its section's title turns green
   (`.nav-section-title.current`). Sections start open; folding one is remembered per browser
   (`localStorage.navCollapsedGroups`) and landing on a page inside a folded
   section opens it. Short labels in the sidebar (Overview, Submit Report,
   Activity Types, Inventory Report); the full names stay in `data-label` for
   the command palette. Unread alerts use an amber count bubble.
 
+
+- **Motion (2026-11-14, owner's reference clip):** the page you leave
+  blurs away (`.view-ghost`, a stripped copy), then the new one opens by
+  blurring in from heavy blur, block after block, then cards and table rows (`.view.is-entering`, set by
+  `static/js/motion.js` for ~2.6s after arriving, so live refreshes never
+  replay it; on phones the same blur with a smaller radius,
+  `blur-in-phone`); the current item's highlight slides to it
+  instead of jumping (sidebar row, tab underline including across pages
+  that share a tab bar, the pressed button of a `.fleet-range`/`.sr-range`
+  toggle), drawn by one `.slide-indicator` per container; cards lift 5px on
+  hover (mouse screens only); headline figures
+  (`.stat-value`, `.rev-card-value`, `.rev-tile-value`, `.summary-item
+  strong`) count up when their page opens and roll from old to new when a
+  refresh changes them; income bars and progress bars grow in. All of it is
+  off when animations are switched off in Settings, and without the script
+  every item keeps its own highlight.
+- **Login page (2026-11-14):** the page is the app's dot grid fading out
+  towards the edges (`.login-screen::before`, masked) under a soft green
+  light from above. The card (`.login-box`, 400px, 22px corners) sits in
+  `.login-frame`, which carries a conic gradient (accent green only: a
+  bright lobe and a fainter one opposite) turning once every 7s, drawn
+  twice from one angle (`--glow-angle`, an `@property`): a 1.5px stroke on
+  the card's edge and the same gradient blurred 30px behind the card as the
+  bloom. Still when animations are off. Fields are `.login-field`: a
+  visible label above, then one box holding an icon, a bare input and (for
+  the password) the eye, so focus draws a single ring round the whole
+  field. A saved login keeps the theme's colours (the browser's own
+  autofill tint is suppressed). "Forgot password?" opens a line saying an
+  admin can set a new one (there is no self-service reset).
+- **Phone top bar (2026-11-14):** menu and logo on the left; search, theme,
+  bell and avatar grouped on the right at 36px, none of which may shrink.
+  The name stays on screen by stacking: JASIRI NET on top, a small
+  spaced-out OPS in accent under it (`.brand-main` / `.brand-ops`; the
+  "— " is hidden on phones). Name 13–17px with the screen width (4.2vw),
+  OPS 11px; 20px on one line on larger screens. It fits a 340px screen;
+  under 340px only the logo shows.
+- **Wide-screen top bar (2026-11-15, owner's call):** from 1100px it is a
+  three-column grid with two equal outer columns: name on the left, search
+  (360px) in the middle, and theme, bell and initials together on the right
+  (`.topbar-actions`, 16px before the initials so the bell's count badge
+  clears them). Below 1100px the same three groups sit in a row.
+- **Theme switch on touch screens (2026-11-14):** the same liquid blob as
+  on a computer (96 corners; fewer show as straight segments). A swaying
+  oval was tried on phones and dropped: the owner prefers the liquid edge. On every screen, `.theme-switching` turns
+  off each control's own colour transitions for the length of the pour.
+  The pour's animation is cancelled when the switch ends: it has
+  `fill: both`, and if left in place it applied to the next switch's new
+  snapshot, which then showed in full before the new pour started. A
+  watchdog clears the switch if the browser never reports it finished.
+- **Dashboard tile figures (2026-11-14):** `.home-kpi-value` sizes itself to
+  the tile (container units, `--chars` set by `home.js`), so "KSh 10,450"
+  fits instead of ending in "…"; short figures stay at 30px.
+- **Dashboard (2026-11-14, `home.css`):** headline tiles (`.home-kpi`) over
+  a 12-column grid of cards (`.home-card`, `--span`). Colour there means
+  state only (`.tone-good/warn/bad/info/idle` set `--tone`), always beside
+  a written label and a count; a "how many of each" is a split bar with a
+  2px gap between slices and its legend; rankings and over-time charts are
+  one hue (download and upload keep Network Analysis's green and blue).
+  Charts are drawn at the width they are shown at; hovering shows a
+  floating label (`.home-tip`), and a line chart a rule with a dot per
+  line. A reading nobody took is a gap in the line, never a zero. The
+  Revenue card's bars use the same card (day, income, against the average),
+  not the browser's own `<title>` label (`incomeBars(..., { tips: false })`).
+  `.home-tip` is left out of the page entrance animation, which otherwise
+  overrode its position for the first seconds on the page. It stays inside
+  the card it belongs to (`showTip` bounds it by the `.home-card`), turning
+  to the left of the pointer near the card's right edge.
+- **Sliding highlights and count-ups share one change watcher
+  (`motion.js`, 2026-11-15):** a count-up drops only the change notices for
+  the figure it is writing (`ownWrite`). It used to drop every waiting
+  notice, which could swallow the sidebar's change of current page and
+  leave the highlight on the old page.
+- **Polish pass (2026-11-13):** panels carry `--edge` (a lit top edge via
+  `box-shadow`; since 2026-11-15 it also carries a drop shadow in dark,
+  which shows now that the page isn't pure black); the primary
+  button has a soft top-to-bottom gradient and glows on hover; the top bar
+  is translucent with a blur; the page has a faint accent glow behind the
+  dot grid. A pressed toggle (`.fleet-range`, `.sr-range`) is an accent
+  tint with an accent ring, never a white pill. Forms use a visible label
+  (`label.form-field`, optional `.form-hint`) rather than a placeholder as
+  the label. Table cells holding one fact (date, plan, phone) don't wrap.
 
 - **Buttons:** 6px border radius everywhere. Primary = solid `--accent`
   fill with dark text (`#10141a`); secondary = `--surface-2` fill with a

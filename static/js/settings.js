@@ -1,13 +1,32 @@
-import { authHeaders, showMessage, getCurrentUser, updateCurrentUser, showView, registerRoute } from "./common.js";
+import { authHeaders, showMessage, getCurrentUser, updateCurrentUser, replaceAuthToken, showView, registerRoute } from "./common.js";
+import { currentTheme, setTheme, motionOn, setMotion } from "./theme.js";
 
-function populateProfileForm() {
-    const currentUser = getCurrentUser();
-    if (!currentUser) return;
+function fillProfileForm(currentUser) {
     const parts = (currentUser.name || "").trim().split(/\s+/);
     document.getElementById("profile-first-name").value = parts[0] || "";
     document.getElementById("profile-last-name").value = parts.slice(1).join(" ") || "";
     document.getElementById("profile-phone").value = currentUser.phone || "";
     document.getElementById("profile-email").value = currentUser.email || "";
+}
+
+// The browser's copy first (instant), then what the server has, which is the
+// only place the phone number comes from. Saving is held until that arrives,
+// so a blank phone field can't overwrite a real number.
+async function populateProfileForm() {
+    const cached = getCurrentUser();
+    if (cached) fillProfileForm(cached);
+    const save = document.querySelector("#profile-form [type=submit]");
+    if (save) save.disabled = true;
+    try {
+        const res = await fetch("/me", { headers: authHeaders() });
+        if (!res.ok) throw new Error();
+        const me = await res.json();
+        fillProfileForm(me);
+        updateCurrentUser({ name: me.name, email: me.email, phone: me.phone });
+        if (save) save.disabled = false;
+    } catch {
+        showMessage("profile-form-msg", "Couldn't load your profile. Reload the page to edit it.", true);
+    }
 }
 
 async function populateNotificationsForm() {
@@ -34,20 +53,40 @@ export function initSettings() {
             document.getElementById("settings-tab-profile").hidden = target !== "profile";
             document.getElementById("settings-tab-password").hidden = target !== "password";
             document.getElementById("settings-tab-notifications").hidden = target !== "notifications";
+            document.getElementById("settings-tab-appearance").hidden = target !== "appearance";
             if (target === "notifications") populateNotificationsForm();
         });
     });
 
+    // Appearance: theme and animations, both per browser (theme.js). The
+    // buttons follow the real state, so the top bar's theme button and these
+    // never disagree.
+    const themeBox = document.getElementById("appearance-theme");
+    const motionBox = document.getElementById("appearance-motion");
+    const press = (box, choice) => box.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.choice === choice)));
+    const showAppearance = () => { press(themeBox, currentTheme()); press(motionBox, motionOn() ? "on" : "off"); };
+    themeBox.addEventListener("click", e => {
+        const btn = e.target.closest("button[data-choice]");
+        if (btn) setTheme(btn.dataset.choice, btn);
+    });
+    motionBox.addEventListener("click", e => {
+        const btn = e.target.closest("button[data-choice]");
+        if (btn) setMotion(btn.dataset.choice === "on");
+    });
+    document.addEventListener("appearancechange", showAppearance);
+    showAppearance();
+
     // Mirrors the login screen's password show/hide toggle (initShell in
     // common.js) — same .password-field/.eye-open/.eye-closed markup and
     // behavior, just wired here since these three fields live in this view.
-    document.querySelectorAll(".password-toggle-btn").forEach(btn => {
+    document.querySelectorAll("#view-settings .password-toggle-btn").forEach(btn => {
         btn.addEventListener("click", () => {
             const input = document.getElementById(btn.dataset.target);
             const isPassword = input.type === "password";
             input.type = isPassword ? "text" : "password";
-            btn.querySelector(".eye-open").hidden = isPassword;
-            btn.querySelector(".eye-closed").hidden = !isPassword;
+            // toggleAttribute, not .hidden: an <svg> has no "hidden" property, so setting it did nothing.
+            btn.querySelector(".eye-open").toggleAttribute("hidden", isPassword);
+            btn.querySelector(".eye-closed").toggleAttribute("hidden", !isPassword);
             btn.classList.toggle("is-visible", isPassword);
         });
     });
@@ -67,10 +106,14 @@ export function initSettings() {
         });
 
         if (response.ok) {
+            const data = await response.json().catch(() => ({}));
+            replaceAuthToken(data.access_token);
             updateCurrentUser({ name, email, phone });
             showMessage("profile-form-msg", "Profile updated", false);
         } else {
-            showMessage("profile-form-msg", "Failed to update profile", true);
+            const err = await response.json().catch(() => ({}));
+            const detail = Array.isArray(err.detail) ? "Check the email address." : err.detail;
+            showMessage("profile-form-msg", detail || "Failed to update profile", true);
         }
     });
 

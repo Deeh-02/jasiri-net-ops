@@ -1521,7 +1521,98 @@ once on return. "updated HH:MM" is the last *successful* fetch; a failed
 poll keeps the old figures and says "offline, last updated HH:MM" rather
 than going quietly stale. The comparison logic itself is untouched.
 
+### Revenue → Income overview (2026-11-11)
+
+`revenue_report.trend()` now also returns `overview` (from
+`income_overview(points, granularity)`): total, average (to the
+shilling), highest and lowest of the completed periods, formatted on the
+server like every other figure on the page, and sets each point's `name`
+("Wed 11 Nov") and `vs_average_pct`. The period still in progress is shown
+but never counted. New series `daily_14`. The page (`renderIncome` in
+`revenue.js`) only draws: tiles, a bar chart drawn at the width it's shown
+at (redrawn on resize), and a newest-first table; on phones the Progress
+column is hidden. Same endpoint, permission (`sites:view_revenue`) and
+polling as the Trend chart.
+
+**2026-11-12: its own tab.** Revenue is two routes on one module, like
+Status / Trends: `#/revenue` (Report) and `#/revenue-overview` (Overview:
+the income overview and the trend line, `static/views/revenue-overview.html`).
+Same permission; `state.screen` decides what a load or a poll fetches, so
+each tab only asks for what it shows.
+
+### Dashboard — one small summary per area, each behind its page's own permission (2026-11-14)
+
+The landing page is `#/home` (`static/js/home.js`, `views/home.html`,
+`home.css`). **The route called `dashboard` is still the Batteries page**: it
+was the app's first screen and kept its route, view id and file names;
+renaming them would have touched every battery link for no gain. `home` has
+no entry in `ROUTE_PERMISSION_MAP`, so everyone who signs in lands on it.
+
+`GET /home` lists the sections the viewer may see; `GET /home/{section}`
+returns one (`routers/home.py`, `SECTIONS`). A section is gated by the same
+permission as the area's own page (revenue: `sites:view_revenue`; customers:
+`sites:send_broadcasts`; fibre and uplink: `sites:view_network`; stock:
+`inventory_items:view` plus one of its two pages), so the Dashboard can't
+show a figure its viewer couldn't already look up. No new tables: each
+summary is reduced in `db/home.py` (pure functions, `tests/test_home.py`)
+from the function the area's page already calls, so the two can't disagree.
+Only counts, site and item names and series leave the server; customers go
+out as counts, and money as the strings `revenue_report` formatted.
+
+One request per section, and the page loads them **two at a time**: every
+query opens its own database connection and the pooler allows 15 in all, so
+nine in parallel per viewer would have been a real risk. It also means one
+slow or failing area never blanks the rest. The page re-reads every two
+minutes while open and visible, and redraws only cards whose reply changed.
+The fibre section calls `smartolt.poll_if_due()` like the OLT page does
+(non-blocking, rate-limited by its own schedule), since this is now the
+page people actually land on.
+
 ### Admin assistant — fixed read-only tools, enforced in code
+
+**Update 2026-11-11: "how do I…" app guide, per role.** (Owner's call.)
+- `db/app_guide.py` holds one short guide per task (send a broadcast, move
+  a battery, issue materials, submit a report, authorize / reboot /
+  configure an ONU, add users, roles, own password and alerts …), each
+  tied to the permission its page or button needs (`needs`, any of; `also`,
+  all of; `ADMIN` = built-in admin only; `None` = everyone).
+- Tool `get_how_to(topic)` is the one tool everyone has (`EVERYONE` in
+  `ACCESS`), so every logged-in user now gets the Ask button. It matches the
+  question against each guide's title and words (rarer words count more)
+  and returns steps only for guides that person can do. A match they can't
+  do comes back as `not_on_your_account` (the model says an admin can
+  switch it on in Roles), except `quiet` guides (revenue, package prices),
+  which are never mentioned to someone without them.
+- Steps use the sidebar's own names; `tests/test_app_guide.py` checks every
+  `where` against `static/index.html` and every permission against the
+  roles/route maps, so renaming a page or button means updating the guide.
+- **The guide is always consulted** (`HOW_TO` in `routers/chat.py`): a
+  "how do I / where do I / can I" question answered with no lookup at all
+  goes back once with `HOW_TO_NUDGE` (the model had said "no guide for
+  changing the splitter" without asking). ONU settings are one guide per
+  dialog (location, VLANs, speed, ethernet port, ONU mode, resync).
+- Eval: 49/49, including "how do I…" questions and "send an SMS to
+  everyone" (now answered with the steps instead of nothing).
+
+**Update 2026-11-11: open to everyone, tools follow permissions; customers
+and the OLT.** (Owner's call.)
+- **Who gets what** is `ACCESS` in `db/assistant_tools.py`: each tool needs
+  the permission of the page it reads (batteries:view, sites:view_network,
+  sites:view_status, inventory_items:view, ...). Revenue tools are admins
+  only, and `get_site_status` leaves today's revenue out for anyone else.
+  `tools_for(user)` sends the model only those; `run_tool()` checks again.
+  `POST /chat` needs at least one tool (`require_assistant`, else 403);
+  `GET /chat/access` tells the Ask button whether to show. Staff get a
+  fixed prompt line (`STAFF_LINE`) so a revenue question gets a plain
+  "that isn't something I can look up here", never a mention of admins or
+  access (owner's call: it shouldn't read as sales being hidden).
+- **New tools (21 in all):** `get_customer` (one customer: account, linked
+  ONU with status/signal/open LOS, connected now, last 5 technician visits
+  if the person can see the activity log), `get_onus` (OPS's ONU list by
+  status / weak signal / search, with who each belongs to) and
+  `get_onu_live` (asks SmartOLT now: details plus the OLT's full status,
+  cached 30 s / 60 s). None returns phone, address, contact or passwords.
+- `tools/assistant_eval.py`: 40 questions, 40/40 after this change.
 
 **Update 2026-11-04: one tool per page, grounding enforced, instructions in a file.**
 - **18 tools, one per page or report** (not one per question): the original
@@ -1940,6 +2031,173 @@ login), and a command-palette provider registry (a view registers its own
 searchable items + how to jump to one). `static/js/app.js` is the only file
 that imports every view module — it's the composition root, wiring them
 together, analogous to `main.py` including every router.
+
+## SmartOLT integration (Phase 6)
+
+**Where it lives:** `db/smartolt.py` (client, parsing, saving, polling, the
+panel's figures) and one read endpoint, `GET /network/onus` in
+`routers/network.py`, behind the Network page's own permission
+(`sites:view_network`). The scope document named `app/integrations/`; this
+repo keeps outside services in `db/` (like `db/deepseek.py`), so it went there.
+
+**No scheduler, on purpose.** Render can sleep or run more than one copy of
+the app, and a timer inside the app would stop or double. Polling is driven
+by two things that already happen: every CCR2116 heartbeat (each live
+message to `/network/ingest`, every 15 s) and every load of the ONU panel
+(every 60 s while it's open). `poll_if_due()` only compares two in-memory
+times under a lock and, when a poll is due, starts it on a daemon thread, so
+the heartbeat is never held up and it never raises. Each poll first reads
+the table's own `status_polled_at` / `signal_polled_at`; if another process
+(or this one before a restart) polled recently, it skips SmartOLT and waits
+out the remainder. A failed poll waits 2 minutes, or longer if SmartOLT sent
+Retry-After. If the router stops reporting and nobody has the page open,
+polling pauses; the panel then says the data isn't current.
+
+**The reply format was checked against real responses (2026-11-10)**, not
+assumed: the list is under `response`; signals are text like `-17.62 dBm`
+or `-` (stored as numeric dBm, NULL for `-`); times are Nairobi wall-clock
+with no zone (read as UTC+3); statuses are Online / Offline / LOS / Power
+fail; and each signal row carries SmartOLT's own grade (Very good / Warning
+/ Critical), which follows the reading at the OLT (1310). The weak-signal
+list uses that grade, at the owner's call, rather than OPS thresholds.
+
+**What isn't stored:** SmartOLT's `address` and `contact` (phone) fields are
+dropped when the reply is read. The raw samples used to confirm the format
+were kept outside the repo; tests use made-up rows of the same shape.
+
+**Removed ONUs:** the status reply is SmartOLT's full ONU list, so each
+status poll deletes rows for ONUs no longer in it, unless the list is empty
+(far more likely a fault than every ONU being deleted).
+
+**The OLT page (2026-11-11)** is `routers/olt.py` over the same module.
+Configured reads OPS's own `onu_state` (a third poll, `details`, every 30
+minutes, fills a whitelisted `details` jsonb: zone, splitter, mode, WAN mode,
+VLANs, type, authorization date). It uses SmartOLT's *paginated* details
+call, which counts against the general 1,000-an-hour budget, not the
+15-an-hour full export. The View page, Unconfigured tab, authorize dropdowns
+and graphs are live calls through a small in-process cache (details 30 s,
+full status 60 s, graphs 5 min, dropdown lists 10 min), because full status
+info and the signal graph have their own smaller hourly limits (300 and 500,
+seen in SmartOLT's rate-limit headers). Graphs are PNGs proxied through OPS,
+fetched by the page with its auth header and shown from a blob URL.
+
+**Secrets.** SmartOLT's details replies carry PPPoE and Wi-Fi passwords in
+plain text (seen 2026-11-11; its docs' examples show them empty).
+`smartolt.scrub()` removes every key named `password` (and coordinates) at
+any depth from every reply before anything else reads it, and the View page
+is built from an explicit list of fields on top of that. The running config
+is never fetched (it can hold credentials). Address and contact are shown on
+the View page, read live, never stored.
+
+**Authorize** is the one write, admin only, brought forward from 6D at the
+owner's call. `POST /olt/authorize` validates every field against
+SmartOLT's own character rules (pydantic, extra fields forbidden), refuses
+when `SMARTOLT_WRITES_ENABLED` is false (on by default, as the owner asked),
+allows one authorize per serial at a time, writes a `pending` row to
+`onu_actions` before calling SmartOLT, and finishes it as `failed`,
+`succeeded` or `mismatch`. Read-back asks SmartOLT for that serial right
+afterwards and compares OLT, board, port, type, zone, mode, VLAN and name;
+any difference is shown to the admin and kept in the audit row. The new ONU
+is written into `onu_state` straight away (never deleting other rows) so
+it appears in Configured before the next poll.
+
+**Customer links (6B)** live in `db/onu_links.py` and `onu_customer_links`
+(primary key on the ONU, unique customer, so neither can be linked twice;
+"not a customer" rows keep hotspots and sites off the unmatched list).
+Suggestions are computed on every load, never stored: an exact PPPoE
+username match (from the details poll, which now keeps `pppoe_username`),
+else a word of the ONU's name equal to a customer's username. A customer
+or ONU in more than one suggestion is ambiguous. Bulk accept recomputes the
+suggestions on the server under a table lock and links only unambiguous
+username matches, so a stale browser list can't link the wrong pair.
+Readers of the links (Customers page column, installation-report pre-fill)
+fail soft: if the table or the database read fails, those pages simply show
+no ONU rather than breaking.
+
+Hotspot sites use the same table (`site_id`, 0034): a row is exactly one of
+customer, site or "not a customer" (CHECK `num_nonnulls(...) + not_a_customer
+= 1`). Site suggestions compare letters and digits only (`squash()`), take
+the longest site name that fits, and are ambiguous when two sites tie or two
+ONUs want one site. `/monitoring/status` and `/monitoring/sites/{id}` attach
+`onu` from `onu_links.site_onus()`, which also fails soft.
+
+**ONU actions (6C)** are `smartolt.start_action()` behind
+`POST /olt/onus/{id}/actions` (admin only). Before sending, OPS reads the
+ONU live (the "before" in the audit row, and proof SmartOLT knows it), then
+writes a `pending` row to `onu_actions`. Reboot finishes on SmartOLT's
+answer (the API has no async reboot). Disable/Enable are sent with
+`async=1`; a daemon thread polls `check_bulk_task_status` every 5 s for up to
+3 minutes, then reads the ONU back and only records `succeeded` if its
+administrative status is the one asked for (`mismatch` if SmartOLT said
+succeeded but the ONU didn't change). The task reply is parsed tolerantly
+(a list of rows, a dict keyed by ONU, or a single row) because its exact
+shape isn't in the docs. One action per ONU at a time (in-process set). A
+`pending` row older than 10 minutes is shown as `unknown`: its tracker was
+lost to a restart. The page polls `GET /olt/actions/{id}` every 3 s while
+it waits.
+
+**OLT permissions (2026-11-11).** Every OLT write is gated per role, not
+admin-only: `routers/olt.py` `require_olt(action)` needs `sites:view_network`
+plus `olt:<action>` (link, authorize, control, configure, delete,
+view_password); `onu_change` additionally needs `delete` for a delete and
+`configure` for the rest. `GET /olt/onus/{id}` returns `can` (each action)
+and the page hides what the person can't do. Roles page: the Network & OLT
+card (`static/js/roles.js`; top-level cards now accept `toggleAction`/`id`).
+
+**Configuration changes (6D)** are `db/onu_config.py`, behind
+`POST /olt/onus/{id}/config` (per role, see above; `GET /olt/onus/{id}/speed` feeds
+the speed dialog). Resync config, speed profiles, Ethernet port mode (LAN /
+Access on an attached VLAN / shut down), location details, attached VLANs,
+ONU mode (WAN VLAN-ID, Routing/Bridging, WAN mode incl. static IP, WAN
+remote access: up to four calls in SmartOLT's order, the error naming the
+steps already done) and delete. `plan()` returns a list of steps.
+Address and contact are compared live but stored only as "changed".
+`GET /olt/onus/{id}/pppoe-password` (admin, no-store) reads the password
+live for the reveal on the ONU page and records a `view_password` row. `change()` reads the ONU live, checks the
+request fits it (`plan()`: the port exists, the VLAN is attached, the speed
+profile is in SmartOLT's list, delete needs the typed serial and no customer
+or site link), writes a `pending` row to `onu_actions` with a one-line
+`summary` and the before state, sends one synchronous call (90 s timeout),
+then reads back (`check()`) and records `succeeded`, `mismatch` or `failed`.
+A deleted ONU counts as gone when SmartOLT answers "No ONU was found"; OPS
+then drops its `onu_state` row and any "not a customer" mark. A PPPoE
+password typed for a WAN change is sent to SmartOLT only: `plan()` keeps it
+out of the audit request and its errors never quote it. Shares 6C's
+one-action-per-ONU lock. Switches: `SMARTOLT_ACTION_RESYNC`, `_SPEED`,
+`_PORTS`, `_LOCATION`, `_VLANS`, `_MODE`, `_DELETE`, all on by default.
+
+**LOS alerts** (`db/onu_alerts.py`, table `onu_alerts`, 0035) run from
+`tick()`: at most once a minute off the router heartbeat and the OLT page,
+and at once after a status poll or a status webhook — no scheduler, a
+daemon thread, never raises, a Postgres advisory lock so two app copies
+can't both send. Nothing opens or closes while OPS's ONU status is older
+than 15 minutes. Fast schedule 2/15/30/60/180/360/480 minutes from the
+moment SmartOLT says it went LOS; a pass that finds several checkpoints
+crossed sends one catch-up message. After that, or once acknowledged,
+`alert_settings.daily_slot_due()` (08:00 and 16:00 EAT, shared with site
+alerts) decides. 3+ ONUs on one board/port going LOS within any 2-minute
+span become one port alert (`pon` set); an ONU on a port with an open port
+alert never gets its own. An alert first seen when its LOS is already
+older than 8 h (a long-dead ONU when this shipped) joins the twice-daily
+round without announcing itself. Disabled ONUs are skipped. Deliveries use
+the site alerts' recipients, channels, sending window and templates, but
+aren't written to the site delivery log (that table is per site episode).
+
+**Site-down schedule** (`monitoring_alerts.SCHEDULE_MINUTES`) is now
+5/15/30/60/180/360/480; past it, or while acknowledged, the same
+twice-daily slots apply, measured from the later of the last message and
+the acknowledgement.
+
+**Webhooks (6A-W)** come in at `POST /smartolt/webhook`, the only SmartOLT
+route without a login. Each delivery is verified Standard Webhooks style
+(HMAC-SHA256 over `id.timestamp.body` with `SMARTOLT_WEBHOOK_SECRET`,
+constant-time, any of several `v1,` signatures). There's no timestamp window
+yet, because SmartOLT doesn't document whether retries keep the original
+timestamp and refusing retries would get the webhook disabled after 5 days.
+Replays are harmless instead: a seen `webhook-id` is answered "already done",
+and a status only lands if its `last_status_change` is at least as new as
+the stored one. A failed store forgets the id so SmartOLT's retry gets
+another go. Work runs on the thread pool, well inside SmartOLT's 15 s.
 
 ## Visual testing — headless Chromium in this sandbox
 

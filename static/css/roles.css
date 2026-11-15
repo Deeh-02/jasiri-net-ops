@@ -9,7 +9,7 @@
     justify-content: center;
     background: var(--surface-2);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
     width: 30px;
     height: 30px;
     color: var(--text-dim);
@@ -41,7 +41,7 @@
 .perm-section {
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 10px;
+    border-radius: var(--radius);
     padding: 16px;
     transition: border-color 0.2s ease, transform 0.15s ease;
 }
@@ -95,7 +95,7 @@
 .perm-toggle input:checked + .perm-toggle-track {
     background: var(--accent);
     border-color: var(--accent);
-    box-shadow: 0 0 8px 1px rgba(61, 220, 151, 0.35);
+    box-shadow: 0 0 8px 1px color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
 .perm-toggle-thumb {
@@ -112,7 +112,7 @@
 
 .perm-toggle input:checked ~ .perm-toggle-thumb {
     transform: translateX(17px);
-    background: #10141a;
+    background: var(--on-accent);
 }
 
 .perm-menu {
@@ -177,7 +177,7 @@
     top: 45%;
     width: 4px;
     height: 8px;
-    border: solid #10141a;
+    border: solid var(--on-accent);
     border-width: 0 2px 2px 0;
     transform: translate(-50%, -50%) rotate(45deg);
 }
