@@ -201,6 +201,11 @@ what is truly its own.
   "— " is hidden on phones). Name 13–17px with the screen width (4.2vw),
   OPS 11px; 20px on one line on larger screens. It fits a 340px screen;
   under 340px only the logo shows.
+- **Wide-screen top bar (2026-11-15, owner's call):** from 1100px it is a
+  three-column grid with two equal outer columns: name on the left, search
+  (360px) in the middle, and theme, bell and initials together on the right
+  (`.topbar-actions`, 16px before the initials so the bell's count badge
+  clears them). Below 1100px the same three groups sit in a row.
 - **Theme switch on touch screens (2026-11-14):** the same liquid blob as
   on a computer (96 corners; fewer show as straight segments). A swaying
   oval was tried on phones and dropped: the owner prefers the liquid edge. On every screen, `.theme-switching` turns
@@ -220,7 +225,11 @@ what is truly its own.
   one hue (download and upload keep Network Analysis's green and blue).
   Charts are drawn at the width they are shown at; hovering shows a
   floating label (`.home-tip`), and a line chart a rule with a dot per
-  line. A reading nobody took is a gap in the line, never a zero.
+  line. A reading nobody took is a gap in the line, never a zero. The
+  Revenue card's bars use the same card (day, income, against the average),
+  not the browser's own `<title>` label (`incomeBars(..., { tips: false })`).
+  `.home-tip` is left out of the page entrance animation, which otherwise
+  overrode its position for the first seconds on the page.
 - **Polish pass (2026-11-13):** panels carry `--edge` (a lit top edge via
   `box-shadow`; since 2026-11-15 it also carries a drop shadow in dark,
   which shows now that the page isn't pure black); the primary

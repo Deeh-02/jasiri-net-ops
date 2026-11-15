@@ -9,6 +9,18 @@ and in `phase.md`'s own per-phase writeups.
 
 Started 2026-11-10 at the owner's request, after Phase 5 was merged to `main`.
 
+### Top bar, charge menu, revenue hover card (2026-11-15)
+- **Top bar on a computer**: the search sits in the middle, and the light /
+  dark button and the bell are now next to your initials on the right.
+- **Batteries: the charge menu** opens where you can see it. On the last
+  rows it used to open below the table's edge, so you had to scroll to
+  find the options; it now opens upward when there's no room below. It
+  closes if you scroll.
+- **Dashboard: hovering (or tapping) a day on the Revenue chart** shows a
+  small card with the day, its income and how it compares with the
+  average, like the other charts. It also no longer appears in the wrong
+  place for the first few seconds after you open the Dashboard.
+
 ### Cleaner dark mode (2026-11-15)
 - **Dark mode is built like light mode now**: cards and the side menu are a
   shade lighter than the page and sit on a soft shadow, instead of black

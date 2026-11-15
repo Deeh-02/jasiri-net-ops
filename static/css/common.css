@@ -1002,7 +1002,10 @@ button.summary-item:active:not(:disabled) { transform: scale(0.98); }
    Only while .is-entering is on the view (motion.js sets it for a few
    seconds after you arrive), so a live refresh never replays it. Blocks
    still loading when you arrive (tables, cards) blur in as they're drawn.
-   --enter-delay waits for the old page to clear; --n is a block's place. */
+   --enter-delay waits for the old page to clear; --n is a block's place.
+   Not the Dashboard's hover card (.home-tip): it is placed with transform,
+   and caught by this in the first seconds on the page it showed at the
+   page's top-left corner instead of by the pointer. */
 @keyframes blur-in {
     from { opacity: 0; transform: translateY(14px); filter: blur(18px); }
     60% { filter: blur(2px); }
@@ -1030,7 +1033,7 @@ button.summary-item:active:not(:disabled) { transform: scale(0.98); }
     animation: blur-out 0.26s ease-in forwards;
 }
 
-.view.is-entering > *:not(.modal-overlay):not([hidden]),
+.view.is-entering > *:not(.modal-overlay):not(.home-tip):not([hidden]),
 .view.is-entering :is(.stat-grid, .rev-cards, .rev-tiles, .summary-strip, .olt-signals, .rev-findings, .rev-rankings, .fleet-kpis, .sr-kpis, .home-kpis, .home-grid) > *,
 .view.is-entering tbody > tr:nth-child(-n+14) {
     animation: blur-in 0.9s var(--enter-ease) backwards;
@@ -1084,7 +1087,7 @@ button.summary-item:active:not(:disabled) { transform: scale(0.98); }
     to { opacity: 0; filter: blur(9px); }
 }
 @media (max-width: 760px) {
-    .view.is-entering > *:not(.modal-overlay):not([hidden]),
+    .view.is-entering > *:not(.modal-overlay):not(.home-tip):not([hidden]),
     .view.is-entering :is(.stat-grid, .rev-cards, .rev-tiles, .summary-strip, .olt-signals, .rev-findings, .rev-rankings, .fleet-kpis, .sr-kpis, .home-kpis, .home-grid) > * { animation-name: blur-in-phone; }
     .view-ghost { animation-name: blur-out-phone; }
 }
@@ -2299,6 +2302,17 @@ button[aria-busy="true"]::after {
 
 .topbar-actions { display: flex; align-items: center; gap: 10px; }
 
+/* Wide screens: name on the left, search in the exact middle, theme, bell
+   and initials together on the right (owner's call, 2026-11-15). Two equal
+   outer columns are what keep the search centred whatever the name's
+   width. Below 1100px the three sit in a row with the search between. */
+@media (min-width: 1100px) {
+    .global-topbar { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); }
+    .global-topbar-brand { justify-self: start; }
+    .topbar-search { justify-self: center; width: 360px; }
+    .topbar-actions { justify-self: end; gap: 16px; }   /* room for the bell's count badge */
+}
+
 .topbar-icon-btn {
     position: relative;
     display: flex;
@@ -2714,7 +2728,7 @@ button[aria-busy="true"]::after {
         display: none;
     }
 
-    .topbar-notif-wrap { gap: 6px; flex-shrink: 0; }
+    .topbar-actions, .topbar-notif-wrap { gap: 6px; flex-shrink: 0; }
     .topbar-icon-btn, .topbar-avatar { width: 36px; height: 36px; flex-shrink: 0; }
     .topbar-icon-btn { border-radius: 50%; }
     .topbar-avatar-wrap { flex-shrink: 0; }

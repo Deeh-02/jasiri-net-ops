@@ -134,55 +134,58 @@
             <span class="topbar-search-kbd">⌘K</span>
         </button>
 
-        <div class="topbar-notif-wrap">
-            <button type="button" class="topbar-icon-btn theme-toggle" id="theme-toggle" title="Switch to light mode" aria-label="Switch to light mode" aria-pressed="false">
-                <svg class="theme-icon-moon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13.5 9.5A5.5 5.5 0 016.5 2.5a5.5 5.5 0 107 7z"/></svg>
-                <svg class="theme-icon-sun" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="3"/><path d="M8 1.5v1.5M8 13v1.5M1.5 8H3M13 8h1.5M3.4 3.4l1.1 1.1M11.5 11.5l1.1 1.1M3.4 12.6l1.1-1.1M11.5 4.5l1.1-1.1"/></svg>
-            </button>
-            <button type="button" class="topbar-icon-btn" id="notifications-btn" title="Notifications">
-                <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M8 2C6 2 4.5 3.5 4.5 5.5V8L3 10.5H13L11.5 8V5.5C11.5 3.5 10 2 8 2Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
-                    <path d="M6.5 12.5C6.5 13.3 7.2 14 8 14C8.8 14 9.5 13.3 9.5 12.5" stroke="currentColor" stroke-width="1.2"/>
-                </svg>
-                <span class="badge-count" id="notifications-badge" hidden>0</span>
-            </button>
-            <div class="notifications-panel" id="notifications-panel" hidden>
-                <div class="notifications-panel-header">
-                    <span>Notifications</span>
-                    <button type="button" id="notifications-mark-all-btn">Mark all read</button>
+        <!-- Theme, bell and your initials sit together on the right. -->
+        <div class="topbar-actions">
+            <div class="topbar-notif-wrap">
+                <button type="button" class="topbar-icon-btn theme-toggle" id="theme-toggle" title="Switch to light mode" aria-label="Switch to light mode" aria-pressed="false">
+                    <svg class="theme-icon-moon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13.5 9.5A5.5 5.5 0 016.5 2.5a5.5 5.5 0 107 7z"/></svg>
+                    <svg class="theme-icon-sun" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="3"/><path d="M8 1.5v1.5M8 13v1.5M1.5 8H3M13 8h1.5M3.4 3.4l1.1 1.1M11.5 11.5l1.1 1.1M3.4 12.6l1.1-1.1M11.5 4.5l1.1-1.1"/></svg>
+                </button>
+                <button type="button" class="topbar-icon-btn" id="notifications-btn" title="Notifications">
+                    <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <path d="M8 2C6 2 4.5 3.5 4.5 5.5V8L3 10.5H13L11.5 8V5.5C11.5 3.5 10 2 8 2Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/>
+                        <path d="M6.5 12.5C6.5 13.3 7.2 14 8 14C8.8 14 9.5 13.3 9.5 12.5" stroke="currentColor" stroke-width="1.2"/>
+                    </svg>
+                    <span class="badge-count" id="notifications-badge" hidden>0</span>
+                </button>
+                <div class="notifications-panel" id="notifications-panel" hidden>
+                    <div class="notifications-panel-header">
+                        <span>Notifications</span>
+                        <button type="button" id="notifications-mark-all-btn">Mark all read</button>
+                    </div>
+                    <div class="notifications-list" id="notifications-list"></div>
                 </div>
-                <div class="notifications-list" id="notifications-list"></div>
             </div>
-        </div>
-
-        <div class="topbar-avatar-wrap" id="topbar-avatar-wrap">
-            <button type="button" class="topbar-avatar" id="topbar-avatar-btn"></button>
-            <div class="topbar-avatar-menu" id="topbar-avatar-menu" hidden>
-                <div class="topbar-avatar-info">
-                    <div class="topbar-avatar-name" id="topbar-avatar-name"></div>
-                    <div class="topbar-avatar-role" id="topbar-avatar-role"></div>
+    
+            <div class="topbar-avatar-wrap" id="topbar-avatar-wrap">
+                <button type="button" class="topbar-avatar" id="topbar-avatar-btn"></button>
+                <div class="topbar-avatar-menu" id="topbar-avatar-menu" hidden>
+                    <div class="topbar-avatar-info">
+                        <div class="topbar-avatar-name" id="topbar-avatar-name"></div>
+                        <div class="topbar-avatar-role" id="topbar-avatar-role"></div>
+                    </div>
+                    <div class="topbar-avatar-divider"></div>
+                    <button type="button" class="topbar-menu-item" id="settings-open-btn">
+                        <span class="topbar-menu-item-icon">
+                            <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <circle cx="8" cy="8" r="2.1" stroke="currentColor" stroke-width="1.2"/>
+                                <path d="M13 8.6v-1.2l-1.4-.3a4.4 4.4 0 00-.5-1.2l.8-1.2-.9-.9-1.2.8a4.4 4.4 0 00-1.2-.5L8.3 3H7.1l-.3 1.4c-.4.1-.8.3-1.2.5l-1.2-.8-.9.9.8 1.2c-.2.4-.4.8-.5 1.2L2.4 7.4v1.2l1.4.3c.1.4.3.8.5 1.2l-.8 1.2.9.9 1.2-.8c.4.2.8.4 1.2.5l.3 1.4h1.2l.3-1.4c.4-.1.8-.3 1.2-.5l1.2.8.9-.9-.8-1.2c.2-.4.4-.8.5-1.2z" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/>
+                            </svg>
+                        </span>
+                        Settings
+                    </button>
+                    <div class="topbar-avatar-divider"></div>
+                    <button type="button" class="topbar-menu-item topbar-menu-item-danger" id="logout-btn">
+                        <span class="topbar-menu-item-icon">
+                            <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M6 2H3.5A1.5 1.5 0 002 3.5v9A1.5 1.5 0 003.5 14H6" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+                                <path d="M10.5 11L14 8L10.5 5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+                                <path d="M14 8H6" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+                            </svg>
+                        </span>
+                        Log out
+                    </button>
                 </div>
-                <div class="topbar-avatar-divider"></div>
-                <button type="button" class="topbar-menu-item" id="settings-open-btn">
-                    <span class="topbar-menu-item-icon">
-                        <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                            <circle cx="8" cy="8" r="2.1" stroke="currentColor" stroke-width="1.2"/>
-                            <path d="M13 8.6v-1.2l-1.4-.3a4.4 4.4 0 00-.5-1.2l.8-1.2-.9-.9-1.2.8a4.4 4.4 0 00-1.2-.5L8.3 3H7.1l-.3 1.4c-.4.1-.8.3-1.2.5l-1.2-.8-.9.9.8 1.2c-.2.4-.4.8-.5 1.2L2.4 7.4v1.2l1.4.3c.1.4.3.8.5 1.2l-.8 1.2.9.9 1.2-.8c.4.2.8.4 1.2.5l.3 1.4h1.2l.3-1.4c.4-.1.8-.3 1.2-.5l1.2.8.9-.9-.8-1.2c.2-.4.4-.8.5-1.2z" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/>
-                        </svg>
-                    </span>
-                    Settings
-                </button>
-                <div class="topbar-avatar-divider"></div>
-                <button type="button" class="topbar-menu-item topbar-menu-item-danger" id="logout-btn">
-                    <span class="topbar-menu-item-icon">
-                        <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                            <path d="M6 2H3.5A1.5 1.5 0 002 3.5v9A1.5 1.5 0 003.5 14H6" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
-                            <path d="M10.5 11L14 8L10.5 5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
-                            <path d="M14 8H6" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
-                        </svg>
-                    </span>
-                    Log out
-                </button>
             </div>
         </div>
     </header>

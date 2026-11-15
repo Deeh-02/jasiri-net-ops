@@ -260,6 +260,8 @@
 .home-tip > b { color: var(--text); font-weight: 600; }
 .home-tip-row { display: flex; align-items: center; gap: 2px; }
 .home-tip-row b { margin-left: auto; padding-left: 14px; color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+.home-tip-row b[class*="tone-"] { color: var(--tone); }
+.home-tip-note { font-size: 11.5px; }
 
 .home-nothing { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 28px; max-width: 520px; }
 .home-nothing h2 { font-family: 'Space Grotesk', sans-serif; font-size: 16px; margin: 0 0 6px; }

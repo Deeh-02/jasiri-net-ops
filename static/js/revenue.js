@@ -485,7 +485,10 @@ function snugTop(v) {
 
 // `hatchId` names the stripe pattern for the unfinished period: two charts on
 // one page (this one and the Dashboard's) each need their own.
-export function incomeBars(pts, avg, width, hatchId = "rev-hatch") {
+// `tips: false` leaves out the browser's own hover label on each bar, for a
+// page that shows its own card instead (the Dashboard: home.js reads the
+// bar's data-i).
+export function incomeBars(pts, avg, width, hatchId = "rev-hatch", { tips = true } = {}) {
     // Drawn at the width it is shown at, so the text stays readable on a phone.
     const W = Math.max(300, Math.min(960, Math.round(width || 720))), H = W < 520 ? 220 : 250;
     const L = 40, R = 8, T = 14, B = 28;
@@ -511,7 +514,7 @@ export function incomeBars(pts, avg, width, hatchId = "rev-hatch") {
         const show = i === last || (i % step === 0 && last - i >= step);
         const anchor = cx - labelWidth / 2 < L - 6 ? ["start", x] : cx + labelWidth / 2 > W - R ? ["end", x + bw] : ["middle", cx];
         const label = show ? `<text x="${anchor[1]}" y="${H - 9}" text-anchor="${anchor[0]}">${esc(p.label)}</text>` : "";
-        return `<g class="slot" style="--i:${i}"><title>${esc(tip)}</title><rect class="hit" x="${L + slot * i}" y="${T}" width="${slot}" height="${y(0) - T}"/>${bar}</g>${label}`;
+        return `<g class="slot" data-i="${i}" style="--i:${i}">${tips ? `<title>${esc(tip)}</title>` : ""}<rect class="hit" x="${L + slot * i}" y="${T}" width="${slot}" height="${y(0) - T}"/>${bar}</g>${label}`;
     }).join("");
     const avgLine = avg ? `<line class="avg-line" x1="${L}" x2="${W - R}" y1="${y(avg)}" y2="${y(avg)}"/>` : "";
     return `<svg class="rev-chart rev-income-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Income per period against the average">

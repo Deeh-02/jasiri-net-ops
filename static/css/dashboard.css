@@ -61,11 +61,11 @@
     margin-left: 2px;
 }
 
+/* Fixed: placed against the screen by placeChargeMenu() in dashboard.js,
+   so the table's own scroll box can't hide it. */
 .charge-menu {
-    position: absolute;
-    top: calc(100% + 6px);
-    left: 0;
-    z-index: 20;
+    position: fixed;
+    z-index: 80;
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius);
@@ -73,6 +73,9 @@
     min-width: 140px;
     overflow: hidden;
 }
+
+@keyframes appear-up { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.charge-menu.opens-up { animation-name: appear-up; }
 
 .charge-option {
     display: flex;

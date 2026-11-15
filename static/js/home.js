@@ -227,7 +227,23 @@ function drawRevenue(d, body) {
         <div class="rev-legend"><span><i class="rev-key above"></i>Above average</span><span><i class="rev-key below"></i>Below average</span>
         <span><i class="rev-key avg"></i>Average ${esc(o.average)}</span>${o.partial_left_out ? `<span><i class="rev-key partial"></i>Today so far, not counted</span>` : ""}</div>`;
     const box = $("home-revenue-chart");
-    box.innerHTML = incomeBars(d.points, o.average_value, box.clientWidth, "home-rev-hatch");
+    box.innerHTML = incomeBars(d.points, o.average_value, box.clientWidth, "home-rev-hatch", { tips: false });
+    // Hover (or tap) a day: a card with that day's figure, like the line
+    // charts have. The browser's own label was plain, slow to appear, and
+    // could run off the edge of the screen.
+    const tip = e => {
+        const slot = e.target.closest?.(".slot");
+        const p = slot && d.points[Number(slot.dataset.i)];
+        if (!p) { hideTip(); return; }
+        const kind = p.partial ? "partial" : (p.vs_average_pct ?? 0) >= 0 ? "above" : "below";
+        const vs = p.partial ? `<span class="home-tip-note">So far today, not counted in the average</span>`
+            : p.vs_average_pct == null ? ""
+            : `<span class="home-tip-row">Against the average<b class="tone-${kind === "above" ? "good" : "warn"}">${p.vs_average_pct >= 0 ? `▲ +${p.vs_average_pct}` : `▼ −${Math.abs(p.vs_average_pct)}`}%</b></span>`;
+        showTip(`<b>${esc(p.name)}</b><span class="home-tip-row"><i class="rev-key ${kind}"></i>Income<b>${esc(p.display)}</b></span>${vs}`, e);
+    };
+    box.addEventListener("pointermove", tip);
+    box.addEventListener("pointerdown", tip);
+    box.addEventListener("pointerleave", hideTip);
 }
 
 function drawSites(d, body) {
