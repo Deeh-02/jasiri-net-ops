@@ -1,4 +1,4 @@
-import { authHeaders, showView, registerRoute, navigate, stateHtml, stateRow, markRefreshing } from "./common.js";
+import { authHeaders, showView, registerRoute, navigate, can, stateHtml, stateRow, markRefreshing } from "./common.js";
 
 // Finance > Income (Phase 7C). Everything is read from data the app already
 // records; nothing here is typed. Hotspot income comes from the router's
@@ -170,8 +170,11 @@ function targetHtml(t, isCurrent, segment) {
         t.target != null ? `<span><i class="fin-inc-tick target"></i>Target</span>` : "",
         ...markers.map(([cls, label, v]) => `<span><i class="fin-inc-tick ${cls}"></i>${label} ${money(v)}${cls === "projected" ? ` <span class="muted">(estimate: same weekdays, last ${t.projected.weeks} weeks)</span>` : ""}</span>`),
     ].join("");
+    const canSet = segment === "all" && can("finance", "manage_assets");
+    const editor = canSet ? `<span class="fin-inc-target-edit" id="fin-inc-target-edit">
+        <button type="button" class="fin-inc-link" data-target-open>${t.target_source === "manual" ? "Change target" : "Set your own target"}</button></span>` : "";
     return `<section class="fin-inc-card fin-inc-target">
-        <div class="fin-inc-target-head"><h2 class="section-title">Month target</h2><span>${heading}</span></div>
+        <div class="fin-inc-target-head"><h2 class="section-title">Month target</h2><span>${heading}</span>${editor}</div>
         <div class="fin-inc-target-bar" role="img" aria-label="Income against the month target">
             <span class="fin-inc-target-fill${reached ? " reached" : ""}" style="width:${at(t.income)}"></span>
             ${t.target != null ? `<span class="fin-inc-target-tick target" style="left:${at(t.target)}"></span>` : ""}
@@ -179,6 +182,30 @@ function targetHtml(t, isCurrent, segment) {
         </div>
         <div class="fin-inc-legend">${legend}</div>
     </section>`;
+}
+
+// Typing a target for the month (saved per month; empty clears it and the
+// bar goes back to break-even).
+function openTargetEditor() {
+    const t = state.report.target;
+    $("fin-inc-target-edit").innerHTML = `<form class="fin-inc-target-form" id="fin-inc-target-form">
+        <input type="number" class="control" id="fin-inc-target-amount" min="1" step="100" placeholder="KSh"
+            value="${t.target_source === "manual" ? Number(t.target) : ""}" aria-label="Income target for the month">
+        <button type="submit" class="btn-primary fin-inc-small">Save</button>
+        ${t.target_source === "manual" ? `<button type="button" class="btn-secondary fin-inc-small" data-target-clear>Clear</button>` : ""}
+        <span class="fin-inc-target-error" id="fin-inc-target-error" role="alert"></span></form>`;
+    $("fin-inc-target-amount").focus();
+}
+
+async function saveTarget(amount) {
+    const res = await fetch(`/finance/targets/${state.month}`, {
+        method: "PUT", headers: authHeaders({ "Content-Type": "application/json" }), body: JSON.stringify({ amount }),
+    }).catch(() => null);
+    if (!res || !res.ok) {
+        $("fin-inc-target-error").textContent = await errorText(res, "Couldn't save the target.");
+        return;
+    }
+    load();
 }
 
 // ---- The thin PPPoE / Hotspot / Other bar (All only) ----
@@ -426,7 +453,16 @@ export function initFinanceIncome() {
     $("fin-inc-month").addEventListener("change", (e) => { if (e.target.value) go(e.target.value, state.segment); });
     $("fin-inc-export").addEventListener("click", exportCsv);
 
+    $("fin-inc-body").addEventListener("submit", (e) => {
+        if (e.target.id !== "fin-inc-target-form") return;
+        e.preventDefault();
+        const amount = Number($("fin-inc-target-amount").value);
+        if (amount > 0) saveTarget(amount);
+        else $("fin-inc-target-error").textContent = "Type an amount above zero, or use Clear.";
+    });
     $("fin-inc-body").addEventListener("click", (e) => {
+        if (e.target.closest("[data-target-open]")) { openTargetEditor(); return; }
+        if (e.target.closest("[data-target-clear]")) { saveTarget(null); return; }
         const gran = e.target.closest("[data-gran]");
         if (gran) {
             state.gran = gran.dataset.gran;

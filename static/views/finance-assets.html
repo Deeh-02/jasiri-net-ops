@@ -1,3 +1,70 @@
+    <div class="modal-overlay" id="fin-ast-item-overlay" hidden>
+        <div class="modal-box fin-ast-modal">
+            <h3 id="fin-ast-item-title">Asset</h3>
+            <dl class="fin-ast-facts" id="fin-ast-item-facts"></dl>
+            <form id="fin-ast-item-form" class="panel-form">
+                <div class="fin-ast-grid">
+                    <label class="fin-ast-label">Purchase date
+                        <input type="date" id="fin-ast-purchased">
+                    </label>
+                    <label class="fin-ast-label">Useful life (months)
+                        <input type="number" id="fin-ast-life" min="1" max="600" placeholder="Category default">
+                    </label>
+                    <label class="fin-ast-label">Salvage value (KSh)
+                        <input type="number" id="fin-ast-salvage" min="0" step="1" placeholder="Category default">
+                    </label>
+                    <label class="fin-ast-label">Warranty until
+                        <input type="date" id="fin-ast-warranty">
+                    </label>
+                    <label class="fin-ast-label">Segment
+                        <select id="fin-ast-segment">
+                            <option value="">Not set</option>
+                            <option value="pppoe">PPPoE</option>
+                            <option value="hotspot">Hotspot</option>
+                            <option value="shared">Shared</option>
+                        </select>
+                    </label>
+                    <label class="fin-ast-label">Paid by (capital expense)
+                        <select id="fin-ast-expense"></select>
+                    </label>
+                </div>
+                <p class="form-hint">Cost, status and location come from Inventory; change them there. Leave life or salvage empty to use the category default.</p>
+                <div class="modal-actions">
+                    <button type="button" id="fin-ast-item-cancel" class="btn-secondary">Close</button>
+                    <button type="submit" class="btn-primary" id="fin-ast-item-save">Save</button>
+                </div>
+            </form>
+            <div class="form-msg" id="fin-ast-item-msg"></div>
+            <details class="fin-ast-history" id="fin-ast-history-box">
+                <summary>Movements (from Inventory)</summary>
+                <div id="fin-ast-history"></div>
+            </details>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="fin-ast-cat-overlay" hidden>
+        <div class="modal-box fin-ast-modal">
+            <h3 id="fin-ast-cat-title">Category</h3>
+            <form id="fin-ast-cat-form" class="panel-form">
+                <label class="fin-ast-label">Default useful life (months)
+                    <input type="number" id="fin-ast-cat-life" min="1" max="600" required>
+                </label>
+                <label class="fin-ast-label">Default salvage (% of cost)
+                    <input type="number" id="fin-ast-cat-salvage" min="0" max="99" step="0.5" required>
+                </label>
+                <label class="fin-ast-label">Purchase date for every item in this category that has none yet (optional)
+                    <input type="date" id="fin-ast-cat-date">
+                </label>
+                <p class="form-hint" id="fin-ast-cat-hint"></p>
+                <div class="modal-actions">
+                    <button type="button" id="fin-ast-cat-cancel" class="btn-secondary">Cancel</button>
+                    <button type="submit" class="btn-primary">Save</button>
+                </div>
+            </form>
+            <div class="form-msg" id="fin-ast-cat-msg"></div>
+        </div>
+    </div>
+
     <section class="view" id="view-finance-assets" hidden>
         <div class="page-header-row">
             <div>
@@ -6,5 +73,51 @@
             </div>
         </div>
 
-        <div class="state state-empty"><span class="state-title">Coming in Phase 7F</span>Book value and depreciation added on top of Inventory's equipment, not a second register.</div>
+        <p class="fin-ast-basis">Book value and depreciation are management figures: straight-line over each item's useful life, from the month it was bought. Tax treatment of equipment is for the accountant. Cost, status and location are Inventory's own.</p>
+
+        <div id="fin-ast-top"></div>
+
+        <section class="fin-ast-card" aria-labelledby="fin-ast-cat-heading">
+            <h2 class="section-title" id="fin-ast-cat-heading">Categories</h2>
+            <p class="fin-ast-note">Default useful life and salvage for each Inventory category. Use Edit to set a purchase date for all of a category's undated items at once.</p>
+            <div class="table-scroll table-compact">
+                <table class="table-dense">
+                    <thead><tr><th>Category</th><th class="num">Items</th><th class="num">Cost</th><th class="num">Useful life</th><th class="num">Salvage</th><th class="num">Dated</th><th id="fin-ast-cat-manage-th" hidden></th></tr></thead>
+                    <tbody id="fin-ast-cat-rows" data-skeleton="6"></tbody>
+                </table>
+            </div>
+        </section>
+
+        <h2 class="section-title fin-ast-register-title">Register</h2>
+        <div class="toolbar">
+            <label class="toolbar-field"><span>Category</span><select class="control" id="fin-ast-f-category"></select></label>
+            <label class="toolbar-field"><span>Status</span><select class="control" id="fin-ast-f-status"></select></label>
+            <label class="toolbar-field"><span>Segment</span>
+                <select class="control" id="fin-ast-f-segment">
+                    <option value="">All</option><option value="pppoe">PPPoE</option><option value="hotspot">Hotspot</option>
+                    <option value="shared">Shared</option><option value="none">Not set</option>
+                </select>
+            </label>
+            <label class="toolbar-field fin-ast-search"><span>Search</span>
+                <input type="search" class="control" id="fin-ast-f-search" placeholder="Name, serial or location">
+            </label>
+            <span class="toolbar-count" id="fin-ast-count"></span>
+        </div>
+        <div class="table-scroll table-compact">
+            <table id="fin-ast-table">
+                <thead>
+                    <tr>
+                        <th>Serial</th>
+                        <th>Asset</th>
+                        <th>Category</th>
+                        <th>Segment</th>
+                        <th>Location</th>
+                        <th class="num">Cost</th>
+                        <th class="num">Book value</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody id="fin-ast-rows" data-skeleton="8"></tbody>
+            </table>
+        </div>
     </section>

@@ -192,7 +192,7 @@ function trendHtml(points) {
         <div class="fin-perf-legend">
             <span><i class="fin-perf-key income"></i>Income</span>
             <span><i class="fin-perf-key expenses"></i>Expenses (operating)</span>
-            <span><i class="fin-perf-key profit"></i>Profit</span>
+            <span><i class="fin-perf-key profit"></i>Profit before depreciation</span>
             <span class="muted">A month with no expenses recorded has no expense bar or profit point.</span>
         </div>
         <div id="fin-perf-chart"></div>

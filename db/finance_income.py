@@ -9,7 +9,7 @@ import io
 from datetime import date, datetime
 from decimal import Decimal
 
-from db import finance_expenses, monitoring
+from db import finance_assets, finance_expenses, monitoring
 from db import finance_income_logic as logic
 from db.connection import now_eat, to_eat
 
@@ -82,7 +82,8 @@ def _target(first_day, segment, summary, vs, daily, today, tracking_start):
         except finance_expenses.FinanceNotSetUp:
             break_even = None
     projected = logic.projection(first_day, daily, today, tracking_start)
-    return logic.month_target(summary["total"], break_even, last_month, projected)
+    manual = finance_assets.get_target(first_day) if segment == "all" else None
+    return logic.month_target(summary["total"], break_even, last_month, projected, manual=manual)
 
 
 def _shown(row):

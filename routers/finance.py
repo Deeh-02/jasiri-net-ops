@@ -4,6 +4,8 @@ Two permissions, both in Roles > Finance, checked here on every endpoint (the
 sidebar hiding a page is only cosmetic):
   finance:view             see every Finance page and figure
   finance:manage_expenses  add, edit and void expenses, and edit supplier rules
+  finance:manage_assets    set asset purchase dates, lives and links, and the
+                           monthly income target
 The built-in admin passes both, like everywhere else.
 
 Adding expenses is two calls with the same pasted text: /read shows what the
@@ -22,7 +24,7 @@ import logging
 
 from fastapi.responses import Response
 
-from db import deepseek, finance_ai, finance_expenses, finance_income, finance_logic, finance_messages, finance_performance
+from db import deepseek, finance_ai, finance_assets, finance_expenses, finance_income, finance_logic, finance_messages, finance_performance
 from db.connection import now_eat
 from routers.auth import get_current_user
 from routers.permissions import user_has_permission
@@ -286,3 +288,75 @@ def get_performance(month: str, segment: Segment = "all", current_user: dict = D
         return _plain(finance_performance.report(_month(month), segment, now_eat().date()))
     except finance_expenses.FinanceNotSetUp:
         raise HTTPException(status_code=503, detail=NOT_SET_UP)
+
+
+# ---- Assets (Phase 7F) and month targets (7E) ----
+
+def require_asset_manager(current_user: dict = Depends(require_finance_view)):
+    if not user_has_permission(current_user, "finance", "manage_assets"):
+        raise HTTPException(status_code=403, detail="You don't have permission to change asset values or targets")
+    return current_user
+
+
+@router.get("/finance/assets")
+def get_assets(current_user: dict = Depends(require_finance_view)):
+    try:
+        return _plain(finance_assets.report(now_eat().date()))
+    except finance_expenses.FinanceNotSetUp:
+        raise HTTPException(status_code=503, detail="The Assets tables aren't set up yet. Run migrations/0038_finance_assets_and_targets.sql.")
+
+
+@router.get("/finance/assets/{item_id}/history")
+def get_asset_history(item_id: int, current_user: dict = Depends(require_finance_view)):
+    return _plain(finance_assets.item_history(item_id))
+
+
+class AssetValues(BaseModel):
+    purchased_on: date | None = None
+    life_months: int | None = Field(None, gt=0, le=600)
+    salvage: Decimal | None = Field(None, ge=0, max_digits=12, decimal_places=2)
+    warranty_until: date | None = None
+    segment: Literal["pppoe", "hotspot", "shared"] | None = None
+    expense_id: int | None = None
+
+
+@router.patch("/finance/assets/{item_id}")
+def edit_asset(item_id: int, body: AssetValues, current_user: dict = Depends(require_asset_manager)):
+    if not finance_assets.is_asset(item_id):
+        raise HTTPException(status_code=404, detail="That isn't a serialised Inventory item")
+    changes = body.model_dump(exclude_unset=True)
+    if changes.get("purchased_on") and changes["purchased_on"] > now_eat().date():
+        raise HTTPException(status_code=400, detail="The purchase date can't be in the future")
+    if changes.get("expense_id") and not finance_assets.is_unlinked_capital_expense(changes["expense_id"], item_id):
+        raise HTTPException(status_code=400, detail="Pick a capital expense that isn't linked to another asset")
+    finance_assets.set_values([item_id], changes, current_user["id"])
+    return {"id": item_id, "saved": True}
+
+
+class CategoryLife(BaseModel):
+    life_months: int = Field(gt=0, le=600)
+    salvage_pct: Decimal = Field(Decimal("0"), ge=0, lt=100, max_digits=5, decimal_places=2)
+    # Optional: give every item in the category that has no purchase date this one.
+    purchased_on_for_undated: date | None = None
+
+
+@router.put("/finance/assets/categories/{category_id}")
+def edit_category_life(category_id: int, body: CategoryLife, current_user: dict = Depends(require_asset_manager)):
+    if body.purchased_on_for_undated and body.purchased_on_for_undated > now_eat().date():
+        raise HTTPException(status_code=400, detail="The purchase date can't be in the future")
+    finance_assets.set_category_life(category_id, body.life_months, body.salvage_pct, current_user["id"])
+    dated = 0
+    if body.purchased_on_for_undated:
+        undated = finance_assets.category_items_without_date(category_id)
+        dated = finance_assets.set_values(undated, {"purchased_on": body.purchased_on_for_undated}, current_user["id"])
+    return {"category_id": category_id, "dated": dated}
+
+
+class MonthTarget(BaseModel):
+    amount: Decimal | None = Field(None, gt=0, max_digits=12, decimal_places=2)
+
+
+@router.put("/finance/targets/{month}")
+def set_month_target(month: str, body: MonthTarget, current_user: dict = Depends(require_asset_manager)):
+    finance_assets.set_target(_month(month), body.amount, current_user["id"])
+    return {"month": month, "amount": str(body.amount) if body.amount is not None else None}

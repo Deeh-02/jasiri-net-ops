@@ -6,7 +6,7 @@ Read only: nothing here writes.
 from datetime import date
 from decimal import Decimal
 
-from db import finance_expenses, monitoring
+from db import finance_assets, finance_expenses, monitoring
 from db import finance_performance_logic as logic
 from db.finance_income_logic import add_months, month_days
 
@@ -29,6 +29,15 @@ def _income(first_day, daily, tracking_start, today):
     return {"pppoe": None, "hotspot": hotspot, "other": None}
 
 
+def _depreciation_note(result):
+    if result is None:
+        return "No asset has a purchase date yet: set them on the Assets page"
+    note = f"Straight-line, from Assets: {result['counted']} item{'s' if result['counted'] != 1 else ''}"
+    if result["left_out"]:
+        note += f"; {result['left_out']} without a purchase date or life left out"
+    return note
+
+
 def report(first_day, segment, today):
     previous = add_months(first_day, -1)
     trend_from = add_months(first_day, -(TREND_MONTHS - 1))
@@ -40,8 +49,12 @@ def report(first_day, segment, today):
 
     this_expenses = [e for e in expense_rows if e["spent_on"] >= first_day.isoformat()]
     last_expenses = [e for e in expense_rows if e["spent_on"] < first_day.isoformat()]
-    this = logic.month_statement(_income(first_day, daily, tracking_start, today), this_expenses, categories, segment)
-    last = logic.month_statement(_income(previous, daily, tracking_start, today), last_expenses, categories, segment)
+    depreciation = finance_assets.months_depreciation([first_day, previous], today) if segment == "all" else {}
+    this_dep, last_dep = depreciation.get(first_day), depreciation.get(previous)
+    this = logic.month_statement(_income(first_day, daily, tracking_start, today), this_expenses, categories, segment,
+                                 depreciation=this_dep["total"] if this_dep else None)
+    last = logic.month_statement(_income(previous, daily, tracking_start, today), last_expenses, categories, segment,
+                                 depreciation=last_dep["total"] if last_dep else None)
 
     items = {}
     for e in this_expenses:
@@ -61,7 +74,8 @@ def report(first_day, segment, today):
         "is_draft": is_draft,
         "not_started": first_day > today,
         "this": this, "last": last, "previous_month": previous,
-        "rows": logic.statement_rows(this, last, categories, items, is_draft=is_draft),
+        "rows": logic.statement_rows(this, last, categories, items, is_draft=is_draft,
+                                     depreciation_note=_depreciation_note(this_dep)),
         "notes": logic.notes(this_expenses, categories),
     }
     if segment == "all":

@@ -9,6 +9,21 @@ and in `phase.md`'s own per-phase writeups.
 
 Started 2026-11-15 at the owner's request, after Phase 6 was merged to `main`.
 
+### Assets, depreciation and your own month target (2026-11-15)
+- **Finance → Assets** values the equipment already in Inventory: total
+  cost, book value, this month's depreciation, what's deployed, in stock or
+  faulty, and warranties ending within 60 days. Inventory stays the
+  register; Assets only adds the money side.
+- **Useful lives** are set per category (vehicles keep 20% as salvage);
+  one Edit gives every undated item in a category the same purchase date.
+  An item without a date shows "no data", never a guessed value.
+- **Each item** opens with its cost, life, salvage, monthly charge, book
+  value, warranty, segment, the capital expense that paid for it, and its
+  movements from Inventory.
+- **Performance** now includes depreciation once items have dates.
+- **Your own target**: on Income, "Set your own target" for the month;
+  clear it to go back to break-even. A new Roles tick controls both.
+
 ### Income: month target and Needs attention (2026-11-15)
 - **Month target** on Income: one bar for the month's income against
   break-even (your average monthly expenses), with last month and, for the

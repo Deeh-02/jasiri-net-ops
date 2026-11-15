@@ -74,6 +74,11 @@ button.fin-inc-tile:hover { border-color: var(--accent); }
 /* Month target */
 .fin-inc-target-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; font-size: 13px; margin-bottom: 10px; }
 .fin-inc-target-head .section-title { margin: 0; }
+.fin-inc-target-edit { margin-left: auto; }
+.fin-inc-target-form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.fin-inc-target-form .control { width: 140px; min-height: 34px; }
+.fin-inc-small { min-height: 34px; padding: 4px 12px; font-size: 13px; }
+.fin-inc-target-error { color: var(--danger); font-size: 12.5px; }
 .fin-inc-target-bar {
     position: relative;
     height: 14px;

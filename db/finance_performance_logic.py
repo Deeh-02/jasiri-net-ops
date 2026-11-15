@@ -37,7 +37,7 @@ def _operating(expenses):
     return [e for e in expenses if e["kind"] == "operating"]
 
 
-def month_statement(income, expenses, categories, segment="all"):
+def month_statement(income, expenses, categories, segment="all", depreciation=None):
     """One month's statement. income: {'pppoe','hotspot','other'} -> amount
     or None. expenses: that month's live expense rows (both kinds).
     segment 'all' gives the whole business down to net profit; 'pppoe' or
@@ -83,8 +83,11 @@ def month_statement(income, expenses, categories, segment="all"):
         return result
 
     operating_total = group_total(groups["operating"] + groups["other"])
-    finance_total = group_total(groups["finance_tax"])
-    lines["depreciation"] = None   # from Assets, Phase 7F
+    charges_total = group_total(groups["finance_tax"])
+    # Depreciation comes from Assets: None when no asset has the figures to
+    # be depreciated yet (it is then left out, and the page says so).
+    lines["depreciation"] = depreciation
+    finance_total = None if charges_total is None else charges_total + (depreciation or ZERO)
     operating_profit = None if gross is None or operating_total is None else gross - operating_total
     net = None if operating_profit is None or finance_total is None else operating_profit - finance_total
     result.update(
@@ -105,7 +108,8 @@ def change(this, last):
     return {"amount": this - last, "pct": pct}
 
 
-def statement_rows(this, last, categories, items_by_category, is_draft=False):
+def statement_rows(this, last, categories, items_by_category, is_draft=False,
+                   depreciation_note="Straight-line, from Assets"):
     """The statement as display rows, each with this month, last month and
     the change. Expense lines carry their own expenses (drill-down); an
     expense line is shown when either month has money on it. While the month
@@ -160,7 +164,7 @@ def statement_rows(this, last, categories, items_by_category, is_draft=False):
           margin=this["operating_margin"], incomplete=this["income_incomplete"])
 
     section("Depreciation, taxes and charges")
-    line("depreciation", "Depreciation", note="From Assets, coming in Phase 7F")
+    line("depreciation", "Depreciation", note=depreciation_note)
     cost_lines({"finance_tax"})
     total("Total", this["finance_total"], last["finance_total"])
     total("Net profit", this["net_profit"], last["net_profit"], kind="result", margin=this["net_margin"],

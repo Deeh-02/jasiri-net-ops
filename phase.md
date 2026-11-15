@@ -174,6 +174,23 @@ to a site), each day item opening that day's sales. Waiting: the typed
 monthly target needs a table (schema proposal with 7F); expected vs
 received and unmatched payments need PPPoE payments.
 
+**7F Assets (2026-11-15):** schema approved and run (migration 0038:
+`asset_values`, `asset_category_lives` seeded with the owner's lives,
+`finance_month_targets`). Owner's calls: purchase dates option A (no date,
+no book value: nothing estimated; a date can be set for a whole category's
+undated items at once); Personal Equipment is company property and stays on
+the register. Assets page: tiles (cost, book value, this month's
+depreciation, deployed, in stock, faulty, warranty ending), Needs attention,
+category lives (edit + date-all-undated), register with filters, and an item
+dialog (money facts, the capital expense that paid for it, movements from
+Inventory's log). Inventory stays the register: Finance reads it through
+`db/inventory_items.py` / `db/inventory_transactions.py` and never writes
+it. Straight-line depreciation now feeds Performance's Depreciation line
+(says how many items were counted or left out). New permission
+`finance:manage_assets` (Roles > Finance). Also the 7E typed month target:
+"Set your own target" on Income's bar (All view), which replaces break-even
+as the target while set. Right now: 125 items, KSh 983,528, none dated.
+
 ### Open questions (from the spec, with what the code already answers)
 
 1. **PPPoE payments: where do they come from?** Not in OPS today. Options:

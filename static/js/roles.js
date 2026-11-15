@@ -166,6 +166,7 @@ const PERM_SECTIONS = [
         key: "finance", label: "Finance",
         actions: [
             { label: "Add, edit and void expenses (and supplier rules)", action: "manage_expenses" },
+            { label: "Set asset purchase dates, useful lives and monthly income targets", action: "manage_assets" },
         ],
     },
     {

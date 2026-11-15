@@ -2259,6 +2259,17 @@ connection, since opening one cost more than all of them together. Paid
 sale = not `baseline`, priced above 0. Days are EAT. The two pages agree
 except for unlinked sales: KSh 910 in September 2026, none since.
 
+**Assets sit beside Inventory, not inside it.** Inventory is the register
+(items, unit cost, status, location, movement log); Finance reads it only
+through `db/inventory_items.get_all_items` and
+`db/inventory_transactions.get_transaction_log` and keeps its money facts in
+its own tables (`asset_values`, `asset_category_lives`, migration 0038).
+Cost is never copied, so the two can't disagree. An item's own life or
+salvage beats its category's. No purchase date means no book value (owner's
+call, option A), and Performance's depreciation says how many items it left
+out. `finance_assets.months_depreciation` loads the assets once for both of
+Performance's months.
+
 **Nothing is deleted.** Expenses are voided with a reason; edits change
 classification only (category, type, segment, description), never amount,
 date or code. Both go to `finance_audit_log` with before/after.
