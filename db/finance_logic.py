@@ -128,7 +128,9 @@ def build_rows_to_save(review, choices, categories, cash_date):
             "description": description,
             "method": item["method"],
             "source_message": item["source_message"],
-            "ai_suggested": False,
+            # A category the AI suggested and the user kept, or a message the
+            # AI read: either way the row carries the ✨ for good.
+            "ai_suggested": bool(choice.get("ai_suggested") or item.get("ai_read")),
         })
         if item.get("fee"):
             if fee_category_id is None:

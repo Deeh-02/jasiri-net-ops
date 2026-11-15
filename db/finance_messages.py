@@ -37,18 +37,31 @@ _MESSAGE_START = re.compile(
 )
 
 
+# A line that carries on the message above it rather than starting a new one:
+# the tail of a full M-Pesa SMS, or a line that starts mid-sentence.
+_CONTINUATION = re.compile(
+    r"^(?:New M-?PESA balance|M-?PESA balance|Transaction cost|Amount you can transact|Pay with M-?PESA|"
+    r"Download (?:the )?M-?PESA|Enquiries|Ref:|on \d|at \d|[a-z(,.])"
+)
+
+
 def split_messages(text):
-    """One string per message. A WhatsApp prefix or a blank line ends the
-    previous message; so does the start of another M-Pesa or bank message."""
+    """One string per message. Each line starts a new message unless it
+    clearly continues the one above (see _CONTINUATION). This errs towards
+    splitting on purpose: a wrongly split tail shows up as "Couldn't read",
+    while a wrongly joined message would vanish inside the one above it.
+    A WhatsApp prefix always starts a new message, and so does the start of
+    another M-Pesa or bank message inside one line."""
     blocks, current = [], []
     for line in (text or "").splitlines():
-        without_prefix = _WHATSAPP_PREFIX.sub("", line, count=1)
-        if without_prefix != line or not line.strip():
+        without_prefix = _WHATSAPP_PREFIX.sub("", line, count=1).strip()
+        is_new = without_prefix != line.strip() or not current or not _CONTINUATION.match(without_prefix)
+        if not without_prefix or is_new:
             if current:
                 blocks.append(" ".join(current))
-            current = [without_prefix.strip()] if without_prefix.strip() else []
+            current = [without_prefix] if without_prefix else []
             continue
-        current.append(line.strip())
+        current.append(without_prefix)
     if current:
         blocks.append(" ".join(current))
 

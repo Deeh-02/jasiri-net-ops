@@ -2224,7 +2224,17 @@ account at the same billing company). A rule is written only when the user
 ticks Remember or corrects a suggested category; a rule pointing at a
 retired category is ignored.
 
-**Privacy for the coming DeepSeek step.** Each read item carries
+**DeepSeek (`db/finance_ai.py`).** Suggestions come from their own call
+after the review has shown, so a slow or failed call never holds the review
+up; the page fills ✨ only where the user hasn't chosen. A message the code
+couldn't read is accepted only through `verify_reading`: DeepSeek must quote
+the amount, date and code; each quote must be in the message (the amount as
+a whole number, not part of a longer one) and the code parses the date. The
+browser sends the quotes back on save and the server checks them again, so a
+forged reading fails the same way. Off unless `FINANCE_AI_ENABLED` is true.
+`deepseek.chat(json_output=True)` asks DeepSeek for a JSON object reply.
+
+**Privacy.** Each read item carries
 `ai_may_see_payee`: true only for paybill, till and payee-side receipts
 (business names). Send Money (a person) and bank transfers (a masked account
 number) are never sent. Phone numbers and balances stay in

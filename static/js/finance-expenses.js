@@ -19,8 +19,18 @@ const NOT_SAVED_LABEL = {
     repeated: "Pasted twice: kept once",
 };
 
+// The ✨ mark for anything DeepSeek suggested. Drawn as SVG like every other
+// icon in the app: an emoji character shows as an empty box where the
+// device has no emoji font.
+const SPARKLE = `<svg class="fin-exp-sparkle" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+    <path d="M7 1.5l1.2 3.3L11.5 6 8.2 7.2 7 10.5 5.8 7.2 2.5 6l3.3-1.2z"/>
+    <path d="M12.5 9.5l.6 1.4 1.4.6-1.4.6-.6 1.4-.6-1.4-1.4-.6 1.4-.6z"/></svg>`;
+
 let categories = [];
 let monthRows = [];
+// Whether DeepSeek suggestions are switched on (FINANCE_AI_ENABLED on the
+// server); read once when Add expenses is first opened.
+let aiEnabled = null;
 let editingExpense = null;
 // The review in progress: the exact text that was read (sent again on save),
 // what the server made of it, and the user's choice per item key.
@@ -124,7 +134,7 @@ function renderRows(cols) {
             <td class="muted">${esc(dayLabel(r.spent_on))}</td>
             <td>${esc(r.payee || r.description || "—")}${r.payee && r.description ? `<div class="cell-sub">${esc(r.description)}</div>` : ""}
                 ${r.voided_at ? `<div class="cell-sub">Voided: ${esc(r.void_reason)}</div>` : ""}</td>
-            <td>${esc(r.category)}</td>
+            <td>${esc(r.category)}${r.ai_suggested ? ` <span class="fin-exp-ai-tag" title="Category suggested by DeepSeek, or the message was read by it">${SPARKLE}</span>` : ""}</td>
             <td class="muted">${esc(KIND_LABEL[r.kind] || r.kind)}</td>
             <td class="muted">${esc(METHOD_LABEL[r.method] || r.method || "—")}</td>
             <td class="muted fin-exp-code">${esc(r.reference || "—")}</td>
@@ -196,6 +206,13 @@ async function saveVoid(e) {
 
 // ---- Adding: paste and read ----
 
+async function loadAiSetting() {
+    if (aiEnabled !== null) return;
+    const res = await fetch("/finance/settings", { headers: authHeaders() }).catch(() => null);
+    aiEnabled = !!(res && res.ok && (await res.json()).ai_enabled);
+    document.getElementById("fin-exp-note-field").hidden = !aiEnabled;
+}
+
 function openAdd() {
     document.getElementById("fin-exp-add").hidden = false;
     document.getElementById("fin-exp-review").hidden = true;
@@ -231,7 +248,8 @@ async function readPaste() {
     }
     const data = await res.json();
     categories = data.categories;
-    review = { text, items: data.items, choices: {} };
+    review = { text, note: document.getElementById("fin-exp-note").value, items: data.items, choices: {},
+               readings: {}, ai: null };
     for (const item of data.items) {
         if (item.status === "ready") {
             review.choices[item.key] = { category_id: item.suggestion.category_id, kind: item.suggestion.kind,
@@ -244,6 +262,68 @@ async function readPaste() {
     document.getElementById("fin-exp-review").hidden = false;
     document.getElementById("fin-exp-save-msg").textContent = "";
     renderReview();
+    requestSuggestions();
+}
+
+// ---- ✨ DeepSeek suggestions (only when switched on) ----
+
+// Worth asking only for new business payees and messages the app couldn't
+// read; people, bank transfers and cash are never sent.
+function hasAiWork() {
+    return review.items.some(i => (i.status === "needs_category" && i.ai_may_see_payee)
+                                  || (i.status === "unrecognised" && i.key.startsWith("message-")));
+}
+
+async function requestSuggestions() {
+    if (!aiEnabled || !hasAiWork()) return;
+    const asked = review;
+    asked.ai = { state: "asking" };
+    renderReview();
+    const res = await fetch("/finance/expenses/suggest", {
+        method: "POST", headers: authHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ ...asked.text, note: asked.note }),
+    }).catch(() => null);
+    if (review !== asked) return;  // the user started another paste meanwhile
+    const data = res && res.ok ? await res.json() : null;
+    if (!data || data.error || !data.enabled) {
+        asked.ai = { state: "error", text: data?.error || "AI suggestions aren't available right now." };
+        renderReview();
+        return;
+    }
+    let count = 0;
+    for (const item of asked.items) {
+        const suggestion = item.status === "needs_category" && item.rule_keys?.length ? data.payees[item.rule_keys[0]] : null;
+        const choice = asked.choices[item.key];
+        // Never overwrite a category the user has already picked.
+        if (!suggestion || !choice || choice.category_id) continue;
+        Object.assign(choice, { category_id: suggestion.category_id, kind: suggestion.kind, ai_suggested: true,
+                                aiMark: { category_id: suggestion.category_id, kind: suggestion.kind } });
+        if (suggestion.description) choice.description = suggestion.description;
+        count++;
+    }
+    for (const [key, reading] of Object.entries(data.readings || {})) {
+        asked.readings[key] = reading;
+        asked.choices[key] = { category_id: null, kind: "operating", payee: reading.payee || "", remember: false, skip: false,
+                               ai_reading: { amount_text: reading.amount_text, date_text: reading.date_text,
+                                             code: reading.code, payee: reading.payee } };
+        count++;
+    }
+    asked.ai = { state: "done", count };
+    renderReview();
+}
+
+function aiStatusHtml() {
+    const ai = review.ai;
+    if (!ai) return "";
+    if (ai.state === "asking") return `<p class="fin-exp-ai-status" role="status">${SPARKLE} Asking DeepSeek for suggestions…</p>`;
+    if (ai.state === "error") return `<p class="fin-exp-ai-status">${esc(ai.text)} Pick categories yourself; nothing else changes.</p>`;
+    if (!ai.count) return `<p class="fin-exp-ai-status">${SPARKLE} No suggestions this time.</p>`;
+    return `<p class="fin-exp-ai-status">${SPARKLE} ${ai.count} suggestion${ai.count === 1 ? "" : "s"} added, marked ${SPARKLE}. Check each before saving.</p>`;
+}
+
+// What a review item is worth: its own amount, or the AI's checked reading.
+function amountOf(item) {
+    return Number(item.amount ?? review.readings[item.key]?.amount ?? 0);
 }
 
 // Unknown payees are grouped so each is categorised once. Cash lines have no
@@ -277,22 +357,50 @@ function renderReview() {
     const groups = needsGroups();
     const ready = items.filter(i => i.status === "ready");
     const duplicates = items.filter(i => i.status === "duplicate");
-    const notSaved = items.filter(i => NOT_SAVED_LABEL[i.status]);
-    const parts = [];
+    const aiRead = items.filter(i => i.status === "unrecognised" && review.readings[i.key]);
+    const notSaved = items.filter(i => NOT_SAVED_LABEL[i.status] && !review.readings[i.key]);
+    const parts = [aiStatusHtml()];
+
+    if (aiRead.length) {
+        parts.push(`<h3 class="fin-exp-sub">${SPARKLE} Read by AI <span class="muted">· ${aiRead.length} · check the amount, date and code against the message</span></h3>`);
+        parts.push(aiRead.map(i => {
+            const r = review.readings[i.key];
+            const choice = review.choices[i.key];
+            return `
+            <div class="fin-exp-group fin-exp-ai-read ${choice.skip ? "is-skipped" : ""}" data-key="${esc(i.key)}">
+                <div class="fin-exp-group-head">
+                    <strong>${money(r.amount)}</strong> · ${esc(dayLabel(r.spent_on))} · <span class="fin-exp-code">${esc(r.reference)}</span>
+                </div>
+                <pre class="fin-exp-ai-source">${esc(i.source_message)}</pre>
+                <div class="fin-exp-group-controls">
+                    <input type="text" class="control fin-exp-payee-input" data-field="payee" maxlength="120" value="${esc(choice.payee)}"
+                        placeholder="Who was paid (optional)" aria-label="Who was paid">
+                    <select class="control" data-field="category_id" aria-label="Category">${categoryOptions(choice.category_id, { placeholder: true })}</select>
+                    <select class="control" data-field="kind" aria-label="Type">
+                        <option value="operating" ${choice.kind === "operating" ? "selected" : ""}>Operating</option>
+                        <option value="capital" ${choice.kind === "capital" ? "selected" : ""}>Capital</option>
+                    </select>
+                    <label class="checkbox-row"><input type="checkbox" data-field="skip" ${choice.skip ? "checked" : ""}> Skip (wrong, or not an expense)</label>
+                </div>
+            </div>`;
+        }).join(""));
+    }
 
     if (groups.length) {
         parts.push(`<h3 class="fin-exp-sub">Needs a category <span class="muted">· ${groups.length} payee${groups.length === 1 ? "" : "s"}</span></h3>`);
         parts.push(groups.map(([groupKey, members], index) => {
             const first = members[0];
             const choice = review.choices[first.key];
-            const total = members.reduce((sum, m) => sum + Number(m.amount), 0);
+            const total = members.reduce((sum, m) => sum + amountOf(m), 0);
             const hint = first.is_person ? `<span class="fin-exp-tag">Person</span>` : (first.method === "bank" ? `<span class="fin-exp-tag">Bank, no name</span>` : "");
             return `
             <div class="fin-exp-group ${choice.skip ? "is-skipped" : ""}" data-group="${index}">
                 <div class="fin-exp-group-head">
                     <strong>${esc(payeeName(first))}</strong> ${hint}
+                    ${choice.aiMark ? `<span class="fin-exp-ai-tag" data-ai-tag title="Suggested by DeepSeek: check it" ${choice.ai_suggested ? "" : "hidden"}>${SPARKLE} suggested</span>` : ""}
                     <span class="muted">· ${members.length} payment${members.length === 1 ? "" : "s"} · ${money(total)}</span>
                     ${first.account ? `<div class="cell-sub">Account ${esc(first.account)}</div>` : ""}
+                    ${choice.aiMark && choice.description ? `<div class="cell-sub">${SPARKLE} ${esc(choice.description)}</div>` : ""}
                 </div>
                 <ul class="fin-exp-group-rows">${members.map(m => `<li>${itemLine(m)}</li>`).join("")}</ul>
                 <div class="fin-exp-group-controls">
@@ -371,7 +479,7 @@ function chosenToSave() {
 
 function renderSaveSummary() {
     const { toSave, missing } = chosenToSave();
-    const total = toSave.reduce((sum, i) => sum + Number(i.amount), 0);
+    const total = toSave.reduce((sum, i) => sum + amountOf(i), 0);
     const fees = toSave.reduce((sum, i) => sum + Number(i.fee || 0), 0);
     let text = toSave.length ? `Save ${toSave.length} expense${toSave.length === 1 ? "" : "s"} · ${money(total)}` : "Nothing chosen to save yet";
     if (fees) text += ` (+ ${money(fees)} fees)`;
@@ -399,11 +507,15 @@ function onReviewChange(e) {
         if (choice.suggested && (field === "category_id" || field === "kind")) {
             choice.remember = choice.category_id !== choice.suggested.category_id || choice.kind !== choice.suggested.kind;
         }
+        // The ✨ stays only while the user keeps exactly what the AI suggested.
+        if (choice.aiMark && (field === "category_id" || field === "kind")) {
+            choice.ai_suggested = choice.category_id === choice.aiMark.category_id && choice.kind === choice.aiMark.kind;
+        }
     }
-    if (field === "skip") {
-        const holder = e.target.closest("[data-group], [data-key]");
-        holder.classList.toggle("is-skipped", value);
-    }
+    const holder = e.target.closest("[data-group], [data-key]");
+    if (field === "skip") holder.classList.toggle("is-skipped", value);
+    const tag = holder.querySelector("[data-ai-tag]");
+    if (tag) tag.hidden = !review.choices[keys[0]].ai_suggested;
     renderSaveSummary();
 }
 
@@ -413,7 +525,10 @@ async function saveReview() {
     const choices = {};
     for (const item of toSave) {
         const c = review.choices[item.key];
-        choices[item.key] = { category_id: c.category_id, kind: c.kind, payee: c.payee || "", remember: !!c.remember, skip: false };
+        choices[item.key] = { category_id: c.category_id, kind: c.kind, payee: c.payee || "", remember: !!c.remember, skip: false,
+                              ai_suggested: !!c.ai_suggested };
+        if (c.description) choices[item.key].description = c.description;
+        if (c.ai_reading) choices[item.key].ai_reading = c.ai_reading;
     }
     const button = document.getElementById("fin-exp-save-btn");
     button.disabled = true;
@@ -428,12 +543,13 @@ async function saveReview() {
     }
     const result = await res.json();
     // Show the month the newest saved expense falls in.
-    const newest = toSave.map(i => i.spent_on || review.text.cash_date || today()).sort().pop();
+    const newest = toSave.map(i => i.spent_on || review.readings[i.key]?.spent_on || review.text.cash_date || today()).sort().pop();
     let text = `Saved ${result.saved} expense${result.saved === 1 ? "" : "s"}, ${money(result.total)}.`;
     if (result.skipped_references.length) text += ` ${result.skipped_references.length} had just been saved by someone else and were skipped.`;
     if (result.rules_saved) text += ` ${result.rules_saved} payee${result.rules_saved === 1 ? "" : "s"} remembered.`;
     document.getElementById("fin-exp-messages").value = "";
     document.getElementById("fin-exp-cash").value = "";
+    document.getElementById("fin-exp-note").value = "";
     closeAdd();
     showMessage("fin-exp-page-msg", text, false);
     const target = `finance-expenses/${newest.slice(0, 7)}`;
@@ -446,7 +562,7 @@ async function saveReview() {
 
 export function initFinanceExpenses() {
     document.getElementById("fin-exp-add-open-btn").addEventListener("click", async () => {
-        if (await loadCategories()) openAdd();
+        if (await loadCategories()) { await loadAiSetting(); openAdd(); }
     });
     document.getElementById("fin-exp-add-cancel").addEventListener("click", closeAdd);
     document.getElementById("fin-exp-read-btn").addEventListener("click", readPaste);

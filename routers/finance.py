@@ -18,12 +18,15 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from db import finance_expenses, finance_logic, finance_messages
+import logging
+
+from db import deepseek, finance_ai, finance_expenses, finance_logic, finance_messages
 from db.connection import now_eat
 from routers.auth import get_current_user
 from routers.permissions import user_has_permission
 
 router = APIRouter()
+log = logging.getLogger(__name__)
 
 NOT_SET_UP = ("The Finance tables aren't set up on this database yet. "
               "Run migrations/0037_finance_expenses.sql, then reload.")
@@ -126,6 +129,15 @@ class PastedExpenses(BaseModel):
     cash_date: date | None = None
 
 
+class AiReading(BaseModel):
+    """Where the AI says the amount, date and code are in a message the app
+    couldn't read. Checked against the message again on save; never trusted."""
+    amount_text: str = Field(max_length=40)
+    date_text: str = Field(max_length=40)
+    code: str = Field(max_length=40)
+    payee: str | None = Field(None, max_length=120)
+
+
 class ExpenseChoice(BaseModel):
     category_id: int | None = None
     kind: Literal["operating", "capital"] = "operating"
@@ -134,6 +146,12 @@ class ExpenseChoice(BaseModel):
     payee: str | None = Field(None, max_length=120)
     skip: bool = False
     remember: bool = False
+    ai_suggested: bool = False
+    ai_reading: AiReading | None = None
+
+
+class SuggestExpenses(PastedExpenses):
+    note: str = Field("", max_length=finance_ai.MAX_NOTE_LENGTH)
 
 
 class SaveExpenses(PastedExpenses):
@@ -155,6 +173,39 @@ def _review(body: PastedExpenses):
     return review, categories, body.cash_date or today
 
 
+@router.get("/finance/settings")
+def get_settings(current_user: dict = Depends(require_finance_view)):
+    return {"ai_enabled": finance_ai.is_enabled()}
+
+
+# What the page says when DeepSeek can't help this time. The review works
+# without it either way.
+AI_UNAVAILABLE = {
+    "timeout": "AI suggestions took too long this time.",
+    "rate_limited": "AI suggestions are busy right now.",
+    "auth": "AI suggestions are off: the DeepSeek key or balance needs checking.",
+    "not_configured": "AI suggestions are off: no DeepSeek key is set.",
+}
+
+
+@router.post("/finance/expenses/suggest")
+def suggest_expenses(body: SuggestExpenses, current_user: dict = Depends(require_expense_manager)):
+    """✨ suggestions for the review on screen: categories for new business
+    payees, readings of messages the app couldn't read. Never saves anything."""
+    if not finance_ai.is_enabled():
+        return {"enabled": False}
+    review, categories, _ = _review(body)
+    try:
+        result = finance_ai.suggest(review, body.note, categories, now_eat().date())
+    except deepseek.DeepSeekError as failure:
+        log.warning("Finance AI suggestions failed: %s", failure.kind)
+        return {"enabled": True, "error": AI_UNAVAILABLE.get(failure.kind, "AI suggestions aren't available right now.")}
+    except finance_ai.BadReply:
+        log.warning("Finance AI suggestions: DeepSeek's reply wasn't the JSON asked for")
+        return {"enabled": True, "error": "AI suggestions came back garbled this time."}
+    return _plain(dict(result, enabled=True))
+
+
 @router.post("/finance/expenses/read")
 def read_expenses(body: PastedExpenses, current_user: dict = Depends(require_expense_manager)):
     review, categories, cash_date = _review(body)
@@ -169,6 +220,14 @@ def save_expenses(body: SaveExpenses, current_user: dict = Depends(require_expen
     # exclude_unset: a payee the page didn't send means "use the message's",
     # one sent empty means "leave blank".
     choices = {key: choice.model_dump(exclude_unset=True) for key, choice in body.choices.items()}
+    review, problems = finance_ai.apply_readings(review, choices, now_eat().date())
+    if problems:
+        key, why = next(iter(problems.items()))
+        raise HTTPException(status_code=400, detail=f"The AI reading of {key} didn't check out: {why}")
+    # A code the AI found may already be saved: skip it like any duplicate.
+    ai_read = [i for i in review if i.get("ai_read")]
+    already = finance_expenses.existing_references([i["reference"] for i in ai_read])
+    review = [dict(i, status="duplicate") if i.get("ai_read") and i["reference"] in already else i for i in review]
     try:
         rows, rules = finance_logic.build_rows_to_save(review, choices, categories, cash_date)
     except finance_logic.ChoiceError as problem:

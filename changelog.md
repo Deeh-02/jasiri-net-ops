@@ -22,6 +22,12 @@ Started 2026-11-15 at the owner's request, after Phase 6 was merged to `main`.
   when it doesn't (bank transfers show only a masked account). You can
   type or correct it on the review screen and later by editing the expense.
 - **Cash**: one line each, like `fuel 2000`.
+- **✨ AI suggestions** (when switched on with `FINANCE_AI_ENABLED`):
+  DeepSeek suggests a category for businesses you haven't paid before and
+  reads messages the app can't, marked ✨ for you to check. It never sees
+  people you sent money to, bank transfers, cash or phone numbers, and an
+  amount it reads is only accepted if it's exactly in the message. An
+  optional note gives it context ("Servco is generator fuel").
 - **The month list** shows totals (operating and capital apart) and by
   category; each expense can be re-categorised, or voided with a reason.
   Its original message is kept and shown.

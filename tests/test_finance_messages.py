@@ -122,6 +122,13 @@ class SplittingAPaste(unittest.TestCase):
         wrapped = FULL_WITH_FEE.replace(" New M-PESA", "\nNew M-PESA")
         self.assertEqual(len(split_messages(wrapped)), 1)
 
+    def test_an_unknown_message_on_the_next_line_is_not_swallowed(self):
+        odd = "Payment of KES 2,350.00 to SAMPLE HARDWARE LTD ref QZ9XY8WV7U on 03-11-2026 successful."
+        self.assertEqual(split_messages(f"{TILL}\n{odd}"), [TILL, odd])
+
+    def test_a_tail_starting_mid_sentence_stays_attached(self):
+        self.assertEqual(len(split_messages(PAYBILL.replace(" on 13/10/26", "\non 13/10/26"))), 1)
+
     def test_the_same_code_twice_in_one_paste_is_read_once(self):
         results = read_messages(f"{TILL}\n\n{TILL}", TODAY)
         self.assertEqual([r["status"] for r in results], ["expense", "repeated"])

@@ -51,9 +51,11 @@ def _post(url, body, api_key, timeout_seconds):
         raise DeepSeekError("network")
 
 
-def chat(messages, tools=None, timeout_seconds=30, max_tokens=900):
+def chat(messages, tools=None, timeout_seconds=30, max_tokens=900, json_output=False):
     """One chat completion. Returns the reply message as a dict: 'content'
     (text, may be empty) and, when the model wants data, 'tool_calls'.
+    json_output asks DeepSeek for a JSON object reply (the prompt must say
+    "json"); the Finance expense suggestions use it.
     A network blip or a DeepSeek 5xx is retried once; nothing else is."""
     api_key = os.environ.get("DEEPSEEK_API_KEY")
     if not api_key:
@@ -71,6 +73,8 @@ def chat(messages, tools=None, timeout_seconds=30, max_tokens=900):
     }
     if tools:
         body["tools"] = tools
+    if json_output:
+        body["response_format"] = {"type": "json_object"}
 
     for attempt in (1, 2):
         try:

@@ -102,9 +102,26 @@ then payee. Review groups unknown payees, offers Skip for transfers to the
 owner's own accounts, and Save sends only choices: the server reads the
 paste again for every figure. Edit (category, type, segment, description)
 and void with a reason; both audited. Checked in headless Chromium against
-the real database (read only; nothing saved). **Not yet built:** DeepSeek
-suggestions and reading the user's note (next), "always skip this payee"
-(needs a small schema change: a rule kind `skip`). **Vendor (owner's call,
+the real database (read only; nothing saved). Still open: "always skip
+this payee" (needs a small schema change: a rule kind `skip`).
+
+**7B DeepSeek step (2026-11-15):** `db/finance_ai.py`, one call per paste
+from a separate `/finance/expenses/suggest` (the review shows first; the ✨
+fill in after, never over a category the user already picked). Sent: new
+business payees (paybill, till, receipts) with count and total, unread
+messages with phones and balances removed, the optional note. Never sent:
+people, bank transfers, cash, phone-number accounts. Categories outside the
+list become Other. An unread message is accepted only when DeepSeek quotes
+the amount, date and code exactly as they appear; the code reads the date
+itself, and the check runs again on save. Off unless `FINANCE_AI_ENABLED`
+is true (and the key is set). One live call with made-up messages:
+categories right, routers marked capital, the odd message read and checked,
+about 2 s. Model is `DEEPSEEK_MODEL` (default `deepseek-v4-pro`, as the
+assistant uses); the spec asks to re-check model names and pricing at
+api-docs.deepseek.com before switching it on. Found and fixed on the way:
+an unknown message on the line right after a known one was being joined
+onto it and vanished; now each line starts a new message unless it clearly
+continues the one above. **Vendor (owner's call,
 2026-11-15):** the payee is the name in the message when there is one,
 otherwise blank; the user can write or correct it on the review screen and
 when editing. A typed name is not remembered by the supplier rule (the rule
