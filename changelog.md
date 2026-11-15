@@ -18,6 +18,9 @@ Started 2026-11-15 at the owner's request, after Phase 6 was merged to `main`.
   Transfers to your own accounts can be skipped. Messages already saved
   are skipped automatically, and anything the app couldn't read is shown
   as it is.
+- **Who was paid**: filled in when the message names them; left blank
+  when it doesn't (bank transfers show only a masked account). You can
+  type or correct it on the review screen and later by editing the expense.
 - **Cash**: one line each, like `fuel 2000`.
 - **The month list** shows totals (operating and capital apart) and by
   category; each expense can be re-categorised, or voided with a reason.

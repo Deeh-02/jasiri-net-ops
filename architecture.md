@@ -2230,6 +2230,13 @@ retired category is ignored.
 number) are never sent. Phone numbers and balances stay in
 `source_message`, which never leaves the server for the AI.
 
+**Who was paid.** `payee` is only ever a name the message gave, or what the
+user typed; never a made-up label. A message with no name (bank transfers
+show a masked account, airtime shows nothing) has `payee` None and a
+separate `label` the review screen shows and the supplier rule is keyed on.
+On save a payee in the user's choice wins, and an emptied box means blank
+(`model_dump(exclude_unset=True)` tells "not sent" from "cleared").
+
 **Nothing is deleted.** Expenses are voided with a reason; edits change
 classification only (category, type, segment, description), never amount,
 date or code. Both go to `finance_audit_log` with before/after.

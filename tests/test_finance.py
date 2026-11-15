@@ -144,6 +144,42 @@ class Saving(unittest.TestCase):
         self.assertEqual(rows, [])
 
 
+BANK = ("Dear SAMPLE OWNER, Transaction Ref: 20090000001 of KES 30,000.00 from A/c 1*****0001 "
+        "to A/c 0*****9001 on 10/10/2026 is Completed Bank Ref: BXXXXXXXXXX01.")
+
+
+class WhoWasPaid(unittest.TestCase):
+    def saved_payee(self, text, choice):
+        items = review(text)
+        key = items[0]["key"]
+        rows, _ = finance_logic.build_rows_to_save(items, {key: dict({"category_id": 1}, **choice)}, CATEGORIES, TODAY)
+        return rows[0]["payee"]
+
+    def test_the_name_in_the_message_is_used(self):
+        self.assertEqual(self.saved_payee(FUEL, {}), "Sample Petroleum Limited")
+
+    def test_no_name_in_the_message_leaves_it_blank(self):
+        self.assertIsNone(self.saved_payee(BANK, {}))
+
+    def test_the_user_can_write_one(self):
+        self.assertEqual(self.saved_payee(BANK, {"payee": "  Sample Fibre Co  "}), "Sample Fibre Co")
+
+    def test_the_user_can_correct_the_name_from_the_message(self):
+        self.assertEqual(self.saved_payee(FUEL, {"payee": "Sample Petroleum, Ngong Rd"}), "Sample Petroleum, Ngong Rd")
+
+    def test_an_emptied_box_means_blank_not_the_message_name(self):
+        self.assertIsNone(self.saved_payee(FUEL, {"payee": ""}))
+
+    def test_a_bank_account_is_never_saved_as_the_payee(self):
+        self.assertIsNone(self.saved_payee(BANK, {"payee": None}))
+
+    def test_a_typed_name_is_not_remembered_as_part_of_the_rule(self):
+        items = review(BANK)
+        _, rules = finance_logic.build_rows_to_save(
+            items, {"BXXXXXXXXXX01": {"category_id": 1, "payee": "Sample Fibre Co", "remember": True}}, CATEGORIES, TODAY)
+        self.assertEqual(rules, {"BANK A/C 0*****9001": {"category_id": 1, "kind": "operating"}})
+
+
 class Summary(unittest.TestCase):
     def test_voided_rows_are_left_out_of_totals(self):
         rows = [

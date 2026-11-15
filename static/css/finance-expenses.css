@@ -125,6 +125,17 @@
     min-width: 200px;
 }
 
+.fin-exp-payee-input {
+    min-width: 220px;
+}
+
+.fin-exp-ready .fin-exp-payee-input {
+    min-height: 34px;
+    padding-top: 4px;
+    padding-bottom: 4px;
+    width: 100%;
+}
+
 .fin-exp-tag {
     display: inline-block;
     font-family: 'JetBrains Mono', monospace;
@@ -286,7 +297,8 @@
 }
 
 @media (max-width: 760px) {
-    .fin-exp-group-controls select.control {
+    .fin-exp-group-controls select.control,
+    .fin-exp-payee-input {
         min-width: 0;
         flex: 1 1 100%;
     }

@@ -121,14 +121,20 @@ def _message_date(found, message_type):
 
 
 def _payee_for(message_type, found):
+    """(payee, label, is_person). The payee is who was paid, only when the
+    message names them; otherwise None and the user may type one. The label
+    is what the review screen shows for a payee-less message and what its
+    supplier rule is keyed on (a masked bank account is stable, a name is not
+    there to key on)."""
     if message_type == "bank_transfer":
         to_account = found["to_account"]
         if to_account.startswith("+254") or to_account.startswith("254"):
-            return f"Bank to M-Pesa {to_account}", True
-        return f"Bank A/c {to_account}", False
+            return None, f"Bank to M-Pesa {to_account}", True
+        return None, f"Bank A/c {to_account}", False
     if message_type == "airtime":
-        return "Safaricom airtime", False
-    return clean_payee(found["payee"]), message_type in _PERSON_TYPES
+        return None, "Airtime", False
+    name = clean_payee(found["payee"])
+    return name, name, message_type in _PERSON_TYPES
 
 
 def read_message(text, today):
@@ -153,13 +159,13 @@ def read_message(text, today):
         if amount is None or amount <= 0 or spent_on is None:
             return {"status": "unrecognised", "source_message": text,
                     "reason": "The amount or date in this message couldn't be read."}
-        payee, is_person = _payee_for(message_type, found)
+        payee, label, is_person = _payee_for(message_type, found)
         groups = found.groupdict()
         account = clean_payee(groups.get("account")) or None
         fee_found = _FEE.search(flat)
         fee = _money(fee_found["fee"]) if fee_found else None
 
-        key = payee_key(payee)
+        key = payee_key(label)
         rule_keys = [f"{key}|{account.upper()}", key] if account else [key]
 
         warnings = []
@@ -174,6 +180,7 @@ def read_message(text, today):
             "amount": amount,
             "fee": fee if fee and fee > 0 else None,
             "payee": payee,
+            "label": label,
             "account": account,
             "bank_txn": groups.get("bank_txn"),
             "is_person": is_person,
@@ -260,7 +267,7 @@ def read_cash_line(line):
         return {"status": "unrecognised", "source_message": line,
                 "reason": "Say what the money was for, like: fuel 2000"}
     return {"status": "expense", "message_type": "cash", "reference": None, "amount": amount,
-            "fee": None, "payee": None, "description": description, "method": "cash",
+            "fee": None, "payee": None, "label": description, "description": description, "method": "cash",
             "is_person": False, "ai_may_see_payee": False, "rule_keys": [],
             "keyword_category": cash_category(description), "source_message": line, "warnings": []}
 

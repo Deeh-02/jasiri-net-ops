@@ -104,7 +104,12 @@ paste again for every figure. Edit (category, type, segment, description)
 and void with a reason; both audited. Checked in headless Chromium against
 the real database (read only; nothing saved). **Not yet built:** DeepSeek
 suggestions and reading the user's note (next), "always skip this payee"
-(needs a small schema change: a rule kind `skip`).
+(needs a small schema change: a rule kind `skip`). **Vendor (owner's call,
+2026-11-15):** the payee is the name in the message when there is one,
+otherwise blank; the user can write or correct it on the review screen and
+when editing. A typed name is not remembered by the supplier rule (the rule
+holds category and type only): remembering it would need a `display_name`
+column on `supplier_rules`.
 
 ### Open questions (from the spec, with what the code already answers)
 

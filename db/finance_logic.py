@@ -90,6 +90,15 @@ def _check_choice(key, choice, active_category_ids):
         raise ChoiceError(f"{key}: segment must be PPPoE, Hotspot or Shared.")
 
 
+def _chosen_payee(item, choice):
+    """Who was paid: what the user typed or left in the box if their choice
+    carries a payee (an emptied box means blank, on purpose); otherwise the
+    name the message gave, which may itself be none."""
+    if "payee" in choice:
+        return (choice["payee"] or "").strip() or None
+    return item.get("payee")
+
+
 def build_rows_to_save(review, choices, categories, cash_date):
     """From the review and the user's choices: the expense rows to insert
     (each fee as its own row) and the supplier rules to remember. Only items
@@ -112,7 +121,7 @@ def build_rows_to_save(review, choices, categories, cash_date):
             "reference": item.get("reference"),
             "spent_on": spent_on,
             "amount": item["amount"],
-            "payee": item.get("payee"),
+            "payee": _chosen_payee(item, choice),
             "category_id": choice["category_id"],
             "kind": kind,
             "segment": choice.get("segment") or None,

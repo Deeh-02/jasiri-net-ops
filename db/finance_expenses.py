@@ -164,8 +164,9 @@ def get_expense(expense_id):
 
 
 # What an edit may change. Amount, date and code never change: they were read
-# from the message. A wrong one is voided and entered again.
-EDITABLE_FIELDS = ("category_id", "kind", "segment", "description")
+# from the message. A wrong one is voided and entered again. The payee can be
+# written or corrected because many messages carry no name (bank transfers).
+EDITABLE_FIELDS = ("payee", "category_id", "kind", "segment", "description")
 
 
 def update_expense(expense_id, changes, user_id):

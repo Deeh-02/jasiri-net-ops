@@ -37,6 +37,7 @@ class ReadingOneMessage(unittest.TestCase):
     def test_till_drops_the_trailing_dots(self):
         r = read_message(TILL, TODAY)
         self.assertEqual((r["message_type"], r["payee"], r["amount"]), ("till", "Sample Petroleum Limited", Decimal("500.00")))
+        self.assertIsNone(read_cash_line("fuel 2000")["payee"])
 
     def test_send_money_is_a_person_and_keeps_the_phone_out_of_the_payee(self):
         r = read_message(SEND, TODAY)
@@ -44,6 +45,17 @@ class ReadingOneMessage(unittest.TestCase):
         self.assertTrue(r["is_person"])
         self.assertFalse(r["ai_may_see_payee"])
         self.assertNotIn("0700000002", r["payee"])
+
+    def test_a_name_in_the_message_is_the_payee(self):
+        for text, name in ((PAYBILL, "ACME SUPPLIES LIMITED"), (TILL, "Sample Petroleum Limited"),
+                           (SEND, "JANE DOE"), (RECEIPT, "EXAMPLE PLASTICS LIMITED")):
+            r = read_message(text, TODAY)
+            self.assertEqual((r["payee"], r["label"]), (name, name))
+
+    def test_airtime_names_nobody(self):
+        text = "QA1BC2DE9M confirmed.You bought Ksh100.00 of airtime on 5/11/26 at 10:15 AM."
+        r = read_message(text, TODAY)
+        self.assertEqual((r["message_type"], r["payee"]), ("airtime", None))
 
     def test_a_space_after_ksh_is_fine(self):
         self.assertEqual(read_message(SEND_SPACED, TODAY)["amount"], Decimal("2000.00"))
@@ -55,13 +67,18 @@ class ReadingOneMessage(unittest.TestCase):
 
     def test_bank_transfer_to_an_account(self):
         r = read_message(BANK_ACCOUNT, TODAY)
-        self.assertEqual((r["method"], r["reference"], r["payee"]), ("bank", "BXXXXXXXXXX01", "Bank A/c 0*****9001"))
+        self.assertEqual((r["method"], r["reference"]), ("bank", "BXXXXXXXXXX01"))
+        # The message names nobody, so no payee: the account is only a label.
+        self.assertIsNone(r["payee"])
+        self.assertEqual(r["label"], "Bank A/c 0*****9001")
+        self.assertEqual(r["rule_keys"], ["BANK A/C 0*****9001"])
         self.assertEqual(r["spent_on"], date(2026, 10, 10))
         self.assertFalse(r["ai_may_see_payee"])
 
     def test_bank_transfer_to_a_phone_is_a_person(self):
         r = read_message(BANK_PHONE, TODAY)
-        self.assertEqual(r["payee"], "Bank to M-Pesa +254*****0002")
+        self.assertIsNone(r["payee"])
+        self.assertEqual(r["label"], "Bank to M-Pesa +254*****0002")
         self.assertTrue(r["is_person"])
 
     def test_transaction_cost_becomes_the_fee(self):

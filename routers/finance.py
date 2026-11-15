@@ -87,6 +87,7 @@ def get_expenses(month: str, include_voided: bool = False, current_user: dict = 
 
 
 class ExpenseEdit(BaseModel):
+    payee: str | None = Field(None, max_length=120)
     category_id: int
     kind: Literal["operating", "capital"]
     segment: Literal["pppoe", "hotspot", "shared"] | None = None
@@ -100,6 +101,7 @@ def edit_expense(expense_id: int, body: ExpenseEdit, current_user: dict = Depend
         raise HTTPException(status_code=400, detail="Pick a category from the list")
     changes = body.model_dump()
     changes["description"] = (changes["description"] or "").strip() or None
+    changes["payee"] = (changes["payee"] or "").strip() or None
     if not finance_expenses.update_expense(expense_id, changes, current_user["id"]):
         raise HTTPException(status_code=404, detail="That expense doesn't exist or has been voided")
     return _plain(finance_expenses.get_expense(expense_id))
@@ -129,6 +131,7 @@ class ExpenseChoice(BaseModel):
     kind: Literal["operating", "capital"] = "operating"
     segment: Literal["pppoe", "hotspot", "shared"] | None = None
     description: str | None = Field(None, max_length=300)
+    payee: str | None = Field(None, max_length=120)
     skip: bool = False
     remember: bool = False
 
@@ -163,7 +166,9 @@ def read_expenses(body: PastedExpenses, current_user: dict = Depends(require_exp
 @router.post("/finance/expenses/save")
 def save_expenses(body: SaveExpenses, current_user: dict = Depends(require_expense_manager)):
     review, categories, cash_date = _review(body)
-    choices = {key: choice.model_dump() for key, choice in body.choices.items()}
+    # exclude_unset: a payee the page didn't send means "use the message's",
+    # one sent empty means "leave blank".
+    choices = {key: choice.model_dump(exclude_unset=True) for key, choice in body.choices.items()}
     try:
         rows, rules = finance_logic.build_rows_to_save(review, choices, categories, cash_date)
     except finance_logic.ChoiceError as problem:

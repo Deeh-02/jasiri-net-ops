@@ -141,6 +141,7 @@ function openEdit(id) {
     const r = editingExpense;
     document.getElementById("fin-exp-edit-what").textContent =
         `${r.payee || r.description || "Cash"} · ${money(r.amount)} · ${dayLabel(r.spent_on)}${r.reference ? " · " + r.reference : ""}`;
+    document.getElementById("fin-exp-edit-payee").value = r.payee || "";
     document.getElementById("fin-exp-edit-category").innerHTML = categoryOptions(r.category_id, { includeRetiredId: r.category_id });
     document.getElementById("fin-exp-edit-kind").value = r.kind;
     document.getElementById("fin-exp-edit-segment").value = r.segment || "";
@@ -153,6 +154,7 @@ function openEdit(id) {
 async function saveEdit(e) {
     e.preventDefault();
     const body = {
+        payee: document.getElementById("fin-exp-edit-payee").value,
         category_id: Number(document.getElementById("fin-exp-edit-category").value),
         kind: document.getElementById("fin-exp-edit-kind").value,
         segment: document.getElementById("fin-exp-edit-segment").value || null,
@@ -233,9 +235,9 @@ async function readPaste() {
     for (const item of data.items) {
         if (item.status === "ready") {
             review.choices[item.key] = { category_id: item.suggestion.category_id, kind: item.suggestion.kind,
-                                         remember: false, skip: false, suggested: item.suggestion };
+                                         payee: item.payee || "", remember: false, skip: false, suggested: item.suggestion };
         } else if (item.status === "needs_category") {
-            review.choices[item.key] = { category_id: null, kind: "operating", remember: true, skip: false };
+            review.choices[item.key] = { category_id: null, kind: "operating", payee: item.payee || "", remember: true, skip: false };
         }
     }
     document.getElementById("fin-exp-add").hidden = true;
@@ -264,8 +266,10 @@ function itemLine(item) {
            (item.reference ? ` · <span class="fin-exp-code">${esc(item.reference)}</span>` : "") + warn;
 }
 
+// What to call a payment on screen: the name the message gave, else the
+// message's own label (a masked bank account), else the cash description.
 function payeeName(item) {
-    return item.payee || item.description || "Cash";
+    return item.payee || item.label || item.description || "Cash";
 }
 
 function renderReview() {
@@ -292,6 +296,8 @@ function renderReview() {
                 </div>
                 <ul class="fin-exp-group-rows">${members.map(m => `<li>${itemLine(m)}</li>`).join("")}</ul>
                 <div class="fin-exp-group-controls">
+                    <input type="text" class="control fin-exp-payee-input" data-group-field="payee" maxlength="120" value="${esc(choice.payee)}"
+                        placeholder="${first.payee ? "Who was paid" : "Who was paid (optional)"}" aria-label="Who was paid">
                     <select class="control" data-group-field="category_id" aria-label="Category for ${esc(payeeName(first))}">${categoryOptions(choice.category_id, { placeholder: true })}</select>
                     <select class="control" data-group-field="kind" aria-label="Type">
                         <option value="operating" ${choice.kind === "operating" ? "selected" : ""}>Operating</option>
@@ -311,11 +317,12 @@ function renderReview() {
             <details class="fin-exp-ready" ${groups.length ? "" : "open"}>
                 <summary><span class="fin-exp-sub-inline">Ready</span> <span class="muted">· ${ready.length} · ${money(readyTotal)} · category filled in from what you chose before; change it if wrong</span></summary>
                 <div class="table-scroll table-compact"><table class="table-dense">
-                    <thead><tr><th>Payee</th><th>Payment</th><th>Category</th><th>Type</th><th>Skip</th></tr></thead>
+                    <thead><tr><th>Paid to</th><th>Payment</th><th>Category</th><th>Type</th><th>Skip</th></tr></thead>
                     <tbody>${ready.map(i => {
                         const choice = review.choices[i.key];
                         return `<tr data-key="${esc(i.key)}" class="${choice.skip ? "is-skipped" : ""}">
-                            <td>${esc(payeeName(i))}</td>
+                            <td><input type="text" class="control fin-exp-payee-input" data-field="payee" maxlength="120" value="${esc(choice.payee)}"
+                                placeholder="${esc(payeeName(i))}" aria-label="Who was paid"></td>
                             <td>${itemLine(i)}</td>
                             <td><select class="control" data-field="category_id">${categoryOptions(choice.category_id)}</select></td>
                             <td><select class="control" data-field="kind">
@@ -406,7 +413,7 @@ async function saveReview() {
     const choices = {};
     for (const item of toSave) {
         const c = review.choices[item.key];
-        choices[item.key] = { category_id: c.category_id, kind: c.kind, remember: !!c.remember, skip: false };
+        choices[item.key] = { category_id: c.category_id, kind: c.kind, payee: c.payee || "", remember: !!c.remember, skip: false };
     }
     const button = document.getElementById("fin-exp-save-btn");
     button.disabled = true;
