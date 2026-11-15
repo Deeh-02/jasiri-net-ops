@@ -202,16 +202,21 @@ function mountLine(box, points, series, opts) {
 
 // ---- The floating label ------------------------------------------------------
 
+// It stays inside the card it belongs to: to the right of the pointer, or to
+// the left once the right would cross the card's edge (it used to only turn
+// at the edge of the page, so it spilled over the next card).
 function showTip(html, e) {
     const el = $("home-tip"), view = $("view-home").getBoundingClientRect();
+    const card = e.target.closest?.(".home-card")?.getBoundingClientRect() || view;
     el.innerHTML = html;
     el.hidden = false;
-    const w = el.offsetWidth, h = el.offsetHeight;
-    let left = e.clientX - view.left + 14;
-    if (left + w > view.width - 4) left = e.clientX - view.left - w - 14;
+    const w = el.offsetWidth, h = el.offsetHeight, gap = 14, pad = 6;
+    let x = e.clientX + gap;
+    if (x + w > card.right - pad) x = e.clientX - gap - w;
+    x = Math.max(card.left + pad, Math.min(x, card.right - pad - w));   // a card narrower than the label: keep it on the card
     const above = e.clientY - h - 12;                          // under the top bar there's no room: go below the pointer
     const top = (above < 76 ? e.clientY + 18 : above) - view.top;
-    el.style.transform = `translate(${Math.max(4, left)}px, ${top}px)`;
+    el.style.transform = `translate(${Math.max(4, x - view.left)}px, ${top}px)`;
 }
 function hideTip() { $("home-tip").hidden = true; }
 

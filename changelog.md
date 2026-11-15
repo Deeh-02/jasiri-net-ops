@@ -20,6 +20,11 @@ Started 2026-11-10 at the owner's request, after Phase 5 was merged to `main`.
   small card with the day, its income and how it compares with the
   average, like the other charts. It also no longer appears in the wrong
   place for the first few seconds after you open the Dashboard.
+- **Dashboard hover cards stay inside their card**: near the right edge
+  they open to the left of the pointer instead of spilling over the next
+  card (Revenue, People online, Internet uplink, Fibre, Customers).
+- **Side menu**: the green highlight could stay on the page you'd left
+  (Dashboard) while another page (Batteries) was open. It now always moves.
 
 ### Cleaner dark mode (2026-11-15)
 - **Dark mode is built like light mode now**: cards and the side menu are a

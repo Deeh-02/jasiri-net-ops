@@ -229,7 +229,14 @@ what is truly its own.
   Revenue card's bars use the same card (day, income, against the average),
   not the browser's own `<title>` label (`incomeBars(..., { tips: false })`).
   `.home-tip` is left out of the page entrance animation, which otherwise
-  overrode its position for the first seconds on the page.
+  overrode its position for the first seconds on the page. It stays inside
+  the card it belongs to (`showTip` bounds it by the `.home-card`), turning
+  to the left of the pointer near the card's right edge.
+- **Sliding highlights and count-ups share one change watcher
+  (`motion.js`, 2026-11-15):** a count-up drops only the change notices for
+  the figure it is writing (`ownWrite`). It used to drop every waiting
+  notice, which could swallow the sidebar's change of current page and
+  leave the highlight on the old page.
 - **Polish pass (2026-11-13):** panels carry `--edge` (a lit top edge via
   `box-shadow`; since 2026-11-15 it also carries a drop shadow in dark,
   which shows now that the page isn't pure black); the primary

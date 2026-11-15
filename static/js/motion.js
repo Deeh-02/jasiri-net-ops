@@ -234,7 +234,7 @@ function roll(el, final, fromValue, wait = 0) {
         written = t === 1 ? final : format(fromValue + (shape.value - fromValue) * eased, shape);
         el.textContent = written;
         SHOWN.set(el, final);
-        counts?.takeRecords();                                          // our own write isn't news
+        ownWrite(el);                                                   // our own write isn't news
         if (t < 1) ROLLING.set(el, requestAnimationFrame(step));
     };
     step(start);
@@ -257,41 +257,55 @@ function noticed(el) {
 }
 
 let counts = null;
+const SLIDER_ATTRS = new Set(["class", "aria-pressed", "aria-selected", "hidden"]);
+
+// Drop the change notices our own count-up write to `el` just made, and act
+// on anything else that was waiting. It used to drop everything waiting: a
+// page change made in the same moment (the sidebar marking Batteries as the
+// current page) was thrown away with it, and the sidebar highlight stayed on
+// the page you'd left (2026-11-15).
+function ownWrite(el) {
+    const waiting = counts?.takeRecords() || [];
+    const others = waiting.filter(r => r.target !== el && !el.contains(r.target));
+    if (others.length) changed(others);
+}
+
+// Something on the page changed: move a highlight, count a figure.
+function changed(records) {
+    const figures = new Set();
+    records.forEach(r => {
+        const target = r.target.nodeType === 1 ? r.target : r.target.parentElement;
+        if (!target) return;
+        if (r.type === "attributes") {
+            if (SLIDER_ATTRS.has(r.attributeName) && !target.classList.contains("slide-indicator")) {
+                const box = target.closest(ALL);
+                if (box) schedule(box);
+            }
+            return;
+        }
+        // Something was drawn or redrawn.
+        r.addedNodes.forEach(n => {
+            if (n.nodeType !== 1 || n.classList.contains("slide-indicator")) return;
+            adopt(n);
+            if (n.matches(COUNTED)) figures.add(n);
+            n.querySelectorAll(COUNTED).forEach(f => figures.add(f));
+        });
+        const box = target.closest(ALL);
+        if (box && !target.classList.contains("slide-indicator")) schedule(box);
+        const figure = target.closest(COUNTED);
+        if (figure) figures.add(figure);
+    });
+    figures.forEach(noticed);
+}
 
 // ---- Wiring ----
 
 export function initMotion() {
     adopt(document.body);
-    const sliderAttrs = new Set(["class", "aria-pressed", "aria-selected", "hidden"]);
-    counts = new MutationObserver(records => {
-        const figures = new Set();
-        records.forEach(r => {
-            const target = r.target.nodeType === 1 ? r.target : r.target.parentElement;
-            if (!target) return;
-            if (r.type === "attributes") {
-                if (sliderAttrs.has(r.attributeName) && !target.classList.contains("slide-indicator")) {
-                    const box = target.closest(ALL);
-                    if (box) schedule(box);
-                }
-                return;
-            }
-            // Something was drawn or redrawn.
-            r.addedNodes.forEach(n => {
-                if (n.nodeType !== 1 || n.classList.contains("slide-indicator")) return;
-                adopt(n);
-                if (n.matches(COUNTED)) figures.add(n);
-                n.querySelectorAll(COUNTED).forEach(f => figures.add(f));
-            });
-            const box = target.closest(ALL);
-            if (box && !target.classList.contains("slide-indicator")) schedule(box);
-            const figure = target.closest(COUNTED);
-            if (figure) figures.add(figure);
-        });
-        figures.forEach(noticed);
-    });
+    counts = new MutationObserver(changed);
     counts.observe(document.body, {
         subtree: true, childList: true, characterData: true,
-        attributes: true, attributeFilter: [...sliderAttrs],
+        attributes: true, attributeFilter: [...SLIDER_ATTRS],
     });
     window.addEventListener("resize", () => document.querySelectorAll(ALL).forEach(b => { PLACED.delete(b); schedule(b); }));
     document.fonts?.ready?.then(() => document.querySelectorAll(ALL).forEach(b => { PLACED.delete(b); schedule(b); }));
