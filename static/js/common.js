@@ -134,6 +134,14 @@ const ROUTE_PERMISSION_MAP = {
     // Admin only: no role can be given this (the Roles page doesn't offer it and
     // the server uses require_admin), so only the built-in admin ever passes can().
     "activity-manage": ["activity_log", "manage"],
+    // Finance (Phase 7): every page is behind one switch, Roles > Finance.
+    // Adding and changing expenses is a tick inside it (finance:manage_expenses),
+    // checked by the server and by the Expenses page's own buttons.
+    "finance-overview": ["finance", "view"],
+    "finance-income": ["finance", "view"],
+    "finance-expenses": ["finance", "view"],
+    "finance-performance": ["finance", "view"],
+    "finance-assets": ["finance", "view"],
 };
 
 function isRouteAllowed(name) {
@@ -457,7 +465,7 @@ function parseRoute(hash) {
 }
 
 // The sidebar is a list of titled sections (Operations, Network, Technical
-// Activity Log, Inventory, Reports, Alerts, System), each page a row with its own
+// Activity Log, Inventory, Reports, Finance, Alerts, System), each page a row with its own
 // icon. Sections start open; a section you fold shut stays shut (remembered
 // per browser) until you open it again or land on one of its pages, which
 // opens it so the current page is always visible.
@@ -469,6 +477,7 @@ const NAV_GROUP_ROUTES = {
     alerts: ["notifications", "alert-templates", "customers", "broadcast"],
     reports: ["inventory-reports", "sms-status", "revenue", "revenue-overview"],
     activity: ["activity-overview", "activity-reports", "activity-submit", "activity-manage"],
+    finance: ["finance-overview", "finance-income", "finance-expenses", "finance-performance", "finance-assets"],
 };
 
 // Pages reached from inside another page light up that page's sidebar row:
@@ -820,7 +829,7 @@ function renderCmdkResults(query) {
 // ---- Fragment loader: fetches every view's HTML and injects it into its
 // mount point. Loaded eagerly, all at once, at startup — the app is small
 // enough that lazy-per-nav loading isn't worth the added state-tracking. ----
-const VIEW_NAMES = ["home", "dashboard", "sites", "movements", "status", "site-detail", "trends", "manage-sites", "packages", "notifications", "alert-templates", "customers", "broadcast", "users", "roles", "settings", "inventory", "stock", "inventory-log", "issue-materials", "return-materials", "inventory-reports", "sms-status", "revenue", "revenue-overview", "inventory-manage", "network", "olt", "activity-overview", "activity-reports", "activity-submit", "activity-manage"];
+const VIEW_NAMES = ["home", "dashboard", "sites", "movements", "status", "site-detail", "trends", "manage-sites", "packages", "notifications", "alert-templates", "customers", "broadcast", "users", "roles", "settings", "inventory", "stock", "inventory-log", "issue-materials", "return-materials", "inventory-reports", "sms-status", "revenue", "revenue-overview", "inventory-manage", "network", "olt", "activity-overview", "activity-reports", "activity-submit", "activity-manage", "finance-overview", "finance-income", "finance-expenses", "finance-performance", "finance-assets"];
 
 export async function loadViewFragments() {
     await Promise.all(VIEW_NAMES.map(async (name) => {

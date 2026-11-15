@@ -30,6 +30,11 @@ import { initActivitySubmit } from "./activity-submit.js";
 import { initActivityReports } from "./activity-reports.js";
 import { initActivityOverview } from "./activity-overview.js";
 import { initActivityManage } from "./activity-manage.js";
+import { initFinanceOverview } from "./finance-overview.js";
+import { initFinanceIncome } from "./finance-income.js";
+import { initFinanceExpenses } from "./finance-expenses.js";
+import { initFinancePerformance } from "./finance-performance.js";
+import { initFinanceAssets } from "./finance-assets.js";
 import { initMotion } from "./motion.js";
 import { initTheme } from "./theme.js";
 
@@ -70,6 +75,11 @@ async function boot() {
     initActivityReports();
     initActivityOverview();
     initActivityManage();
+    initFinanceOverview();
+    initFinanceIncome();
+    initFinanceExpenses();
+    initFinancePerformance();
+    initFinanceAssets();
     initMotion();
 
     bootAuth();

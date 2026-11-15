@@ -2199,6 +2199,41 @@ and a status only lands if its `last_status_change` is at least as new as
 the stored one. A failed store forgets the id so SmartOLT's retry gets
 another go. Work runs on the thread pool, well inside SmartOLT's 15 s.
 
+## Finance (Phase 7)
+
+One router (`routers/finance.py`) over `db/finance_*.py` files split by
+concern, like Inventory: `finance_expenses.py` (I/O), `finance_messages.py`
+(reading pasted SMS, pure), `finance_logic.py` (review, save and summary
+rules, pure). Tables: migration 0037. Permissions `finance:view` and
+`finance:manage_expenses`, checked on every endpoint.
+
+**Amounts come from code, never from the browser or the AI.** Adding
+expenses is two calls with the same text: `/finance/expenses/read` returns
+what the app understood; `/finance/expenses/save` reads the text again and
+takes only choices from the browser (category, type, skip, remember,
+description). An amount, code or date can therefore only come from the
+message's own wording; `tests/test_finance.py` pins that.
+
+**Duplicates** are stopped by the unique `reference` (M-Pesa code or bank
+ref; fees as `<CODE>-FEE`), checked at read time and again by
+`ON CONFLICT DO NOTHING` at save time.
+
+**Supplier rules** are keyed by payee + account first, then payee, because
+one paybill can mean two things (an SMS top-up account and a subscription
+account at the same billing company). A rule is written only when the user
+ticks Remember or corrects a suggested category; a rule pointing at a
+retired category is ignored.
+
+**Privacy for the coming DeepSeek step.** Each read item carries
+`ai_may_see_payee`: true only for paybill, till and payee-side receipts
+(business names). Send Money (a person) and bank transfers (a masked account
+number) are never sent. Phone numbers and balances stay in
+`source_message`, which never leaves the server for the AI.
+
+**Nothing is deleted.** Expenses are voided with a reason; edits change
+classification only (category, type, segment, description), never amount,
+date or code. Both go to `finance_audit_log` with before/after.
+
 ## Visual testing — headless Chromium in this sandbox
 
 Not part of the app's own architecture — a tooling note so a future

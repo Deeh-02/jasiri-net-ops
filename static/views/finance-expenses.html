@@ -1,0 +1,126 @@
+    <div class="modal-overlay" id="fin-exp-edit-overlay" hidden>
+        <div class="modal-box fin-exp-modal">
+            <h3>Edit expense</h3>
+            <p class="fin-exp-modal-what" id="fin-exp-edit-what"></p>
+            <form id="fin-exp-edit-form" class="panel-form">
+                <label class="fin-exp-label">Category
+                    <select id="fin-exp-edit-category" required></select>
+                </label>
+                <label class="fin-exp-label">Type
+                    <select id="fin-exp-edit-kind">
+                        <option value="operating">Operating</option>
+                        <option value="capital">Capital (equipment kept, left out of profit)</option>
+                    </select>
+                </label>
+                <label class="fin-exp-label">Segment
+                    <select id="fin-exp-edit-segment">
+                        <option value="">Not set</option>
+                        <option value="pppoe">PPPoE</option>
+                        <option value="hotspot">Hotspot</option>
+                        <option value="shared">Shared</option>
+                    </select>
+                </label>
+                <input type="text" id="fin-exp-edit-description" placeholder="Description (optional)" maxlength="300">
+                <details class="fin-exp-source">
+                    <summary>Original message</summary>
+                    <pre id="fin-exp-edit-source"></pre>
+                </details>
+                <div class="modal-actions">
+                    <button type="button" id="fin-exp-void-open" class="btn-danger fin-exp-void-open">Void&hellip;</button>
+                    <button type="button" id="fin-exp-edit-cancel" class="btn-secondary">Cancel</button>
+                    <button type="submit" class="btn-primary">Save</button>
+                </div>
+            </form>
+            <div class="form-msg" id="fin-exp-edit-msg"></div>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="fin-exp-void-overlay" hidden>
+        <div class="modal-box fin-exp-modal">
+            <h3>Void this expense?</h3>
+            <p class="fin-exp-modal-what" id="fin-exp-void-what"></p>
+            <p class="form-hint">It stays on record, out of every total. Its code can't be pasted again; to fix a wrong amount, void it and add the right one by hand as cash.</p>
+            <form id="fin-exp-void-form" class="panel-form">
+                <input type="text" id="fin-exp-void-reason" placeholder="Why? (e.g. personal, entered twice)" minlength="3" maxlength="300" required>
+                <div class="modal-actions">
+                    <button type="button" id="fin-exp-void-cancel" class="btn-secondary">Cancel</button>
+                    <button type="submit" class="btn-danger">Void</button>
+                </div>
+            </form>
+            <div class="form-msg" id="fin-exp-void-msg"></div>
+        </div>
+    </div>
+
+    <section class="view" id="view-finance-expenses" hidden>
+        <div class="page-header-row">
+            <div>
+                <h1 class="page-title">Finance <span>Expenses</span></h1>
+                <p class="page-subtitle">Money out. Paste M-Pesa or bank messages, check them, save.</p>
+            </div>
+            <button type="button" id="fin-exp-add-open-btn" class="btn-primary" hidden>+ Add expenses</button>
+        </div>
+
+        <section class="fin-exp-card" id="fin-exp-add" hidden aria-labelledby="fin-exp-add-title">
+            <h2 class="section-title" id="fin-exp-add-title">Add expenses</h2>
+            <p class="fin-exp-intro">Paste as many M-Pesa or bank messages as you like, straight from the phone or a WhatsApp forward. Amounts, codes and dates are read from the text by the app, never guessed, and nothing is saved until you've checked it. A message already saved is skipped.</p>
+            <label class="fin-exp-field">
+                <span>Messages</span>
+                <textarea id="fin-exp-messages" rows="8" spellcheck="false" placeholder="QA1BC2DE3F Confirmed. Ksh1,946.00 sent to …"></textarea>
+            </label>
+            <div class="fin-exp-cash-row">
+                <label class="fin-exp-field fin-exp-cash-field">
+                    <span>Cash spent, one per line</span>
+                    <textarea id="fin-exp-cash" rows="3" spellcheck="false" placeholder="fuel 2000&#10;connectors ksh 600"></textarea>
+                </label>
+                <label class="toolbar-field"><span>Cash date</span>
+                    <input type="date" class="control" id="fin-exp-cash-date">
+                </label>
+            </div>
+            <div class="fin-exp-actions">
+                <button type="button" class="btn-primary" id="fin-exp-read-btn">Read messages</button>
+                <button type="button" class="btn-secondary" id="fin-exp-add-cancel">Cancel</button>
+            </div>
+            <div class="form-msg" id="fin-exp-add-msg"></div>
+        </section>
+
+        <section class="fin-exp-card" id="fin-exp-review" hidden aria-labelledby="fin-exp-review-title">
+            <h2 class="section-title" id="fin-exp-review-title">Check before saving</h2>
+            <div id="fin-exp-review-body"></div>
+            <div class="fin-exp-save-bar">
+                <span class="fin-exp-save-summary" id="fin-exp-save-summary"></span>
+                <button type="button" class="btn-secondary" id="fin-exp-review-back">Back to editing</button>
+                <button type="button" class="btn-primary" id="fin-exp-save-btn">Save</button>
+            </div>
+            <div class="form-msg" id="fin-exp-save-msg"></div>
+        </section>
+
+        <div class="form-msg" id="fin-exp-page-msg"></div>
+
+        <div class="toolbar">
+            <label class="toolbar-field"><span>Month</span>
+                <input type="month" class="control" id="fin-exp-month">
+            </label>
+            <label class="checkbox-row fin-exp-voided-toggle"><input type="checkbox" id="fin-exp-show-voided"> Show voided</label>
+            <span class="toolbar-count" id="fin-exp-count"></span>
+        </div>
+        <div class="summary-strip" id="fin-exp-summary" aria-label="This month's expenses"></div>
+        <div class="fin-exp-categories" id="fin-exp-categories" aria-label="By category"></div>
+
+        <div class="table-scroll table-compact">
+            <table id="fin-exp-table">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Payee</th>
+                        <th>Category</th>
+                        <th>Type</th>
+                        <th>Method</th>
+                        <th>Code</th>
+                        <th class="num">Amount</th>
+                        <th id="fin-exp-manage-th" hidden>Manage</th>
+                    </tr>
+                </thead>
+                <tbody id="fin-exp-rows" data-skeleton="7"></tbody>
+            </table>
+        </div>
+    </section>

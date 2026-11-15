@@ -1,0 +1,293 @@
+/* Finance > Expenses (Phase 7B). Classes are prefixed fin-exp- so nothing
+   here can collide with another view. */
+
+.fin-exp-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px 18px;
+    margin-bottom: var(--section-gap);
+}
+
+.fin-exp-intro,
+.fin-exp-hint {
+    max-width: 72ch;
+    color: var(--text-dim);
+    font-size: 13.5px;
+    line-height: 1.5;
+    margin: 0 0 12px;
+}
+
+.fin-exp-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 12px;
+}
+
+.fin-exp-field > span {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-dim);
+}
+
+.fin-exp-field textarea {
+    width: 100%;
+    box-sizing: border-box;
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 10px 12px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12.5px;
+    line-height: 1.5;
+    resize: vertical;
+}
+
+.fin-exp-field textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: var(--ring);
+}
+
+.fin-exp-cash-row {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    flex-wrap: wrap;
+}
+
+.fin-exp-cash-field {
+    flex: 1 1 320px;
+}
+
+.fin-exp-actions,
+.fin-exp-save-bar {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.fin-exp-save-bar {
+    margin-top: 16px;
+    padding-top: 14px;
+    border-top: 1px solid var(--rule-soft);
+}
+
+.fin-exp-save-summary {
+    margin-right: auto;
+    font-weight: 600;
+}
+
+/* Review: one card per unknown payee */
+.fin-exp-sub {
+    font-size: 14px;
+    font-weight: 600;
+    margin: 18px 0 10px;
+}
+
+.fin-exp-sub-inline {
+    font-weight: 600;
+}
+
+.fin-exp-group {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 12px 14px;
+    margin-bottom: 10px;
+    background: var(--row-alt);
+}
+
+.fin-exp-group-head {
+    margin-bottom: 6px;
+}
+
+.fin-exp-group-rows {
+    list-style: none;
+    margin: 0 0 10px;
+    padding: 0;
+    font-size: 13px;
+    line-height: 1.7;
+}
+
+.fin-exp-group-controls {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.fin-exp-group-controls select.control {
+    min-width: 200px;
+}
+
+.fin-exp-tag {
+    display: inline-block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-dim);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 1px 8px;
+    margin-left: 4px;
+}
+
+.is-skipped {
+    opacity: 0.5;
+}
+
+.fin-exp-ready {
+    margin: 14px 0;
+}
+
+.fin-exp-ready > summary {
+    cursor: pointer;
+    padding: 6px 0;
+}
+
+.fin-exp-ready .table-scroll {
+    margin-top: 8px;
+}
+
+.fin-exp-ready select.control {
+    min-height: 34px;
+    padding-top: 4px;
+    padding-bottom: 4px;
+}
+
+.fin-exp-code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+}
+
+.fin-exp-warn {
+    color: var(--warn);
+    font-size: 12.5px;
+}
+
+.fin-exp-raw {
+    border-left: 3px solid var(--warn);
+    padding: 4px 0 4px 12px;
+    margin-bottom: 10px;
+}
+
+.fin-exp-raw-why {
+    font-size: 13px;
+    color: var(--warn);
+    margin-bottom: 4px;
+}
+
+.fin-exp-raw pre,
+.fin-exp-source pre {
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--text-soft);
+}
+
+/* The month list */
+.fin-exp-voided-toggle {
+    align-self: flex-end;
+    min-height: 40px;
+}
+
+.fin-exp-categories {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 14px;
+}
+
+.fin-exp-chip {
+    font-size: 12.5px;
+    color: var(--text-soft);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 4px 12px;
+}
+
+.fin-exp-chip strong {
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+}
+
+.fin-exp-voided td {
+    text-decoration: line-through;
+    color: var(--text-faint);
+}
+
+.fin-exp-voided .cell-sub {
+    text-decoration: none;
+}
+
+.fin-exp-edit-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    width: 30px;
+    height: 30px;
+    color: var(--text-dim);
+    cursor: pointer;
+    transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.fin-exp-edit-btn:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+}
+
+/* Edit / void dialogs */
+.fin-exp-modal {
+    width: 440px;
+}
+
+.fin-exp-modal .panel-form {
+    max-width: none;
+}
+
+.fin-exp-modal-what {
+    color: var(--text-dim);
+    font-size: 13px;
+    margin: 0 0 12px;
+}
+
+.fin-exp-label {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 12.5px;
+    color: var(--text-dim);
+}
+
+.fin-exp-source summary {
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--text-dim);
+}
+
+.fin-exp-source pre {
+    margin-top: 6px;
+}
+
+.fin-exp-void-open {
+    margin-right: auto;
+}
+
+@media (max-width: 760px) {
+    .fin-exp-group-controls select.control {
+        min-width: 0;
+        flex: 1 1 100%;
+    }
+}

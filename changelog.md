@@ -5,6 +5,35 @@ Phase-based, not version-based — this project ships in named phases (see
 concise, user-facing summary; full technical detail lives in the git log
 and in `phase.md`'s own per-phase writeups.
 
+## Phase 7 — Finance (on `phase-7-finance`)
+
+Started 2026-11-15 at the owner's request, after Phase 6 was merged to `main`.
+
+### Expenses: paste, check, save (2026-11-15)
+- **Paste M-Pesa or bank messages** on Finance → Expenses, as many as you
+  like, straight from the phone or a WhatsApp forward. The app reads the
+  amount, code, date and payee itself; nothing is guessed.
+- **Check before saving.** Payees the app hasn't seen are grouped, so each
+  is given a category once; tick "Remember" and next time it's filled in.
+  Transfers to your own accounts can be skipped. Messages already saved
+  are skipped automatically, and anything the app couldn't read is shown
+  as it is.
+- **Cash**: one line each, like `fuel 2000`.
+- **The month list** shows totals (operating and capital apart) and by
+  category; each expense can be re-categorised, or voided with a reason.
+  Its original message is kept and shown.
+
+### Finance foundation (2026-11-15)
+- **A Finance section in the sidebar**: Overview, Income, Expenses,
+  Performance and Assets. The pages say what's coming and when; the
+  first real one is Expenses.
+- **Who sees it**: a new Finance switch in Roles shows the whole section;
+  a tick inside it lets someone add, edit and void expenses. Admins have
+  both. The server checks them too, so hiding a page isn't the only guard.
+- **Database**: migration 0037 adds the expense categories, expenses,
+  supplier rules and a finance audit log. Expenses are voided with a
+  reason, never deleted.
+
 ## Phase 6 — SmartOLT (on `phase-6-smartolt`)
 
 Started 2026-11-10 at the owner's request, after Phase 5 was merged to `main`.

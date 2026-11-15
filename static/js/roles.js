@@ -159,6 +159,15 @@ const PERM_SECTIONS = [
     // routers/inventory.py (both now read reports:view, not
     // inventory_items:view).
     { key: "reports", label: "Reports", actions: [] },
+    // Finance (Phase 7): the switch shows every Finance page (income,
+    // expenses, profit, assets); the tick lets someone record expenses.
+    // Checked by routers/finance.py on every endpoint, not just the sidebar.
+    {
+        key: "finance", label: "Finance",
+        actions: [
+            { label: "Add, edit and void expenses (and supplier rules)", action: "manage_expenses" },
+        ],
+    },
     {
         // "Inventory" is the master switch for the whole domain — its own
         // toggle reads/writes inventory_items:view, which now gates only the
