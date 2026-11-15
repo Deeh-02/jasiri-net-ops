@@ -75,7 +75,7 @@ the user confirming it.
 | **7D** Performance | Read-only monthly statement from income and expenses, cash basis, Draft label | 7B and 7C in use |
 | **7E** Income extras | Expected vs received, unmatched payments, month target, Needs attention | PPPoE prices and due dates available |
 | **7F** Assets | Finance view over Inventory: book value, depreciation feeding 7D, "Add to assets" from a capital expense, warranty alerts | Asset-fields schema approved |
-| **7G** Month-end | Closing a month, PDF/CSV exports, M-Pesa statement check | 7D trusted for one full month |
+| **7G** Month-end (optional, deferred) | Closing a month, PDF/CSV exports, M-Pesa statement check | Owner decides to pick it up; 7D trusted for one full month |
 
 ### Progress
 
@@ -191,6 +191,11 @@ it. Straight-line depreciation now feeds Performance's Depreciation line
 "Set your own target" on Income's bar (All view), which replaces break-even
 as the target while set. Right now: 125 items, KSh 983,528, none dated.
 
+**7G Month-end, deferred (2026-11-15):** owner's call: 7G is a "nice to
+have", not a must for Phase 7. Nothing built; revisit as the module gets
+used. If picked up: exports and the M-Pesa statement check need no new
+table; closing a month needs one (proposed for approval first).
+
 ### Open questions (from the spec, with what the code already answers)
 
 1. **PPPoE payments: where do they come from?** Not in OPS today. Options:
@@ -220,8 +225,8 @@ as the target while set. Right now: 125 items, KSh 983,528, none dated.
 The owner checks out `phase-7-finance` locally and confirms: expenses can be
 pasted, reviewed and saved with duplicates skipped; Income and Performance
 show the month for All / PPPoE / Hotspot with every figure drilling down to
-its rows; Assets shows book value and depreciation from Inventory; a month
-can be closed and exported. Anything the owner defers is recorded here.
+its rows; Assets shows book value and depreciation from Inventory. Closing and
+exporting a month (7G) is optional and deferred (owner, 2026-11-15). Anything the owner defers is recorded here.
 
 ---
 
