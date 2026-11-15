@@ -163,6 +163,17 @@ figure; the current month is Draft with no change column. Rules in
 `db/finance_performance_logic.py`, tested. Overview's contents are not in the
 spec: its placeholder now says so and waits for the owner.
 
+**7E, the parts that need no new table (2026-11-15):** on Income, a Month
+target bar (break-even = average monthly operating expenses over up to 3
+recent months that have expenses; last month as a marker; for the running
+month a projection: completed days plus each remaining day at the average of
+the same weekday over the last 6 weeks, labelled an estimate) and Needs
+attention (unpriced packages, no sale for 3+ hours between 07:00 and 22:00,
+a day with no sales, a day under 60% of its usual weekday, sales not linked
+to a site), each day item opening that day's sales. Waiting: the typed
+monthly target needs a table (schema proposal with 7F); expected vs
+received and unmatched payments need PPPoE payments.
+
 ### Open questions (from the spec, with what the code already answers)
 
 1. **PPPoE payments: where do they come from?** Not in OPS today. Options:

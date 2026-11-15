@@ -40,6 +40,60 @@ button.fin-inc-tile:hover { border-color: var(--accent); }
 }
 .fin-inc-tile-sub { font-size: 11.5px; color: var(--text-dim); margin-top: 2px; }
 
+/* Needs attention */
+.fin-inc-all-clear { font-size: 13px; color: var(--text-dim); margin: 0 0 14px; }
+.fin-inc-attention ul { list-style: none; margin: 0; padding: 0; }
+.fin-inc-alert {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    padding: 10px 0;
+    border-top: 1px solid var(--rule-soft);
+    font-size: 13.5px;
+}
+.fin-inc-alert:first-child { border-top: 0; }
+.fin-inc-alert-level {
+    flex: 0 0 auto;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 2px 8px;
+    border-radius: 999px;
+    border: 1px solid currentColor;
+}
+.fin-inc-alert.bad .fin-inc-alert-level { color: var(--danger); }
+.fin-inc-alert.warn .fin-inc-alert-level { color: var(--warn); }
+.fin-inc-alert.info .fin-inc-alert-level { color: var(--info); }
+.fin-inc-alert-detail { color: var(--text-dim); font-size: 12.5px; margin-top: 2px; }
+.fin-inc-link {
+    background: none; border: 0; padding: 0; margin-top: 4px;
+    color: var(--accent); font: inherit; font-size: 12.5px; cursor: pointer; text-decoration: underline;
+}
+
+/* Month target */
+.fin-inc-target-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; font-size: 13px; margin-bottom: 10px; }
+.fin-inc-target-head .section-title { margin: 0; }
+.fin-inc-target-bar {
+    position: relative;
+    height: 14px;
+    background: var(--surface-2);
+    border-radius: 999px;
+    margin: 6px 0 10px;
+}
+.fin-inc-target-fill { position: absolute; left: 0; top: 0; bottom: 0; background: var(--info); border-radius: 999px; }
+.fin-inc-target-fill.reached { background: var(--accent); }
+.fin-inc-target-tick { position: absolute; top: -4px; bottom: -4px; width: 0; border-left: 2px solid var(--text); }
+.fin-inc-target-tick.break-even { border-left-color: var(--text-soft); }
+.fin-inc-target-tick.last-month { border-left: 2px dashed var(--text-dim); }
+.fin-inc-target-tick.projected { border-left: 2px dotted var(--info); }
+.fin-inc-tick { display: inline-block; width: 0; height: 12px; margin-right: 6px; vertical-align: -2px; border-left: 2px solid var(--text); }
+.fin-inc-tick.break-even { border-left-color: var(--text-soft); }
+.fin-inc-tick.last-month { border-left: 2px dashed var(--text-dim); }
+.fin-inc-tick.projected { border-left: 2px dotted var(--info); }
+.fin-inc-target .fin-inc-key.bar { background: var(--info); }
+.fin-inc-target .fin-inc-key.bar.reached { background: var(--accent); }
+
 /* The thin split bar */
 .fin-inc-split { margin-bottom: 14px; }
 .fin-inc-split-bar {

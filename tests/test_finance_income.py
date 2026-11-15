@@ -1,7 +1,7 @@
 """Finance > Income rules (db/finance_income_logic.py). Pure: fixed days in,
 fixed answers out. Records "begin" on 21 Sep 2026, like the real data."""
 import unittest
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 from db import finance_income_logic as logic
@@ -133,6 +133,81 @@ class SplitAndPrivacy(unittest.TestCase):
     def test_add_months_crosses_years(self):
         self.assertEqual(logic.add_months(date(2026, 1, 1), -1), date(2025, 12, 1))
         self.assertEqual(logic.add_months(date(2026, 11, 1), -12), date(2025, 11, 1))
+
+
+class Target(unittest.TestCase):
+    def test_projection_uses_the_same_weekdays(self):
+        daily = daily_from(date(2026, 10, 1), date(2026, 11, 14), 100)
+        for day in list(daily):
+            if day.weekday() == 5:                              # Saturdays sell 300
+                daily[day] = (Decimal(300), 30)
+        p = logic.projection(date(2026, 11, 1), daily, date(2026, 11, 15), START)
+        # 1-14 Nov done, 2 Saturdays among them: 12x100 + 2x300 = 1,800. Today (a Sunday)
+        # at its usual 100. 16-30 Nov left, 2 Saturdays: 13x100 + 2x300 = 1,900.
+        self.assertEqual(p["projected"], Decimal(1800 + 100 + 1900))
+
+    def test_a_strong_today_counts_as_it_is(self):
+        daily = daily_from(date(2026, 10, 1), date(2026, 11, 14), 100)
+        daily[date(2026, 11, 15)] = (Decimal(900), 90)
+        p = logic.projection(date(2026, 11, 1), daily, date(2026, 11, 15), START)
+        self.assertEqual(p["projected"], Decimal(1400 + 900 + 1500))
+
+    def test_no_projection_without_enough_history_or_after_the_month(self):
+        daily = daily_from(date(2026, 11, 1), date(2026, 11, 14))
+        self.assertIsNone(logic.projection(date(2026, 11, 1), daily, date(2026, 11, 15), date(2026, 11, 1)))
+        self.assertIsNone(logic.projection(date(2026, 10, 1), daily, date(2026, 11, 15), START))
+
+    def test_break_even_averages_only_months_with_expenses(self):
+        line = logic.break_even_line([(date(2026, 9, 1), Decimal(30000)), (date(2026, 10, 1), Decimal(50000))])
+        self.assertEqual(line, {"amount": Decimal(40000), "months": 2})
+        self.assertIsNone(logic.break_even_line([]))
+
+    def test_target_is_the_owners_figure_then_break_even(self):
+        be = {"amount": Decimal(40000), "months": 2}
+        self.assertEqual(logic.month_target(Decimal(20000), be, None, None)["progress_pct"], Decimal(50))
+        manual = logic.month_target(Decimal(20000), be, None, None, manual=Decimal(80000))
+        self.assertEqual((manual["target_source"], manual["progress_pct"]), ("manual", Decimal(25)))
+        self.assertIsNone(logic.month_target(Decimal(20000), None, None, None)["target"])
+
+
+class Attention(unittest.TestCase):
+    NOW = datetime(2026, 11, 15, 14, 0)
+
+    def items(self, daily, last_sale=datetime(2026, 11, 15, 13, 50), unpriced=(), unlinked=(0, 0), now=None):
+        return logic.attention(date(2026, 11, 1), daily, date(2026, 11, 15), START, now or self.NOW,
+                               last_sale, list(unpriced), unlinked)
+
+    def test_a_quiet_month_needs_nothing(self):
+        self.assertEqual(self.items(daily_from(date(2026, 10, 1), date(2026, 11, 15))), [])
+
+    def test_an_unpriced_package_comes_first(self):
+        items = self.items(daily_from(date(2026, 10, 1), date(2026, 11, 15)), unpriced=[("Weekend pass", 12)])
+        self.assertEqual(items[0]["level"], "bad")
+        self.assertIn("Weekend pass", items[0]["title"])
+
+    def test_hours_without_a_sale_in_the_day(self):
+        items = self.items(daily_from(date(2026, 10, 1), date(2026, 11, 15)), last_sale=datetime(2026, 11, 15, 9, 30))
+        self.assertIn("No hotspot sale for 4 hours", items[0]["title"])
+        night = self.items(daily_from(date(2026, 10, 1), date(2026, 11, 15)), last_sale=datetime(2026, 11, 14, 23, 0),
+                           now=datetime(2026, 11, 15, 3, 0))
+        self.assertEqual(night, [])                             # nobody buys at 3am
+
+    def test_a_day_without_sales(self):
+        daily = daily_from(date(2026, 10, 1), date(2026, 11, 15))
+        del daily[date(2026, 11, 10)]
+        items = self.items(daily)
+        self.assertEqual((items[0]["day"], items[0]["level"]), (date(2026, 11, 10), "bad"))
+
+    def test_a_day_well_below_its_usual_weekday(self):
+        daily = daily_from(date(2026, 10, 1), date(2026, 11, 15), 100)
+        daily[date(2026, 11, 11)] = (Decimal(40), 4)            # a Wednesday at 40% of usual
+        items = self.items(daily)
+        self.assertEqual(items[0]["day"], date(2026, 11, 11))
+        self.assertIn("60% below a usual Wednesday", items[0]["title"])
+
+    def test_unlinked_sales_are_mentioned(self):
+        items = self.items(daily_from(date(2026, 10, 1), date(2026, 11, 15)), unlinked=(3, Decimal(60)))
+        self.assertEqual(items[-1]["level"], "info")
 
 
 if __name__ == "__main__":

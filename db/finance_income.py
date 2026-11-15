@@ -7,10 +7,11 @@ worked out), so the PPPoE view says so instead of showing zeros.
 import csv
 import io
 from datetime import date, datetime
+from decimal import Decimal
 
-from db import monitoring
+from db import finance_expenses, monitoring
 from db import finance_income_logic as logic
-from db.connection import to_eat
+from db.connection import now_eat, to_eat
 
 SEGMENTS = ("all", "pppoe", "hotspot")
 PPPOE_NOT_YET = ("PPPoE payments aren't recorded in the app yet, so there is no PPPoE income to show. "
@@ -28,7 +29,7 @@ def income_report(first_day, segment, today):
     last_day = min(_month_last(first_day), today)
     if last_day < first_day:
         tracking_start = None
-        data = {"daily": [], "hourly": [], "packages": [], "buyers": None}
+        data = {"daily": [], "hourly": [], "packages": [], "buyers": None, "unpriced": [], "unlinked": (0, 0), "last_sale": None}
     else:
         data = monitoring.hotspot_income_for_month(logic.add_months(first_day, -12), first_day, last_day)
         tracking_start = data["first_day"]
@@ -58,9 +59,30 @@ def income_report(first_day, segment, today):
         "packages": logic.package_shares(data["packages"], summary["total"]),
         "buyers": data["buyers"],
     })
+    report["target"] = _target(first_day, segment, summary, report["vs_last_month"], daily, today, tracking_start)
+    report["attention"] = logic.attention(
+        first_day, daily, today, tracking_start, now_eat().replace(tzinfo=None),
+        to_eat(data["last_sale"]).replace(tzinfo=None) if data["last_sale"] else None,
+        data["unpriced"], data["unlinked"])
     if segment == "all":
         report["split"] = logic.segment_split(summary["total"])
     return report
+
+
+def _target(first_day, segment, summary, vs, daily, today, tracking_start):
+    """The month target bar. Break-even is the whole business's costs, so it
+    only applies to the All view; the hotspot projection applies to both."""
+    previous = logic.add_months(first_day, -1)
+    last_month = sum((t for d, (t, _) in daily.items() if previous <= d < first_day), Decimal("0")) \
+        if tracking_start and tracking_start <= previous else None
+    break_even = None
+    if segment == "all":
+        try:
+            break_even = logic.break_even_line(finance_expenses.recent_monthly_expenses(first_day))
+        except finance_expenses.FinanceNotSetUp:
+            break_even = None
+    projected = logic.projection(first_day, daily, today, tracking_start)
+    return logic.month_target(summary["total"], break_even, last_month, projected)
 
 
 def _shown(row):

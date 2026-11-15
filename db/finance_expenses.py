@@ -245,3 +245,24 @@ def performance_expenses(trend_from, first_day, last_day):
     except errors.UndefinedTable:
         raise FinanceNotSetUp()
     return rows, monthly, categories
+
+
+def recent_monthly_expenses(before_month, months=3):
+    """[(month, operating total)] for up to `months` whole months before
+    before_month that have any expense recorded (a month with none is "not
+    entered", not "free", so it is left out rather than averaged in as 0)."""
+    try:
+        with db_cursor() as (conn, cur):
+            cur.execute(
+                """
+                SELECT date_trunc('month', spent_on)::date, sum(amount)
+                FROM expenses
+                WHERE voided_at IS NULL AND kind = 'operating'
+                  AND spent_on < %s AND spent_on >= (%s::date - make_interval(months => %s))
+                GROUP BY 1 ORDER BY 1
+                """,
+                (before_month, before_month, months),
+            )
+            return cur.fetchall()
+    except errors.UndefinedTable:
+        raise FinanceNotSetUp()

@@ -188,3 +188,110 @@ def mask_account(account):
     if len(head) >= 9 and head.isdigit():
         head = head[:4] + "****" + head[-4:]
     return head + sep + tail
+
+
+# ---- Month target (Phase 7E) ----
+
+def projection(first_day, daily, today, tracking_start, weeks=6, min_samples=3):
+    """Where the running month should land: completed days as they are, plus
+    each remaining day (today included) at the average of the same weekday
+    over the last `weeks` weeks. Today counts at whichever is higher, its
+    sales so far or its usual day. Hotspot is prepaid, so there is no
+    "expected" figure, only this projection (spec section 4). None for a
+    finished month, or when any weekday has fewer than `min_samples` past
+    days to average."""
+    last_day = date(first_day.year, first_day.month, month_days(first_day))
+    if not first_day <= today <= last_day:
+        return None
+    usual = {}
+    for weekday in range(7):
+        samples = [daily.get(d, (ZERO, 0))[0] for d in _days(today - timedelta(weeks=weeks), today - timedelta(days=1))
+                   if d.weekday() == weekday and has_data(d, tracking_start, today)]
+        if len(samples) < min_samples:
+            return None
+        usual[weekday] = sum(samples, ZERO) / len(samples)
+    completed = _total(daily, [d for d in _days(first_day, today - timedelta(days=1)) if has_data(d, tracking_start, today)])
+    today_value = max(daily.get(today, (ZERO, 0))[0], usual[today.weekday()])
+    rest = sum((usual[d.weekday()] for d in _days(today + timedelta(days=1), last_day)), ZERO)
+    return {"projected": (completed + today_value + rest).quantize(Decimal("1")), "weeks": weeks}
+
+
+def break_even_line(recent_expenses):
+    """Average monthly operating expenses over the recent months that have
+    expenses recorded: below this the business loses money. None if none
+    are recorded."""
+    if not recent_expenses:
+        return None
+    total = sum((amount for _, amount in recent_expenses), ZERO)
+    return {"amount": (total / len(recent_expenses)).quantize(Decimal("1")), "months": len(recent_expenses)}
+
+
+def month_target(income, break_even, last_month, projected, manual=None):
+    """The progress bar: the target is the owner's own figure when set,
+    otherwise break-even (spec section 4). Every other line is a marker."""
+    if manual is not None:
+        target, source = manual, "manual"
+    elif break_even is not None:
+        target, source = break_even["amount"], "break_even"
+    else:
+        target, source = None, None
+    return {"income": income, "target": target, "target_source": source,
+            "progress_pct": (income / target * 100).quantize(Decimal("1")) if target else None,
+            "break_even": break_even, "last_month": last_month, "projected": projected}
+
+
+# ---- Needs attention (Phase 7E) ----
+
+def attention(first_day, daily, today, tracking_start, now_eat, last_sale_eat, unpriced, unlinked,
+              quiet_hours=3, low_share=Decimal("0.6"), weeks=4, limit=5):
+    """What on the Income page needs someone to look, worst first:
+      - a package selling while unpriced (money booked as KSh 0)
+      - no paid sale for `quiet_hours` hours during the day (outage or sync)
+      - a completed day with no sales at all
+      - a completed day below `low_share` of a usual same weekday (the
+        average of up to `weeks` earlier same weekdays; needs 3 to judge)
+      - sales not linked to a site (counted here, missing from Revenue)
+    Each item: level ('bad' | 'warn' | 'info'), title, detail, and day when
+    it points at one day's transactions."""
+    items = []
+    for package, sales in unpriced:
+        items.append({"level": "bad", "title": f"“{package}” is selling but has no price",
+                      "detail": f"{sales} sale{'s' if sales != 1 else ''} this month counted as KSh 0. Set its price under "
+                                "Hotspot Status → Manage sites → Packages."})
+
+    last_day = date(first_day.year, first_day.month, month_days(first_day))
+    if first_day <= today <= last_day and last_sale_eat and 7 <= now_eat.hour < 22:
+        quiet = now_eat - last_sale_eat
+        if quiet >= timedelta(hours=quiet_hours):
+            hours = int(quiet.total_seconds() // 3600)
+            items.append({"level": "bad", "title": f"No hotspot sale for {hours} hours",
+                          "detail": f"The last paid sale was at {last_sale_eat:%H:%M}. Possible outage or a stopped "
+                                    "router feed: check Hotspot Status."})
+
+    day_items = []
+    for day in _days(first_day, min(last_day, today - timedelta(days=1))):
+        if not has_data(day, tracking_start, today):
+            continue
+        value = daily.get(day, (ZERO, 0))[0]
+        if value == 0:
+            day_items.append({"level": "bad", "day": day, "title": f"No hotspot sales on {day:%a %-d %b}",
+                              "detail": "A whole day without a paid sale: likely an outage or a stopped feed."})
+            continue
+        before = [daily.get(day - timedelta(weeks=n), (ZERO, 0))[0] for n in range(1, weeks + 1)
+                  if has_data(day - timedelta(weeks=n), tracking_start, today)]
+        if len(before) < 3:
+            continue
+        usual = sum(before, ZERO) / len(before)
+        if usual and value < usual * low_share:
+            drop = int(((usual - value) / usual * 100).quantize(Decimal("1")))
+            day_items.append({"level": "warn", "day": day, "title": f"{day:%a %-d %b} was {drop}% below a usual {day:%A}",
+                              "detail": f"KSh {value:,.0f} against about KSh {usual:,.0f} on the last {len(before)} {day:%A}s."})
+    day_items.sort(key=lambda i: i["day"], reverse=True)
+    items += day_items[:limit]
+
+    sales, total = unlinked
+    if sales:
+        items.append({"level": "info", "title": f"{sales} sale{'s' if sales != 1 else ''} not linked to a site",
+                      "detail": f"KSh {total:,.0f} counted here but left out of the Revenue page, which only shows "
+                                "sales placed at a site."})
+    return items

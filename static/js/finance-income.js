@@ -86,7 +86,8 @@ function render() {
         return;
     }
     $("fin-inc-body").innerHTML = [
-        tilesHtml(r), r.split ? splitHtml(r.split) : "", trendHtml(), patternsHtml(r), buyersHtml(r.buyers),
+        tilesHtml(r), attentionHtml(r.attention), targetHtml(r.target, r.summary.is_current_month, r.segment),
+        r.split ? splitHtml(r.split) : "", trendHtml(), patternsHtml(r), buyersHtml(r.buyers),
     ].join("");
     drawChart();
 }
@@ -122,6 +123,62 @@ function tilesHtml(r) {
                      : tile("Best day", "—", "No completed day yet")}
         ${s.is_current_month ? tile("Today so far", money(s.today), "Still counting: not in the average", { day: nairobiDate() }) : ""}
     </div>`;
+}
+
+// ---- Needs attention (worst first; a day item opens that day's sales) ----
+
+const LEVEL_LABEL = { bad: "Act now", warn: "Check", info: "Note" };
+
+function attentionHtml(items) {
+    if (!items) return "";
+    if (!items.length) {
+        return `<p class="fin-inc-all-clear">Nothing needs attention this month: no silent days, no unusually low days, no unpriced packages.</p>`;
+    }
+    return `<section class="fin-inc-card fin-inc-attention" aria-labelledby="fin-inc-attention-title">
+        <h2 class="section-title" id="fin-inc-attention-title">Needs attention</h2>
+        <ul>${items.map(i => `<li class="fin-inc-alert ${i.level}">
+            <span class="fin-inc-alert-level">${LEVEL_LABEL[i.level] || "Note"}</span>
+            <div><strong>${esc(i.title)}</strong><div class="fin-inc-alert-detail">${esc(i.detail)}</div>
+            ${i.day ? `<button type="button" class="fin-inc-link" data-day="${esc(i.day)}">See that day's sales</button>` : ""}</div>
+        </li>`).join("")}</ul>
+    </section>`;
+}
+
+// ---- Month target: one bar, the target, and markers for the rest ----
+
+function targetHtml(t, isCurrent, segment) {
+    if (!t) return "";
+    const markers = [];
+    if (t.break_even && t.target_source !== "break_even") markers.push(["break-even", "Break-even", t.break_even.amount]);
+    if (t.last_month != null) markers.push(["last-month", "Last month", t.last_month]);
+    if (t.projected) markers.push(["projected", "Projected", t.projected.projected]);
+    const scale = Math.max(1, Number(t.income), Number(t.target || 0), ...markers.map(m => Number(m[2]))) * 1.06;
+    const at = v => `${Math.min(100, Number(v) / scale * 100).toFixed(1)}%`;
+    const reached = t.target != null && Number(t.income) >= Number(t.target);
+    let heading;
+    if (t.target_source === "break_even") {
+        heading = `Target: break-even, ${money(t.target)} <span class="muted">(average monthly expenses over ${t.break_even.months} recorded month${t.break_even.months === 1 ? "" : "s"})</span>`;
+    } else if (t.target_source === "manual") {
+        heading = `Target: ${money(t.target)} <span class="muted">(set by you)</span>`;
+    } else if (segment !== "all") {
+        heading = `<span class="muted">Break-even covers the whole business, so it shows on the All view.</span>`;
+    } else {
+        heading = `<span class="muted">No target yet: record expenses and break-even appears here.</span>`;
+    }
+    const legend = [
+        `<span><i class="fin-inc-key bar${reached ? " reached" : ""}"></i>Income ${isCurrent ? "so far" : ""} ${money(t.income)}${t.progress_pct != null ? ` · ${t.progress_pct}% of target` : ""}</span>`,
+        t.target != null ? `<span><i class="fin-inc-tick target"></i>Target</span>` : "",
+        ...markers.map(([cls, label, v]) => `<span><i class="fin-inc-tick ${cls}"></i>${label} ${money(v)}${cls === "projected" ? ` <span class="muted">(estimate: same weekdays, last ${t.projected.weeks} weeks)</span>` : ""}</span>`),
+    ].join("");
+    return `<section class="fin-inc-card fin-inc-target">
+        <div class="fin-inc-target-head"><h2 class="section-title">Month target</h2><span>${heading}</span></div>
+        <div class="fin-inc-target-bar" role="img" aria-label="Income against the month target">
+            <span class="fin-inc-target-fill${reached ? " reached" : ""}" style="width:${at(t.income)}"></span>
+            ${t.target != null ? `<span class="fin-inc-target-tick target" style="left:${at(t.target)}"></span>` : ""}
+            ${markers.map(([cls, , v]) => `<span class="fin-inc-target-tick ${cls}" style="left:${at(v)}"></span>`).join("")}
+        </div>
+        <div class="fin-inc-legend">${legend}</div>
+    </section>`;
 }
 
 // ---- The thin PPPoE / Hotspot / Other bar (All only) ----

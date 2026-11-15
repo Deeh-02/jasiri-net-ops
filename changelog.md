@@ -9,6 +9,16 @@ and in `phase.md`'s own per-phase writeups.
 
 Started 2026-11-15 at the owner's request, after Phase 6 was merged to `main`.
 
+### Income: month target and Needs attention (2026-11-15)
+- **Month target** on Income: one bar for the month's income against
+  break-even (your average monthly expenses), with last month and, for the
+  running month, a projection from recent same weekdays (marked an
+  estimate).
+- **Needs attention** lists, worst first: a package selling without a
+  price, hours with no hotspot sale during the day, a day with no sales, a
+  day well below its usual weekday, and sales not linked to a site. A day
+  item opens that day's sales.
+
 ### Performance: the monthly profit statement (2026-11-15)
 - **Finance → Performance** answers "did we make money this month, and where
   did it go?": net profit and margin, income, expenses, and the day income

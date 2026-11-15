@@ -1927,7 +1927,13 @@ def hotspot_income_for_month(history_from, first_day, last_day):
       buyers      {buyers, first_time, repeat}: accounts (hotspot usernames,
                   one per phone and device, not people) that paid in the
                   month, how many paid for the first time ever, and how many
-                  paid more than once in it."""
+                  paid more than once in it
+      unpriced    [(package, sales)] sold in the month but missing from
+                  hotspot_packages, so booked at KSh 0 (money not counted)
+      unlinked    (sales, total) in the month with no site (counted by
+                  Finance, left out of the Revenue page)
+      last_sale   the latest paid sale, ever (naive UTC), for "no sales in
+                  N hours" """
     month = _eat_range_args(first_day, last_day)
     with db_cursor() as (conn, cur):
         cur.execute(f"SELECT min({_SALE_EAT})::date FROM revenue_events re WHERE re.event_type <> 'baseline'")
@@ -1982,8 +1988,30 @@ def hotspot_income_for_month(history_from, first_day, last_day):
             (*month, first_day),
         )
         buyers, first_time, repeat = cur.fetchone()
+        cur.execute(
+            f"""
+            SELECT re.profile_name, count(*)
+            FROM revenue_events re LEFT JOIN hotspot_packages hp ON hp.profile_name = re.profile_name
+            WHERE hp.profile_name IS NULL AND re.event_type <> 'baseline'
+              AND {_SALE_EAT} >= %s AND {_SALE_EAT} < %s
+            GROUP BY 1 ORDER BY 2 DESC
+            """,
+            month,
+        )
+        unpriced = cur.fetchall()
+        cur.execute(
+            f"""
+            SELECT count(*), COALESCE(sum(re.price_kes), 0) FROM revenue_events re
+            WHERE {_PAID_SALE} AND re.monitored_site_id IS NULL AND {_SALE_EAT} >= %s AND {_SALE_EAT} < %s
+            """,
+            month,
+        )
+        unlinked = cur.fetchone()
+        cur.execute(f"SELECT max(re.first_seen_at) FROM revenue_events re WHERE {_PAID_SALE}")
+        last_sale = cur.fetchone()[0]
     return {"first_day": tracking_start, "daily": daily, "hourly": hourly, "packages": packages,
-            "buyers": {"buyers": buyers, "first_time": first_time, "repeat": repeat}}
+            "buyers": {"buyers": buyers, "first_time": first_time, "repeat": repeat},
+            "unpriced": unpriced, "unlinked": unlinked, "last_sale": last_sale}
 
 
 def hotspot_sales(first_day, last_day, search=None, day=None, package=None, limit=50, offset=0):
