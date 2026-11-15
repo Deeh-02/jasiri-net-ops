@@ -115,7 +115,7 @@ const PERM_SECTIONS = [
             },
         ]
     },
-    // The Network section: Network Status, Network Analysis (CCR2116 uplink,
+    // The Network section: Hotspot Status, Network Analysis (CCR2116 uplink,
     // gateway, PPPoE clients) and the OLT page. Its own card (switching
     // sites:view_network), apart from Sites, like the sidebar. Shows customer
     // names, packages and expiry — never phones or payments. The ticks are

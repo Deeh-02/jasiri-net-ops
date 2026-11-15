@@ -305,7 +305,7 @@ def accept_username_matches(user_id):
 
 
 def site_onus(site_ids=None):
-    """site_id -> that site's ONU, for Network Status and the site page. {}
+    """site_id -> that site's ONU, for Hotspot Status and the site page. {}
     when 0034 isn't run yet or the read fails: those pages carry on without it."""
     try:
         with db_cursor() as (_, cur):

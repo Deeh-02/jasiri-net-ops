@@ -804,7 +804,7 @@ export function initRevenue() {
     };
     ["rev-sites-body", "rev-attention", "rev-rankings"].forEach(id => $(id).addEventListener("click", goLink));
 
-    // The tabs (same as Network Status / Trends).
+    // The tabs (same as Hotspot Status / Trends).
     document.querySelectorAll("#view-revenue [data-tab-route], #view-revenue-overview [data-tab-route]")
         .forEach(b => b.addEventListener("click", () => navigate(b.dataset.tabRoute)));
 

@@ -25,6 +25,9 @@ Started 2026-11-10 at the owner's request, after Phase 5 was merged to `main`.
   card (Revenue, People online, Internet uplink, Fibre, Customers).
 - **Side menu**: the green highlight could stay on the page you'd left
   (Dashboard) while another page (Batteries) was open. It now always moves.
+- **Network → Hotspot Status** (was Network Status), with a hotspot icon,
+  and Network Analysis now comes first in the Network section. Its Trends
+  tab is titled Hotspot Trends to match.
 
 ### Cleaner dark mode (2026-11-15)
 - **Dark mode is built like light mode now**: cards and the side menu are a

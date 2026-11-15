@@ -682,7 +682,7 @@ function siteLabel(x) {
 async function confirmSiteLink(onu, site, how) {
     const ok = await confirmDialog({
         title: "Link this ONU to this hotspot site?",
-        message: `ONU: ${onu.name || "—"} (${onu.sn || onu.id})\nSite: ${site.name}${site.vlan_id != null ? ` · vlan ${site.vlan_id}` : ""}\n\nNetwork Status and the site's page will show this ONU's status and signal.`,
+        message: `ONU: ${onu.name || "—"} (${onu.sn || onu.id})\nSite: ${site.name}${site.vlan_id != null ? ` · vlan ${site.vlan_id}` : ""}\n\nHotspot Status and the site's page will show this ONU's status and signal.`,
         confirmLabel: "Link",
     });
     if (ok && await postLink("/olt/links/site", { onu_id: onu.id, site_id: site.id, matched_by: how })) loadLinks();

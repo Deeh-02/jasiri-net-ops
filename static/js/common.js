@@ -472,7 +472,7 @@ const NAV_GROUP_ROUTES = {
 };
 
 // Pages reached from inside another page light up that page's sidebar row:
-// Trends, one site, Manage sites and Packages all open from Network Status.
+// Trends, one site, Manage sites and Packages all open from Hotspot Status.
 const NAV_ACTIVE_ALIAS = { trends: "status", "site-detail": "status", "manage-sites": "status", packages: "status",
                            "revenue-overview": "revenue" };
 

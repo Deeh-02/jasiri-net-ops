@@ -54,9 +54,9 @@ const KPI_LIMIT = 6;
 // The cards, in page order. `span` is columns out of 12 on a wide screen.
 const CARDS = [
     { id: "revenue", section: "revenue", title: "Revenue", sub: "Last 14 days", span: 8, go: ["revenue-overview", "Revenue overview"], draw: drawRevenue },
-    { id: "sites", section: "sites", title: "Sites", sub: "Right now", span: 4, go: ["status", "Network Status"], draw: drawSites },
+    { id: "sites", section: "sites", title: "Sites", sub: "Right now", span: 4, go: ["status", "Hotspot Status"], draw: drawSites },
     { id: "people", section: "people", title: "People online", sub: "This week, hour by hour", span: 8, go: ["trends", "Trends"], draw: drawPeople },
-    { id: "busiest", section: "sites", title: "Busiest sites", sub: "People online right now", span: 4, go: ["status", "Network Status"], draw: drawBusiest },
+    { id: "busiest", section: "sites", title: "Busiest sites", sub: "People online right now", span: 4, go: ["status", "Hotspot Status"], draw: drawBusiest },
     { id: "uplink", section: "uplink", title: "Internet uplink", sub: "Last 24 hours", span: 8, go: ["network", "Network Analysis"], draw: drawUplink },
     { id: "stock", section: "stock", title: "Stock", sub: "What needs reordering", span: 4, go: ["stock", "Stock"], draw: drawStock },
     { id: "fibre", section: "fibre", title: "Fibre", sub: "ONUs on the OLT", span: 4, go: ["olt", "OLT"], draw: drawFibre },
