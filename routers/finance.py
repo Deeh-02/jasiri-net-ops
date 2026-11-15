@@ -22,7 +22,7 @@ import logging
 
 from fastapi.responses import Response
 
-from db import deepseek, finance_ai, finance_expenses, finance_income, finance_logic, finance_messages
+from db import deepseek, finance_ai, finance_expenses, finance_income, finance_logic, finance_messages, finance_performance
 from db.connection import now_eat
 from routers.auth import get_current_user
 from routers.permissions import user_has_permission
@@ -276,3 +276,13 @@ def export_income_transactions(month: str, segment: Segment = "all", search: str
                                            day=day, package=package)
     return Response(content=text, media_type="text/csv",
                     headers={"Content-Disposition": f'attachment; filename="income-{month}-{segment}.csv"'})
+
+
+# ---- Performance (Phase 7D) ----
+
+@router.get("/finance/performance")
+def get_performance(month: str, segment: Segment = "all", current_user: dict = Depends(require_finance_view)):
+    try:
+        return _plain(finance_performance.report(_month(month), segment, now_eat().date()))
+    except finance_expenses.FinanceNotSetUp:
+        raise HTTPException(status_code=503, detail=NOT_SET_UP)

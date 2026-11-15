@@ -9,6 +9,21 @@ and in `phase.md`'s own per-phase writeups.
 
 Started 2026-11-15 at the owner's request, after Phase 6 was merged to `main`.
 
+### Performance: the monthly profit statement (2026-11-15)
+- **Finance → Performance** answers "did we make money this month, and where
+  did it go?": net profit and margin, income, expenses, and the day income
+  passed the month's costs.
+- **The statement** runs from income through direct costs, gross profit,
+  operating expenses and charges to net profit, beside last month. Click an
+  expense line to see its expenses, or an income line to open Income.
+- **Honest about gaps**: PPPoE income isn't recorded yet, so totals say
+  "hotspot only"; a month with no expenses entered shows no profit instead
+  of a perfect one; the month in progress is a Draft. Notes point out
+  equipment purchases (kept out of profit), expenses still in "Other", and
+  costs like bandwidth with nothing recorded.
+- **PPPoE / Hotspot** show that segment's income and its own costs, up to
+  "before shared costs".
+
 ### Income (2026-11-15)
 - **Finance → Income** shows the month's money in, read from the hotspot
   sales the app already records; nothing is typed. Switch All / PPPoE /

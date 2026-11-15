@@ -212,3 +212,36 @@ def void_expense(expense_id, reason, user_id):
                before={"amount": row[0], "reference": row[1]}, reason=reason)
         conn.commit()
     return True
+
+
+def performance_expenses(trend_from, first_day, last_day):
+    """Finance > Performance, over one connection: every live (not voided)
+    expense from first_day to last_day (the chosen month and the one before
+    it, for the statement and its drill-down), monthly totals by kind from
+    trend_from (the 12-month trend), and every category (retired included,
+    so old expenses keep their line)."""
+    try:
+        with db_cursor() as (conn, cur):
+            cur.execute(
+                _EXPENSE_SELECT + """
+                WHERE e.spent_on BETWEEN %s AND %s AND e.voided_at IS NULL
+                ORDER BY e.spent_on, e.id
+                """,
+                (first_day, last_day),
+            )
+            rows = [_expense_dict(r) for r in cur.fetchall()]
+            cur.execute(
+                """
+                SELECT date_trunc('month', spent_on)::date, kind, sum(amount), count(*)
+                FROM expenses
+                WHERE spent_on >= %s AND spent_on <= %s AND voided_at IS NULL
+                GROUP BY 1, 2
+                """,
+                (trend_from, last_day),
+            )
+            monthly = cur.fetchall()
+            cur.execute("SELECT id, name, grp, is_active FROM expense_categories ORDER BY sort_order, name")
+            categories = [{"id": r[0], "name": r[1], "group": r[2], "is_active": r[3]} for r in cur.fetchall()]
+    except errors.UndefinedTable:
+        raise FinanceNotSetUp()
+    return rows, monthly, categories

@@ -147,6 +147,22 @@ accounts are masked (2547****0050). PPPoE shows "not recorded yet", per the
 owner. Rules in `db/finance_income_logic.py`, tested. Left for 7E: month
 target, expected vs received, Needs attention.
 
+**7D Performance (2026-11-15):** the page keeps the name "Performance"
+(owner's call). Monthly statement (this month | last month | change):
+income by segment, direct costs, gross profit, operating expenses by
+category (each unfolds into its expenses; income lines open Income), operating
+profit, depreciation (waits for 7F) with taxes and charges, net profit, with
+margins. Tiles: net profit, margin, income, expenses, break-even day. 12-month
+income/expenses bars with a profit line, where the money went, and notes
+(capital purchases left out, expenses in Other, direct-cost categories with
+nothing recorded). PPPoE / Hotspot stop at "before shared costs" and count
+only costs tagged with that segment. Cash basis and the unconfirmed VAT
+treatment are stated at the top. Missing is never zero: PPPoE income marks
+every total "hotspot only"; a month with no expenses recorded has no profit
+figure; the current month is Draft with no change column. Rules in
+`db/finance_performance_logic.py`, tested. Overview's contents are not in the
+spec: its placeholder now says so and waits for the owner.
+
 ### Open questions (from the spec, with what the code already answers)
 
 1. **PPPoE payments: where do they come from?** Not in OPS today. Options:

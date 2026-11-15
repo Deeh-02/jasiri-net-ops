@@ -2,9 +2,21 @@
         <div class="page-header-row">
             <div>
                 <h1 class="page-title">Finance <span>Performance</span></h1>
-                <p class="page-subtitle">After all costs, did the business make money this month?</p>
+                <p class="page-subtitle">After all costs, did the business make money this month, and where did it go?</p>
             </div>
+            <span class="fin-perf-status" id="fin-perf-status"></span>
         </div>
 
-        <div class="state state-empty"><span class="state-title">Coming in Phase 7D</span>A monthly statement built from income and expenses, cash basis.</div>
+        <div class="toolbar">
+            <div class="fleet-range" id="fin-perf-segment" role="group" aria-label="Segment">
+                <button type="button" data-segment="all" aria-pressed="true">All</button>
+                <button type="button" data-segment="pppoe" aria-pressed="false">PPPoE</button>
+                <button type="button" data-segment="hotspot" aria-pressed="false">Hotspot</button>
+            </div>
+            <label class="toolbar-field"><span>Month</span>
+                <input type="month" class="control" id="fin-perf-month">
+            </label>
+        </div>
+
+        <div id="fin-perf-body"></div>
     </section>

@@ -2023,3 +2023,22 @@ def hotspot_sales(first_day, last_day, search=None, day=None, package=None, limi
         rows = [{"id": r[0], "at": utc_iso(r[1]), "account": r[2], "package": r[3], "amount": r[4],
                  "site": r[5], "kind": r[6], "attribution": r[7]} for r in cur.fetchall()]
     return {"rows": rows, "matching": matching, "matching_total": matching_total}
+
+
+def hotspot_daily_totals(first_day, last_day):
+    """Finance > Performance: ([(EAT day, total)] of paid hotspot sales, the
+    day records began), over one connection. (hotspot_income_for_month
+    carries the Income page's extras; this is the lean version.)"""
+    with db_cursor() as (conn, cur):
+        cur.execute(
+            f"""
+            SELECT {_SALE_EAT}::date, sum(re.price_kes)
+            FROM revenue_events re
+            WHERE {_PAID_SALE} AND {_SALE_EAT} >= %s AND {_SALE_EAT} < %s
+            GROUP BY 1 ORDER BY 1
+            """,
+            _eat_range_args(first_day, last_day),
+        )
+        daily = cur.fetchall()
+        cur.execute(f"SELECT min({_SALE_EAT})::date FROM revenue_events re WHERE re.event_type <> 'baseline'")
+        return daily, cur.fetchone()[0]
