@@ -128,6 +128,25 @@ when editing. A typed name is not remembered by the supplier rule (the rule
 holds category and type only): remembering it would need a `display_name`
 column on `supplier_rules`.
 
+**7C Income (2026-11-15):** Finance > Income with the All / PPPoE /
+Hotspot toggle and month in the URL (`#/finance-income/2026-11/hotspot`).
+Hotspot income is read from `revenue_events` through new functions in
+`db/monitoring.py` (its owner), not the frozen daily tables: Finance shows
+whole-business totals, and those must include the few sales never linked to
+a site, which the daily tables leave out by the owner's 2026-10-14 call
+(KSh 910 in September, none since). A sale's price and time never change
+after it's recorded, so past totals are stable. October reads KSh 353,400,
+the same as the Revenue page. KPI tiles (total, vs last month like for like,
+average a day over completed days, best day, today so far), the split bar
+(PPPoE and Other say "no data yet"), trend by day with last month dashed /
+week / month, weekday averages with n, income by hour, top packages,
+accounts that paid (first time, more than once), and a transactions table
+(search, 50 a page, CSV). Best day, a day's bar and a package each narrow
+the table to their own rows, which add up to the figure. Phone numbers in
+accounts are masked (2547****0050). PPPoE shows "not recorded yet", per the
+owner. Rules in `db/finance_income_logic.py`, tested. Left for 7E: month
+target, expected vs received, Needs attention.
+
 ### Open questions (from the spec, with what the code already answers)
 
 1. **PPPoE payments: where do they come from?** Not in OPS today. Options:

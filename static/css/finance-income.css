@@ -1,0 +1,160 @@
+/* Finance > Income (Phase 7C). Classes are prefixed fin-inc- so nothing here
+   can collide with another view. */
+
+.fin-inc-toolbar { align-items: flex-end; }
+.fin-inc-toolbar .fleet-range { align-self: flex-end; }
+
+/* KPI tiles */
+.fin-inc-tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 12px;
+    margin-bottom: 14px;
+}
+
+.fin-inc-tile {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-top: 3px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px 14px;
+    min-width: 0;
+    text-align: left;
+    color: inherit;
+    font: inherit;
+}
+
+button.fin-inc-tile { cursor: pointer; }
+button.fin-inc-tile:hover { border-color: var(--accent); }
+.fin-inc-tile.total { border-top-color: var(--info); }
+.fin-inc-tile.up { border-top-color: var(--accent); }
+.fin-inc-tile.down { border-top-color: var(--warn); }
+.fin-inc-tile-label { font-size: 12px; color: var(--text-dim); }
+.fin-inc-tile-value {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 24px;
+    font-weight: 600;
+    margin-top: 4px;
+    font-variant-numeric: tabular-nums;
+    overflow-wrap: anywhere;
+}
+.fin-inc-tile-sub { font-size: 11.5px; color: var(--text-dim); margin-top: 2px; }
+
+/* The thin split bar */
+.fin-inc-split { margin-bottom: 14px; }
+.fin-inc-split-bar {
+    display: flex;
+    gap: 2px;
+    height: 6px;
+    border-radius: 999px;
+    overflow: hidden;
+    background: var(--surface-2);
+}
+.fin-inc-split-seg.hotspot, .fin-inc-key.hotspot { background: var(--accent); }
+.fin-inc-split-seg.pppoe, .fin-inc-key.pppoe { background: var(--info); }
+.fin-inc-split-seg.other, .fin-inc-key.other { background: var(--text-faint); }
+.fin-inc-split-legend { font-size: 12.5px; color: var(--text-soft); margin-top: 6px; }
+
+/* Cards */
+.fin-inc-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    margin-bottom: 14px;
+    min-width: 0;
+}
+.fin-inc-card .section-title { margin-bottom: 6px; }
+.fin-inc-card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.fin-inc-card-note { font-size: 12.5px; color: var(--text-dim); margin: 0 0 10px; }
+
+/* Trend chart */
+.fin-inc-legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12px; color: var(--text-soft); margin: 4px 0 6px; }
+.fin-inc-key { display: inline-block; width: 12px; height: 8px; border-radius: 2px; margin-right: 6px; vertical-align: 0; }
+.fin-inc-key.bar { background: var(--accent); }
+.fin-inc-key.compare { height: 0; border-top: 2px dashed var(--text-dim); border-radius: 0; vertical-align: 3px; }
+.fin-inc-key.partial { background: repeating-linear-gradient(45deg, var(--accent) 0 2px, transparent 2px 5px); outline: 1px solid var(--accent); }
+
+.fin-inc-chart { width: 100%; height: auto; display: block; }
+.fin-inc-chart text { fill: var(--text-dim); font-family: 'Inter', sans-serif; font-size: 10px; }
+.fin-inc-chart .grid { stroke: var(--border); stroke-width: 1; }
+.fin-inc-chart .base { stroke: var(--border-strong); stroke-width: 1; }
+.fin-inc-chart .bar { fill: var(--accent); }
+.fin-inc-chart .bar.partial { fill: url(#fin-inc-hatch); stroke: var(--accent); stroke-width: 1.5; }
+.fin-inc-chart .hatch { stroke: var(--accent); stroke-width: 2; opacity: .55; }
+.fin-inc-chart .compare { fill: none; stroke: var(--text-dim); stroke-width: 2; stroke-dasharray: 4 3; pointer-events: none; }
+.fin-inc-chart .hit { fill: transparent; }
+.fin-inc-chart .slot:hover .hit { fill: var(--row-hover); }
+.fin-inc-chart .slot.clickable { cursor: pointer; }
+
+.fin-inc-table-view { margin-top: 8px; font-size: 13px; }
+.fin-inc-table-view summary { cursor: pointer; color: var(--text-dim); }
+.fin-inc-table-view .table-scroll { margin-top: 8px; max-height: 320px; }
+
+/* Patterns */
+.fin-inc-patterns { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.fin-inc-patterns .fin-inc-card { margin-bottom: 14px; }
+
+.fin-inc-row {
+    display: grid;
+    grid-template-columns: minmax(0, 7.5em) 1fr auto 3.6em;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    padding: 4px 0;
+    width: 100%;
+}
+.fin-inc-row-btn {
+    background: none;
+    border: 0;
+    border-radius: var(--radius-sm);
+    color: inherit;
+    font: inherit;
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+    padding: 4px 4px;
+}
+.fin-inc-row-btn:hover { background: var(--row-hover); }
+.fin-inc-row-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fin-inc-row-value { font-variant-numeric: tabular-nums; text-align: right; }
+.fin-inc-row-n { font-size: 11.5px; text-align: right; }
+.fin-inc-meter { display: block; height: 6px; background: var(--surface-2); border-radius: 999px; overflow: hidden; }
+.fin-inc-meter > span { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
+
+.fin-inc-hours { display: flex; align-items: flex-end; gap: 2px; height: 120px; }
+.fin-inc-hour { flex: 1; height: 100%; display: flex; align-items: flex-end; }
+.fin-inc-hour > span { display: block; width: 100%; background: var(--accent); border-radius: 3px 3px 0 0; min-height: 1px; }
+.fin-inc-hour:hover > span { background: var(--info); }
+.fin-inc-hours-axis { display: flex; justify-content: space-between; font-size: 10.5px; color: var(--text-dim); margin-top: 4px; }
+
+.fin-inc-buyers .summary-strip { margin-bottom: 6px; }
+
+/* Transactions */
+.fin-inc-tx { margin-top: var(--section-gap); }
+.fin-inc-search { flex: 0 1 280px; }
+.fin-inc-search .control { width: 100%; }
+.fin-inc-filters { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
+.fin-inc-chip {
+    min-height: 32px;
+    padding: 4px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--accent);
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+    color: var(--text);
+    font: inherit;
+    font-size: 12.5px;
+    cursor: pointer;
+}
+.fin-inc-account { font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+.fin-inc-pager { display: flex; gap: 12px; align-items: center; justify-content: center; margin-top: 12px; font-size: 13px; }
+
+@media (max-width: 1100px) {
+    .fin-inc-patterns { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 760px) {
+    .fin-inc-patterns { grid-template-columns: 1fr; }
+    .fin-inc-tiles { grid-template-columns: 1fr 1fr; }
+    .fin-inc-tile-value { font-size: 20px; }
+    .fin-inc-search { flex: 1 1 100%; }
+}

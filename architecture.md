@@ -2247,6 +2247,18 @@ separate `label` the review screen shows and the supplier rule is keyed on.
 On save a payee in the user's choice wins, and an emptied box means blank
 (`model_dump(exclude_unset=True)` tells "not sent" from "cleared").
 
+**Income reads every sale, not the frozen daily tables.** The Revenue page
+reads `daily_site_revenue` / `hourly_site_revenue`, which leave out sales
+never linked to a site (owner's call, 2026-10-14) and freeze each day so a
+SITE's past figure can't move. Finance shows business totals, so it needs
+those sales too, and for a business total freezing isn't needed: the
+unplaced backfill only ever changes a sale's site, never its price or time.
+So `db/monitoring.py` (which owns `revenue_events`) has read functions for
+Finance; `hotspot_income_for_month` runs a month's five queries over one
+connection, since opening one cost more than all of them together. Paid
+sale = not `baseline`, priced above 0. Days are EAT. The two pages agree
+except for unlinked sales: KSh 910 in September 2026, none since.
+
 **Nothing is deleted.** Expenses are voided with a reason; edits change
 classification only (category, type, segment, description), never amount,
 date or code. Both go to `finance_audit_log` with before/after.

@@ -1894,3 +1894,132 @@ def update_package(package_id, fields):
         found = cur.rowcount > 0
         conn.commit()
     return found
+
+
+# ---- Hotspot sales for Finance (Phase 7C) ----
+#
+# Finance > Income reads hotspot money through these functions rather than
+# touching revenue_events itself. They read revenue_events directly, not the
+# frozen daily tables the Revenue page uses: Finance shows whole-business
+# totals, and those include sales never linked to a site (the daily tables
+# leave them out on purpose, owner's call 2026-10-14). A sale's price and
+# time never change after it is recorded (only its site can, through the
+# unplaced backfill), so a past day's business total is stable here too.
+#
+# A paid sale: not a 'baseline' sighting, and priced above zero ("hp support
+# users" and "default" are free on purpose). Days and hours are EAT.
+
+_PAID_SALE = "re.event_type <> 'baseline' AND re.price_kes > 0"
+_SALE_EAT = "(re.first_seen_at + interval '3 hours')"
+
+
+def _eat_range_args(first_day, last_day):
+    return first_day, last_day + timedelta(days=1)
+
+
+def hotspot_income_for_month(history_from, first_day, last_day):
+    """Everything Finance > Income needs for one month, over ONE database
+    connection (opening one costs more than all five queries together):
+      first_day   the EAT day sales started being recorded, or None
+      daily       [(day, total, sales)] from history_from to last_day
+      hourly      [(hour 0-23, total, sales)] over first_day..last_day
+      packages    [(package, total, sales)], largest first, top 8
+      buyers      {buyers, first_time, repeat}: accounts (hotspot usernames,
+                  one per phone and device, not people) that paid in the
+                  month, how many paid for the first time ever, and how many
+                  paid more than once in it."""
+    month = _eat_range_args(first_day, last_day)
+    with db_cursor() as (conn, cur):
+        cur.execute(f"SELECT min({_SALE_EAT})::date FROM revenue_events re WHERE re.event_type <> 'baseline'")
+        tracking_start = cur.fetchone()[0]
+        cur.execute(
+            f"""
+            SELECT {_SALE_EAT}::date, sum(re.price_kes), count(*)
+            FROM revenue_events re
+            WHERE {_PAID_SALE} AND {_SALE_EAT} >= %s AND {_SALE_EAT} < %s
+            GROUP BY 1 ORDER BY 1
+            """,
+            _eat_range_args(history_from, last_day),
+        )
+        daily = cur.fetchall()
+        cur.execute(
+            f"""
+            SELECT extract(hour FROM {_SALE_EAT})::int, sum(re.price_kes), count(*)
+            FROM revenue_events re
+            WHERE {_PAID_SALE} AND {_SALE_EAT} >= %s AND {_SALE_EAT} < %s
+            GROUP BY 1 ORDER BY 1
+            """,
+            month,
+        )
+        hourly = cur.fetchall()
+        cur.execute(
+            f"""
+            SELECT re.profile_name, sum(re.price_kes), count(*)
+            FROM revenue_events re
+            WHERE {_PAID_SALE} AND {_SALE_EAT} >= %s AND {_SALE_EAT} < %s
+            GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 8
+            """,
+            month,
+        )
+        packages = cur.fetchall()
+        cur.execute(
+            f"""
+            WITH period AS (
+                SELECT re.hotspot_username, count(*) AS purchases
+                FROM revenue_events re
+                WHERE {_PAID_SALE} AND {_SALE_EAT} >= %s AND {_SALE_EAT} < %s
+                GROUP BY 1
+            ), earlier AS (
+                SELECT DISTINCT re.hotspot_username
+                FROM revenue_events re JOIN period p ON p.hotspot_username = re.hotspot_username
+                WHERE {_PAID_SALE} AND {_SALE_EAT} < %s
+            )
+            SELECT count(*),
+                   count(*) FILTER (WHERE p.hotspot_username NOT IN (SELECT hotspot_username FROM earlier)),
+                   count(*) FILTER (WHERE p.purchases > 1)
+            FROM period p
+            """,
+            (*month, first_day),
+        )
+        buyers, first_time, repeat = cur.fetchone()
+    return {"first_day": tracking_start, "daily": daily, "hourly": hourly, "packages": packages,
+            "buyers": {"buyers": buyers, "first_time": first_time, "repeat": repeat}}
+
+
+def hotspot_sales(first_day, last_day, search=None, day=None, package=None, limit=50, offset=0):
+    """One page of paid sales, newest first, plus how many match and their
+    total. Search matches the account, package or site; day and package
+    narrow it further (the figures on Finance > Income open these). limit
+    None returns every match (the CSV export)."""
+    where = [_PAID_SALE, f"{_SALE_EAT} >= %s", f"{_SALE_EAT} < %s"]
+    args = list(_eat_range_args(first_day, last_day))
+    if day:
+        where.append(f"{_SALE_EAT}::date = %s")
+        args.append(day)
+    if package:
+        where.append("re.profile_name = %s")
+        args.append(package)
+    if search:
+        where.append("(re.hotspot_username ILIKE %s OR re.profile_name ILIKE %s "
+                     "OR COALESCE(l.name, ms.name, 'VLAN ' || ms.vlan_id) ILIKE %s)")
+        args += [f"%{search}%"] * 3
+    joins = "LEFT JOIN monitored_sites ms ON ms.id = re.monitored_site_id LEFT JOIN locations l ON l.id = ms.location_id"
+    where_sql = " AND ".join(where)
+    with db_cursor() as (conn, cur):
+        cur.execute(f"SELECT count(*), COALESCE(sum(re.price_kes), 0) FROM revenue_events re {joins} WHERE {where_sql}", args)
+        matching, matching_total = cur.fetchone()
+        page_sql = "" if limit is None else " LIMIT %s OFFSET %s"
+        page_args = [] if limit is None else [limit, offset]
+        cur.execute(
+            f"""
+            SELECT re.id, re.first_seen_at, re.hotspot_username, re.profile_name, re.price_kes,
+                   COALESCE(l.name, ms.name, 'VLAN ' || ms.vlan_id), re.event_type, re.attribution
+            FROM revenue_events re {joins}
+            WHERE {where_sql}
+            ORDER BY re.first_seen_at DESC, re.id DESC{page_sql}
+            """,
+            args + page_args,
+        )
+        rows = [{"id": r[0], "at": utc_iso(r[1]), "account": r[2], "package": r[3], "amount": r[4],
+                 "site": r[5], "kind": r[6], "attribution": r[7]} for r in cur.fetchall()]
+    return {"rows": rows, "matching": matching, "matching_total": matching_total}

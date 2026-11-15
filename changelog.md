@@ -9,6 +9,22 @@ and in `phase.md`'s own per-phase writeups.
 
 Started 2026-11-15 at the owner's request, after Phase 6 was merged to `main`.
 
+### Income (2026-11-15)
+- **Finance → Income** shows the month's money in, read from the hotspot
+  sales the app already records; nothing is typed. Switch All / PPPoE /
+  Hotspot and the month; the address keeps both, so a view can be
+  bookmarked.
+- **At a glance**: total, against last month (like for like: the same
+  days, or whole months once finished), average a day, best day and today
+  so far. A month before records began says so instead of showing KSh 0.
+- **Trend** by day (last month dashed beside it), week or month, with a
+  table view; **patterns** by weekday and hour, top packages, and how many
+  accounts paid, for the first time or more than once.
+- **Every figure opens its rows**: click the best day, a day's bar or a
+  package and the transactions below narrow to exactly those sales. Search,
+  page through, or export to CSV. Phone numbers are partly hidden.
+- **PPPoE** says it isn't recorded yet; it fills in once its source is set.
+
 ### Expenses: paste, check, save (2026-11-15)
 - **Paste M-Pesa or bank messages** on Finance → Expenses, as many as you
   like, straight from the phone or a WhatsApp forward. The app reads the

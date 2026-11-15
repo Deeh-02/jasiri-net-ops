@@ -2,9 +2,48 @@
         <div class="page-header-row">
             <div>
                 <h1 class="page-title">Finance <span>Income</span></h1>
-                <p class="page-subtitle">Money in, from the data the app already has.</p>
+                <p class="page-subtitle">Money in, from the data the app already records. Cash basis: counted when paid.</p>
             </div>
+            <button type="button" class="btn-secondary" id="fin-inc-export">Export CSV</button>
         </div>
 
-        <div class="state state-empty"><span class="state-title">Coming in Phase 7C</span>Hotspot income from the router sales comes first. PPPoE income waits until its payment source is decided.</div>
+        <div class="toolbar fin-inc-toolbar">
+            <div class="fleet-range" id="fin-inc-segment" role="group" aria-label="Segment">
+                <button type="button" data-segment="all" aria-pressed="true">All</button>
+                <button type="button" data-segment="pppoe" aria-pressed="false">PPPoE</button>
+                <button type="button" data-segment="hotspot" aria-pressed="false">Hotspot</button>
+            </div>
+            <label class="toolbar-field"><span>Month</span>
+                <input type="month" class="control" id="fin-inc-month">
+            </label>
+        </div>
+
+        <div id="fin-inc-body"></div>
+
+        <section class="fin-inc-tx" id="fin-inc-tx" aria-labelledby="fin-inc-tx-title">
+            <h2 class="section-title" id="fin-inc-tx-title">Transactions</h2>
+            <div class="toolbar">
+                <label class="toolbar-field fin-inc-search"><span>Search</span>
+                    <input type="search" class="control" id="fin-inc-search" placeholder="Package, site or phone digits" maxlength="60">
+                </label>
+                <div class="fin-inc-filters" id="fin-inc-filters"></div>
+                <span class="toolbar-count" id="fin-inc-count"></span>
+            </div>
+            <div class="table-scroll table-compact">
+                <table class="table-dense" id="fin-inc-table">
+                    <thead>
+                        <tr>
+                            <th>When</th>
+                            <th>Account</th>
+                            <th>Package</th>
+                            <th>Site</th>
+                            <th>Type</th>
+                            <th class="num">Amount</th>
+                        </tr>
+                    </thead>
+                    <tbody id="fin-inc-rows" data-skeleton="6"></tbody>
+                </table>
+            </div>
+            <div class="fin-inc-pager" id="fin-inc-pager"></div>
+        </section>
     </section>

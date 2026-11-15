@@ -20,7 +20,9 @@ from pydantic import BaseModel, Field
 
 import logging
 
-from db import deepseek, finance_ai, finance_expenses, finance_logic, finance_messages
+from fastapi.responses import Response
+
+from db import deepseek, finance_ai, finance_expenses, finance_income, finance_logic, finance_messages
 from db.connection import now_eat
 from routers.auth import get_current_user
 from routers.permissions import user_has_permission
@@ -237,3 +239,40 @@ def save_expenses(body: SaveExpenses, current_user: dict = Depends(require_expen
     result = finance_expenses.save_expenses(rows, rules, current_user["id"])
     saved_total = finance_logic.total_amount([r for r in rows if r["reference"] not in result["skipped_references"]])
     return _plain(dict(result, total=saved_total, rules_saved=len(rules)))
+
+
+# ---- Income (Phase 7C) ----
+
+Segment = Literal["all", "pppoe", "hotspot"]
+
+
+def _month(month: str):
+    try:
+        return finance_logic.month_bounds(month)[0]
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Month must look like 2026-11")
+
+
+@router.get("/finance/income")
+def get_income(month: str, segment: Segment = "all", current_user: dict = Depends(require_finance_view)):
+    return _plain(finance_income.income_report(_month(month), segment, now_eat().date()))
+
+
+@router.get("/finance/income/transactions")
+def get_income_transactions(month: str, segment: Segment = "all", search: str | None = None,
+                            day: date | None = None, package: str | None = None, page: int = 1,
+                            current_user: dict = Depends(require_finance_view)):
+    search = (search or "").strip()[:60] or None
+    return _plain(finance_income.transactions(_month(month), segment, now_eat().date(), search=search,
+                                              day=day, package=package, page=max(1, page)))
+
+
+@router.get("/finance/income/transactions.csv")
+def export_income_transactions(month: str, segment: Segment = "all", search: str | None = None,
+                               day: date | None = None, package: str | None = None,
+                               current_user: dict = Depends(require_finance_view)):
+    search = (search or "").strip()[:60] or None
+    text = finance_income.transactions_csv(_month(month), segment, now_eat().date(), search=search,
+                                           day=day, package=package)
+    return Response(content=text, media_type="text/csv",
+                    headers={"Content-Disposition": f'attachment; filename="income-{month}-{segment}.csv"'})
