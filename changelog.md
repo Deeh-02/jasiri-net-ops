@@ -8,6 +8,7 @@ and in `phase.md`'s own per-phase writeups.
 ## Phase 6 — SmartOLT (on `phase-6-smartolt`)
 
 Started 2026-11-10 at the owner's request, after Phase 5 was merged to `main`.
+Completed 2026-11-15 (owner's confirmation).
 
 ### Top bar, charge menu, revenue hover card (2026-11-15)
 - **Top bar on a computer**: the search sits in the middle, and the light /
