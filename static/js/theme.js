@@ -13,7 +13,7 @@
 // browser's View Transitions; without them, or with animations off, it just
 // switches). Phones and computers get the same blob.
 
-const META = { dark: "#000000", light: "#f2f3f5" };
+const META = { dark: "#08090b", light: "#f2f3f5" };
 const SWEEP_MS = 1100;
 
 export const currentTheme = () => (document.documentElement.dataset.theme === "light" ? "light" : "dark");

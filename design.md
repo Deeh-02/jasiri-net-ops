@@ -27,8 +27,16 @@ are the dark ones.
 Dark theme, defined once as CSS custom properties in `common.css`'s `:root`
 (every view's CSS reads these, never redefines its own palette):
 
-- `--bg` `#000000`, `--surface` `#0a0a0a`, `--surface-2` `#141414`,
-  `--border` `#262626` — background layers, darkest to lightest.
+- `--bg` `#08090b`, `--surface` `#111316`, `--surface-2` `#181b1f`,
+  `--border` `#202328` — background layers, darkest to lightest.
+  **Dark is built like light (2026-11-15):** a near-black page with cards
+  and the sidebar a step lighter, lifted by a shadow in `--edge`, so a card
+  shows by its fill and not only its outline. It was pure black cards
+  (`#0a0a0a`) on a pure black page (`#000`), where every card needed its
+  grey border to be seen and the page read as a grid of outlined boxes;
+  the owner found light cleaner. Phone status bar `#08090b`. The installed
+  app's splash and `offline.html` stay `#000` (the splash image is on
+  black).
 - `--text` `#e9edf2`, `--text-dim` `#8b96a5` — primary vs. secondary text.
 - `--accent` `#3ddc97` (green) — the one brand/action color: primary
   buttons, active nav state, "charged"/"at base"/"online" states, focus
@@ -214,7 +222,8 @@ what is truly its own.
   floating label (`.home-tip`), and a line chart a rule with a dot per
   line. A reading nobody took is a gap in the line, never a zero.
 - **Polish pass (2026-11-13):** panels carry `--edge` (a lit top edge via
-  `box-shadow`, since a drop shadow does nothing on black); the primary
+  `box-shadow`; since 2026-11-15 it also carries a drop shadow in dark,
+  which shows now that the page isn't pure black); the primary
   button has a soft top-to-bottom gradient and glows on hover; the top bar
   is translucent with a blur; the page has a faint accent glow behind the
   dot grid. A pressed toggle (`.fleet-range`, `.sr-range`) is an accent

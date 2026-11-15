@@ -8,13 +8,17 @@
    readable as text on white. */
 :root {
     --scheme: dark;
-    --bg: #000000;
-    --surface: #0a0a0a;          /* cards, panels, the bars */
-    --surface-2: #141414;        /* inputs, insets, hover */
-    --surface-3: #191919;
-    --surface-hover: #0e0e0e;
-    --border: #262626;
-    --border-strong: #333333;
+    /* Built like light (2026-11-15): a near-black page with cards a step
+       lighter, so a card stands out by its fill and a soft shadow, not only
+       by its outline. With pure black cards on a pure black page every card
+       needed its grey border to show, and the page read as a grid of boxes. */
+    --bg: #08090b;
+    --surface: #111316;          /* cards, panels, the bars */
+    --surface-2: #181b1f;        /* inputs, insets, hover */
+    --surface-3: #1f2227;
+    --surface-hover: #15171b;
+    --border: #202328;
+    --border-strong: #2d3137;
     --text: #e9edf2;
     --text-soft: #b4bcc7;        /* sidebar page names */
     --text-dim: #8b96a5;
@@ -24,19 +28,20 @@
     --warn: #f5a623;
     --danger: #ef5b5b;
     --info: #4fa8ff;
-    --row-alt: #0d0d0d;
-    --row-hover: #151718;
-    --rule-soft: rgba(255, 255, 255, 0.055);
-    --dot: #141414;              /* the page's dot grid */
-    --glass: rgba(10, 10, 10, 0.78);
-    --scrim: rgba(8, 10, 14, 0.7);
-    --skel-1: #161616;
-    --skel-2: #1f1f1f;
+    --row-alt: #14161a;
+    --row-hover: #1a1d21;
+    --rule-soft: rgba(255, 255, 255, 0.06);
+    --dot: #131518;              /* the page's dot grid */
+    --glass: rgba(17, 19, 22, 0.8);
+    --scrim: rgba(4, 5, 7, 0.7);
+    --skel-1: #1a1d21;
+    --skel-2: #23272c;
     --hatch-1: #1b1d1f;
     --hatch-2: #2a2e33;
     --shadow: #000000;
-    /* A panel's depth. On black a shadow shows nothing, so the top edge is lit. */
-    --edge: inset 0 1px 0 rgba(255, 255, 255, 0.045);
+    /* A panel's depth: a faint lit top edge plus a shadow (which shows now
+       that the page isn't pure black). */
+    --edge: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px -12px rgba(0, 0, 0, 0.7);
     color-scheme: dark;
 }
 :root[data-theme="light"] {
@@ -2718,8 +2723,8 @@ button[aria-busy="true"]::after {
 @media (max-width: 339px) { .global-topbar-name { display: none; } }
 
 /* ---- Polish pass (2026-11-13) ----
-   Panels get a lit top edge so they lift off the black page (a shadow does
-   nothing on black). box-shadow, not background, so a view's own
+   Panels get --edge (a lit top edge and a shadow in dark, a soft shadow
+   in light). box-shadow, not background, so a view's own
    `background:` can't undo it. */
 .table-scroll, .summary-item, .rev-card, .rev-tile, .rev-income-chart-wrap, .rev-finding,
 .olt-card, .olt-facts, .olt-graph, .olt-los-card,
@@ -2759,7 +2764,8 @@ button[aria-busy="true"]::after {
         radial-gradient(1100px 520px at 72% -160px, color-mix(in srgb, var(--accent) 9%, transparent), transparent 70%),
         radial-gradient(var(--dot) 1px, transparent 1px);
 }
-/* White cards on a grey page, lifted by a soft shadow, as in the reference. */
-:root[data-theme="light"] :is(.stat-card, .modal-box, .login-box, .notifications-panel, .topbar-avatar-menu) { box-shadow: var(--edge); }
+/* Cards lifted off the page by a soft shadow, in both themes (white on grey
+   in light, a lighter grey on near-black in dark). */
+:is(.stat-card, .modal-box, .login-box, .notifications-panel, .topbar-avatar-menu) { box-shadow: var(--edge); }
 :root[data-theme="light"] .sidebar { background: var(--surface); }
 :root[data-theme="light"] .topbar-icon-btn, :root[data-theme="light"] .topbar-search { background: var(--surface-2); }

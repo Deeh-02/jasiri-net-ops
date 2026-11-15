@@ -9,6 +9,12 @@ and in `phase.md`'s own per-phase writeups.
 
 Started 2026-11-10 at the owner's request, after Phase 5 was merged to `main`.
 
+### Cleaner dark mode (2026-11-15)
+- **Dark mode is built like light mode now**: cards and the side menu are a
+  shade lighter than the page and sit on a soft shadow, instead of black
+  boxes outlined in grey on a black page. Less clutter, same colours for
+  text and the green.
+
 ### Theme switch and phone name (2026-11-14)
 - **Phone top bar** keeps the name: JASIRI NET with a small OPS under it,
   next to the logo, on all but the very narrowest phones (under 340px).
