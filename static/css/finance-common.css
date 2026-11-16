@@ -253,7 +253,7 @@ button.fin-rank { cursor: pointer; }
 .fin-rank-share { text-align: right; font-variant-numeric: tabular-nums; color: var(--text-faint); font-size: 11.5px; }
 .fin-rank-track { display: block; height: 8px; border-radius: 4px; background: var(--surface-3); overflow: hidden; }
 .fin-rank-fill { display: block; height: 100%; min-width: 2px; border-radius: 0 4px 4px 0; background: var(--accent); transform-origin: 0 50%; }
-.fin-rank-fill.expenses, .fin-rank-fill.cost { background: var(--info); }
+.fin-rank-fill.expenses, .fin-rank-fill.cost, .fin-rank-fill.pppoe { background: var(--info); }
 .fin-rank-fill[style*="width:0.0%"] { min-width: 0; }
 
 /* ---- Split bar ---- */
@@ -456,3 +456,8 @@ button.fin-rank { cursor: pointer; }
     .fin-rank-track { grid-column: 1 / -1; grid-row: 2; }
     .fin-rank-label { white-space: normal; overflow: visible; }
 }
+
+/* The Snapshot's six headline cards: money in, out, profit, equipment bought, cash left, estimate. */
+#fin-ov-kpis { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; }
+@media (max-width: 1180px) { #fin-ov-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 760px) { #fin-ov-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

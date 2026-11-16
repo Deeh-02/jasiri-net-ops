@@ -72,7 +72,7 @@ function waiting(name, lines) {
 function drawFrame() {
     $("fin-ov-status").innerHTML = "";
     $("fin-ov-lead").innerHTML = `<p class="fin-lead">${skeleton(1)}</p>`;
-    $("fin-ov-kpis").innerHTML = ["in", "out", "profit", "cash", "ahead"].map(id =>
+    $("fin-ov-kpis").innerHTML = ["in", "out", "profit", "equip", "cash", "ahead"].map(id =>
         `<div id="fin-ov-kpi-${id}" style="display:contents"><div class="skeleton-card" aria-hidden="true"><span class="skeleton" style="width:55%"></span><span class="skeleton"></span></div></div>`).join("");
     const month = state.month;
     if (state.range) {
@@ -155,6 +155,7 @@ function rangeTotals(perf) {
         points: pts, income: has("income").length ? sumOf(has("income").map(p => p.income)) : null,
         expenses: has("expenses").length ? sumOf(has("expenses").map(p => p.expenses)) : null,
         profit: both.length ? sumOf(both.map(p => p.profit)) : null,
+        equipment: both.length ? sumOf(both.map(p => p.capital || 0)) : null,
         cash: both.length ? sumOf(both.map(p => p.profit)) - sumOf(both.map(p => p.capital || 0)) : null,
         average: averaged.length ? sumOf(averaged.map(p => p.income)) / averaged.length : null,
         incomeMonths: has("income").length, expenseMonths: has("expenses").length, bothMonths: both.length,
@@ -188,7 +189,7 @@ function drawRangeKpis() {
     const report = state.performance, perf = got("performance"), to = state.month;
     if (!report) return;
     if (!perf) {
-        ["in", "out", "profit", "cash", "ahead"].forEach(id => setKpi(id, kpi({ label: id, value: null, sub: report.error })));
+        ["in", "out", "profit", "equip", "cash", "ahead"].forEach(id => setKpi(id, kpi({ label: id, value: null, sub: report.error })));
         return;
     }
     const t = rangeTotals(perf), none = "Not recorded";
@@ -197,6 +198,7 @@ function drawRangeKpis() {
     setKpi("out", kpi({ label: "Money out", value: t.expenses == null ? null : money(t.expenses), none, href: `finance-expenses/${to}` }));
     setKpi("profit", kpi({ label: "Profit", value: t.profit == null ? null : money(t.profit), none: "No figure yet",
                           flag: t.profit != null && t.profit < 0 ? ["A loss", "bad"] : null, href: `finance-performance/${to}/all` }));
+    setKpi("equip", kpi({ label: "Equipment bought", value: t.equipment == null ? null : money(t.equipment), none: "No figure yet", href: `finance-assets` }));
     setKpi("cash", kpi({ label: "Cash left", value: t.cash == null ? null : money(t.cash), none: "No figure yet",
                          flag: t.cash != null && t.cash < 0 ? ["More went out than came in", "bad"] : null, href: `finance-performance/${to}/all` }));
     setKpi("ahead", kpi({ label: "Average a month", value: t.average == null ? null : money(t.average), none: "No figure yet" }));
@@ -262,6 +264,10 @@ function drawPerformanceKpis() {
         href: `finance-performance/${month}/all`,
     }));
     const cash = t.cash_left;
+    setKpi("equip", kpi({
+        label: "Equipment bought", value: cash == null ? null : money(t.equipment_total || 0), none: "No figure yet",
+        sub: cash == null ? "Needs this month's expenses" : "", href: "finance-assets",
+    }));
     setKpi("cash", kpi({
         label: "Cash left", value: cash == null ? null : money(cash), none: "No figure yet",
         change: perf.income_comparable ? monthChange(perf, cash, last.cash_left, true) : null,
@@ -433,14 +439,15 @@ function drawSources() {
     if (!inc?.has_data) { fill("fin-ov-sources", state.income.ok ? `<p class="fin-empty">No income records for this month.</p>` : stateHtml("error", state.income.error)); return; }
     const names = { hotspot: "Hotspot", pppoe: "PPPoE", other: "Installation & equipment" };
     const parts = Object.entries(inc.split || {}).map(([key, v]) => ({ key, label: names[key] || key, amount: v, value: v == null ? "" : money(v) }));
-    const rowsOf = list => list.slice(0, 5).map(p => ({
+    const rowsOf = (list, colour) => list.slice(0, 5).map(p => ({
         label: p.package, amount: Number(p.total), value: money(p.total), share: p.share_pct == null ? "" : `${Math.round(Number(p.share_pct))}%`,
-        tip: tipAttr(p.package, [{ key: "income", label: "Income", value: money(p.total) }, { label: "Payments", value: Number(p.sales).toLocaleString() },
+        tip: tipAttr(p.package, [{ key: colour, label: "Income", value: money(p.total) }, { label: "Payments", value: Number(p.sales).toLocaleString() },
                                  { label: "Share of segment", value: `${p.share_pct}%` }]),
     }));
     const by = inc.segment_packages || {};
-    const lists = [["hotspot", "Top hotspot packages"], ["pppoe", "Top PPPoE packages"]]
-        .map(([key, title]) => `<h3 class="fin-h">${title}</h3>${ranked(rowsOf(by[key] || []), { key: "income", empty: "No packages sold this month." })}`).join("");
+    // Each list wears its segment's colour, as in the split bar above: hotspot green, PPPoE blue.
+    const lists = [["hotspot", "Hotspot packages", "income"], ["pppoe", "PPPoE packages", "pppoe"]]
+        .map(([key, title, colour]) => `<h3 class="fin-h">${title}</h3>${ranked(rowsOf(by[key] || [], colour), { key: colour, empty: "No packages sold this month." })}`).join("");
     fill("fin-ov-sources", `${parts.length ? splitBar(parts, "Income by segment") : ""}${lists}`);
 }
 
