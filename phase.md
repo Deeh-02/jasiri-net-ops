@@ -289,7 +289,7 @@ would count those months twice. 9 PPPoE payments made into the old paybill
 after the move have no new-system recharge to match (KSh 25,010: JS06,
 JS12, Marvel, mara, charles, Prisca 7,000, Sunton_Hotspot 2,000 and three
 small ones) and are counted; the import prints them for review.
-**Not yet applied to the production database: waiting for the owner's go.**
+**Applied to the production database 2026-11-16 with the owner's go:** migration 0040 (19 move-day entries marked "moved") and the import (147,446 rows saved, 147,281 counted, KSh 2,293,380; import 1, by user 1).
 
 **7G Month-end, deferred (2026-11-15):** owner's call: 7G is a "nice to
 have", not a must for Phase 7. Nothing built; revisit as the module gets
