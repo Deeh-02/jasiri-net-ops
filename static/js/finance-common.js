@@ -162,6 +162,10 @@ export function wireTips(root) {
     if (!root || root.dataset.finTips) return;
     root.dataset.finTips = "1";
     const show = e => {
+        // A chart with its own crosshair (mountPace) shows its own card: this
+        // handler runs after it as the event bubbles, and hiding the card here
+        // because nothing under the pointer has a data-tip made it vanish.
+        if (e.target.closest?.("[data-own-tip]")) return;
         const el = e.target.closest?.("[data-tip]");
         if (!el || !root.contains(el)) { hideTip(); return; }
         showTip(el.dataset.tip, e.clientX, e.clientY);
@@ -287,6 +291,7 @@ export function monthPoints(trend) {
             { key: "income", label: "Income", value: p.income == null ? "no data" : money(p.income) },
             { key: "expenses", label: "Expenses", value: p.expenses == null ? "not recorded" : money(p.expenses) },
             { key: "profit", label: "Profit", value: p.profit == null ? "no figure" : money(p.profit) },
+            Number(p.capital) ? { label: "Equipment bought", value: money(p.capital) } : null,
         ], p.partial ? "Still counting: the month isn't over." : ""),
     }));
 }
@@ -303,17 +308,18 @@ export function monthsTable(points) {
 }
 
 // One month's statement (the Performance report's `this`) as the steps of
-// the bridge: income, less each kind of cost, leaving net profit.
+// the bridge: income, less each kind of cost, leaving net profit; then the
+// equipment bought, leaving the cash.
 export function profitSteps(t) {
     const tip = (label, amount, note) => amount == null ? "" : tipAttr(label, [{ label: "Amount", value: money(amount) }], note);
-    const counted = t.lines.depreciation != null;   // depreciation is named only once Assets can work it out
     return [
         { kind: "start", label: "Income", amount: t.income_total, tip: tip("Income", t.income_total, t.income_incomplete ? "Hotspot only: PPPoE isn't recorded yet" : "") },
         { kind: "minus", label: "Direct costs", amount: t.direct_total, none: "not recorded", tip: tip("Direct costs", t.direct_total, "Bandwidth and fibre rental") },
         { kind: "minus", label: "Operating expenses", amount: t.operating_total, none: "not recorded", tip: tip("Operating expenses", t.operating_total, "Power, rent, salaries, airtime and the rest") },
-        { kind: "minus", label: counted ? "Depreciation, taxes, charges" : "Taxes and charges", amount: t.finance_total, none: "not recorded",
-          tip: tip(counted ? "Depreciation, taxes and charges" : "Taxes and charges", t.finance_total, counted ? "" : "Depreciation isn't counted yet") },
+        { kind: "minus", label: "Taxes and charges", amount: t.finance_total, none: "not recorded", tip: tip("Taxes and charges", t.finance_total, "M-Pesa and bank charges, licences, taxes") },
         { kind: "result", label: "Net profit", amount: t.net_profit, none: "no figure yet", tip: tip("Net profit", t.net_profit, t.net_margin != null ? `${t.net_margin}% of income` : "") },
+        { kind: "minus", label: "Equipment bought", amount: t.equipment_total, none: "not recorded", tip: tip("Equipment bought", t.equipment_total, "Kept, not a running cost, so not in profit") },
+        { kind: "result", label: "Cash left", amount: t.cash_left, none: "no figure yet", tip: tip("Cash left", t.cash_left, "What the month left after costs and equipment") },
     ];
 }
 
@@ -362,7 +368,8 @@ export function meter(fraction, tone = "") {
 
 // From income down to profit, one step per row: income as a full bar, each
 // cost as the piece it takes away (starting where the last one ended), and
-// what is left at the bottom.
+// what is left. A result can be followed by more steps (net profit, less the
+// equipment bought, leaves the cash).
 // steps: [{ kind: "start" | "minus" | "result", label, amount, none }]
 //   amount null = not recorded: the row says so (`none`) and draws no bar.
 export function bridge(steps) {
@@ -372,6 +379,7 @@ export function bridge(steps) {
         const amount = Number(s.amount);
         if (s.kind === "start") { running = amount; return { ...s, from: 0, to: amount }; }
         if (s.kind === "minus") { const before = running; running -= amount; return { ...s, from: running, to: before }; }
+        running = amount;
         return { ...s, from: Math.min(0, amount), to: Math.max(0, amount) };
     });
     const ends = laid.filter(s => s.from != null).flatMap(s => [s.from, s.to]);
@@ -537,8 +545,12 @@ export function mountPace(box, model) {
         const area = thisRun.length > 1 ? `<path class="area income" d="${pathOf(thisRun)} L${ex.toFixed(1)},${y(0)} L${thisRun[0][0].toFixed(1)},${y(0)} Z"/>` : "";
         const stroke = thisRun.length > 1 ? `<path class="line income" d="${pathOf(thisRun)}"/>` : "";
         const left = ex > L + 110;
+        // Above the dot, unless last month's line runs just above it there:
+        // then below, inside the shaded area, so the two never cross.
+        const lastHere = days[reached].last, crowded = lastHere != null && y(Number(lastHere)) < ey && ey - y(Number(lastHere)) < 48;
+        const ly = crowded ? Math.min(y(0) - 6, ey + 20) : Math.max(T + 4, ey - 9);
         now = `${area}${stroke}<circle class="dot income" cx="${ex}" cy="${ey}" r="4.5"/>
-            <text class="val" x="${ex + (left ? -9 : 9)}" y="${Math.max(T + 4, ey - 9)}" text-anchor="${left ? "end" : "start"}">${esc(money(days[reached].total))}</text>`;
+            <text class="val now" x="${ex + (left ? -9 : 9)}" y="${ly}" text-anchor="${left ? "end" : "start"}">${esc(money(days[reached].total))}</text>`;
     }
     let ahead = "";
     if (model.projected != null && reached >= 0 && reached < n - 1) {
@@ -557,6 +569,7 @@ export function mountPace(box, model) {
     paceCharts.set(box, { model, W, L, R, x, y, n });
     if (box.dataset.finPace) return;
     box.dataset.finPace = "1";
+    box.dataset.ownTip = "1";
     // Moving over the chart: a rule on the nearest day, a dot on each line,
     // and both running totals in the floating label.
     const move = e => {
@@ -566,6 +579,7 @@ export function mountPace(box, model) {
         const i = Math.max(0, Math.min(m.n - 1, Math.round((px - m.L) / (m.W - m.L - m.R) * (m.n - 1))));
         const d = m.model.days[i], hover = svg.querySelector(".hover");
         hover.removeAttribute("hidden");
+        svg.classList.add("is-hovering");
         hover.querySelector(".rule").setAttribute("x1", m.x(i));
         hover.querySelector(".rule").setAttribute("x2", m.x(i));
         [["income", d.total], ["compare", d.last]].forEach(([cls, v]) => {
@@ -579,7 +593,11 @@ export function mountPace(box, model) {
             { key: "compare", label: `${m.model.lastName}, up to the same day`, value: d.last == null ? "no data" : money(d.last) },
         ], gap == null ? "" : gap === 0 ? "Level with last month" : `${gap > 0 ? "▲ Ahead of" : "▼ Behind"} last month by ${money(Math.abs(gap))}`), e.clientX, e.clientY);
     };
-    const leave = () => { box.querySelector(".hover")?.setAttribute("hidden", ""); hideTip(); };
+    const leave = () => {
+        box.querySelector(".hover")?.setAttribute("hidden", "");
+        box.querySelector("svg")?.classList.remove("is-hovering");
+        hideTip();
+    };
     box.addEventListener("pointermove", move);
     box.addEventListener("pointerdown", move);
     box.addEventListener("pointerleave", leave);

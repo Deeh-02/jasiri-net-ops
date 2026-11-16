@@ -3,8 +3,11 @@ pure functions (no clock, no database). Tested in
 tests/test_finance_performance.py.
 
 Basis (stated on the page): CASH. Income counts when paid, expenses when
-paid. Capital purchases (equipment kept) are left out of profit and listed
-in the notes; they reach profit later as depreciation, from Assets (7F).
+paid. Capital purchases (equipment kept) are left out of profit, then taken
+off below it: Net profit less Equipment bought is the Cash left. There is no
+depreciation (owner's call, 2026-11-16: the useful lives were guesses, so
+spreading a purchase over months made a figure nobody could check; the
+accountant works out the tax allowances).
 
 Missing is never zero (spec principle 4):
   - PPPoE and other income have no source yet: their lines are None, and
@@ -37,7 +40,7 @@ def _operating(expenses):
     return [e for e in expenses if e["kind"] == "operating"]
 
 
-def month_statement(income, expenses, categories, segment="all", depreciation=None):
+def month_statement(income, expenses, categories, segment="all"):
     """One month's statement. income: {'pppoe','hotspot','other'} -> amount
     or None. expenses: that month's live expense rows (both kinds).
     segment 'all' gives the whole business down to net profit; 'pppoe' or
@@ -83,18 +86,19 @@ def month_statement(income, expenses, categories, segment="all", depreciation=No
         return result
 
     operating_total = group_total(groups["operating"] + groups["other"])
-    charges_total = group_total(groups["finance_tax"])
-    # Depreciation comes from Assets: None when no asset has the figures to
-    # be depreciated yet (it is then left out, and the page says so).
-    lines["depreciation"] = depreciation
-    finance_total = None if charges_total is None else charges_total + (depreciation or ZERO)
+    finance_total = group_total(groups["finance_tax"])
     operating_profit = None if gross is None or operating_total is None else gross - operating_total
     net = None if operating_profit is None or finance_total is None else operating_profit - finance_total
+    # Equipment bought to keep: not a running cost, so not in profit, but it
+    # is money that left the account, so it comes off what is left.
+    equipment = None if not recorded else sum((Decimal(e["amount"]) for e in expenses if e["kind"] == "capital"), ZERO)
     result.update(
         operating_total=operating_total, operating_profit=operating_profit,
         operating_margin=_margin(operating_profit, income_total),
         finance_total=finance_total, net_profit=net, net_margin=_margin(net, income_total),
         expenses_total=None if not recorded else sum((Decimal(e["amount"]) for e in operating), ZERO),
+        equipment_total=equipment,
+        cash_left=None if net is None or equipment is None else net - equipment,
     )
     return result
 
@@ -108,13 +112,13 @@ def change(this, last):
     return {"amount": this - last, "pct": pct}
 
 
-def statement_rows(this, last, categories, items_by_category, is_draft=False,
-                   depreciation_note="Straight-line, from Assets"):
+def statement_rows(this, last, categories, items_by_category, is_draft=False, equipment_items=()):
     """The statement as display rows, each with this month, last month and
     the change. Expense lines carry their own expenses (drill-down); an
     expense line is shown when either month has money on it. While the month
     is still running (draft) there is no change column: half a month against
-    a whole one would read as a collapse."""
+    a whole one would read as a collapse. The whole business ends at Cash
+    left: net profit less the equipment bought (equipment_items, drill-down)."""
     rows = []
 
     def compare(a, b):
@@ -163,12 +167,16 @@ def statement_rows(this, last, categories, items_by_category, is_draft=False,
     total("Operating profit", this["operating_profit"], last["operating_profit"], kind="result",
           margin=this["operating_margin"], incomplete=this["income_incomplete"])
 
-    section("Depreciation, taxes and charges")
-    line("depreciation", "Depreciation", note=depreciation_note)
+    section("Taxes and charges")
     cost_lines({"finance_tax"})
-    total("Total", this["finance_total"], last["finance_total"])
+    total("Total taxes and charges", this["finance_total"], last["finance_total"])
     total("Net profit", this["net_profit"], last["net_profit"], kind="result", margin=this["net_margin"],
           incomplete=this["income_incomplete"])
+
+    section("After equipment")
+    total("Equipment bought", this["equipment_total"], last["equipment_total"], kind="line", key="equipment",
+          items=list(equipment_items), note="Kept, not a running cost, so not in profit")
+    total("Cash left", this["cash_left"], last["cash_left"], kind="result", incomplete=this["income_incomplete"])
     return rows
 
 

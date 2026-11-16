@@ -12,7 +12,11 @@ import {
 // a month with no expenses recorded has no profit figure, and a month still
 // running is a Draft with no change column.
 //
-// Top to bottom: the headline figures, the steps from income to profit
+// Below Net profit the statement takes off the equipment bought, leaving the
+// Cash left: equipment isn't a running cost, so it stays out of profit, but it
+// is money that left the account. No depreciation (owner's call, 2026-11-16).
+//
+// Top to bottom: the headline figures, the steps from income to cash left
 // beside where the money went, twelve months of income, expenses and profit,
 // then the statement itself. The tiles, cards and charts are Finance's
 // shared ones (finance-common.js).
@@ -104,11 +108,17 @@ function tilesHtml(r) {
     const evenTile = even?.day ? kpi({ label: "Break-even", value: dayLabel(even.day, { day: "numeric", month: "short" }), flag: ["Reached", "good"], sub: "The day income passed this month's costs" })
         : even ? kpi({ label: "Break-even", value: "Not yet", flag: ["Not reached", "warn"], sub: `${money(even.to_go)} to go` })
         : kpi({ label: "Break-even", value: null, none: "No costs yet", sub: "Needs this month's expenses" });
+    const cash = t.cash_left;
     return `<div class="fin-kpis">
         ${kpi({ label: "Net profit", value: net == null ? null : money(net), none: "No figure yet", change: versus(net, last.net_profit, true),
                 flag: net != null && Number(net) < 0 ? ["A loss", "bad"] : null,
-                sub: net == null ? "Needs this month's expenses" : `After all recorded costs${t.income_incomplete ? " (hotspot only)" : ""}` })}
-        ${kpi({ label: "Margin", value: t.net_margin == null ? null : `${t.net_margin}%`, none: "No figure yet", sub: "Of every KSh 100 of income, what is left" })}
+                sub: net == null ? "Needs this month's expenses"
+                    : `${t.net_margin != null ? `${t.net_margin}% of income, ` : ""}after all running costs${t.income_incomplete ? " (hotspot only)" : ""}` })}
+        ${kpi({ label: "Equipment bought", value: t.equipment_total == null ? null : money(t.equipment_total), none: "Not recorded",
+                sub: "Kept, not a running cost, so not in profit" })}
+        ${kpi({ label: "Cash left", value: cash == null ? null : money(cash), none: "No figure yet", change: versus(cash, last.cash_left, true),
+                flag: cash != null && Number(cash) < 0 ? ["More went out than came in", "bad"] : null,
+                sub: cash == null ? "Needs this month's expenses" : "Net profit less the equipment bought" })}
         ${kpi({ label: "Income", value: t.income_total == null ? null : money(t.income_total), change: versus(t.income_total, last.income_total, true),
                 sub: t.income_incomplete ? "Hotspot only: PPPoE not recorded" : "All segments", href: `finance-income/${r.month.slice(0, 7)}/all` })}
         ${kpi({ label: "Expenses", value: t.expenses_total == null ? null : money(t.expenses_total), none: "Not recorded",
@@ -130,9 +140,8 @@ function bridgeCard(r) {
             { kind: "result", label: "Before shared costs", amount: t.before_shared_costs, none: "no figure yet", tip: tip("Before shared costs", t.before_shared_costs) },
         ]) });
     }
-    const note = !t.expenses_recorded ? `No expenses are recorded for ${monthName(r.month)}, so the costs and the profit are blank.`
-        : t.lines.depreciation == null ? "Depreciation isn't counted yet: equipment needs purchase dates on the Assets page." : "";
-    return card({ span: r.where?.categories.length ? 7 : 12, title: "From income to profit", sub: "Income, then what each kind of cost takes away, down to what is left.",
+    const note = !t.expenses_recorded ? `No expenses are recorded for ${monthName(r.month)}, so the costs and the profit are blank.` : "";
+    return card({ span: r.where?.categories.length ? 7 : 12, title: "From income to cash left", sub: "Income, then what each kind of cost takes away, down to profit; then the equipment bought.",
                   body: bridge(profitSteps(t)) + (note ? `<p class="fin-card-note">${esc(note)}</p>` : "") });
 }
 
@@ -156,7 +165,7 @@ function trendCard(points) {
     return card({
         title: "Month by month", sub: "Income and operating expenses side by side, with profit as the line.",
         body: `<div class="fin-chart-box" id="fin-perf-chart"></div>
-            ${legend([{ key: "income", label: "Income" }, { key: "expenses", label: "Expenses (operating)" }, { key: "profit", label: "Profit before depreciation" },
+            ${legend([{ key: "income", label: "Income" }, { key: "expenses", label: "Expenses (operating)" }, { key: "profit", label: "Profit" },
                       points.some(p => p.partial) ? { key: "partial", label: "Still counting" } : null,
                       { note: "A month with no expenses recorded has no expense bar and no profit point." }])}
             ${monthsTable(points)}`,
@@ -201,10 +210,6 @@ function statementHtml(r) {
 
 function notesHtml(r) {
     const n = r.notes, items = [];
-    if (n.capital.rows.length) {
-        items.push(`<li><strong>Equipment bought to keep: ${moneyOrNone(n.capital.total)}</strong>, left out of profit above. It reaches profit month by month as depreciation, from the Assets page.
-            <ul>${n.capital.rows.map(e => `<li>${esc(dayName(e.spent_on))} · ${esc(e.payee || e.description || "Cash")} · ${moneyOrNone(e.amount)}</li>`).join("")}</ul></li>`);
-    }
     if (n.uncategorised.count) {
         items.push(`<li>${n.uncategorised.count} expense${n.uncategorised.count === 1 ? " is" : "s are"} in "Other" (${moneyOrNone(n.uncategorised.total)}). Give ${n.uncategorised.count === 1 ? "it" : "them"} a category on the <a href="#/finance-expenses/${r.month.slice(0, 7)}">Expenses page</a> so the statement is accurate.</li>`);
     }

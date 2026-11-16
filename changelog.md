@@ -9,6 +9,20 @@ and in `phase.md`'s own per-phase writeups.
 
 Started 2026-11-15 at the owner's request, after Phase 6 was merged to `main`.
 
+### No more depreciation; "Cash left" instead (2026-11-16)
+- **Book value and depreciation are gone** from Assets, Performance and the
+  Snapshot, along with useful life and salvage. They rested on lives we had
+  only guessed; your accountant handles equipment for tax.
+- **Performance and the Snapshot now show Cash left**: Net profit, less the
+  equipment bought that month. Equipment still isn't counted as a running
+  cost, but a month that bought kit no longer looks richer than your account.
+  Click "Equipment bought" in the statement to see what was bought.
+- **Assets** shows what the equipment cost, where it stands and when
+  warranties end. A purchase date is optional now; it shows how old an item
+  is, and nothing nags you to fill it in.
+- The hover card on Snapshot's "income, day by day" chart now shows while
+  you slide along it.
+
 ### Finance at a glance: the Snapshot and charts on every page (2026-11-16)
 - **Finance → Snapshot** (was "Overview", an empty page): the month on one
   screen. A sentence saying what came in, went out and was left; five

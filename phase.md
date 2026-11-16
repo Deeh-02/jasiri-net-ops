@@ -220,6 +220,16 @@ practice for now." No new table and no new endpoint.
   Roles tick and the assistant's guide renamed to match); Operations keeps
   "Dashboard". Outside Finance's file scope, done at the owner's request.
 
+**Depreciation taken out (2026-11-16, owner's call):** "too much maths for
+lives we only guessed." Book value, depreciation, useful life and salvage
+are gone from every page and from the API; the purchase date is optional
+and gives an item's age; the "no purchase date" warning is gone. In their
+place Performance (and the Snapshot) take equipment off below Net profit:
+Net profit − Equipment bought = **Cash left**, with the capital expenses as
+its drill-down. No schema change: `asset_category_lives` and the life/salvage
+columns stay, unused. Assets keeps cost by category, status, warranties,
+"Paid by", and a per-category "Set date".
+
 **7G Month-end, deferred (2026-11-15):** owner's call: 7G is a "nice to
 have", not a must for Phase 7. Nothing built; revisit as the module gets
 used. If picked up: exports and the M-Pesa statement check need no new
@@ -254,7 +264,9 @@ table; closing a month needs one (proposed for approval first).
 The owner checks out `phase-7-finance` locally and confirms: expenses can be
 pasted, reviewed and saved with duplicates skipped; Income and Performance
 show the month for All / PPPoE / Hotspot with every figure drilling down to
-its rows; Assets shows book value and depreciation from Inventory. Closing and
+its rows; Assets shows what Inventory's equipment cost, its status and
+warranties, and Performance shows the cash left after equipment bought (no
+depreciation: owner, 2026-11-16). Closing and
 exporting a month (7G) is optional and deferred (owner, 2026-11-15). Anything the owner defers is recorded here.
 
 ---

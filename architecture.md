@@ -2263,12 +2263,20 @@ except for unlinked sales: KSh 910 in September 2026, none since.
 (items, unit cost, status, location, movement log); Finance reads it only
 through `db/inventory_items.get_all_items` and
 `db/inventory_transactions.get_transaction_log` and keeps its money facts in
-its own tables (`asset_values`, `asset_category_lives`, migration 0038).
-Cost is never copied, so the two can't disagree. An item's own life or
-salvage beats its category's. No purchase date means no book value (owner's
-call, option A), and Performance's depreciation says how many items it left
-out. `finance_assets.months_depreciation` loads the assets once for both of
-Performance's months.
+its own table (`asset_values`, migration 0038): purchase date, warranty,
+segment, the capital expense that paid for it. Cost is never copied, so the
+two can't disagree.
+
+**No depreciation (owner's call, 2026-11-16).** It was built in 7F
+(straight-line over a useful life per category) and taken out: the lives were
+guesses, so book value and the monthly charge couldn't be checked, and tax
+allowances are the accountant's. Instead the statement takes equipment off
+below Net profit: Net profit − Equipment bought (capital expenses) = Cash
+left, so a month that bought kit doesn't look richer than the account is.
+The purchase date stays, optional, for an item's age. `asset_category_lives`
+and `asset_values.life_months` / `salvage` stay in the database, no longer
+read or written; dropping them would be a schema change for no gain, and
+they hold the owner's chosen lives if the accountant ever wants them.
 
 **Nothing is deleted.** Expenses are voided with a reason; edits change
 classification only (category, type, segment, description), never amount,

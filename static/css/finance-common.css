@@ -342,6 +342,9 @@ button.fin-rank { cursor: pointer; }
 .fin-chart .dot.projected { fill: var(--surface); stroke: var(--accent); }
 .fin-chart .avg, .fin-chart .target { stroke: var(--text-dim); stroke-width: 1.5; stroke-dasharray: 5 4; pointer-events: none; }
 .fin-chart .rule { stroke: var(--text-dim); stroke-width: 1; pointer-events: none; }
+/* While the crosshair is out, its card gives the figures: the end label steps aside. */
+.fin-pace .val.now { transition: opacity 0.15s ease; }
+.fin-pace.is-hovering .val.now { opacity: 0; }
 
 /* The same figures as a table, under a chart. */
 .fin-table-view { font-size: 13px; }
@@ -363,7 +366,7 @@ button.fin-rank { cursor: pointer; }
     left: 0;
     z-index: 60;
     pointer-events: none;
-    max-width: 280px;
+    max-width: min(340px, calc(100vw - 16px));
     background: var(--surface-2);
     border: 1px solid var(--border-strong);
     border-radius: var(--radius-sm);

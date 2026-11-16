@@ -7,12 +7,6 @@
                     <label class="fin-ast-label">Purchase date
                         <input type="date" id="fin-ast-purchased">
                     </label>
-                    <label class="fin-ast-label">Useful life (months)
-                        <input type="number" id="fin-ast-life" min="1" max="600" placeholder="Category default">
-                    </label>
-                    <label class="fin-ast-label">Salvage value (KSh)
-                        <input type="number" id="fin-ast-salvage" min="0" step="1" placeholder="Category default">
-                    </label>
                     <label class="fin-ast-label">Warranty until
                         <input type="date" id="fin-ast-warranty">
                     </label>
@@ -28,7 +22,7 @@
                         <select id="fin-ast-expense"></select>
                     </label>
                 </div>
-                <p class="form-hint">Cost, status and location come from Inventory; change them there. Leave life or salvage empty to use the category default.</p>
+                <p class="form-hint">Cost, status and location come from Inventory; change them there. The purchase date is optional: it gives the item's age.</p>
                 <div class="modal-actions">
                     <button type="button" id="fin-ast-item-cancel" class="btn-secondary">Close</button>
                     <button type="submit" class="btn-primary" id="fin-ast-item-save">Save</button>
@@ -46,14 +40,8 @@
         <div class="modal-box fin-ast-modal">
             <h3 id="fin-ast-cat-title">Category</h3>
             <form id="fin-ast-cat-form" class="panel-form">
-                <label class="fin-ast-label">Default useful life (months)
-                    <input type="number" id="fin-ast-cat-life" min="1" max="600" required>
-                </label>
-                <label class="fin-ast-label">Default salvage (% of cost)
-                    <input type="number" id="fin-ast-cat-salvage" min="0" max="99" step="0.5" required>
-                </label>
-                <label class="fin-ast-label">Purchase date for every item in this category that has none yet (optional)
-                    <input type="date" id="fin-ast-cat-date">
+                <label class="fin-ast-label">Purchase date for every item in this category that has none yet
+                    <input type="date" id="fin-ast-cat-date" required>
                 </label>
                 <p class="form-hint" id="fin-ast-cat-hint"></p>
                 <div class="modal-actions">
@@ -69,21 +57,21 @@
         <div class="page-header-row">
             <div>
                 <h1 class="page-title">Finance <span>Assets</span></h1>
-                <p class="page-subtitle">What the equipment in Inventory is worth, and what it costs each month.</p>
+                <p class="page-subtitle">What the equipment in Inventory cost, where it stands, and when warranties run out.</p>
             </div>
         </div>
 
-        <p class="fin-ast-basis">Book value and depreciation are management figures: straight-line over each item's useful life, from the month it was bought. Tax treatment of equipment is for the accountant. Cost, status and location are Inventory's own.</p>
+        <p class="fin-ast-basis">Cost, status and location are Inventory's own. Money spent on equipment shows on Performance as "Equipment bought", taken off below Net profit.</p>
 
         <div id="fin-ast-top"></div>
 
         <section class="fin-ast-card" aria-labelledby="fin-ast-cat-heading">
             <h2 class="section-title" id="fin-ast-cat-heading">Categories</h2>
-            <p class="fin-ast-note">Default useful life and salvage for each Inventory category. Use Edit to set a purchase date for all of a category's undated items at once.</p>
+            <p class="fin-ast-note">What each category cost. A purchase date is optional: it only shows how old an item is. Set date gives every undated item in a category the same date.</p>
             <div class="table-scroll table-compact">
                 <table class="table-dense">
-                    <thead><tr><th>Category</th><th class="num">Items</th><th class="num">Cost</th><th class="num">Useful life</th><th class="num">Salvage</th><th class="num">Dated</th><th id="fin-ast-cat-manage-th" hidden></th></tr></thead>
-                    <tbody id="fin-ast-cat-rows" data-skeleton="6"></tbody>
+                    <thead><tr><th>Category</th><th class="num">Items</th><th class="num">Cost</th><th class="num">With a date</th><th id="fin-ast-cat-manage-th" hidden></th></tr></thead>
+                    <tbody id="fin-ast-cat-rows" data-skeleton="4"></tbody>
                 </table>
             </div>
         </section>
@@ -113,7 +101,7 @@
                         <th>Segment</th>
                         <th>Location</th>
                         <th class="num">Cost</th>
-                        <th class="num">Book value</th>
+                        <th>Bought</th>
                         <th>Status</th>
                     </tr>
                 </thead>

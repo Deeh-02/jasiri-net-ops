@@ -3,7 +3,8 @@ migration 0038. Inventory stays the equipment register: its items, costs,
 statuses, locations and movement log are read through db/inventory_items.py
 and db/inventory_transactions.py, never queried or changed here. Finance only
 keeps the money facts beside them. Every change is written to
-finance_audit_log.
+finance_audit_log. No book value or depreciation (owner's call, 2026-11-16;
+see db/finance_assets_logic.py).
 """
 from decimal import Decimal
 
@@ -15,69 +16,48 @@ from db.connection import db_cursor
 from db.finance_expenses import FinanceNotSetUp, _audit
 
 ASSET_TRACKING_TYPE = "asset_serialized"
-VALUE_FIELDS = ("purchased_on", "life_months", "salvage", "warranty_until", "segment", "expense_id")
+# The money facts Finance keeps per item. asset_values also has life_months
+# and salvage columns, no longer read or written (no depreciation).
+VALUE_FIELDS = ("purchased_on", "warranty_until", "segment", "expense_id")
 
 
 def _finance_rows(with_capital_expenses=False):
-    """({item_id: value row}, {category_id: life row}, [unlinked capital
-    expenses] or None) over one connection."""
+    """({item_id: value row}, [unlinked capital expenses] or None) over one
+    connection."""
     try:
         with db_cursor() as (conn, cur):
             cur.execute(f"SELECT item_id, {', '.join(VALUE_FIELDS)} FROM asset_values")
             values = {r[0]: dict(zip(VALUE_FIELDS, r[1:])) for r in cur.fetchall()}
-            cur.execute("SELECT category_id, life_months, salvage_pct FROM asset_category_lives")
-            lives = {r[0]: {"life_months": r[1], "salvage_pct": r[2]} for r in cur.fetchall()}
             capital = _unlinked_capital_expenses(cur) if with_capital_expenses else None
     except errors.UndefinedTable:
         raise FinanceNotSetUp()
-    return values, lives, capital
+    return values, capital
 
 
 def _inventory_assets():
     return [i for i in inventory_items.get_all_items() if i["tracking_type"] == ASSET_TRACKING_TYPE]
 
 
-def assets(today, with_capital_expenses=False):
-    """Every serialised Inventory item with its Finance figures, the
-    category defaults, and (if asked) the unlinked capital expenses."""
-    values, lives, capital = _finance_rows(with_capital_expenses)
-    items = _inventory_assets()
-    described = [logic.describe(i, values.get(i["id"]), lives.get(i["category_id"]), today) for i in items]
-    return described, lives, capital
-
-
 def report(today):
-    described, lives, capital = assets(today, with_capital_expenses=True)
+    """Every serialised Inventory item with its Finance facts, totals per
+    category, what needs attention, and the unlinked capital expenses (for
+    the item dialog's "Paid by" picker)."""
+    values, capital = _finance_rows(with_capital_expenses=True)
+    described = [logic.describe(i, values.get(i["id"]), today) for i in _inventory_assets()]
     categories = {}
     for a in described:
         c = categories.setdefault(a["category_id"], {"id": a["category_id"], "name": a["category"], "items": 0,
-                                                     "dated": 0, "cost": Decimal("0"), "life": lives.get(a["category_id"])})
+                                                     "dated": 0, "cost": Decimal("0")})
         c["items"] += 1
-        c["dated"] += 0 if "purchase date" in a["terms"]["missing"] else 1
-        c["cost"] += a["terms"]["cost"] or Decimal("0")
+        c["dated"] += 1 if a["purchased_on"] else 0
+        c["cost"] += a["cost"] or Decimal("0")
     return {
         "assets": described,
-        "summary": logic.summary(described, today),
+        "summary": logic.summary(described),
         "alerts": logic.alerts(described),
         "categories": sorted(categories.values(), key=lambda c: c["name"]),
         "capital_expenses": capital,
     }
-
-
-def months_depreciation(month_first_days, today):
-    """For Performance: {month: depreciation result} for each month asked,
-    loading the assets once. A month's result is None when no asset can be
-    depreciated yet (no purchase dates), so the statement says "no data",
-    not 0."""
-    try:
-        described, _, _ = assets(today)
-    except FinanceNotSetUp:
-        return {m: None for m in month_first_days}
-    results = {}
-    for month in month_first_days:
-        result = logic.month_depreciation(described, month)
-        results[month] = None if result["counted"] == 0 else result
-    return results
 
 
 def _unlinked_capital_expenses(cur):
@@ -134,32 +114,10 @@ def set_values(item_ids, changes, user_id):
     return len(item_ids)
 
 
-def set_category_life(category_id, life_months, salvage_pct, user_id):
-    with db_cursor() as (conn, cur):
-        cur.execute("SELECT life_months, salvage_pct FROM asset_category_lives WHERE category_id = %s FOR UPDATE",
-                    (category_id,))
-        current = cur.fetchone()
-        cur.execute(
-            """
-            INSERT INTO asset_category_lives (category_id, life_months, salvage_pct, updated_by, updated_at)
-            VALUES (%s, %s, %s, %s, now())
-            ON CONFLICT (category_id) DO UPDATE SET life_months = EXCLUDED.life_months,
-                salvage_pct = EXCLUDED.salvage_pct, updated_by = EXCLUDED.updated_by, updated_at = now()
-            """,
-            (category_id, life_months, salvage_pct, user_id),
-        )
-        after = {"life_months": life_months, "salvage_pct": salvage_pct}
-        before = {"life_months": current[0], "salvage_pct": current[1]} if current else None
-        if before != after:
-            _audit(cur, user_id, "asset_category_life", category_id, "update" if current else "create",
-                   before=before, after=after)
-        conn.commit()
-
-
 def category_items_without_date(category_id):
     """Ids of the category's live assets with no purchase date yet: what
     "set a date for the whole category" fills in (dates already set stay)."""
-    values, _, _ = _finance_rows()
+    values, _ = _finance_rows()
     return [i["id"] for i in _inventory_assets()
             if i["category_id"] == category_id and not (values.get(i["id"]) or {}).get("purchased_on")]
 

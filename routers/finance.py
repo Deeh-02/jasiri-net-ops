@@ -313,8 +313,6 @@ def get_asset_history(item_id: int, current_user: dict = Depends(require_finance
 
 class AssetValues(BaseModel):
     purchased_on: date | None = None
-    life_months: int | None = Field(None, gt=0, le=600)
-    salvage: Decimal | None = Field(None, ge=0, max_digits=12, decimal_places=2)
     warranty_until: date | None = None
     segment: Literal["pppoe", "hotspot", "shared"] | None = None
     expense_id: int | None = None
@@ -333,22 +331,18 @@ def edit_asset(item_id: int, body: AssetValues, current_user: dict = Depends(req
     return {"id": item_id, "saved": True}
 
 
-class CategoryLife(BaseModel):
-    life_months: int = Field(gt=0, le=600)
-    salvage_pct: Decimal = Field(Decimal("0"), ge=0, lt=100, max_digits=5, decimal_places=2)
-    # Optional: give every item in the category that has no purchase date this one.
-    purchased_on_for_undated: date | None = None
+class CategoryDate(BaseModel):
+    # Given to every item in the category that has no purchase date yet;
+    # dates already set stay as they are.
+    purchased_on: date
 
 
-@router.put("/finance/assets/categories/{category_id}")
-def edit_category_life(category_id: int, body: CategoryLife, current_user: dict = Depends(require_asset_manager)):
-    if body.purchased_on_for_undated and body.purchased_on_for_undated > now_eat().date():
+@router.put("/finance/assets/categories/{category_id}/purchase-date")
+def date_undated_in_category(category_id: int, body: CategoryDate, current_user: dict = Depends(require_asset_manager)):
+    if body.purchased_on > now_eat().date():
         raise HTTPException(status_code=400, detail="The purchase date can't be in the future")
-    finance_assets.set_category_life(category_id, body.life_months, body.salvage_pct, current_user["id"])
-    dated = 0
-    if body.purchased_on_for_undated:
-        undated = finance_assets.category_items_without_date(category_id)
-        dated = finance_assets.set_values(undated, {"purchased_on": body.purchased_on_for_undated}, current_user["id"])
+    undated = finance_assets.category_items_without_date(category_id)
+    dated = finance_assets.set_values(undated, {"purchased_on": body.purchased_on}, current_user["id"])
     return {"category_id": category_id, "dated": dated}
 
 

@@ -1,18 +1,19 @@
 import { authHeaders, showView, registerRoute, can, stateHtml, stateRow, showMessage, skeletonCards } from "./common.js";
 import {
     esc, money, moneyOrNone, errorText, fetchReport, forgetReports, wireTips, tipAttr, markFresh,
-    kpi, card, alertList, ranked, splitBar, meter,
+    kpi, card, alertList, ranked, splitBar,
 } from "./finance-common.js";
 
 // Finance > Assets (Phase 7F). Inventory stays the equipment register; this
-// page shows what each serialised item is worth and costs each month, from
-// the money facts Finance keeps beside it (purchase date, useful life,
-// salvage, warranty, segment, the capital expense that paid for it).
-// An item without a purchase date has no book value: nothing is invented.
+// page shows what the serialised equipment cost, where it stands and when
+// warranties run out, from the money facts Finance keeps beside it (purchase
+// date, warranty, segment, the capital expense that paid for it). No book
+// value or depreciation (owner's call, 2026-11-16): the purchase date is
+// optional and only gives an item's age.
 //
 // Top to bottom: the headline figures, what needs attention, cost by
-// category beside where the equipment stands, then the category defaults and
-// the register. Tiles, cards and bars are Finance's shared ones
+// category beside where the equipment stands, then the categories (with a
+// way to date a whole category at once) and the register. Tiles, cards and bars are Finance's shared ones
 // (finance-common.js).
 
 const SEGMENT_LABEL = { pppoe: "PPPoE", hotspot: "Hotspot", shared: "Shared" };
@@ -57,16 +58,21 @@ function reload() {
 
 // ---- Headline figures, alerts, and the two charts ----
 
+// "3 months", "2 yr 4 mo": how long ago an item was bought.
+function ageText(months) {
+    if (months == null) return null;
+    if (months < 1) return "under a month";
+    if (months < 12) return `${months} month${months === 1 ? "" : "s"}`;
+    const years = Math.floor(months / 12), rest = months % 12;
+    return `${years} yr${rest ? ` ${rest} mo` : ""}`;
+}
+
 function tilesHtml(s) {
-    const m = s.this_month;
     return `<div class="fin-kpis">
-        ${kpi({ label: "Total cost", value: money(s.total_cost), sub: `${s.count} serialised items in Inventory` })}
-        ${kpi({ label: "Worth today", value: s.book_value == null ? null : money(s.book_value),
-                sub: s.valued === s.count ? "Book value of every item" : `Book value. ${s.valued} of ${s.count} items have the dates to value` })}
-        ${kpi({ label: "Depreciation this month", value: m.counted ? money(m.total) : null,
-                sub: m.counted ? `${m.counted} item${m.counted === 1 ? "" : "s"}${m.left_out ? `; ${m.left_out} without dates left out` : ""}` : "Needs purchase dates" })}
+        ${kpi({ label: "Total cost", value: money(s.total_cost), sub: `What the ${s.count} serialised items in Inventory cost` })}
+        ${kpi({ label: "Deployed", value: String(s.deployed), sub: `In use. ${s.in_stock} more in stock` })}
         ${kpi({ label: "Faulty or in repair", value: String(s.needs_repair), flag: s.needs_repair ? ["Needs a look", "warn"] : ["None", "good"],
-                sub: `${s.deployed} deployed, ${s.in_stock} in stock` })}
+                sub: s.needs_repair ? "See Needs attention below" : "Everything is working" })}
         ${kpi({ label: "Warranty ending", value: String(s.warranty_ending), flag: s.warranty_ending ? ["Within 60 days", "warn"] : null,
                 sub: s.warranty_ending ? "Claim before it runs out" : "None within 60 days" })}
     </div>`;
@@ -74,41 +80,25 @@ function tilesHtml(s) {
 
 // Cost per category, largest first; a bar opens that category in the register.
 function categoryCard() {
-    const worth = {};   // category id -> { value, valued }
-    for (const a of data.assets) {
-        const c = worth[a.category_id] || (worth[a.category_id] = { value: 0, valued: 0 });
-        if (a.book_value != null) { c.value += Number(a.book_value); c.valued += 1; }
-    }
-    const rows = [...data.categories].sort((a, b) => Number(b.cost) - Number(a.cost)).map(c => {
-        const w = worth[c.id] || { value: 0, valued: 0 };
-        return {
-            label: c.name, sub: String(c.items), amount: Number(c.cost), value: money(c.cost),
-            pick: `data-open-category="${c.id}" title="Show these in the register"`,
-            tip: tipAttr(c.name, [
-                { key: "cost", label: "Cost", value: money(c.cost) },
-                { label: "Worth today", value: w.valued === c.items && c.items ? money(w.value) : w.valued ? `${money(w.value)} (${w.valued} of ${c.items} valued)` : "no data" },
-                { label: "Items", value: String(c.items) },
-                { label: "Useful life", value: c.life ? `${c.life.life_months} months` : "not set" },
-            ], "Click to see them in the register"),
-        };
-    });
+    const rows = [...data.categories].sort((a, b) => Number(b.cost) - Number(a.cost)).map(c => ({
+        label: c.name, sub: String(c.items), amount: Number(c.cost), value: money(c.cost),
+        pick: `data-open-category="${c.id}" title="Show these in the register"`,
+        tip: tipAttr(c.name, [{ key: "cost", label: "Cost", value: money(c.cost) }, { label: "Items", value: String(c.items) }],
+                     "Click to see them in the register"),
+    }));
     return card({ span: 7, title: "Cost by category", sub: "What each kind of equipment cost, with how many items. Click one to see them.",
                   body: ranked(rows, { key: "cost", empty: "Add serialised equipment in Inventory first." }) });
 }
 
-// Where the equipment stands (Inventory's status), and how much of it has
-// the purchase date that book value needs.
-function statusCard(s) {
+// Where the equipment stands, by Inventory's own status.
+function statusCard() {
     const counts = {};
     for (const a of data.assets) counts[a.status] = (counts[a.status] || 0) + 1;
     const parts = Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([status, n]) => ({
         key: STATUS_KEY[status] || "info", label: status, amount: n, value: `${n} item${n === 1 ? "" : "s"}`,
     }));
-    return card({ span: 5, title: "Where it stands", sub: "By Inventory status.", body: `
-        ${parts.length ? splitBar(parts, "Assets by status") : `<p class="fin-empty">No equipment yet.</p>`}
-        <div class="fin-meter-row"><div><span>Items with a purchase date</span><b>${s.valued} of ${s.count}</b></div>
-            ${meter(s.count ? s.valued / s.count : 0, s.valued === s.count ? "good" : "warn")}</div>
-        <p class="fin-card-note">${s.valued === s.count ? "Every item can be valued." : "An item is valued only once it has a purchase date. Set one for a whole category under Categories."}</p>` });
+    return card({ span: 5, title: "Where it stands", sub: "By Inventory status.",
+                  body: parts.length ? splitBar(parts, "Assets by status") : `<p class="fin-empty">No equipment yet.</p>` });
 }
 
 function renderTop() {
@@ -116,7 +106,7 @@ function renderTop() {
     const alerts = data.alerts.length ? card({ title: "Needs attention", sub: "Worst first.", body: alertList(data.alerts.map(a => ({
         level: a.level, title: a.title, detail: a.detail, pick: a.item_id ? `data-item="${a.item_id}"` : "", link: "Open it",
     }))) }) : "";
-    $("fin-ast-top").innerHTML = `${tilesHtml(s)}${alerts}<div class="fin-grid">${categoryCard()}${statusCard(s)}</div>`;
+    $("fin-ast-top").innerHTML = `${tilesHtml(s)}${alerts}<div class="fin-grid">${categoryCard()}${statusCard()}</div>`;
 }
 
 // ---- Categories ----
@@ -124,45 +114,37 @@ function renderTop() {
 function renderCategories() {
     const canManage = can("finance", "manage_assets");
     $("fin-ast-cat-manage-th").hidden = !canManage;
-    const cols = canManage ? 7 : 6;
+    const cols = canManage ? 5 : 4;
     if (!data.categories.length) {
         $("fin-ast-cat-rows").innerHTML = stateRow(cols, "empty", "Add serialised equipment in Inventory first.", "No equipment in Inventory");
         return;
     }
     $("fin-ast-cat-rows").innerHTML = data.categories.map(c => `<tr>
         <td>${esc(c.name)}</td><td class="num">${c.items}</td><td class="num">${moneyOrNone(c.cost)}</td>
-        <td class="num">${c.life ? `${c.life.life_months} months` : `<span class="muted">not set</span>`}</td>
-        <td class="num">${c.life ? `${Number(c.life.salvage_pct)}%` : "—"}</td>
-        <td class="num ${c.dated < c.items ? "fin-ast-short" : ""}">${c.dated} of ${c.items}</td>
-        ${canManage ? `<td><button type="button" class="btn-secondary fin-ast-small" data-category="${c.id}">Edit</button></td>` : ""}
+        <td class="num muted">${c.dated} of ${c.items}</td>
+        ${canManage ? `<td>${c.dated < c.items ? `<button type="button" class="btn-secondary fin-ast-small" data-category="${c.id}">Set date</button>` : ""}</td>` : ""}
     </tr>`).join("");
 }
 
+// One date for every item in a category that has none yet (optional: it
+// only gives the items' age).
 function openCategoryDialog(id) {
     openCategory = data.categories.find(c => c.id === id);
     if (!openCategory) return;
-    const c = openCategory;
+    const c = openCategory, undated = c.items - c.dated;
     $("fin-ast-cat-title").textContent = c.name;
-    $("fin-ast-cat-life").value = c.life ? c.life.life_months : "";
-    $("fin-ast-cat-salvage").value = c.life ? Number(c.life.salvage_pct) : 0;
     $("fin-ast-cat-date").value = "";
-    const undated = c.items - c.dated;
-    $("fin-ast-cat-hint").textContent = undated
-        ? `${undated} item${undated === 1 ? " has" : "s have"} no purchase date. A date here fills only those; dates already set stay as they are.`
-        : "Every item in this category already has a purchase date.";
+    $("fin-ast-cat-hint").textContent = `${undated} item${undated === 1 ? " has" : "s have"} no purchase date. This date fills only those; dates already set stay as they are.`;
     $("fin-ast-cat-msg").textContent = "";
     $("fin-ast-cat-overlay").hidden = false;
+    $("fin-ast-cat-date").focus();
 }
 
 async function saveCategory(e) {
     e.preventDefault();
-    const body = {
-        life_months: Number($("fin-ast-cat-life").value),
-        salvage_pct: Number($("fin-ast-cat-salvage").value || 0),
-        purchased_on_for_undated: $("fin-ast-cat-date").value || null,
-    };
-    const res = await fetch(`/finance/assets/categories/${openCategory.id}`, {
-        method: "PUT", headers: authHeaders({ "Content-Type": "application/json" }), body: JSON.stringify(body),
+    const res = await fetch(`/finance/assets/categories/${openCategory.id}/purchase-date`, {
+        method: "PUT", headers: authHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ purchased_on: $("fin-ast-cat-date").value }),
     }).catch(() => null);
     if (!res || !res.ok) {
         showMessage("fin-ast-cat-msg", await errorText(res, "Couldn't save."), true);
@@ -197,7 +179,7 @@ function filtered() {
 
 function renderRows() {
     const rows = filtered();
-    const total = rows.reduce((sum, a) => sum + Number(a.terms.cost || 0), 0);
+    const total = rows.reduce((sum, a) => sum + Number(a.cost || 0), 0);
     $("fin-ast-count").textContent = `${rows.length} item${rows.length === 1 ? "" : "s"} · ${money(total)}`;
     if (!rows.length) {
         $("fin-ast-rows").innerHTML = stateRow(8, "empty", "Try another filter.", "No matching assets");
@@ -209,8 +191,8 @@ function renderRows() {
         <td class="muted">${esc(a.category)}</td>
         <td class="muted">${esc(SEGMENT_LABEL[a.segment] || "—")}</td>
         <td>${a.location ? esc(a.location) : `<span class="muted">none</span>`}</td>
-        <td class="num">${moneyOrNone(a.terms.cost)}</td>
-        <td class="num">${a.book_value == null ? `<span class="muted" title="Missing: ${esc(a.terms.missing.join(", "))}">no data</span>` : moneyOrNone(a.book_value)}</td>
+        <td class="num">${moneyOrNone(a.cost)}</td>
+        <td class="muted">${a.purchased_on ? `${esc(dayLabel(a.purchased_on))}<div class="cell-sub">${esc(ageText(a.age_months))} ago</div>` : "—"}</td>
         <td><span class="fin-ast-status ${a.status.toLowerCase().replace(/[^a-z]+/g, "-")}">${esc(a.status)}</span>${a.warranty_ending ? `<div class="cell-sub fin-ast-warn">Warranty ends ${esc(dayLabel(a.warranty_until))}</div>` : ""}</td>
     </tr>`).join("");
 }
@@ -224,20 +206,14 @@ function fact(label, value) {
 async function openItemDialog(id) {
     openItem = data.assets.find(a => a.id === id);
     if (!openItem) return;
-    const a = openItem, t = a.terms;
+    const a = openItem;
     $("fin-ast-item-title").textContent = `${a.name}${a.serial ? ` · ${a.serial}` : ""}`;
     $("fin-ast-item-facts").innerHTML = [
         fact("Category", esc(a.category)), fact("Status", esc(a.status)), fact("Location", esc(a.location || "none")),
-        fact("Supplier", esc(a.supplier || "—")), fact("Cost", moneyOrNone(t.cost)),
-        fact("Useful life", t.life_months ? `${t.life_months} months${a.life_override ? "" : " (category)"}` : "not set"),
-        fact("Salvage", `${moneyOrNone(t.salvage)}${a.salvage_override ? "" : " (category)"}`),
-        fact("Per month", a.monthly == null ? moneyOrNone(null) : moneyOrNone(a.monthly)),
-        fact("Depreciated so far", a.depreciated == null ? moneyOrNone(null) : moneyOrNone(a.depreciated)),
-        fact("Book value", a.book_value == null ? `<span class="muted">no data: needs ${esc(t.missing.join(", "))}</span>` : moneyOrNone(a.book_value)),
+        fact("Supplier", esc(a.supplier || "—")), fact("Cost", moneyOrNone(a.cost)),
+        fact("Age", a.age_months == null ? `<span class="muted">no purchase date</span>` : esc(ageText(a.age_months))),
     ].join("");
-    $("fin-ast-purchased").value = t.purchased_on || "";
-    $("fin-ast-life").value = a.life_override ? t.life_months : "";
-    $("fin-ast-salvage").value = a.salvage_override ? Number(t.salvage) : "";
+    $("fin-ast-purchased").value = a.purchased_on || "";
     $("fin-ast-warranty").value = a.warranty_until || "";
     $("fin-ast-segment").value = a.segment || "";
     const options = [...data.capital_expenses];
@@ -272,8 +248,6 @@ async function saveItem(e) {
     const number = (id) => $(id).value === "" ? null : Number($(id).value);
     const body = {
         purchased_on: $("fin-ast-purchased").value || null,
-        life_months: number("fin-ast-life"),
-        salvage: number("fin-ast-salvage"),
         warranty_until: $("fin-ast-warranty").value || null,
         segment: $("fin-ast-segment").value || null,
         expense_id: number("fin-ast-expense"),

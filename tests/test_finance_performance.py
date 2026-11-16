@@ -41,6 +41,14 @@ class Statement(unittest.TestCase):
         self.assertEqual(s["expenses_total"], Decimal(60500))           # not the 80,000 bought to keep
         self.assertEqual(logic.notes(MONTH, CATEGORIES)["capital"]["total"], Decimal(80000))
 
+    def test_equipment_comes_off_after_profit(self):
+        s = logic.month_statement(INCOME, MONTH, CATEGORIES)
+        self.assertEqual((s["net_profit"], s["equipment_total"], s["cash_left"]), (Decimal(39500), Decimal(80000), Decimal(-40500)))
+        none_bought = logic.month_statement(INCOME, MONTH[:-1], CATEGORIES)
+        self.assertEqual((none_bought["equipment_total"], none_bought["cash_left"]), (Decimal(0), Decimal(39500)))
+        nothing = logic.month_statement(INCOME, [], CATEGORIES)
+        self.assertIsNone(nothing["cash_left"])                         # no expenses recorded: no figure, not 0
+
     def test_missing_income_is_marked_incomplete_not_zero(self):
         s = logic.month_statement(INCOME, MONTH, CATEGORIES)
         self.assertIsNone(s["lines"]["income.pppoe"])
@@ -78,10 +86,11 @@ class Rows(unittest.TestCase):
         salaries = next(r for r in self.rows() if r.get("label") == "Salaries")
         self.assertEqual(len(salaries["items"]), 1)
 
-    def test_the_statement_ends_at_net_profit_with_depreciation_waiting(self):
+    def test_the_statement_ends_at_cash_left_after_equipment(self):
         rows = self.rows()
-        self.assertEqual(rows[-1]["label"], "Net profit")
-        self.assertIsNone(next(r for r in rows if r.get("key") == "depreciation")["this"])
+        self.assertEqual([r["label"] for r in rows[-4:]], ["Net profit", "After equipment", "Equipment bought", "Cash left"])
+        self.assertEqual(rows[-1]["this"], Decimal(39500) - Decimal(80000))
+        self.assertFalse(any(r.get("key") == "depreciation" for r in rows))
 
 
 class BreakEven(unittest.TestCase):

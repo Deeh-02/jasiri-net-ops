@@ -1,7 +1,7 @@
 import { showView, registerRoute, navigate, stateHtml } from "./common.js";
 import {
     esc, money, dayLabel, monthLabel, nairobiMonth, fetchReport, wireTips, tipAttr, markFresh,
-    kpi, card, legend, alertList, figures, ranked, splitBar, meter, bridge, monthsChart, mountPace, sparkline, redrawOnResize,
+    kpi, card, legend, alertList, figures, ranked, splitBar, bridge, monthsChart, mountPace, sparkline, redrawOnResize,
     changeBetween, monthPoints, monthsTable, profitSteps,
 } from "./finance-common.js";
 
@@ -51,7 +51,7 @@ function waiting(name, lines) {
 function drawFrame() {
     $("fin-ov-status").innerHTML = "";
     $("fin-ov-lead").innerHTML = `<p class="fin-lead">${skeleton(1)}</p>`;
-    $("fin-ov-kpis").innerHTML = ["in", "out", "profit", "ahead", "assets"].map(id =>
+    $("fin-ov-kpis").innerHTML = ["in", "out", "profit", "cash", "ahead"].map(id =>
         `<div id="fin-ov-kpi-${id}" style="display:contents"><div class="skeleton-card" aria-hidden="true"><span class="skeleton" style="width:55%"></span><span class="skeleton"></span></div></div>`).join("");
     const month = state.month;
     $("fin-ov-grid").innerHTML = [
@@ -64,9 +64,9 @@ function drawFrame() {
                open: [`finance-expenses/${month}`, "Expenses"], body: skeleton(5) }),
         card({ id: "fin-ov-sources", span: 4, title: "Where income came from", sub: "By segment, then the packages that earned most.",
                open: [`finance-income/${month}/all`, "Income"], body: skeleton(5) }),
-        card({ id: "fin-ov-bridge", span: 4, title: "From income to profit", sub: "What each kind of cost takes away.",
+        card({ id: "fin-ov-bridge", span: 4, title: "From income to cash left", sub: "What each kind of cost takes away, then the equipment bought.",
                open: [`finance-performance/${month}/all`, "Performance"], body: skeleton(5) }),
-        card({ id: "fin-ov-assets", span: 4, title: "Equipment", sub: "What Inventory's serialised items cost and are worth.",
+        card({ id: "fin-ov-assets", span: 4, title: "Equipment", sub: "What Inventory's serialised equipment cost, and what needs a look.",
                open: ["finance-assets", "Assets"], body: skeleton(5) }),
     ].join("");
 }
@@ -95,6 +95,12 @@ function drawLead() {
     else if (t.net_profit == null) text = `${start} <b>${money(income)}</b> came in. No expenses are recorded yet, so there is no profit figure.`;
     else if (Number(t.net_profit) < 0) text = `${start} <b>${money(income)}</b> came in and <b>${money(t.expenses_total)}</b> went out: a loss of <b>${money(Math.abs(Number(t.net_profit)))}</b>.`;
     else text = `${start} <b>${money(income)}</b> came in, <b>${money(t.expenses_total)}</b> went out, leaving <b>${money(t.net_profit)}</b>${t.net_margin != null ? ` (${t.net_margin}% of income)` : ""}.`;
+    // Equipment bought comes off what is left: say so when there was some.
+    if (t?.cash_left != null && Number(t.equipment_total)) {
+        const cash = Number(t.cash_left);
+        text += ` Equipment bought took <b>${money(t.equipment_total)}</b>, ` +
+            (cash < 0 ? `so <b>${money(Math.abs(cash))}</b> more went out than came in.` : `leaving <b>${money(cash)}</b> in cash.`);
+    }
     const notes = ["Cash basis: money counts on the day it is paid."];
     if (t?.income_incomplete) notes.unshift("Hotspot income only: PPPoE isn't recorded yet, so income and profit are understated.");
     if (draft) notes.push("The month is still running, so these figures will change.");
@@ -165,17 +171,14 @@ function drawPerformanceKpis() {
         sub: net == null ? "Needs this month's expenses" : t.net_margin != null ? `${t.net_margin}% of income is left after costs` : "After all recorded costs",
         href: `finance-performance/${month}/all`,
     }));
-}
-
-function drawAssetsKpi() {
-    const report = state.assets, a = got("assets");
-    if (!report) return;
-    if (!a) { setKpi("assets", kpi({ label: "Equipment value", value: null, sub: report.error })); return; }
-    const s = a.summary;
-    setKpi("assets", kpi({
-        label: "Equipment value", value: s.book_value == null ? null : money(s.book_value), href: "finance-assets",
-        sub: s.book_value == null ? `${s.count} items cost ${money(s.total_cost)}. Valuing them needs purchase dates`
-            : `What ${s.valued} of ${s.count} items are worth today; they cost ${money(s.total_cost)}`,
+    const cash = t.cash_left;
+    setKpi("cash", kpi({
+        label: "Cash left", value: cash == null ? null : money(cash), none: "No figure yet",
+        change: monthChange(perf, cash, last.cash_left, true),
+        flag: cash != null && Number(cash) < 0 ? ["More went out than came in", "bad"] : null,
+        sub: cash == null ? "Needs this month's expenses"
+            : Number(t.equipment_total) ? `Profit less ${money(t.equipment_total)} of equipment bought` : "Profit; no equipment bought this month",
+        href: `finance-performance/${month}/all`,
     }));
 }
 
@@ -328,7 +331,6 @@ function drawBridge() {
     if (!perf) { fill("fin-ov-bridge", stateHtml("error", state.performance.error)); return; }
     const t = perf.this, notes = [];
     if (!t.expenses_recorded) notes.push(`No expenses are recorded for ${monthName()}, so the costs and the profit are blank.`);
-    else if (t.lines.depreciation == null) notes.push("Depreciation isn't counted yet: equipment needs purchase dates on the Assets page.");
     fill("fin-ov-bridge", bridge(profitSteps(t)) + notes.map(n => `<p class="fin-card-note">${esc(n)}</p>`).join(""));
 }
 
@@ -355,17 +357,14 @@ function drawAssets() {
     const a = got("assets");
     if (!state.assets) return;
     if (!a) { fill("fin-ov-assets", stateHtml("error", state.assets.error)); return; }
-    const s = a.summary, m = s.this_month;
+    const s = a.summary;
     const rows = [...a.categories].sort((x, y) => Number(y.cost) - Number(x.cost)).slice(0, 5).map(c => ({
-        label: c.name, amount: Number(c.cost), value: money(c.cost),
-        tip: tipAttr(c.name, [{ key: "cost", label: "Cost", value: money(c.cost) }, { label: "Items", value: String(c.items) },
-                              { label: "With a purchase date", value: `${c.dated} of ${c.items}` }]),
+        label: c.name, sub: String(c.items), amount: Number(c.cost), value: money(c.cost),
+        tip: tipAttr(c.name, [{ key: "cost", label: "Cost", value: money(c.cost) }, { label: "Items", value: String(c.items) }]),
     }));
     fill("fin-ov-assets", `
-        ${figures([[money(s.total_cost), `Cost of ${s.count} items`], [s.book_value == null ? null : money(s.book_value), "Worth today"],
-                   [m.counted ? money(m.total) : null, "Depreciation this month"]])}
-        <div class="fin-meter-row"><div><span>Items with a purchase date</span><b>${s.valued} of ${s.count}</b></div>
-            ${meter(s.count ? s.valued / s.count : 0, s.valued === s.count ? "good" : "warn")}</div>
+        ${figures([[money(s.total_cost), `Cost of ${s.count} items`], [String(s.needs_repair), "Faulty or in repair"],
+                   [String(s.warranty_ending), "Warranty ending soon"]])}
         <h3 class="fin-h">Cost by category</h3>${ranked(rows, { key: "cost", empty: "No serialised equipment in Inventory yet." })}`);
 }
 
@@ -375,7 +374,7 @@ function arrived(name, report) {
     state[name] = report;
     if (name === "income") { drawIncomeKpis(); drawPace(); drawSources(); }
     if (name === "performance") { drawPerformanceKpis(); drawMonths(); drawWhere(); drawBridge(); }
-    if (name === "assets") { drawAssetsKpi(); drawAssets(); }
+    if (name === "assets") drawAssets();
     drawLead();
     drawAttention();
 }
