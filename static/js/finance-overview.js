@@ -1,4 +1,5 @@
 import { showView, registerRoute, navigate, stateHtml } from "./common.js";
+import { monthPicker } from "./month-picker.js";
 import {
     esc, money, dayLabel, monthLabel, nairobiMonth, fetchReport, wireTips, tipAttr, markFresh,
     kpi, card, legend, alertList, figures, ranked, splitBar, bridge, monthsChart, mountPace, sparkline, redrawOnResize,
@@ -17,9 +18,29 @@ import {
 // Each report is its own request and its part of the page is drawn the
 // moment it arrives. What isn't recorded says so; it is never shown as 0.
 //
-// URL: #/finance-overview/<YYYY-MM>.
+// One month, or a range of months (From to To, up to 36). A range shows the
+// totals over the months, the month-by-month chart and where the money went;
+// the cards that only make sense inside one month (day by day, packages,
+// income to profit) need a single month. Clicking a month in the chart opens
+// its Performance page.
+//
+// URL: #/finance-overview/<YYYY-MM>  or  #/finance-overview/<YYYY-MM>/<YYYY-MM>.
 
-const state = { month: null, performance: null, income: null, assets: null };
+const MAX_RANGE = 36;
+const state = { month: null, from: null, range: false, performance: null, income: null, assets: null };
+let fromPicker, toPicker;
+
+const shiftMonth = (iso, delta) => {
+    const [y, m] = iso.split("-").map(Number), d = new Date(y, m - 1 + delta, 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+};
+const monthsIn = (from, to) => (Number(to.slice(0, 4)) - Number(from.slice(0, 4))) * 12 + Number(to.slice(5)) - Number(from.slice(5)) + 1;
+const rangeName = () => `${asMonthName(state.from, { month: "short", year: "numeric" })} to ${asMonthName(state.month, { month: "short", year: "numeric" })}`;
+const sumOf = values => values.reduce((total, v) => total + Number(v), 0);
+
+function showRange(from, to) {
+    navigate(from === to ? `finance-overview/${to}` : `finance-overview/${from}/${to}`, { replace: true });
+}
 const LEVEL_ORDER = { bad: 0, warn: 1, info: 2 };
 const ATTENTION_LIMIT = 5;
 
@@ -54,6 +75,17 @@ function drawFrame() {
     $("fin-ov-kpis").innerHTML = ["in", "out", "profit", "cash", "ahead"].map(id =>
         `<div id="fin-ov-kpi-${id}" style="display:contents"><div class="skeleton-card" aria-hidden="true"><span class="skeleton" style="width:55%"></span><span class="skeleton"></span></div></div>`).join("");
     const month = state.month;
+    if (state.range) {
+        $("fin-ov-grid").innerHTML = [
+            card({ id: "fin-ov-months", span: 8, title: "Money in and money out, month by month",
+                   sub: `${rangeName()}. Profit is income less operating expenses.`, body: skeleton(6) }),
+            card({ id: "fin-ov-where", span: 4, title: "Where the money went", sub: `Operating expenses, ${rangeName()}, by category.`,
+                   open: [`finance-expenses/${month}`, "Expenses"], body: skeleton(5) }),
+            card({ id: "fin-ov-assets", span: 4, title: "Equipment", sub: "What Inventory's serialised equipment cost, and what needs a look.",
+                   open: ["finance-assets", "Assets"], body: skeleton(5) }),
+        ].join("");
+        return;
+    }
     $("fin-ov-grid").innerHTML = [
         card({ id: "fin-ov-pace", span: 8, title: `${shortMonth(month)} income, day by day`,
                sub: "The running total, against last month by the same day.", open: [`finance-income/${month}/all`, "Income"], body: skeleton(6) }),
@@ -83,6 +115,7 @@ function fill(cardId, html) {
 
 function drawLead() {
     const perf = got("performance"), inc = got("income");
+    if (state.range) { drawRangeLead(); return; }
     if (!state.performance || !state.income) return;               // wait for both
     if (!perf && !inc) { $("fin-ov-lead").innerHTML = ""; return; }
     const draft = perf?.is_draft, t = perf?.this;
@@ -106,6 +139,67 @@ function drawLead() {
     if (draft) notes.push("The month is still running, so these figures will change.");
     $("fin-ov-lead").innerHTML = `<p class="fin-lead">${text}</p><p class="fin-lead-note">${notes.map(esc).join(" ")}</p>`;
     $("fin-ov-status").innerHTML = draft ? `<span class="fin-badge draft" title="This month is still running: figures will change"><i class="fin-dot"></i>Draft</span>` : "";
+}
+
+// ---- A range of months: totals over the trend's months ----
+
+// What a range adds up to, from the Performance trend. A month records income
+// from when records start and expenses only once some are entered, so each
+// total counts the months it has; profit counts months with both.
+function rangeTotals(perf) {
+    const pts = perf.trend, has = key => pts.filter(p => p[key] != null);
+    const both = pts.filter(p => p.profit != null);
+    const full = pts.filter(p => p.income != null && !p.partial);
+    const averaged = full.length ? full : has("income");
+    return {
+        points: pts, income: has("income").length ? sumOf(has("income").map(p => p.income)) : null,
+        expenses: has("expenses").length ? sumOf(has("expenses").map(p => p.expenses)) : null,
+        profit: both.length ? sumOf(both.map(p => p.profit)) : null,
+        cash: both.length ? sumOf(both.map(p => p.profit)) - sumOf(both.map(p => p.capital || 0)) : null,
+        average: averaged.length ? sumOf(averaged.map(p => p.income)) / averaged.length : null,
+        incomeMonths: has("income").length, expenseMonths: has("expenses").length, bothMonths: both.length,
+        draft: pts.some(p => p.partial),
+    };
+}
+
+function drawRangeLead() {
+    const perf = got("performance");
+    if (!state.performance) return;
+    if (!perf) { $("fin-ov-lead").innerHTML = ""; return; }
+    const t = rangeTotals(perf), start = `<b>${esc(rangeName())}</b>${t.draft ? ", the last month still running" : ""}:`;
+    let text;
+    if (t.income == null && t.expenses == null) text = `${start} nothing is recorded in these months.`;
+    else if (t.income == null) text = `${start} no income records, and <b>${money(t.expenses)}</b> went out.`;
+    else if (t.expenses == null) text = `${start} <b>${money(t.income)}</b> came in. No expenses are recorded, so there is no profit figure.`;
+    else {
+        text = `${start} <b>${money(t.income)}</b> came in and <b>${money(t.expenses)}</b> went out`;
+        if (t.profit == null) text += ".";
+        else text += Number(t.profit) < 0 ? `: a loss of <b>${money(Math.abs(t.profit))}</b>.` : `, leaving <b>${money(t.profit)}</b>.`;
+    }
+    const notes = ["Cash basis: money counts on the day it is paid."];
+    if (t.incomeMonths !== t.expenseMonths || t.bothMonths !== t.incomeMonths) {
+        notes.unshift(`Profit and cash left count only the ${t.bothMonths} month${t.bothMonths === 1 ? "" : "s"} that have both income and expenses recorded.`);
+    }
+    $("fin-ov-lead").innerHTML = `<p class="fin-lead">${text}</p><p class="fin-lead-note">${notes.map(esc).join(" ")}</p>`;
+    $("fin-ov-status").innerHTML = t.draft ? `<span class="fin-badge draft" title="The last month is still running: figures will change"><i class="fin-dot"></i>Draft</span>` : "";
+}
+
+function drawRangeKpis() {
+    const report = state.performance, perf = got("performance"), to = state.month;
+    if (!report) return;
+    if (!perf) {
+        ["in", "out", "profit", "cash", "ahead"].forEach(id => setKpi(id, kpi({ label: id, value: null, sub: report.error })));
+        return;
+    }
+    const t = rangeTotals(perf), none = "Not recorded";
+    setKpi("in", kpi({ label: "Money in", value: t.income == null ? null : money(t.income), none, href: `finance-income/${to}/all`,
+                       spark: sparkline(t.points.map(p => p.income)) }));
+    setKpi("out", kpi({ label: "Money out", value: t.expenses == null ? null : money(t.expenses), none, href: `finance-expenses/${to}` }));
+    setKpi("profit", kpi({ label: "Profit", value: t.profit == null ? null : money(t.profit), none: "No figure yet",
+                          flag: t.profit != null && t.profit < 0 ? ["A loss", "bad"] : null, href: `finance-performance/${to}/all` }));
+    setKpi("cash", kpi({ label: "Cash left", value: t.cash == null ? null : money(t.cash), none: "No figure yet",
+                         flag: t.cash != null && t.cash < 0 ? ["More went out than came in", "bad"] : null, href: `finance-performance/${to}/all` }));
+    setKpi("ahead", kpi({ label: "Average a month", value: t.average == null ? null : money(t.average), none: "No figure yet" }));
 }
 
 // ---- Headline figures ----
@@ -137,14 +231,11 @@ function drawIncomeKpis() {
         note: vs.days ? `vs first ${vs.days} days of ${asMonthName(vs.previous_month, { month: "long" })}` : `vs ${asMonthName(vs.previous_month, { month: "long" })}`,
     } : null;
     const daily = inc.trend.day.filter(p => !p.partial && p.value != null).map(p => Number(p.value));
-    setKpi("in", kpi({ label: "Money in", value: money(s.total), change, sub: `${Number(s.sales).toLocaleString()} payments${s.is_current_month ? " so far" : ""}`,
-                       href: `finance-income/${month}/all`, spark: sparkline(daily) }));
+    setKpi("in", kpi({ label: "Money in", value: money(s.total), change, href: `finance-income/${month}/all`, spark: sparkline(daily) }));
     const projected = inc.target?.projected;
     setKpi("ahead", projected
-        ? kpi({ label: "Month-end estimate", value: money(projected.projected), href: `finance-income/${month}/all`,
-                sub: `Income by month end, if the rest goes like the last ${projected.weeks} weeks` })
-        : kpi({ label: "Average a day", value: s.average_per_day == null ? null : money(s.average_per_day), href: `finance-income/${month}/all`,
-                sub: s.best_day ? `Best day ${dayLabel(s.best_day.day, { day: "numeric", month: "short" })}: ${money(s.best_day.total)}` : "No completed day yet" }));
+        ? kpi({ label: "Month-end estimate", value: money(projected.projected), href: `finance-income/${month}/all` })
+        : kpi({ label: "Average a day", value: s.average_per_day == null ? null : money(s.average_per_day), none: "No completed day yet", href: `finance-income/${month}/all` }));
 }
 
 function drawPerformanceKpis() {
@@ -159,8 +250,7 @@ function drawPerformanceKpis() {
     setKpi("out", kpi({
         label: "Money out", value: t.expenses_total == null ? null : money(t.expenses_total), none: "Not recorded",
         change: monthChange(perf, t.expenses_total, last.expenses_total, false),
-        sub: t.expenses_total == null ? "Add this month's expenses to see profit"
-            : `${t.expenses_recorded} expense${t.expenses_recorded === 1 ? "" : "s"} recorded; equipment bought to keep is left out`,
+        sub: t.expenses_total == null ? "Add this month's expenses to see profit" : "",
         href: `finance-expenses/${month}`,
     }));
     const net = t.net_profit;
@@ -168,7 +258,7 @@ function drawPerformanceKpis() {
         label: "Profit", value: net == null ? null : money(net), none: "No figure yet",
         change: perf.income_comparable ? monthChange(perf, net, last.net_profit, true) : null,
         flag: net == null ? null : Number(net) < 0 ? ["A loss", "bad"] : null,
-        sub: net == null ? "Needs this month's expenses" : t.net_margin != null ? `${t.net_margin}% of income is left after costs` : "After all recorded costs",
+        sub: net == null ? "Needs this month's expenses" : "",
         href: `finance-performance/${month}/all`,
     }));
     const cash = t.cash_left;
@@ -176,8 +266,7 @@ function drawPerformanceKpis() {
         label: "Cash left", value: cash == null ? null : money(cash), none: "No figure yet",
         change: perf.income_comparable ? monthChange(perf, cash, last.cash_left, true) : null,
         flag: cash != null && Number(cash) < 0 ? ["More went out than came in", "bad"] : null,
-        sub: cash == null ? "Needs this month's expenses"
-            : Number(t.equipment_total) ? `Profit less ${money(t.equipment_total)} of equipment bought` : "Profit; no equipment bought this month",
+        sub: cash == null ? "Needs this month's expenses" : "",
         href: `finance-performance/${month}/all`,
     }));
 }
@@ -293,7 +382,7 @@ function drawMonths() {
     const perf = got("performance");
     if (!state.performance) return;
     if (!perf?.trend) { fill("fin-ov-months", state.performance.ok ? `<p class="fin-empty">Nothing to show for this month.</p>` : stateHtml("error", state.performance.error)); return; }
-    const points = monthPoints(perf.trend);
+    const points = monthPoints(perf.trend, m => `finance-performance/${m}/all`);
     state.monthPoints = points;
     fill("fin-ov-months", `<div class="fin-chart-box" id="fin-ov-months-chart"></div>
         ${legend([{ key: "income", label: "Income" }, { key: "expenses", label: "Expenses (operating)" }, { key: "profit", label: "Profit" },
@@ -314,15 +403,17 @@ function drawWhere() {
     const perf = got("performance");
     if (!state.performance) return;
     if (!perf) { fill("fin-ov-where", stateHtml("error", state.performance.error)); return; }
-    const rows = (perf.where?.categories || []).map(c => ({
+    const where = state.range ? perf.range?.where : perf.where;
+    const rows = (where?.categories || []).map(c => ({
         label: c.category, amount: Number(c.total), value: money(c.total), share: c.share_pct == null ? "" : `${Math.round(Number(c.share_pct))}%`,
         tip: tipAttr(c.category, [{ key: "expenses", label: "Spent", value: money(c.total) }, { label: "Share of expenses", value: `${c.share_pct}%` }]),
     }));
     const capital = perf.notes.capital, t = perf.this;
-    const top = t.expenses_total == null ? "" : figures([[money(t.expenses_total), "Operating expenses"], [String(t.expenses_recorded), `expense${t.expenses_recorded === 1 ? "" : "s"} recorded`]]);
-    fill("fin-ov-where", top + ranked(rows.slice(0, 7), { key: "expenses", empty: `No expenses are recorded for ${monthName()} yet.` }) +
+    const spent = state.range ? sumOf(rows.map(r => r.amount)) : t.expenses_total;
+    const top = rows.length || spent ? figures([[money(spent), "Operating expenses"]]) : "";
+    fill("fin-ov-where", top + ranked(rows.slice(0, 7), { key: "expenses", empty: state.range ? `No expenses are recorded from ${rangeName()}.` : `No expenses are recorded for ${monthName()} yet.` }) +
         (rows.length > 7 ? `<p class="fin-card-note">and ${rows.length - 7} smaller categor${rows.length - 7 === 1 ? "y" : "ies"} on the Expenses page.</p>` : "") +
-        (capital.rows.length ? `<p class="fin-card-note">Plus ${money(capital.total)} of equipment bought to keep, which is not an operating expense.</p>` : ""));
+        (!state.range && capital.rows.length ? `<p class="fin-card-note">Plus ${money(capital.total)} of equipment bought to keep, which is not an operating expense.</p>` : ""));
 }
 
 function drawBridge() {
@@ -375,31 +466,59 @@ function drawAssets() {
 function arrived(name, report) {
     state[name] = report;
     if (name === "income") { drawIncomeKpis(); drawPace(); drawSources(); }
-    if (name === "performance") { drawPerformanceKpis(); drawMonths(); drawWhere(); drawBridge(); }
+    if (name === "performance") {
+        if (state.range) drawRangeKpis(); else drawPerformanceKpis();
+        drawMonths(); drawWhere();
+        if (!state.range) drawBridge();
+    }
     if (name === "assets") drawAssets();
     drawLead();
-    drawAttention();
+    if (!state.range) drawAttention();
 }
 
 async function load() {
-    const month = state.month;
+    const month = state.month, from = state.from;
     Object.assign(state, { performance: null, income: null, assets: null, monthPoints: null });
     drawFrame();
-    const current = () => month === state.month && !$("view-finance-overview").hidden;
+    const current = () => month === state.month && from === state.from && !$("view-finance-overview").hidden;
     // Two requests at a time, so the page never holds more than two database connections.
-    await Promise.all([
-        fetchReport(`/finance/performance?month=${month}&segment=all`).then(r => { if (current()) arrived("performance", r); }),
-        fetchReport(`/finance/income?month=${month}&segment=all`).then(r => { if (current()) arrived("income", r); }),
-    ]);
+    if (state.range) {
+        await fetchReport(`/finance/performance?month=${month}&segment=all&from=${from}`).then(r => { if (current()) arrived("performance", r); });
+    } else {
+        await Promise.all([
+            fetchReport(`/finance/performance?month=${month}&segment=all`).then(r => { if (current()) arrived("performance", r); }),
+            fetchReport(`/finance/income?month=${month}&segment=all`).then(r => { if (current()) arrived("income", r); }),
+        ]);
+    }
     const assets = await fetchReport("/finance/assets");
     if (current()) arrived("assets", assets);
 }
 
 export function initFinanceOverview() {
-    $("fin-ov-month").addEventListener("change", (e) => {
-        if (e.target.value) navigate(`finance-overview/${e.target.value}`, { replace: true });
+    const current = nairobiMonth();
+    // Picking one end moves the other when they would cross, and a range keeps to MAX_RANGE months.
+    fromPicker = monthPicker($("fin-ov-from"), { label: "From month", max: current, min: "2025-01", onChange: v => {
+        const to = v > state.month ? v : state.month;
+        showRange(v, monthsIn(v, to) > MAX_RANGE ? shiftMonth(v, MAX_RANGE - 1) : to);
+    } });
+    toPicker = monthPicker($("fin-ov-to"), { label: "To month", max: current, min: "2025-01", onChange: v => {
+        const from = v < state.from ? v : state.from;
+        showRange(monthsIn(from, v) > MAX_RANGE ? shiftMonth(v, -(MAX_RANGE - 1)) : from, v);
+    } });
+    $("fin-ov-presets").addEventListener("click", (e) => {
+        const b = e.target.closest("button[data-back]");
+        if (!b) return;
+        const now = nairobiMonth();
+        showRange(b.dataset.back === "year" ? `${now.slice(0, 4)}-01` : shiftMonth(now, -Number(b.dataset.back)), now);
     });
     wireTips($("fin-ov-grid"));
+    // A month in the chart opens that month's Performance page.
+    const open = (e) => {
+        const go = e.target.closest("[data-go]")?.dataset.go;
+        if (go) navigate(go);
+    };
+    $("fin-ov-grid").addEventListener("click", open);
+    $("fin-ov-grid").addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(e); } });
     // The charts are drawn at the width they are shown at.
     redrawOnResize("view-finance-overview", () => {
         drawMonthsChart();
@@ -408,8 +527,17 @@ export function initFinanceOverview() {
     });
 
     registerRoute("finance-overview", (params) => {
-        state.month = /^\d{4}-\d{2}$/.test(params[0] || "") ? params[0] : nairobiMonth();
-        $("fin-ov-month").value = state.month;
+        const ok = v => /^\d{4}-(0[1-9]|1[0-2])$/.test(v || "");
+        let to = ok(params[0]) ? params[0] : nairobiMonth(), from = to;
+        if (ok(params[0]) && ok(params[1])) [from, to] = [params[0], params[1]].sort();
+        if (monthsIn(from, to) > MAX_RANGE) from = shiftMonth(to, -(MAX_RANGE - 1));
+        Object.assign(state, { month: to, from, range: from !== to });
+        fromPicker.set(from);
+        toPicker.set(to);
+        document.querySelectorAll("#fin-ov-presets button").forEach(b => {
+            const now = nairobiMonth(), start = b.dataset.back === "year" ? `${now.slice(0, 4)}-01` : shiftMonth(now, -Number(b.dataset.back));
+            b.classList.toggle("is-on", from === start && to === now);
+        });
         showView("view-finance-overview");
         load();
     });

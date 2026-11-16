@@ -287,17 +287,19 @@ export function changeBetween(now, before, goodWhenUp, note) {
 // first month with anything recorded (but never fewer than six months, so
 // two months of records don't become two bars in an empty chart), each with
 // its axis label and hover label.
-export function monthPoints(trend) {
+// link(month) -> a route makes each month open that page (the chart, its
+// table and the hover label say so).
+export function monthPoints(trend, link = null) {
     const first = trend.findIndex(p => p.income != null || p.expenses != null);
     const from = Math.max(0, Math.min(first < 0 ? trend.length : first, trend.length - 6));
     return trend.slice(from).map(p => ({
-        ...p, label: monthLabel(p.month, false),
+        ...p, label: monthLabel(p.month, false), go: link ? link(p.month.slice(0, 7)) : null,
         tip: tipAttr(`${monthLabel(p.month)}${p.partial ? " (so far)" : ""}`, [
             { key: "income", label: "Income", value: p.income == null ? "no data" : money(p.income) },
             { key: "expenses", label: "Expenses", value: p.expenses == null ? "not recorded" : money(p.expenses) },
             { key: "profit", label: "Profit", value: p.profit == null ? "no figure" : money(p.profit) },
             Number(p.capital) ? { label: "Equipment bought", value: money(p.capital) } : null,
-        ], p.partial ? "Still counting: the month isn't over." : ""),
+        ], [p.partial ? "Still counting: the month isn't over." : "", link ? "Click to open this month." : ""].filter(Boolean).join(" ")),
     }));
 }
 
@@ -306,7 +308,7 @@ export function monthsTable(points) {
     return `<details class="fin-table-view"><summary>Show as a table</summary>
         <div class="table-scroll table-compact"><table class="table-dense">
             <thead><tr><th>Month</th><th class="num">Income</th><th class="num">Expenses</th><th class="num">Profit</th></tr></thead>
-            <tbody>${points.map(p => `<tr><td>${esc(monthLabel(p.month))}${p.partial ? " (so far)" : ""}</td>
+            <tbody>${points.map(p => `<tr><td>${p.go ? `<a href="#/${esc(p.go)}">${esc(monthLabel(p.month))}</a>` : esc(monthLabel(p.month))}${p.partial ? " (so far)" : ""}</td>
                 <td class="num">${p.income == null ? "no data" : money(p.income)}</td><td class="num">${p.expenses == null ? "not recorded" : money(p.expenses)}</td>
                 <td class="num">${p.profit == null ? "no figure" : money(p.profit)}</td></tr>`).join("")}</tbody>
         </table></div></details>`;
@@ -562,7 +564,8 @@ export function monthsChart(points, { width, id, what = "Income, expenses and pr
     const slot = (W - L - R) / points.length, bar = Math.max(3, Math.min(22, slot * 0.28));
     const slots = points.map((p, i) => {
         const cx = L + slot * i + slot / 2, cls = p.partial ? " partial" : "";
-        return `<g class="slot" ${p.tip || ""}><rect class="hit" x="${L + slot * i}" y="${T - 10}" width="${slot}" height="${H - T - B + 10}" rx="4"/>
+        const link = p.go ? ` data-go="${esc(p.go)}" tabindex="0" role="link" aria-label="${esc(monthLabel(p.month))}: open its performance"` : "";
+        return `<g class="slot${p.go ? " is-link" : ""}"${link} ${p.tip || ""}><rect class="hit" x="${L + slot * i}" y="${T - 10}" width="${slot}" height="${H - T - B + 10}" rx="4"/>
             ${p.income == null ? "" : barPath(cx - bar - 1, bar, y(Number(p.income)), y(0), `bar income${cls}`, i)}
             ${p.expenses == null ? "" : barPath(cx + 1, bar, y(Number(p.expenses)), y(0), `bar expenses${cls}`, i)}</g>
             <text class="tick" x="${cx}" y="${H - 8}" text-anchor="middle">${esc(p.label)}</text>`;

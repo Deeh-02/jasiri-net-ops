@@ -7,10 +7,15 @@
             <span id="fin-ov-status"></span>
         </div>
 
-        <div class="toolbar">
-            <label class="toolbar-field"><span>Month</span>
-                <input type="month" class="control" id="fin-ov-month">
-            </label>
+        <div class="toolbar fin-range">
+            <div class="toolbar-field"><span>From</span><div id="fin-ov-from"></div></div>
+            <div class="toolbar-field"><span>To</span><div id="fin-ov-to"></div></div>
+            <div class="fin-range-presets" id="fin-ov-presets" role="group" aria-label="Quick ranges">
+                <button type="button" data-back="0">This month</button>
+                <button type="button" data-back="2">Last 3 months</button>
+                <button type="button" data-back="5">Last 6 months</button>
+                <button type="button" data-back="year">This year</button>
+            </div>
         </div>
 
         <div id="fin-ov-lead"></div>

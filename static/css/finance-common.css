@@ -411,3 +411,48 @@ button.fin-rank { cursor: pointer; }
     .fin-ranked.has-share .fin-rank { grid-template-columns: minmax(0, 1fr) auto 38px; }
     .fin-rank-track { grid-column: 1 / -1; grid-row: 2; }
 }
+
+/* ---- Month picker (month-picker.js) and the Snapshot's range bar ---- */
+.mp { position: relative; display: flex; align-items: stretch; gap: 6px; }
+.mp-input { width: 150px; }
+.mp-input.is-bad { border-color: var(--danger); }
+.mp-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 42px; border: 1px solid var(--border); border-radius: 10px;
+    background: var(--surface-2, transparent); color: var(--text-dim); cursor: pointer;
+}
+.mp-btn:hover, .mp-btn[aria-expanded="true"] { color: var(--text); border-color: var(--border-strong); }
+.mp-pop {
+    position: absolute; z-index: 30; top: calc(100% + 6px); left: 0; width: 248px; padding: 12px;
+    border: 1px solid var(--border-strong); border-radius: 12px; background: var(--surface);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+}
+.mp-pop[hidden] { display: none; }
+.mp-year { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.mp-year b { font-size: 14px; color: var(--text); }
+.mp-nav { width: 32px; height: 32px; border: 0; border-radius: 8px; background: none; color: var(--text-soft); font-size: 20px; cursor: pointer; }
+.mp-nav:hover:not(:disabled) { background: var(--row-hover); color: var(--text); }
+.mp-nav:disabled, .mp-month:disabled { opacity: 0.3; cursor: default; }
+.mp-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.mp-month { min-height: 36px; border: 1px solid transparent; border-radius: 8px; background: none; color: var(--text-soft); font: inherit; font-size: 13px; cursor: pointer; }
+.mp-month:hover:not(:disabled) { background: var(--row-hover); color: var(--text); }
+.mp-month.is-on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--text); }
+.fin-range { align-items: flex-end; }
+.fin-range-presets { display: flex; gap: 6px; flex-wrap: wrap; align-self: flex-end; }
+.fin-range-presets button {
+    min-height: 40px; padding: 4px 12px; border: 1px solid var(--border); border-radius: 999px;
+    background: none; color: var(--text-soft); font: inherit; font-size: 12.5px; cursor: pointer;
+}
+.fin-range-presets button:hover { color: var(--text); border-color: var(--border-strong); }
+.fin-range-presets button.is-on { border-color: var(--accent); color: var(--text); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.fin-range-dash { align-self: flex-end; padding-bottom: 10px; color: var(--text-dim); }
+@media (max-width: 760px) { .mp-input { width: 100%; } .mp { flex: 1; } .mp-pop { width: min(248px, 86vw); } }
+
+/* A ranked row in a narrow card: the name gets its own line (no "Network equi...") and the bar sits under it. */
+.fin-card-body { container-type: inline-size; }
+@container (max-width: 430px) {
+    .fin-rank, .fin-ranked.has-share .fin-rank { grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; }
+    .fin-ranked.has-share .fin-rank { grid-template-columns: minmax(0, 1fr) auto 38px; }
+    .fin-rank-track { grid-column: 1 / -1; grid-row: 2; }
+    .fin-rank-label { white-space: normal; overflow: visible; }
+}

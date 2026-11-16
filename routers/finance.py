@@ -18,7 +18,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Literal
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 
 import logging
@@ -327,9 +327,16 @@ async def import_pppoe_recharges(commit: bool = Form(False), file: UploadFile = 
 # ---- Performance (Phase 7D) ----
 
 @router.get("/finance/performance")
-def get_performance(month: str, segment: Segment = "all", current_user: dict = Depends(require_finance_view)):
+def get_performance(month: str, segment: Segment = "all", from_month: str | None = Query(None, alias="from"),
+                    current_user: dict = Depends(require_finance_view)):
+    """from=YYYY-MM (the Snapshot's month range) widens the trend and the
+    expense breakdown to from..month."""
+    first = _month(month)
+    start = _month(from_month) if from_month else None
+    if start and not (start <= first and finance_performance.months_between(start, first) <= finance_performance.MAX_RANGE_MONTHS):
+        raise HTTPException(status_code=400, detail=f"The range must start on or before the month and cover at most {finance_performance.MAX_RANGE_MONTHS} months")
     try:
-        return _plain(finance_performance.report(_month(month), segment, now_eat().date()))
+        return _plain(finance_performance.report(first, segment, now_eat().date(), start))
     except finance_expenses.FinanceNotSetUp:
         raise HTTPException(status_code=503, detail=NOT_SET_UP)
 

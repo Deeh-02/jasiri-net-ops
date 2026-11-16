@@ -9,6 +9,21 @@ and in `phase.md`'s own per-phase writeups.
 
 Started 2026-11-15 at the owner's request, after Phase 6 was merged to `main`.
 
+### Snapshot: month range, click-through, calmer cards (2026-11-16)
+- **Pick From and To months** on the Snapshot, by typing ("nov 2026", "2026-11")
+  or from a calendar, or use This month / Last 3 / Last 6 months / This year.
+  A range shows the totals over its months, the month-by-month chart and where
+  the money went; the day-by-day, packages and income-to-profit cards need one
+  month. Up to 36 months.
+- **Click a month in the chart** (or its name in the table) to open that
+  month's Performance page.
+- The headline cards show their figure and change only; the explanatory lines
+  under them are gone (a reason still shows when a figure is missing).
+- Category and package names in the narrow Snapshot cards are no longer cut
+  to "Network equi...": the name has its own line and the bar sits under it.
+- "Where income came from" lists the top hotspot packages and the top PPPoE
+  packages separately.
+
 ### Income back to May 2026 from the old billing history (2026-11-16)
 - **Finance now shows income from 1 May 2026**, not just from when the router
   (hotspot, 21 Sep) and the new billing system (PPPoE, 20 Jun) started. It

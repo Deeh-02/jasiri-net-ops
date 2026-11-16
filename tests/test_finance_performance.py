@@ -159,3 +159,17 @@ class TrendAndNotes(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MonthRange(unittest.TestCase):
+    """The Snapshot's From..To months: how many the range covers, and the trend over exactly those."""
+
+    def test_months_between_counts_both_ends(self):
+        from db.finance_performance import months_between
+        self.assertEqual(months_between(date(2026, 11, 1), date(2026, 11, 1)), 1)
+        self.assertEqual(months_between(date(2026, 5, 1), date(2026, 11, 1)), 7)
+        self.assertEqual(months_between(date(2025, 11, 1), date(2026, 2, 1)), 4)
+
+    def test_trend_covers_exactly_the_range(self):
+        points = logic.monthly_trend(date(2026, 11, 1), 3, {}, {}, date(2026, 1, 1), date(2026, 11, 16))
+        self.assertEqual([p["month"] for p in points], [date(2026, 9, 1), date(2026, 10, 1), date(2026, 11, 1)])

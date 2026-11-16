@@ -12,6 +12,7 @@ from db import finance_performance_logic as logic
 from db.finance_income_logic import add_months, month_days
 
 TREND_MONTHS = 12
+MAX_RANGE_MONTHS = 36
 BASIS = ("Cash basis: income counts when paid, expenses when paid. Amounts are as paid, with any VAT "
          "included; how VAT and excise should be shown is still to be confirmed with the accountant.")
 
@@ -42,9 +43,18 @@ def _pppoe_daily(first_day, last_day):
         return [], None
 
 
-def report(first_day, segment, today):
+def months_between(first, last):
+    """How many months first..last covers, both included."""
+    return (last.year - first.year) * 12 + last.month - first.month + 1
+
+
+def report(first_day, segment, today, from_day=None):
+    """The month's statement. from_day (the first day of an earlier month)
+    widens the monthly trend and the expenses to from_day..the month, for
+    the Snapshot's month range; the statement itself stays the one month."""
     previous = add_months(first_day, -1)
-    trend_from = add_months(first_day, -(TREND_MONTHS - 1))
+    trend_months = TREND_MONTHS if from_day is None else months_between(from_day, first_day)
+    trend_from = add_months(first_day, -(trend_months - 1))
     last_day = min(_month_end(first_day), today)
 
     hotspot_rows, hotspot_start = finance_hotspot.daily_totals(trend_from, max(last_day, trend_from))
@@ -57,10 +67,11 @@ def report(first_day, segment, today):
     for d, t in segments["pppoe"][0].items():
         daily[d] = daily.get(d, Decimal("0")) + t
     tracking_start = max(hotspot_start, pppoe_start) if hotspot_start and pppoe_start else hotspot_start or pppoe_start
-    expense_rows, monthly, categories = finance_expenses.performance_expenses(trend_from, previous, _month_end(first_day))
+    expense_rows, monthly, categories = finance_expenses.performance_expenses(
+        trend_from, previous if from_day is None else min(previous, from_day), _month_end(first_day))
 
     this_expenses = [e for e in expense_rows if e["spent_on"] >= first_day.isoformat()]
-    last_expenses = [e for e in expense_rows if e["spent_on"] < first_day.isoformat()]
+    last_expenses = [e for e in expense_rows if previous.isoformat() <= e["spent_on"] < first_day.isoformat()]
     this = logic.month_statement(_income(first_day, segments, today), this_expenses, categories, segment)
     last = logic.month_statement(_income(previous, segments, today), last_expenses, categories, segment)
 
@@ -91,7 +102,12 @@ def report(first_day, segment, today):
     if segment == "all":
         result.update(
             break_even=logic.break_even(first_day, daily, this["expenses_total"], today),
-            trend=logic.monthly_trend(first_day, TREND_MONTHS, income_by_month, expense_months, tracking_start, today),
+            trend=logic.monthly_trend(first_day, trend_months, income_by_month, expense_months, tracking_start, today),
             where=logic.where_money_went(this_expenses, last_expenses),
         )
+        if from_day is not None:
+            result["range"] = {
+                "from": from_day, "months": trend_months,
+                "where": logic.where_money_went([e for e in expense_rows if e["spent_on"] >= from_day.isoformat()], []),
+            }
     return result
