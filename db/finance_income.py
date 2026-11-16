@@ -71,6 +71,15 @@ def _segment_total(first_day, part, today):
     return summary["total"] if summary["has_data"] and not summary["records_start"] else None
 
 
+def _segment_packages(first_day, part):
+    """One segment's own top packages with each one's share of that segment's
+    income for the month; [] when the segment has nothing recorded."""
+    if part is None:
+        return []
+    total = sum((t for d, t, _ in part["daily"] if d >= first_day), Decimal("0"))
+    return logic.package_shares(part["packages"][:5], total)
+
+
 def income_report(first_day, segment, today):
     """Everything the Income page shows above the transactions table."""
     last_day = min(_month_last(first_day), today)
@@ -130,6 +139,8 @@ def income_report(first_day, segment, today):
             pppoe["not_used"], pppoe["held"], finance_pppoe.eat(pppoe["last_upload"]),
             finance_pppoe.eat(pppoe["latest_recharge"]), now)
     if segment == "all":
+        report["segment_packages"] = {name: _segment_packages(first_day, part)
+                                      for name, part in (("hotspot", hotspot), ("pppoe", pppoe))}
         report["split"] = logic.segment_split(_segment_total(first_day, hotspot, today),
                                               _segment_total(first_day, pppoe, today))
     return report

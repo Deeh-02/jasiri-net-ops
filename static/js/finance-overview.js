@@ -342,13 +342,15 @@ function drawSources() {
     if (!inc?.has_data) { fill("fin-ov-sources", state.income.ok ? `<p class="fin-empty">No income records for this month.</p>` : stateHtml("error", state.income.error)); return; }
     const names = { hotspot: "Hotspot", pppoe: "PPPoE", other: "Installation & equipment" };
     const parts = Object.entries(inc.split || {}).map(([key, v]) => ({ key, label: names[key] || key, amount: v, value: v == null ? "" : money(v) }));
-    const packages = inc.packages.slice(0, 5).map(p => ({
+    const rowsOf = list => list.slice(0, 5).map(p => ({
         label: p.package, amount: Number(p.total), value: money(p.total), share: p.share_pct == null ? "" : `${Math.round(Number(p.share_pct))}%`,
         tip: tipAttr(p.package, [{ key: "income", label: "Income", value: money(p.total) }, { label: "Payments", value: Number(p.sales).toLocaleString() },
-                                 { label: "Share of income", value: `${p.share_pct}%` }]),
+                                 { label: "Share of segment", value: `${p.share_pct}%` }]),
     }));
-    fill("fin-ov-sources", `${parts.length ? splitBar(parts, "Income by segment") : ""}
-        <h3 class="fin-h">Top packages</h3>${ranked(packages, { key: "income", empty: "No packages sold this month." })}`);
+    const by = inc.segment_packages || {};
+    const lists = [["hotspot", "Top hotspot packages"], ["pppoe", "Top PPPoE packages"]]
+        .map(([key, title]) => `<h3 class="fin-h">${title}</h3>${ranked(rowsOf(by[key] || []), { key: "income", empty: "No packages sold this month." })}`).join("");
+    fill("fin-ov-sources", `${parts.length ? splitBar(parts, "Income by segment") : ""}${lists}`);
 }
 
 // ---- Equipment ----
