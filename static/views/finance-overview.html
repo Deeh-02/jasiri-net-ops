@@ -1,10 +1,19 @@
-    <section class="view" id="view-finance-overview" hidden>
+    <section class="view fin-view" id="view-finance-overview" hidden>
         <div class="page-header-row">
             <div>
-                <h1 class="page-title">Finance <span>Overview</span></h1>
-                <p class="page-subtitle">The month at a glance: income, expenses and profit.</p>
+                <h1 class="page-title">Finance <span>Snapshot</span></h1>
+                <p class="page-subtitle">Where the business stands this month: money in, money out and what is left.</p>
             </div>
+            <span id="fin-ov-status"></span>
         </div>
 
-        <div class="state state-empty"><span class="state-title">Still to be decided</span>A one-screen summary of Income, Expenses and Performance. What it shows is still to be agreed; until then, Performance has the month at a glance.</div>
+        <div class="toolbar">
+            <label class="toolbar-field"><span>Month</span>
+                <input type="month" class="control" id="fin-ov-month">
+            </label>
+        </div>
+
+        <div id="fin-ov-lead"></div>
+        <div class="fin-kpis" id="fin-ov-kpis"></div>
+        <div class="fin-grid" id="fin-ov-grid"></div>
     </section>

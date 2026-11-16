@@ -161,7 +161,8 @@ treatment are stated at the top. Missing is never zero: PPPoE income marks
 every total "hotspot only"; a month with no expenses recorded has no profit
 figure; the current month is Draft with no change column. Rules in
 `db/finance_performance_logic.py`, tested. Overview's contents are not in the
-spec: its placeholder now says so and waits for the owner.
+spec: its placeholder said so and waited for the owner (filled in on
+2026-11-16, see "Design pass and the Snapshot" below).
 
 **7E, the parts that need no new table (2026-11-15):** on Income, a Month
 target bar (break-even = average monthly operating expenses over up to 3
@@ -190,6 +191,34 @@ it. Straight-line depreciation now feeds Performance's Depreciation line
 `finance:manage_assets` (Roles > Finance). Also the 7E typed month target:
 "Set your own target" on Income's bar (All view), which replaces break-even
 as the target while set. Right now: 125 items, KSh 983,528, none dated.
+
+**Design pass and the Snapshot (2026-11-16, owner's request):** "make
+Finance read at a glance, with charts, and feed the Overview with best
+practice for now." No new table and no new endpoint.
+- **Finance > Overview is now "Snapshot"** (route and files keep the name
+  `finance-overview`). It owns no figures: it draws from the Income,
+  Performance and Assets reports, each its own request, drawn as it arrives.
+  One sentence on where the month stands, five headline figures, then:
+  income adding up day by day against last month, break-even and the
+  month-end estimate; Needs attention gathered from the three pages; income
+  against expenses by month with profit as a line; where the money went;
+  where income came from; the steps from income to profit; equipment. Every
+  card links to the page behind it. Its contents are the builder's choice
+  "for the time being": the owner may still change what it shows.
+- **One chart kit for all five pages** (`static/js/finance-common.js`,
+  `static/css/finance-common.css`; rules in design.md, "Finance charts"):
+  the same tiles, cards, bars, hover label and colours everywhere. Income:
+  hover labels, an average line, the busiest hour picked out. Performance: a
+  profit bridge beside where the money went. Expenses: tiles, spending by
+  category and by day, each narrowing the list to its expenses. Assets:
+  cost by category (opens the register on it) and status.
+- **Reports are remembered for three minutes in the browser**, so going
+  from the Snapshot to Income doesn't wait again; any save, edit, void,
+  target or asset change clears them.
+- **Sidebar:** three pages were called "Overview". Finance's is "Snapshot"
+  (pie icon), Technical Activity Log's is "Summary" (pulse icon; page title,
+  Roles tick and the assistant's guide renamed to match); Operations keeps
+  "Dashboard". Outside Finance's file scope, done at the owner's request.
 
 **7G Month-end, deferred (2026-11-15):** owner's call: 7G is a "nice to
 have", not a must for Phase 7. Nothing built; revisit as the module gets

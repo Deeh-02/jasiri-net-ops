@@ -146,7 +146,7 @@ const PERM_SECTIONS = [
         actions: [
             { label: "Submit reports (and edit your own for 48 hours)", action: "submit" },
             { label: "See every report, not just your own", action: "view_all" },
-            { label: "See Activity Overview", action: "view_overview" },
+            { label: "See Activity Summary", action: "view_overview" },
         ],
     },
     // A plain master toggle, same shape as Users/Roles above — no flat

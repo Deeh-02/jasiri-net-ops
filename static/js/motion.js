@@ -198,7 +198,7 @@ export function enteringView(view) {
 // ---- 2. Counting numbers ----
 
 const COUNTED = ".stat-value, .home-kpi-value, .home-figure > b, .rev-card-value, .rev-tile-value, .summary-item > strong, .rev-attention-count, " +
-    ".fleet-kpi-figure, .sr-kpi-figure, .status-readout-value, .olt-signal .olt-dbm";
+    ".fleet-kpi-figure, .sr-kpi-figure, .status-readout-value, .olt-signal .olt-dbm, .fin-kpi-value, .fin-figure > b";
 let enterDelay = 0;               // ms the new page waits for the old one to blur away
 const NUMBER = /^(\D*?)(\d[\d,]*)(\.\d+)?(\D*)$/s;
 const SHOWN = new WeakMap();       // element -> the text the page last gave it

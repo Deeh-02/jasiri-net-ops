@@ -62,7 +62,7 @@ const CARDS = [
     { id: "fibre", section: "fibre", title: "Fibre", sub: "ONUs on the OLT", span: 4, go: ["olt", "OLT"], draw: drawFibre },
     { id: "customers", section: "customers", title: "Customers", sub: "PPPoE accounts", span: 4, go: ["customers", "Customers"], draw: drawCustomers },
     { id: "batteries", section: "batteries", title: "Batteries", sub: "Where they are and their charge", span: 4, go: ["dashboard", "Batteries"], draw: drawBatteries },
-    { id: "activity", section: "activity", title: "Technician activity", sub: "Last 7 days", span: 12, go: ["activity-overview", "Activity overview"], draw: drawActivity },
+    { id: "activity", section: "activity", title: "Technician activity", sub: "Last 7 days", span: 12, go: ["activity-overview", "Activity summary"], draw: drawActivity },
 ];
 
 // ---- Small building blocks ---------------------------------------------------

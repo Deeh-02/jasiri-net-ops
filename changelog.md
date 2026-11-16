@@ -9,6 +9,28 @@ and in `phase.md`'s own per-phase writeups.
 
 Started 2026-11-15 at the owner's request, after Phase 6 was merged to `main`.
 
+### Finance at a glance: the Snapshot and charts on every page (2026-11-16)
+- **Finance → Snapshot** (was "Overview", an empty page): the month on one
+  screen. A sentence saying what came in, went out and was left; five
+  headline figures; income adding up day by day against last month,
+  break-even and the month-end estimate; what needs attention across
+  Finance; income against expenses month by month; where the money went;
+  where income came from; the steps from income to profit; equipment. Every
+  figure and card opens the page behind it.
+- **Charts you can read by hovering** on Income, Expenses, Performance and
+  Assets: point at any bar or line for its figures. Each chart keeps a
+  "Show as a table" underneath.
+- **Expenses** now opens with the month's totals, spending by category and
+  by day; click a category or a day to see just those expenses.
+- **Performance** shows the steps from income down to profit as bars.
+- **Assets** shows cost by category (click one to see its items) and how
+  much of the equipment has a purchase date.
+- **Faster moving around Finance:** a report you just opened shows again
+  straight away for three minutes, and refreshes whenever you save a change.
+- **Sidebar names:** Finance's "Overview" is now **Snapshot** and Technical
+  Activity Log's "Overview" is now **Summary**, each with its own icon, so
+  only Operations has a Dashboard. Old links and bookmarks still work.
+
 ### Assets, depreciation and your own month target (2026-11-15)
 - **Finance → Assets** values the equipment already in Inventory: total
   cost, book value, this month's depreciation, what's deployed, in stock or

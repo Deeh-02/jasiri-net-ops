@@ -250,26 +250,22 @@
     min-height: 40px;
 }
 
-.fin-exp-categories {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin-bottom: 14px;
-}
-
-.fin-exp-chip {
-    font-size: 12.5px;
-    color: var(--text-soft);
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 999px;
+/* The heading row above the list: its title, what it is narrowed to, a count. */
+.fin-exp-list-bar { align-items: center; margin-top: var(--section-gap); }
+.fin-exp-list-bar .section-title { margin: 0; }
+.fin-exp-filters { display: flex; gap: 8px; flex-wrap: wrap; }
+.fin-exp-filter {
+    min-height: 32px;
     padding: 4px 12px;
-}
-
-.fin-exp-chip strong {
+    border-radius: 999px;
+    border: 1px solid var(--accent);
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
     color: var(--text);
-    font-variant-numeric: tabular-nums;
+    font: inherit;
+    font-size: 12.5px;
+    cursor: pointer;
 }
+.fin-exp-list-bar .toolbar-count { margin-left: auto; }
 
 .fin-exp-voided td {
     text-decoration: line-through;

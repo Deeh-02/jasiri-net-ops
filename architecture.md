@@ -2274,6 +2274,23 @@ Performance's months.
 classification only (category, type, segment, description), never amount,
 date or code. Both go to `finance_audit_log` with before/after.
 
+**The Finance pages share one front-end module** (`finance-common.js` +
+`finance-common.css`, 2026-11-16), the same exception to "a view imports
+only from common.js" as `inventory-common.js` and `activity-common.js`: a
+domain module, not a pairwise import. It holds the text helpers, the tile,
+card and chart builders and the one hover label, so a page file only decides
+what goes in them. The Snapshot (`finance-overview.js`) has no endpoint of
+its own: it reads `/finance/performance`, `/finance/income` and
+`/finance/assets`, two at a time, so its figures are the pages' own.
+
+**Reports are remembered in the browser for three minutes**
+(`fetchReport` in `finance-common.js`). They take seconds to work out, and
+the Snapshot links straight into them. A failed request is never kept;
+`forgetReports()` runs after every Finance write (expense save/edit/void,
+month target, asset or category save) and on logout. What can still be up
+to three minutes old is a change made by someone else on another device.
+The expenses list and Income's transactions are not remembered.
+
 ## Visual testing — headless Chromium in this sandbox
 
 Not part of the app's own architecture — a tooling note so a future

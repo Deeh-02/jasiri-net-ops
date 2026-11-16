@@ -1,4 +1,8 @@
-import { authHeaders, showView, registerRoute, navigate, can, stateHtml, stateRow, markRefreshing } from "./common.js";
+import { authHeaders, showView, registerRoute, navigate, can, stateHtml, stateRow, markRefreshing, skeletonCards } from "./common.js";
+import {
+    esc, money, asDay, dayLabel, monthLabel, nairobiDate, errorText, fetchReport, forgetReports, wireTips, tipAttr, markFresh,
+    kpi, card, legend, alertList, figures, ranked, splitBar, barChart, redrawOnResize,
+} from "./finance-common.js";
 
 // Finance > Income (Phase 7C). Everything is read from data the app already
 // records; nothing here is typed. Hotspot income comes from the router's
@@ -7,10 +11,15 @@ import { authHeaders, showView, registerRoute, navigate, can, stateHtml, stateRo
 // Every figure leads to its rows: the best day, a bar in the daily trend and
 // a package each narrow the transactions table below to what made them up.
 //
+// The tiles, cards, charts and hover labels are Finance's shared ones
+// (finance-common.js); this file decides what goes in them.
+//
 // URL: #/finance-income/<YYYY-MM>/<all|pppoe|hotspot>, so a view can be
 // bookmarked (spec section 3).
 
 const SEGMENTS = ["all", "pppoe", "hotspot"];
+const SEGMENT_NAMES = { hotspot: "Hotspot", pppoe: "PPPoE", other: "Installation & equipment" };
+const WEEKDAY_NAMES = { Mon: "Mondays", Tue: "Tuesdays", Wed: "Wednesdays", Thu: "Thursdays", Fri: "Fridays", Sat: "Saturdays", Sun: "Sundays" };
 const state = {
     month: null, segment: "all", gran: "day", report: null,
     tx: { search: "", day: null, package: null, page: 1 },
@@ -20,60 +29,23 @@ let txRequest = 0;
 
 function $(id) { return document.getElementById(id); }
 
-function esc(value) {
-    const d = document.createElement("div");
-    d.textContent = value == null ? "" : String(value);
-    return d.innerHTML;
-}
-
-function money(amount) {
-    return "KSh " + Number(amount || 0).toLocaleString("en-KE", { maximumFractionDigits: 0 });
-}
-
-function shortMoney(v) {
-    if (v >= 1e6) return `${(v / 1e6).toFixed(v % 1e6 ? 1 : 0)}M`;
-    if (v >= 1e3) return `${(v / 1e3).toFixed(v % 1e3 ? 1 : 0)}k`;
-    return String(Math.round(v));
-}
-
-function nairobiDate(d = new Date()) {
-    return d.toLocaleDateString("en-CA", { timeZone: "Africa/Nairobi" });
-}
-
-// "2026-11-14" read as a calendar day, no time-zone shift.
-function asDay(iso) {
-    const [y, m, d] = iso.split("-").map(Number);
-    return new Date(y, m - 1, d);
-}
-
-function dayLabel(iso, opts = { weekday: "short", day: "numeric", month: "short" }) {
-    return asDay(iso).toLocaleDateString("en-GB", opts);
-}
-
-function monthLabel(iso) {
-    return asDay(iso).toLocaleDateString("en-GB", { month: "long", year: "numeric" });
-}
-
-async function errorText(res, fallback) {
-    if (!res) return "Couldn't reach the server. Check your connection and try again.";
-    const body = await res.json().catch(() => ({}));
-    return typeof body.detail === "string" ? body.detail : fallback;
-}
+const hourSpan = h => `${String(h).padStart(2, "0")}:00–${String((h + 1) % 24).padStart(2, "0")}:00`;
 
 // ---- Loading ----
 
 async function load() {
-    $("fin-inc-body").innerHTML = stateHtml("loading", "Loading income…");
     const asked = `${state.month}/${state.segment}`;
-    const res = await fetch(`/finance/income?month=${state.month}&segment=${state.segment}`, { headers: authHeaders() }).catch(() => null);
+    $("fin-inc-body").innerHTML = `<div class="fin-kpis">${skeletonCards(5)}</div>${stateHtml("loading", "Loading income…")}`;
+    const result = await fetchReport(`/finance/income?month=${state.month}&segment=${state.segment}`);
     if (asked !== `${state.month}/${state.segment}`) return;   // the user moved on meanwhile
-    if (!res || !res.ok) {
-        $("fin-inc-body").innerHTML = stateHtml("error", await errorText(res, "Couldn't load income. Try again in a moment."));
+    if (!result.ok) {
+        $("fin-inc-body").innerHTML = stateHtml("error", result.error);
         $("fin-inc-tx").hidden = true;
         return;
     }
-    state.report = await res.json();
+    state.report = result.data;
     render();
+    markFresh($("fin-inc-body"));
     $("fin-inc-tx").hidden = !state.report.has_data;
     if (state.report.has_data) loadTransactions();
 }
@@ -87,61 +59,45 @@ function render() {
     }
     $("fin-inc-body").innerHTML = [
         tilesHtml(r), attentionHtml(r.attention), targetHtml(r.target, r.summary.is_current_month, r.segment),
-        r.split ? splitHtml(r.split) : "", trendHtml(), patternsHtml(r), buyersHtml(r.buyers),
+        trendHtml(), patternsHtml(r),
     ].join("");
     drawChart();
 }
 
-// ---- KPI tiles ----
-
-function tile(label, value, sub, { cls = "", day = null } = {}) {
-    const tag = day ? "button" : "div";
-    const extra = day ? ` type="button" data-day="${esc(day)}" title="Show this day's transactions"` : "";
-    return `<${tag} class="fin-inc-tile ${cls}"${extra}><div class="fin-inc-tile-label">${label}</div>
-        <div class="fin-inc-tile-value">${value}</div><div class="fin-inc-tile-sub">${sub}</div></${tag}>`;
-}
+// ---- Headline figures ----
 
 function tilesHtml(r) {
-    const s = r.summary, vs = r.vs_last_month;
-    const started = s.records_start ? ` · records start ${esc(dayLabel(s.records_start, { day: "numeric", month: "short" }))}` : "";
-    let vsTile;
-    if (!vs) {
-        vsTile = tile("vs last month", "—", s.is_current_month && s.completed_days === 0
-            ? "Nothing to compare until tomorrow" : "Last month isn't fully recorded");
-    } else {
-        const up = Number(vs.change_pct) >= 0;
-        const pct = vs.change_pct == null ? "—" : `${up ? "▲" : "▼"} ${Math.abs(Number(vs.change_pct))}%`;
-        const span = vs.days ? `first ${vs.days} days of each month` : `whole of ${esc(monthLabel(vs.previous_month))}`;
-        vsTile = tile("vs last month", pct, `${money(vs.this)} vs ${money(vs.previous)}, ${span}`, { cls: up ? "up" : "down" });
-    }
-    return `<div class="fin-inc-tiles">
-        ${tile("Total income", money(s.total), `${Number(s.sales).toLocaleString()} sales${started}`, { cls: "total" })}
-        ${vsTile}
-        ${tile("Average a day", s.average_per_day == null ? "—" : money(s.average_per_day),
-               s.completed_days ? `over ${s.completed_days} completed day${s.completed_days === 1 ? "" : "s"}` : "No completed day yet")}
-        ${s.best_day ? tile("Best day", money(s.best_day.total), esc(dayLabel(s.best_day.day)), { day: s.best_day.day })
-                     : tile("Best day", "—", "No completed day yet")}
-        ${s.is_current_month ? tile("Today so far", money(s.today), "Still counting: not in the average", { day: nairobiDate() }) : ""}
+    const s = r.summary, vs = r.vs_last_month, t = r.target;
+    const lastMonth = vs ? monthLabel(vs.previous_month, true).split(" ")[0] : "";
+    const change = vs && vs.change_pct != null ? {
+        pct: Number(vs.change_pct), goodWhenUp: true,
+        note: vs.days ? `vs first ${vs.days} days of ${lastMonth}` : `vs ${lastMonth}`,
+    } : null;
+    const started = s.records_start ? `, records start ${dayLabel(s.records_start, { day: "numeric", month: "short" })}` : "";
+    const noCompare = vs ? "" : s.is_current_month && s.completed_days === 0 ? ". Nothing to compare until tomorrow" : ". Last month isn't fully recorded, so no comparison";
+    return `<div class="fin-kpis">
+        ${kpi({ label: "Total income", value: money(s.total), change, sub: `${Number(s.sales).toLocaleString()} sales${started}${noCompare}`,
+                title: vs ? `${money(vs.this)} against ${money(vs.previous)}` : "" })}
+        ${s.is_current_month ? kpi({ label: "Today so far", value: money(s.today || 0), sub: "Still counting: not in the average",
+                                     pick: `data-day="${esc(nairobiDate())}"`, title: "Show today's sales" }) : ""}
+        ${kpi({ label: "Average a day", value: s.average_per_day == null ? null : money(s.average_per_day), none: "No day yet",
+                sub: s.completed_days ? `over ${s.completed_days} completed day${s.completed_days === 1 ? "" : "s"}` : "No completed day yet" })}
+        ${s.best_day ? kpi({ label: "Best day", value: money(s.best_day.total), sub: dayLabel(s.best_day.day), pick: `data-day="${esc(s.best_day.day)}"`, title: "Show this day's sales" })
+                     : kpi({ label: "Best day", value: null, none: "No day yet", sub: "No completed day yet" })}
+        ${t?.projected ? kpi({ label: "Month-end estimate", value: money(t.projected.projected), sub: `If the rest goes like the last ${t.projected.weeks} weeks` }) : ""}
     </div>`;
 }
 
 // ---- Needs attention (worst first; a day item opens that day's sales) ----
 
-const LEVEL_LABEL = { bad: "Act now", warn: "Check", info: "Note" };
-
 function attentionHtml(items) {
     if (!items) return "";
     if (!items.length) {
-        return `<p class="fin-inc-all-clear">Nothing needs attention this month: no silent days, no unusually low days, no unpriced packages.</p>`;
+        return `<p class="fin-clear fin-inc-clear"><i class="fin-dot"></i>Nothing needs attention this month: no silent days, no unusually low days, no unpriced packages.</p>`;
     }
-    return `<section class="fin-inc-card fin-inc-attention" aria-labelledby="fin-inc-attention-title">
-        <h2 class="section-title" id="fin-inc-attention-title">Needs attention</h2>
-        <ul>${items.map(i => `<li class="fin-inc-alert ${i.level}">
-            <span class="fin-inc-alert-level">${LEVEL_LABEL[i.level] || "Note"}</span>
-            <div><strong>${esc(i.title)}</strong><div class="fin-inc-alert-detail">${esc(i.detail)}</div>
-            ${i.day ? `<button type="button" class="fin-inc-link" data-day="${esc(i.day)}">See that day's sales</button>` : ""}</div>
-        </li>`).join("")}</ul>
-    </section>`;
+    return card({ title: "Needs attention", sub: "Worst first.", body: alertList(items.map(i => ({
+        level: i.level, title: i.title, detail: i.detail, pick: i.day ? `data-day="${esc(i.day)}"` : "", link: "See that day's sales",
+    }))) });
 }
 
 // ---- Month target: one bar, the target, and markers for the rest ----
@@ -151,37 +107,39 @@ function targetHtml(t, isCurrent, segment) {
     const markers = [];
     if (t.break_even && t.target_source !== "break_even") markers.push(["break-even", "Break-even", t.break_even.amount]);
     if (t.last_month != null) markers.push(["last-month", "Last month", t.last_month]);
-    if (t.projected) markers.push(["projected", "Projected", t.projected.projected]);
+    if (t.projected) markers.push(["projected", "Month-end estimate", t.projected.projected]);
     const scale = Math.max(1, Number(t.income), Number(t.target || 0), ...markers.map(m => Number(m[2]))) * 1.06;
     const at = v => `${Math.min(100, Number(v) / scale * 100).toFixed(1)}%`;
     const reached = t.target != null && Number(t.income) >= Number(t.target);
-    let heading;
+    let sub;
     if (t.target_source === "break_even") {
-        heading = `Target: break-even, ${money(t.target)} <span class="muted">(average monthly expenses over ${t.break_even.months} recorded month${t.break_even.months === 1 ? "" : "s"})</span>`;
+        sub = `Break-even, ${money(t.target)}: the average monthly expenses over ${t.break_even.months} recorded month${t.break_even.months === 1 ? "" : "s"}.`;
     } else if (t.target_source === "manual") {
-        heading = `Target: ${money(t.target)} <span class="muted">(set by you)</span>`;
+        sub = `${money(t.target)}, set by you.`;
     } else if (segment !== "all") {
-        heading = `<span class="muted">Break-even covers the whole business, so it shows on the All view.</span>`;
+        sub = "Break-even covers the whole business, so it shows on the All view.";
     } else {
-        heading = `<span class="muted">No target yet: record expenses and break-even appears here.</span>`;
+        sub = "No target yet: record expenses and break-even appears here.";
     }
-    const legend = [
-        `<span><i class="fin-inc-key bar${reached ? " reached" : ""}"></i>Income ${isCurrent ? "so far" : ""} ${money(t.income)}${t.progress_pct != null ? ` · ${t.progress_pct}% of target` : ""}</span>`,
-        t.target != null ? `<span><i class="fin-inc-tick target"></i>Target</span>` : "",
-        ...markers.map(([cls, label, v]) => `<span><i class="fin-inc-tick ${cls}"></i>${label} ${money(v)}${cls === "projected" ? ` <span class="muted">(estimate: same weekdays, last ${t.projected.weeks} weeks)</span>` : ""}</span>`),
+    const keys = [
+        `<span><i class="fin-inc-key${reached ? " reached" : ""}"></i>Income ${isCurrent ? "so far " : ""}${money(t.income)}</span>`,
+        t.target != null ? `<span><i class="fin-inc-tick target"></i>Target ${money(t.target)}</span>` : "",
+        ...markers.map(([cls, label, v]) => `<span><i class="fin-inc-tick ${cls}"></i>${label} ${money(v)}${cls === "projected" ? ` <span class="fin-legend-note">&nbsp;(same weekdays, last ${t.projected.weeks} weeks)</span>` : ""}</span>`),
     ].join("");
     const canSet = segment === "all" && can("finance", "manage_assets");
     const editor = canSet ? `<span class="fin-inc-target-edit" id="fin-inc-target-edit">
-        <button type="button" class="fin-inc-link" data-target-open>${t.target_source === "manual" ? "Change target" : "Set your own target"}</button></span>` : "";
-    return `<section class="fin-inc-card fin-inc-target">
-        <div class="fin-inc-target-head"><h2 class="section-title">Month target</h2><span>${heading}</span>${editor}</div>
+        <button type="button" class="fin-link" data-target-open>${t.target_source === "manual" ? "Change target" : "Set your own target"}</button></span>` : "";
+    const headline = t.progress_pct == null ? "" : figures([
+        [`${t.progress_pct}%`, reached ? "of the target: reached" : "of the target so far"],
+        reached ? null : [money(Number(t.target) - Number(t.income)), "still to go"],
+    ]);
+    return card({ title: "Month target", sub, tools: editor, cls: "fin-inc-target", body: `${headline}
         <div class="fin-inc-target-bar" role="img" aria-label="Income against the month target">
             <span class="fin-inc-target-fill${reached ? " reached" : ""}" style="width:${at(t.income)}"></span>
             ${t.target != null ? `<span class="fin-inc-target-tick target" style="left:${at(t.target)}"></span>` : ""}
             ${markers.map(([cls, , v]) => `<span class="fin-inc-target-tick ${cls}" style="left:${at(v)}"></span>`).join("")}
         </div>
-        <div class="fin-inc-legend">${legend}</div>
-    </section>`;
+        <div class="fin-legend">${keys}</div>` });
 }
 
 // Typing a target for the month (saved per month; empty clears it and the
@@ -205,23 +163,8 @@ async function saveTarget(amount) {
         $("fin-inc-target-error").textContent = await errorText(res, "Couldn't save the target.");
         return;
     }
+    forgetReports();   // the target is part of the Income report and the Snapshot
     load();
-}
-
-// ---- The thin PPPoE / Hotspot / Other bar (All only) ----
-
-function splitHtml(split) {
-    const known = Object.entries(split).filter(([, v]) => v != null);
-    const total = known.reduce((sum, [, v]) => sum + Number(v), 0);
-    const names = { pppoe: "PPPoE", hotspot: "Hotspot", other: "Other" };
-    const bar = known.map(([k, v]) => `<span class="fin-inc-split-seg ${k}" style="width:${total ? (Number(v) / total * 100).toFixed(1) : 0}%"></span>`).join("");
-    const legend = Object.entries(split).map(([k, v]) => v == null
-        ? `<span class="muted">${names[k]}: no data yet</span>`
-        : `<span><i class="fin-inc-key ${k}"></i>${names[k]} ${total ? Math.round(Number(v) / total * 100) : 0}%</span>`).join(" · ");
-    return `<div class="fin-inc-split" aria-label="Income by segment">
-        <div class="fin-inc-split-bar">${bar}</div>
-        <div class="fin-inc-split-legend">${legend}</div>
-    </div>`;
 }
 
 // ---- Trend chart ----
@@ -229,19 +172,18 @@ function splitHtml(split) {
 function trendHtml() {
     const g = state.gran;
     const button = (v, label) => `<button type="button" data-gran="${v}" aria-pressed="${g === v}">${label}</button>`;
-    return `<section class="fin-inc-card">
-        <div class="fin-inc-card-head">
-            <h2 class="section-title">Trend</h2>
-            <div class="fleet-range" id="fin-inc-gran" role="group" aria-label="Trend by">${button("day", "Day")}${button("week", "Week")}${button("month", "Month")}</div>
-        </div>
-        <div class="fin-inc-legend" id="fin-inc-legend"></div>
-        <div id="fin-inc-chart"></div>
-        <details class="fin-inc-table-view"><summary>Show as a table</summary><div id="fin-inc-trend-table"></div></details>
-    </section>`;
+    return card({
+        title: "Trend", sub: "Income for each day, week or month. Click a day to see its sales.",
+        tools: `<div class="fleet-range" id="fin-inc-gran" role="group" aria-label="Trend by">${button("day", "Day")}${button("week", "Week")}${button("month", "Month")}</div>`,
+        body: `<div id="fin-inc-legend"></div>
+            <div class="fin-chart-box" id="fin-inc-chart"></div>
+            <details class="fin-table-view"><summary>Show as a table</summary><div id="fin-inc-trend-table"></div></details>`,
+    });
 }
 
-// The chosen granularity's points in one shape: label (axis), name (tooltip),
-// value (null = no data), compare (last month, day view only), partial, day.
+// The chosen granularity's points in one shape: label (axis), name (hover
+// label), value (null = no data), compare (last month, day view only),
+// partial, day.
 function trendPoints() {
     const t = state.report.trend;
     if (state.gran === "week") {
@@ -249,124 +191,88 @@ function trendPoints() {
             name: `Week of ${dayLabel(p.week_start, { day: "numeric", month: "short" })}`, value: p.value, partial: p.partial }));
     }
     if (state.gran === "month") {
-        return t.month.map(p => ({ label: asDay(p.month).toLocaleDateString("en-GB", { month: "short" }),
-            name: monthLabel(p.month), value: p.value, partial: p.partial }));
+        return t.month.map(p => ({ label: monthLabel(p.month, false), name: monthLabel(p.month), value: p.value, partial: p.partial }));
     }
     return t.day.map(p => ({ label: String(asDay(p.day).getDate()), name: dayLabel(p.day), value: p.value,
         compare: p.last_month, partial: p.partial, day: p.day }));
 }
 
-// The chart's top value: the smallest of these that fits, chosen so that a
-// quarter of it is always a round figure (15k would give 3.75k gridlines).
-function niceTop(v) {
-    const mag = Math.pow(10, Math.floor(Math.log10(v)));
-    for (const m of [1, 1.2, 1.6, 2, 2.4, 3.2, 4, 6, 8, 10]) if (m * mag >= v) return m * mag;
-    return 10 * mag;
-}
-
-function trendSvg(pts, width) {
-    const W = Math.max(300, Math.min(1000, Math.round(width || 720))), H = W < 520 ? 210 : 250;
-    const L = 40, R = 8, T = 12, B = 26;
-    const values = pts.flatMap(p => [p.value, p.compare]).filter(v => v != null).map(Number);
-    const top = niceTop(Math.max(1, ...values));
-    const y = v => T + (1 - v / top) * (H - T - B);
-    const slot = (W - L - R) / pts.length, bw = Math.max(3, Math.min(44, slot * 0.64));
-    const grid = [0, 0.25, 0.5, 0.75, 1].map(f => `<line class="grid" x1="${L}" x2="${W - R}" y1="${y(top * f)}" y2="${y(top * f)}"/>
-        <text x="${L - 6}" y="${y(top * f) + 3}" text-anchor="end">${shortMoney(top * f)}</text>`).join("");
-    const step = Math.max(1, Math.ceil(30 / slot));
-    const bars = pts.map((p, i) => {
-        const cx = L + slot * i + slot / 2, x = cx - bw / 2;
-        let bar = "";
-        if (p.value != null) {
-            const v = Number(p.value), h = Math.max(0, y(0) - y(v)), r = Math.min(4, bw / 2, h);
-            if (h > 0) bar = `<path class="bar${p.partial ? " partial" : ""}" d="M${x},${y(0)} V${y(v) + r} Q${x},${y(v)} ${x + r},${y(v)} H${x + bw - r} Q${x + bw},${y(v)} ${x + bw},${y(v) + r} V${y(0)} Z"/>`;
-        }
-        const tip = `${p.name}: ${p.value == null ? "no data" : money(p.value) + (p.partial ? " so far" : "")}` +
-            (state.gran === "day" ? ` · last month ${p.compare == null ? "no data" : money(p.compare)}` : "");
-        const label = (i % step === 0 || i === pts.length - 1) ? `<text x="${cx}" y="${H - 8}" text-anchor="middle">${esc(p.label)}</text>` : "";
-        const click = p.day && p.value != null ? ` data-day="${p.day}"` : "";
-        return `<g class="slot${click ? " clickable" : ""}"${click}><title>${esc(tip)}</title>
-            <rect class="hit" x="${L + slot * i}" y="${T}" width="${slot}" height="${y(0) - T}"/>${bar}</g>${label}`;
-    }).join("");
-    // Last month as a dashed line, broken wherever it has no data.
-    let line = "";
-    if (state.gran === "day") {
-        const runs = [];
-        let run = [];
-        pts.forEach((p, i) => {
-            if (p.compare == null) { if (run.length) runs.push(run); run = []; return; }
-            run.push(`${(L + slot * i + slot / 2).toFixed(1)},${y(Number(p.compare)).toFixed(1)}`);
-        });
-        if (run.length) runs.push(run);
-        line = runs.map(r => r.length > 1 ? `<polyline class="compare" points="${r.join(" ")}"/>` : "").join("");
-    }
-    return `<svg class="fin-inc-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Income trend">
-        <defs><pattern id="fin-inc-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-            <line x1="0" y1="0" x2="0" y2="6" class="hatch"/></pattern></defs>
-        ${grid}${bars}${line}<line class="base" x1="${L}" x2="${W - R}" y1="${y(0)}" y2="${y(0)}"/></svg>`;
-}
-
 function drawChart() {
     const box = $("fin-inc-chart");
     if (!box) return;
+    const byDay = state.gran === "day", average = byDay ? state.report.summary.average_per_day : null;
     const pts = trendPoints();
-    box.innerHTML = trendSvg(pts, box.clientWidth);
-    const thisLabel = state.gran === "day" ? monthLabel(state.month + "-01") : state.gran === "week" ? "Each week" : "Each month";
-    $("fin-inc-legend").innerHTML = `<span><i class="fin-inc-key bar"></i>${esc(thisLabel)}</span>` +
-        (state.gran === "day" ? `<span><i class="fin-inc-key compare"></i>Last month, same day</span>` : "") +
-        `<span><i class="fin-inc-key partial"></i>Still counting</span>` +
-        (state.gran === "day" ? `<span class="muted">Click a day to see its transactions</span>` : "");
+    box.innerHTML = barChart(pts.map(p => ({
+        ...p,
+        pick: p.day && p.value != null ? `data-day="${p.day}"` : "",
+        tip: tipAttr(`${p.name}${p.partial ? " (so far)" : ""}`, [
+            { key: p.partial ? "partial" : "income", label: "Income", value: p.value == null ? "no data" : money(p.value) },
+            byDay ? { key: "compare", label: "Same day last month", value: p.compare == null ? "no data" : money(p.compare) } : null,
+        ], p.day && p.value != null ? "Click to see this day's sales" : ""),
+    })), { width: box.clientWidth, id: "fin-inc-hatch", average, what: "Income trend" });
+    $("fin-inc-legend").innerHTML = legend([
+        { key: "income", label: byDay ? monthLabel(state.month) : state.gran === "week" ? "Each week" : "Each month" },
+        byDay ? { key: "compare", label: "Last month, same day" } : null,
+        average != null ? { key: "avg", label: `Average a day ${money(average)}` } : null,
+        pts.some(p => p.partial) ? { key: "partial", label: "Still counting" } : null,
+    ]);
     $("fin-inc-trend-table").innerHTML = `<div class="table-scroll table-compact"><table class="table-dense">
-        <thead><tr><th>Period</th><th class="num">Income</th>${state.gran === "day" ? `<th class="num">Last month</th>` : ""}</tr></thead>
+        <thead><tr><th>Period</th><th class="num">Income</th>${byDay ? `<th class="num">Last month</th>` : ""}</tr></thead>
         <tbody>${pts.map(p => `<tr><td>${esc(p.name)}${p.partial ? " (so far)" : ""}</td>
             <td class="num">${p.value == null ? "no data" : money(p.value)}</td>
-            ${state.gran === "day" ? `<td class="num">${p.compare == null ? "no data" : money(p.compare)}</td>` : ""}</tr>`).join("")}</tbody>
+            ${byDay ? `<td class="num">${p.compare == null ? "no data" : money(p.compare)}</td>` : ""}</tr>`).join("")}</tbody>
     </table></div>`;
 }
 
-// ---- Patterns ----
+// ---- Patterns: weekday, hour of day, packages, segments, customers ----
 
-function patternsHtml(r) {
-    const maxWeekday = Math.max(1, ...r.weekdays.map(w => Number(w.average || 0)));
-    const weekdays = r.weekdays.map(w => `<div class="fin-inc-row">
-        <span class="fin-inc-row-name">${w.weekday}</span>
-        <span class="fin-inc-meter"><span style="width:${w.average == null ? 0 : (Number(w.average) / maxWeekday * 100).toFixed(1)}%"></span></span>
-        <span class="fin-inc-row-value">${w.average == null ? "no data" : money(w.average)}</span>
-        <span class="fin-inc-row-n muted" title="Days this average is based on">n=${w.days}</span></div>`).join("");
-
-    const maxHour = Math.max(1, ...r.hours.map(h => Number(h.total)));
-    const hours = r.hours.map(h => `<span class="fin-inc-hour" title="${String(h.hour).padStart(2, "0")}:00–${String((h.hour + 1) % 24).padStart(2, "0")}:00 · ${money(h.total)} · ${h.sales} sales">
-        <span style="height:${(Number(h.total) / maxHour * 100).toFixed(1)}%"></span></span>`).join("");
-    const peak = r.hours.reduce((a, b) => (Number(b.total) > Number(a.total) ? b : a));
-
-    const packages = r.packages.map(p => `<button type="button" class="fin-inc-row fin-inc-row-btn" data-package="${esc(p.package)}" title="Show this package's transactions">
-        <span class="fin-inc-row-name">${esc(p.package)}</span>
-        <span class="fin-inc-meter"><span style="width:${p.share_pct ?? 0}%"></span></span>
-        <span class="fin-inc-row-value">${money(p.total)}</span>
-        <span class="fin-inc-row-n muted">${p.share_pct}%</span></button>`).join("");
-
-    return `<div class="fin-inc-patterns">
-        <section class="fin-inc-card"><h2 class="section-title">By weekday</h2>
-            <p class="fin-inc-card-note">Average per completed day. n = how many days it rests on.</p>${weekdays}</section>
-        <section class="fin-inc-card"><h2 class="section-title">By hour</h2>
-            <p class="fin-inc-card-note">Busiest: ${String(peak.hour).padStart(2, "0")}:00–${String((peak.hour + 1) % 24).padStart(2, "0")}:00, ${money(peak.total)} this month.</p>
-            <div class="fin-inc-hours" role="img" aria-label="Income by hour of day">${hours}</div>
-            <div class="fin-inc-hours-axis"><span>00</span><span>06</span><span>12</span><span>18</span><span>23</span></div></section>
-        <section class="fin-inc-card"><h2 class="section-title">Top packages</h2>
-            <p class="fin-inc-card-note">Share of this month's income. Click one to see its sales.</p>${packages}</section>
-    </div>`;
+function weekdayCard(r) {
+    return card({ span: 4, title: "By weekday", sub: "What a completed day brings in, on average.", body: ranked(r.weekdays.map(w => ({
+        label: w.weekday, sub: `${w.days} day${w.days === 1 ? "" : "s"}`, amount: w.average == null ? null : Number(w.average), value: w.average == null ? "" : money(w.average),
+        tip: tipAttr(WEEKDAY_NAMES[w.weekday] || w.weekday, [{ key: "income", label: "Average a day", value: w.average == null ? "no data" : money(w.average) },
+                                                            { label: "Days it rests on", value: String(w.days) }]),
+    }))) });
 }
 
-function buyersHtml(b) {
-    if (!b) return "";
-    return `<section class="fin-inc-card fin-inc-buyers"><h2 class="section-title">Customers</h2>
-        <div class="summary-strip">
-            <div class="summary-item"><strong>${Number(b.buyers).toLocaleString()}</strong> accounts paid</div>
-            <div class="summary-item"><strong>${Number(b.first_time).toLocaleString()}</strong> paid for the first time</div>
-            <div class="summary-item"><strong>${Number(b.repeat).toLocaleString()}</strong> paid more than once</div>
-        </div>
-        <p class="fin-inc-card-note">An account is one phone on one device, so one person with two phones counts twice.</p>
-    </section>`;
+// One column per hour; the busiest hour is the only one in full colour.
+function hourCard(r) {
+    const max = Math.max(1, ...r.hours.map(h => Number(h.total)));
+    const peak = r.hours.reduce((a, b) => (Number(b.total) > Number(a.total) ? b : a));
+    const columns = r.hours.map((h, i) => `<span class="fin-inc-hour${h === peak ? " peak" : ""}" ${tipAttr(hourSpan(h.hour), [
+        { key: "income", label: "Income this month", value: money(h.total) }, { label: "Sales", value: Number(h.sales).toLocaleString() }])}>
+        <span style="height:${(Number(h.total) / max * 100).toFixed(1)}%;--i:${i}"></span></span>`).join("");
+    return card({ span: 4, title: "By hour of day", sub: `Busiest: ${hourSpan(peak.hour)}, ${money(peak.total)} this month.`, body: `
+        <div class="fin-inc-hours" role="img" aria-label="Income by hour of day. Busiest: ${hourSpan(peak.hour)}">${columns}</div>
+        <div class="fin-inc-hours-axis"><span>00</span><span>06</span><span>12</span><span>18</span><span>23</span></div>` });
+}
+
+function packageCard(r) {
+    return card({ span: 4, title: "Top packages", sub: "Share of this month's income. Click one to see its sales.", body: ranked(r.packages.map(p => ({
+        label: p.package, amount: Number(p.total), value: money(p.total), share: p.share_pct == null ? "" : `${Math.round(Number(p.share_pct))}%`,
+        pick: `data-package="${esc(p.package)}" title="Show this package's sales"`,
+        tip: tipAttr(p.package, [{ key: "income", label: "Income", value: money(p.total) }, { label: "Sales", value: Number(p.sales).toLocaleString() },
+                                 { label: "Share of income", value: `${p.share_pct}%` }]),
+    })), { empty: "No packages sold this month." }) });
+}
+
+function segmentCard(split) {
+    const parts = Object.entries(split).map(([key, v]) => ({ key, label: SEGMENT_NAMES[key] || key, amount: v, value: v == null ? "" : money(v) }));
+    return card({ span: 4, title: "By segment", sub: "Where this month's income came from.", body: splitBar(parts, "Income by segment") });
+}
+
+function buyersCard(b, span) {
+    return card({ span, title: "Customers", sub: "An account is one phone on one device, so one person with two phones counts twice.", body: figures([
+        [Number(b.buyers).toLocaleString(), "accounts paid"],
+        [Number(b.first_time).toLocaleString(), "paid for the first time"],
+        [Number(b.repeat).toLocaleString(), "paid more than once"],
+    ]) });
+}
+
+function patternsHtml(r) {
+    return `<div class="fin-grid">
+        ${weekdayCard(r)}${hourCard(r)}${packageCard(r)}
+        ${r.split ? segmentCard(r.split) : ""}${r.buyers ? buyersCard(r.buyers, r.split ? 8 : 12) : ""}
+    </div>`;
 }
 
 // ---- Transactions ----
@@ -489,12 +395,9 @@ export function initFinanceIncome() {
         if (b && !b.disabled) { state.tx.page = Number(b.dataset.page); loadTransactions(); }
     });
 
+    wireTips($("fin-inc-body"));
     // The chart is drawn at the width it's shown at; redraw when that changes.
-    let resizeTimer = null;
-    window.addEventListener("resize", () => {
-        clearTimeout(resizeTimer);
-        resizeTimer = setTimeout(() => { if (!$("view-finance-income").hidden && state.report?.has_data) drawChart(); }, 150);
-    });
+    redrawOnResize("view-finance-income", () => { if (state.report?.has_data) drawChart(); });
 
     registerRoute("finance-income", (params) => {
         const month = /^\d{4}-\d{2}$/.test(params[0] || "") ? params[0] : nairobiDate().slice(0, 7);

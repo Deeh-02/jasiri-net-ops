@@ -1,29 +1,28 @@
-import { authHeaders, showView, registerRoute, can, stateHtml, stateRow, showMessage } from "./common.js";
+import { authHeaders, showView, registerRoute, can, stateHtml, stateRow, showMessage, skeletonCards } from "./common.js";
+import {
+    esc, money, moneyOrNone, errorText, fetchReport, forgetReports, wireTips, tipAttr, markFresh,
+    kpi, card, alertList, ranked, splitBar, meter,
+} from "./finance-common.js";
 
 // Finance > Assets (Phase 7F). Inventory stays the equipment register; this
 // page shows what each serialised item is worth and costs each month, from
 // the money facts Finance keeps beside it (purchase date, useful life,
 // salvage, warranty, segment, the capital expense that paid for it).
 // An item without a purchase date has no book value: nothing is invented.
+//
+// Top to bottom: the headline figures, what needs attention, cost by
+// category beside where the equipment stands, then the category defaults and
+// the register. Tiles, cards and bars are Finance's shared ones
+// (finance-common.js).
 
 const SEGMENT_LABEL = { pppoe: "PPPoE", hotspot: "Hotspot", shared: "Shared" };
-const LEVEL_LABEL = { bad: "Act now", warn: "Check", info: "Note" };
+// The colour each Inventory status takes in the status bar.
+const STATUS_KEY = { "Active": "good", "Faulty": "bad", "In Repair": "warn", "Decommissioned": "idle" };
 let data = null;
 let openItem = null;
 let openCategory = null;
 
 function $(id) { return document.getElementById(id); }
-
-function esc(value) {
-    const d = document.createElement("div");
-    d.textContent = value == null ? "" : String(value);
-    return d.innerHTML;
-}
-
-function money(v) {
-    if (v == null) return `<span class="muted">no data</span>`;
-    return `KSh ${Number(v).toLocaleString("en-KE", { maximumFractionDigits: 0 })}`;
-}
 
 function dayLabel(iso) {
     if (!iso) return "—";
@@ -31,57 +30,93 @@ function dayLabel(iso) {
     return new Date(y, m - 1, d).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
 
-async function errorText(res, fallback) {
-    if (!res) return "Couldn't reach the server. Check your connection and try again.";
-    const body = await res.json().catch(() => ({}));
-    if (typeof body.detail === "string") return body.detail;
-    if (Array.isArray(body.detail) && body.detail[0]?.msg) return body.detail[0].msg;
-    return fallback;
-}
-
 // ---- Loading ----
 
 async function load() {
-    const res = await fetch("/finance/assets", { headers: authHeaders() }).catch(() => null);
-    if (!res || !res.ok) {
-        $("fin-ast-top").innerHTML = stateHtml("error", await errorText(res, "Couldn't load assets. Try again in a moment."));
+    if (!data) $("fin-ast-top").innerHTML = `<div class="fin-kpis">${skeletonCards(5)}</div>`;
+    const result = await fetchReport("/finance/assets");
+    if (!result.ok) {
+        $("fin-ast-top").innerHTML = stateHtml("error", result.error);
         $("fin-ast-rows").innerHTML = "";
         $("fin-ast-cat-rows").innerHTML = "";
         return;
     }
-    data = await res.json();
+    data = result.data;
     renderTop();
+    markFresh($("fin-ast-top"));
     renderCategories();
     fillFilters();
     renderRows();
 }
 
-// ---- Tiles and alerts ----
+// After a save: the figures changed, so nothing remembered may be reused.
+function reload() {
+    forgetReports();
+    load();
+}
 
-function tile(label, value, sub, cls = "") {
-    return `<div class="fin-ast-tile ${cls}"><div class="fin-ast-tile-label">${label}</div>
-        <div class="fin-ast-tile-value">${value}</div><div class="fin-ast-tile-sub">${sub}</div></div>`;
+// ---- Headline figures, alerts, and the two charts ----
+
+function tilesHtml(s) {
+    const m = s.this_month;
+    return `<div class="fin-kpis">
+        ${kpi({ label: "Total cost", value: money(s.total_cost), sub: `${s.count} serialised items in Inventory` })}
+        ${kpi({ label: "Worth today", value: s.book_value == null ? null : money(s.book_value),
+                sub: s.valued === s.count ? "Book value of every item" : `Book value. ${s.valued} of ${s.count} items have the dates to value` })}
+        ${kpi({ label: "Depreciation this month", value: m.counted ? money(m.total) : null,
+                sub: m.counted ? `${m.counted} item${m.counted === 1 ? "" : "s"}${m.left_out ? `; ${m.left_out} without dates left out` : ""}` : "Needs purchase dates" })}
+        ${kpi({ label: "Faulty or in repair", value: String(s.needs_repair), flag: s.needs_repair ? ["Needs a look", "warn"] : ["None", "good"],
+                sub: `${s.deployed} deployed, ${s.in_stock} in stock` })}
+        ${kpi({ label: "Warranty ending", value: String(s.warranty_ending), flag: s.warranty_ending ? ["Within 60 days", "warn"] : null,
+                sub: s.warranty_ending ? "Claim before it runs out" : "None within 60 days" })}
+    </div>`;
+}
+
+// Cost per category, largest first; a bar opens that category in the register.
+function categoryCard() {
+    const worth = {};   // category id -> { value, valued }
+    for (const a of data.assets) {
+        const c = worth[a.category_id] || (worth[a.category_id] = { value: 0, valued: 0 });
+        if (a.book_value != null) { c.value += Number(a.book_value); c.valued += 1; }
+    }
+    const rows = [...data.categories].sort((a, b) => Number(b.cost) - Number(a.cost)).map(c => {
+        const w = worth[c.id] || { value: 0, valued: 0 };
+        return {
+            label: c.name, sub: String(c.items), amount: Number(c.cost), value: money(c.cost),
+            pick: `data-open-category="${c.id}" title="Show these in the register"`,
+            tip: tipAttr(c.name, [
+                { key: "cost", label: "Cost", value: money(c.cost) },
+                { label: "Worth today", value: w.valued === c.items && c.items ? money(w.value) : w.valued ? `${money(w.value)} (${w.valued} of ${c.items} valued)` : "no data" },
+                { label: "Items", value: String(c.items) },
+                { label: "Useful life", value: c.life ? `${c.life.life_months} months` : "not set" },
+            ], "Click to see them in the register"),
+        };
+    });
+    return card({ span: 7, title: "Cost by category", sub: "What each kind of equipment cost, with how many items. Click one to see them.",
+                  body: ranked(rows, { key: "cost", empty: "Add serialised equipment in Inventory first." }) });
+}
+
+// Where the equipment stands (Inventory's status), and how much of it has
+// the purchase date that book value needs.
+function statusCard(s) {
+    const counts = {};
+    for (const a of data.assets) counts[a.status] = (counts[a.status] || 0) + 1;
+    const parts = Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([status, n]) => ({
+        key: STATUS_KEY[status] || "info", label: status, amount: n, value: `${n} item${n === 1 ? "" : "s"}`,
+    }));
+    return card({ span: 5, title: "Where it stands", sub: "By Inventory status.", body: `
+        ${parts.length ? splitBar(parts, "Assets by status") : `<p class="fin-empty">No equipment yet.</p>`}
+        <div class="fin-meter-row"><div><span>Items with a purchase date</span><b>${s.valued} of ${s.count}</b></div>
+            ${meter(s.count ? s.valued / s.count : 0, s.valued === s.count ? "good" : "warn")}</div>
+        <p class="fin-card-note">${s.valued === s.count ? "Every item can be valued." : "An item is valued only once it has a purchase date. Set one for a whole category under Categories."}</p>` });
 }
 
 function renderTop() {
-    const s = data.summary, m = s.this_month;
-    const book = s.book_value == null ? money(null) : money(s.book_value);
-    const tiles = `<div class="fin-ast-tiles">
-        ${tile("Total cost", money(s.total_cost), `${s.count} items in Inventory`, "cost")}
-        ${tile("Book value", book, s.valued === s.count ? "All items valued" : `${s.valued} of ${s.count} items have the dates to value`)}
-        ${tile("This month's depreciation", m.counted ? money(m.total) : money(null),
-               m.counted ? `${m.counted} item${m.counted === 1 ? "" : "s"}${m.left_out ? `, ${m.left_out} without dates left out` : ""}` : "Needs purchase dates")}
-        ${tile("Deployed", s.deployed, "Status Active")}
-        ${tile("In stock", s.in_stock, "Spare, in storage")}
-        ${tile("Faulty / in repair", s.needs_repair, s.needs_repair ? "See below" : "None", s.needs_repair ? "warn" : "")}
-        ${tile("Warranty ending", s.warranty_ending, "Within 60 days", s.warranty_ending ? "warn" : "")}
-    </div>`;
-    const alerts = data.alerts.length ? `<section class="fin-ast-card"><h2 class="section-title">Needs attention</h2><ul class="fin-ast-alerts">
-        ${data.alerts.map(a => `<li class="fin-ast-alert ${a.level}"><span class="fin-ast-alert-level">${LEVEL_LABEL[a.level]}</span>
-            <div><strong>${esc(a.title)}</strong><div class="fin-ast-alert-detail">${esc(a.detail)}</div>
-            ${a.item_id ? `<button type="button" class="fin-ast-link" data-item="${a.item_id}">Open it</button>` : ""}</div></li>`).join("")}
-    </ul></section>` : "";
-    $("fin-ast-top").innerHTML = tiles + alerts;
+    const s = data.summary;
+    const alerts = data.alerts.length ? card({ title: "Needs attention", sub: "Worst first.", body: alertList(data.alerts.map(a => ({
+        level: a.level, title: a.title, detail: a.detail, pick: a.item_id ? `data-item="${a.item_id}"` : "", link: "Open it",
+    }))) }) : "";
+    $("fin-ast-top").innerHTML = `${tilesHtml(s)}${alerts}<div class="fin-grid">${categoryCard()}${statusCard(s)}</div>`;
 }
 
 // ---- Categories ----
@@ -95,7 +130,7 @@ function renderCategories() {
         return;
     }
     $("fin-ast-cat-rows").innerHTML = data.categories.map(c => `<tr>
-        <td>${esc(c.name)}</td><td class="num">${c.items}</td><td class="num">${money(c.cost)}</td>
+        <td>${esc(c.name)}</td><td class="num">${c.items}</td><td class="num">${moneyOrNone(c.cost)}</td>
         <td class="num">${c.life ? `${c.life.life_months} months` : `<span class="muted">not set</span>`}</td>
         <td class="num">${c.life ? `${Number(c.life.salvage_pct)}%` : "—"}</td>
         <td class="num ${c.dated < c.items ? "fin-ast-short" : ""}">${c.dated} of ${c.items}</td>
@@ -134,7 +169,7 @@ async function saveCategory(e) {
         return;
     }
     $("fin-ast-cat-overlay").hidden = true;
-    load();
+    reload();
 }
 
 // ---- Register ----
@@ -163,7 +198,7 @@ function filtered() {
 function renderRows() {
     const rows = filtered();
     const total = rows.reduce((sum, a) => sum + Number(a.terms.cost || 0), 0);
-    $("fin-ast-count").textContent = `${rows.length} item${rows.length === 1 ? "" : "s"} · ${money(total).replace(/<[^>]+>/g, "")}`;
+    $("fin-ast-count").textContent = `${rows.length} item${rows.length === 1 ? "" : "s"} · ${money(total)}`;
     if (!rows.length) {
         $("fin-ast-rows").innerHTML = stateRow(8, "empty", "Try another filter.", "No matching assets");
         return;
@@ -174,8 +209,8 @@ function renderRows() {
         <td class="muted">${esc(a.category)}</td>
         <td class="muted">${esc(SEGMENT_LABEL[a.segment] || "—")}</td>
         <td>${a.location ? esc(a.location) : `<span class="muted">none</span>`}</td>
-        <td class="num">${money(a.terms.cost)}</td>
-        <td class="num">${a.book_value == null ? `<span class="muted" title="Missing: ${esc(a.terms.missing.join(", "))}">no data</span>` : money(a.book_value)}</td>
+        <td class="num">${moneyOrNone(a.terms.cost)}</td>
+        <td class="num">${a.book_value == null ? `<span class="muted" title="Missing: ${esc(a.terms.missing.join(", "))}">no data</span>` : moneyOrNone(a.book_value)}</td>
         <td><span class="fin-ast-status ${a.status.toLowerCase().replace(/[^a-z]+/g, "-")}">${esc(a.status)}</span>${a.warranty_ending ? `<div class="cell-sub fin-ast-warn">Warranty ends ${esc(dayLabel(a.warranty_until))}</div>` : ""}</td>
     </tr>`).join("");
 }
@@ -193,12 +228,12 @@ async function openItemDialog(id) {
     $("fin-ast-item-title").textContent = `${a.name}${a.serial ? ` · ${a.serial}` : ""}`;
     $("fin-ast-item-facts").innerHTML = [
         fact("Category", esc(a.category)), fact("Status", esc(a.status)), fact("Location", esc(a.location || "none")),
-        fact("Supplier", esc(a.supplier || "—")), fact("Cost", money(t.cost)),
+        fact("Supplier", esc(a.supplier || "—")), fact("Cost", moneyOrNone(t.cost)),
         fact("Useful life", t.life_months ? `${t.life_months} months${a.life_override ? "" : " (category)"}` : "not set"),
-        fact("Salvage", `${money(t.salvage)}${a.salvage_override ? "" : " (category)"}`),
-        fact("Per month", a.monthly == null ? money(null) : money(a.monthly)),
-        fact("Depreciated so far", a.depreciated == null ? money(null) : money(a.depreciated)),
-        fact("Book value", a.book_value == null ? `<span class="muted">no data: needs ${esc(t.missing.join(", "))}</span>` : money(a.book_value)),
+        fact("Salvage", `${moneyOrNone(t.salvage)}${a.salvage_override ? "" : " (category)"}`),
+        fact("Per month", a.monthly == null ? moneyOrNone(null) : moneyOrNone(a.monthly)),
+        fact("Depreciated so far", a.depreciated == null ? moneyOrNone(null) : moneyOrNone(a.depreciated)),
+        fact("Book value", a.book_value == null ? `<span class="muted">no data: needs ${esc(t.missing.join(", "))}</span>` : moneyOrNone(a.book_value)),
     ].join("");
     $("fin-ast-purchased").value = t.purchased_on || "";
     $("fin-ast-life").value = a.life_override ? t.life_months : "";
@@ -209,7 +244,7 @@ async function openItemDialog(id) {
     if (a.expense_id && !options.some(e => e.id === a.expense_id)) options.unshift({ id: a.expense_id, linked: true });
     $("fin-ast-expense").innerHTML = `<option value="">None</option>` + options.map(e => e.linked
         ? `<option value="${e.id}">Expense #${e.id} (linked)</option>`
-        : `<option value="${e.id}">${esc(dayLabel(e.spent_on))} · ${esc(e.payee || e.description || "Cash")} · ${money(e.amount)}</option>`).join("");
+        : `<option value="${e.id}">${esc(dayLabel(e.spent_on))} · ${esc(e.payee || e.description || "Cash")} · ${moneyOrNone(e.amount)}</option>`).join("");
     $("fin-ast-expense").value = a.expense_id || "";
     const canManage = can("finance", "manage_assets");
     $("fin-ast-item-form").querySelectorAll("input, select").forEach(el => { el.disabled = !canManage; });
@@ -251,7 +286,7 @@ async function saveItem(e) {
         return;
     }
     $("fin-ast-item-overlay").hidden = true;
-    load();
+    reload();
 }
 
 // ---- Wiring ----
@@ -269,8 +304,15 @@ export function initFinanceAssets() {
     });
     $("fin-ast-top").addEventListener("click", (e) => {
         const link = e.target.closest("[data-item]");
-        if (link) openItemDialog(Number(link.dataset.item));
+        if (link) { openItemDialog(Number(link.dataset.item)); return; }
+        // A category's bar narrows the register to that category.
+        const category = e.target.closest("[data-open-category]");
+        if (!category) return;
+        $("fin-ast-f-category").value = category.dataset.openCategory;
+        renderRows();
+        $("fin-ast-register").scrollIntoView({ behavior: "smooth", block: "start" });
     });
+    wireTips($("fin-ast-top"));
     $("fin-ast-cat-rows").addEventListener("click", (e) => {
         const b = e.target.closest("[data-category]");
         if (b) openCategoryDialog(Number(b.dataset.category));

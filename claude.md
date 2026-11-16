@@ -67,6 +67,10 @@ static/
                              # inventory-common.js, a shared domain module
                              # (not a pairwise cross-import — see
                              # ARCHITECTURE.md).
+                             # ALSO EXCEPT the five finance-*.js pages, which
+                             # import from finance-common.js (tiles, cards,
+                             # charts, the hover label, remembered reports),
+                             # the same kind of shared domain module.
                              # inventory-manage.js is Categories-only —
                              # Locations has no management screen any more.
                              # inventory.js (Items) and stock.js (Stock) now

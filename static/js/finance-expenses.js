@@ -2,8 +2,14 @@ import {
     authHeaders, showView, registerRoute, navigate, can,
     stateRow, markRefreshing, showMessage, editIconSvg
 } from "./common.js";
+import {
+    esc, errorText, money as wholeMoney, dayLabel as shortDay, forgetReports, wireTips, tipAttr, markFresh,
+    kpi, card, ranked, barChart, redrawOnResize,
+} from "./finance-common.js";
 
-// Finance > Expenses (Phase 7B). Two parts:
+// Finance > Expenses (Phase 7B). Three parts:
+//  - the month at a glance: what was spent, on what, and on which days. A
+//    category or a day narrows the list below to the expenses behind it;
 //  - the month list, with edit (category, type, segment, description) and void;
 //  - adding: paste messages + cash lines -> the server reads them (/read) ->
 //    the user checks and picks categories -> /save. Save sends the same text
@@ -28,6 +34,8 @@ const SPARKLE = `<svg class="fin-exp-sparkle" viewBox="0 0 16 16" fill="currentC
 
 let categories = [];
 let monthRows = [];
+// What the list is narrowed to by clicking a category bar or a day.
+const listFilter = { category: null, day: null };
 // Whether DeepSeek suggestions are switched on (FINANCE_AI_ENABLED on the
 // server); read once when Add expenses is first opened.
 let aiEnabled = null;
@@ -36,12 +44,8 @@ let editingExpense = null;
 // what the server made of it, and the user's choice per item key.
 let review = null;
 
-function esc(value) {
-    const d = document.createElement("div");
-    d.textContent = value == null ? "" : String(value);
-    return d.innerHTML;
-}
-
+// Exact, to the cent: the list and the review show what the message said.
+// (The tiles and charts above round to whole shillings: wholeMoney.)
 function money(amount) {
     return "KSh " + Number(amount || 0).toLocaleString("en-KE", { maximumFractionDigits: 2 });
 }
@@ -58,14 +62,6 @@ function thisMonth() {
 
 function today() {
     return new Date().toLocaleDateString("en-CA", { timeZone: "Africa/Nairobi" });
-}
-
-async function errorText(res, fallback) {
-    if (!res) return "Couldn't reach the server. Check your connection and try again.";
-    const body = await res.json().catch(() => ({}));
-    if (typeof body.detail === "string") return body.detail;
-    if (Array.isArray(body.detail) && body.detail[0]?.msg) return body.detail[0].msg;
-    return fallback;
 }
 
 function categoryOptions(selectedId, { placeholder = false, includeRetiredId = null } = {}) {
@@ -97,39 +93,99 @@ async function loadMonth() {
         { headers: authHeaders() }).catch(() => null);
     if (!res || !res.ok) {
         document.getElementById("fin-exp-summary").innerHTML = "";
-        document.getElementById("fin-exp-categories").innerHTML = "";
         tbody.innerHTML = stateRow(cols, "error", await errorText(res, "Couldn't load expenses. Try again in a moment."));
         return;
     }
     const data = await res.json();
     monthRows = data.rows;
-    renderSummary(data.summary);
-    renderRows(cols);
+    listFilter.category = listFilter.day = null;
+    renderSummary(data.summary, month);
+    markFresh(document.getElementById("fin-exp-summary"));
+    renderRows();
 }
 
-function renderSummary(summary) {
-    const voided = summary.voided_count ? `<div class="summary-item"><strong>${summary.voided_count}</strong> voided</div>` : "";
-    // No expenses yet is "no data", not KSh 0 (spec principle 4).
-    document.getElementById("fin-exp-summary").innerHTML = summary.count ? `
-        <div class="summary-item"><strong>${money(summary.total)}</strong> spent</div>
-        <div class="summary-item"><strong>${money(summary.operating)}</strong> operating</div>
-        <div class="summary-item"><strong>${money(summary.capital)}</strong> capital (not in profit)</div>
-        ${voided}` : voided;
-    document.getElementById("fin-exp-categories").innerHTML = summary.by_category.map(c =>
-        `<span class="fin-exp-chip">${esc(c.category)} <strong>${money(c.total)}</strong> <span class="muted">${c.count}</span></span>`).join("");
-    document.getElementById("fin-exp-count").textContent = summary.count ? `${summary.count} expense${summary.count === 1 ? "" : "s"}` : "";
-}
-
-function renderRows(cols) {
-    const tbody = document.getElementById("fin-exp-rows");
-    const canManage = can("finance", "manage_expenses");
-    if (!monthRows.length) {
-        tbody.innerHTML = stateRow(cols, "empty",
-            canManage ? "Pick another month, or use + Add expenses to paste messages." : "Pick another month.",
-            "No expenses recorded for this month");
+// The month at a glance: four figures, spending by category, spending by day.
+// No expenses yet is "no data", not KSh 0 (spec principle 4).
+function renderSummary(summary, month) {
+    const box = document.getElementById("fin-exp-summary");
+    const voided = summary.voided_count ? `${summary.voided_count} voided, left out of every total` : "";
+    if (!summary.count) {
+        box.innerHTML = voided ? `<p class="fin-card-note">${voided}.</p>` : "";
         return;
     }
-    tbody.innerHTML = monthRows.map(r => `
+    const total = Number(summary.total), biggest = summary.by_category[0];
+    const share = amount => (total ? `${Math.round(Number(amount) / total * 100)}%` : "");
+    const categories = summary.by_category.map(c => ({
+        label: c.category, sub: String(c.count), amount: Number(c.total), value: wholeMoney(c.total), share: share(c.total),
+        pick: `data-category="${esc(c.category)}" title="Show these expenses"`,
+        tip: tipAttr(c.category, [{ key: "expenses", label: "Spent", value: money(c.total) }, { label: "Expenses", value: String(c.count) },
+                                  { label: "Share of the month", value: share(c.total) }], "Click to see them in the list"),
+    }));
+    box.innerHTML = `<div class="fin-kpis">
+        ${kpi({ label: "Money out", value: wholeMoney(summary.total), sub: `${summary.count} expense${summary.count === 1 ? "" : "s"}${voided ? `; ${voided}` : ""}` })}
+        ${kpi({ label: "Operating", value: wholeMoney(summary.operating), sub: "Running costs: these count against profit" })}
+        ${kpi({ label: "Capital", value: wholeMoney(summary.capital), sub: "Equipment bought to keep: left out of profit" })}
+        ${biggest ? kpi({ label: "Biggest cost", value: biggest.category, sub: `${wholeMoney(biggest.total)}, ${share(biggest.total)} of the month`,
+                          pick: `data-category="${esc(biggest.category)}"`, title: "Show these expenses" }) : ""}
+    </div>
+    <div class="fin-grid">
+        ${card({ span: 5, title: "By category", sub: "Largest first. Click one to see its expenses.", body: ranked(categories, { key: "expenses" }) })}
+        ${card({ span: 7, title: "Day by day", sub: "What was paid out on each day of the month. Click a day to see its expenses.",
+                 body: `<div class="fin-chart-box" id="fin-exp-days"></div>` })}
+    </div>`;
+    drawDays(month);
+}
+
+// One bar per day of the month, from the expenses listed below (voided ones
+// left out). A day with nothing paid has no bar.
+function drawDays(month = document.getElementById("fin-exp-month").value) {
+    const box = document.getElementById("fin-exp-days");
+    if (!box || !month) return;
+    const [year, monthNumber] = month.split("-").map(Number);
+    const byDay = {};
+    for (const r of monthRows.filter(r => !r.voided_at)) {
+        const day = byDay[r.spent_on] || (byDay[r.spent_on] = { total: 0, count: 0 });
+        day.total += Number(r.amount);
+        day.count += 1;
+    }
+    const points = [];
+    for (let d = 1; d <= new Date(year, monthNumber, 0).getDate(); d++) {
+        const iso = `${month}-${String(d).padStart(2, "0")}`, day = byDay[iso];
+        points.push({
+            label: String(d), value: day ? day.total : null, pick: day ? `data-day="${iso}"` : "",
+            tip: tipAttr(shortDay(iso), day ? [{ key: "expenses", label: "Paid out", value: money(day.total) },
+                                               { label: "Expenses", value: String(day.count) }] : [{ label: "Paid out", value: "nothing recorded" }],
+                         day ? "Click to see them in the list" : ""),
+        });
+    }
+    box.innerHTML = barChart(points, { width: box.clientWidth, id: "fin-exp-hatch", what: "Expenses by day" });
+}
+
+// The rows the list shows: all of the month's, or those behind the category
+// or day that was clicked above.
+function shownRows() {
+    return monthRows.filter(r => (!listFilter.category || r.category === listFilter.category) && (!listFilter.day || r.spent_on === listFilter.day));
+}
+
+function renderRows() {
+    const tbody = document.getElementById("fin-exp-rows");
+    const canManage = can("finance", "manage_expenses");
+    const cols = canManage ? 8 : 7;
+    const rows = shownRows(), live = rows.filter(r => !r.voided_at);
+    const narrowed = listFilter.category || listFilter.day;
+    document.getElementById("fin-exp-filters").innerHTML =
+        (listFilter.category ? `<button type="button" class="fin-exp-filter" data-clear="category">${esc(listFilter.category)} ×</button>` : "") +
+        (listFilter.day ? `<button type="button" class="fin-exp-filter" data-clear="day">${esc(shortDay(listFilter.day))} ×</button>` : "");
+    document.getElementById("fin-exp-count").textContent = live.length
+        ? `${live.length} expense${live.length === 1 ? "" : "s"} · ${money(live.reduce((sum, r) => sum + Number(r.amount), 0))}` : "";
+    if (!rows.length) {
+        tbody.innerHTML = narrowed
+            ? stateRow(cols, "empty", "Clear the filter above to see the whole month.", "No expenses match")
+            : stateRow(cols, "empty", canManage ? "Pick another month, or use + Add expenses to paste messages." : "Pick another month.",
+                       "No expenses recorded for this month");
+        return;
+    }
+    tbody.innerHTML = rows.map(r => `
         <tr class="${r.voided_at ? "fin-exp-voided" : ""}">
             <td class="muted">${esc(dayLabel(r.spent_on))}</td>
             <td>${esc(r.payee || r.description || "—")}${r.payee && r.description ? `<div class="cell-sub">${esc(r.description)}</div>` : ""}
@@ -141,6 +197,13 @@ function renderRows(cols) {
             <td class="num">${money(r.amount)}</td>
             ${canManage ? `<td>${r.voided_at ? "" : `<button type="button" class="fin-exp-edit-btn" data-edit="${r.id}" title="Edit or void" aria-label="Edit or void">${editIconSvg()}</button>`}</td>` : ""}
         </tr>`).join("");
+}
+
+// Narrow the list to a category or a day, and bring it into view.
+function narrowList(change) {
+    Object.assign(listFilter, change);
+    renderRows();
+    document.getElementById("fin-exp-filters").scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
 // ---- Edit and void ----
@@ -178,6 +241,7 @@ async function saveEdit(e) {
         return;
     }
     document.getElementById("fin-exp-edit-overlay").hidden = true;
+    forgetReports();
     loadMonth();
 }
 
@@ -201,6 +265,7 @@ async function saveVoid(e) {
         return;
     }
     document.getElementById("fin-exp-void-overlay").hidden = true;
+    forgetReports();
     loadMonth();
 }
 
@@ -542,6 +607,7 @@ async function saveReview() {
         return;
     }
     const result = await res.json();
+    forgetReports();
     // Show the month the newest saved expense falls in.
     const newest = toSave.map(i => i.spent_on || review.readings[i.key]?.spent_on || review.text.cash_date || today()).sort().pop();
     let text = `Saved ${result.saved} expense${result.saved === 1 ? "" : "s"}, ${money(result.total)}.`;
@@ -577,6 +643,18 @@ export function initFinanceExpenses() {
         if (e.target.value) navigate(`finance-expenses/${e.target.value}`, { replace: true });
     });
     document.getElementById("fin-exp-show-voided").addEventListener("change", loadMonth);
+    // A category bar, the "Biggest cost" tile or a day's bar narrows the list.
+    document.getElementById("fin-exp-summary").addEventListener("click", (e) => {
+        const category = e.target.closest("[data-category]"), day = e.target.closest("[data-day]");
+        if (category) narrowList({ category: category.dataset.category });
+        else if (day) narrowList({ day: day.dataset.day });
+    });
+    document.getElementById("fin-exp-filters").addEventListener("click", (e) => {
+        const chip = e.target.closest("[data-clear]");
+        if (chip) narrowList({ [chip.dataset.clear]: null });
+    });
+    wireTips(document.getElementById("fin-exp-summary"));
+    redrawOnResize("view-finance-expenses", () => drawDays());
     document.getElementById("fin-exp-rows").addEventListener("click", async (e) => {
         const button = e.target.closest("[data-edit]");
         if (button && await loadCategories()) openEdit(Number(button.dataset.edit));

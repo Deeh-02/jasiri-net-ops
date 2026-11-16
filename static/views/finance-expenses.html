@@ -54,7 +54,7 @@
         </div>
     </div>
 
-    <section class="view" id="view-finance-expenses" hidden>
+    <section class="view fin-view" id="view-finance-expenses" hidden>
         <div class="page-header-row">
             <div>
                 <h1 class="page-title">Finance <span>Expenses</span></h1>
@@ -108,10 +108,15 @@
                 <input type="month" class="control" id="fin-exp-month">
             </label>
             <label class="checkbox-row fin-exp-voided-toggle"><input type="checkbox" id="fin-exp-show-voided"> Show voided</label>
+        </div>
+
+        <div id="fin-exp-summary" aria-label="This month's expenses"></div>
+
+        <div class="toolbar fin-exp-list-bar">
+            <h2 class="section-title">Every expense</h2>
+            <div class="fin-exp-filters" id="fin-exp-filters"></div>
             <span class="toolbar-count" id="fin-exp-count"></span>
         </div>
-        <div class="summary-strip" id="fin-exp-summary" aria-label="This month's expenses"></div>
-        <div class="fin-exp-categories" id="fin-exp-categories" aria-label="By category"></div>
 
         <div class="table-scroll table-compact">
             <table id="fin-exp-table">

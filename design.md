@@ -161,7 +161,7 @@ what is truly its own.
   of the guide line turns green; its section's title turns green
   (`.nav-section-title.current`). Sections start open; folding one is remembered per browser
   (`localStorage.navCollapsedGroups`) and landing on a page inside a folded
-  section opens it. Short labels in the sidebar (Overview, Submit Report,
+  section opens it. Short labels in the sidebar (Summary, Submit Report,
   Activity Types, Inventory Report); the full names stay in `data-label` for
   the command palette. Unread alerts use an amber count bubble.
 
@@ -352,6 +352,48 @@ what is truly its own.
   it applies, the rule that flagged it. Bar charts elsewhere (Trends, the
   site report) stay CSS-div bars — SVG is for charts that need a line or a
   band.
+- **Finance charts (2026-11-16, `finance-common.css` / `finance-common.js`):**
+  every Finance page is built from the same pieces, so read these before
+  adding a chart there.
+  - **Colour is fixed across Finance:** income `--accent`, expenses and
+    costs `--info`, profit `--text` (a line over the bars), last month or
+    any comparison `--text-faint`, a loss `--danger`. Never colour alone:
+    two or more series get a legend, text stays in text colours, and a
+    direction is glyph + word ("▼ Down 24.9%").
+  - **Page order:** headline tiles (`.fin-kpis` of `kpi()`), what needs
+    attention, then cards (`card()`, on the 12-column `.fin-grid`), then
+    tables. A tile is one figure, what it rests on, and at most one change
+    chip; a figure that doesn't exist reads "No data" in grey, never 0.
+  - **One axis per chart**, always starting at 0 for bars, with round
+    gridlines (solid hairlines). Bars are at most 24px wide with a 4px
+    rounded top and 2px between neighbours; lines are 2px; a dot has a 2px
+    ring in the card's colour. Still-counting periods are hatched; a period
+    nobody recorded is a gap. Dashes mean a reference (average, target),
+    dots an estimate.
+  - **Label sparingly:** only the extreme or the latest point carries its
+    figure on the chart; the axis, the hover label and the table carry the
+    rest. Where lines converge, the figure goes in the legend instead.
+  - **Hover:** every mark has a `data-tip` (built with `tipAttr`, plain text
+    only) shown in the one floating label by `wireTips`; line charts use a
+    crosshair that snaps to the nearest day. It also shows on tap and on
+    keyboard focus, and it is never the only way to read a figure: each
+    chart has "Show as a table" or a list beside it.
+  - **Part of a whole** is a ranked list of bars (`ranked()`), or one split
+    bar with its legend (`splitBar()`) for six parts or fewer. No pies or
+    donuts. **Income to profit** is the bridge (`bridge()`).
+  - **Every figure leads somewhere:** a tile or card links to its page; a
+    bar that stands for rows (a day, a category, a package) narrows the
+    table below to those rows.
+  - Bars and lines grow in once when a page's figures arrive (`markFresh`),
+    not on a resize, and not at all with animations off.
+  - Known limit: the dark theme's `--accent` is slightly lighter than the
+    ideal band for a chart colour (it is the brand colour, so it stays);
+    income and expenses still separate clearly, including for colour-blind
+    readers, and are always labelled.
+- **Sidebar names (2026-11-16):** only Operations has a "Dashboard". The
+  at-a-glance page of a section gets its own word and icon: Finance →
+  "Snapshot" (pie), Technical Activity Log → "Summary" (pulse line). Don't
+  add another "Overview".
 - **Native `<select>` on report pages is a known exception** to the
   custom-dropdown rule above: Trends' period picker already uses one, and
   Revenue's comparison and series pickers match it rather than introducing

@@ -1034,7 +1034,7 @@ button.summary-item:active:not(:disabled) { transform: scale(0.98); }
 }
 
 .view.is-entering > *:not(.modal-overlay):not(.home-tip):not([hidden]),
-.view.is-entering :is(.stat-grid, .rev-cards, .rev-tiles, .summary-strip, .olt-signals, .rev-findings, .rev-rankings, .fleet-kpis, .sr-kpis, .home-kpis, .home-grid) > *,
+.view.is-entering :is(.stat-grid, .rev-cards, .rev-tiles, .summary-strip, .olt-signals, .rev-findings, .rev-rankings, .fleet-kpis, .sr-kpis, .home-kpis, .home-grid, .fin-kpis, .fin-grid) > *,
 .view.is-entering tbody > tr:nth-child(-n+14) {
     animation: blur-in 0.9s var(--enter-ease) backwards;
     animation-delay: calc(var(--enter-delay, 0s) + var(--n, 0) * 90ms);
@@ -1047,12 +1047,12 @@ button.summary-item:active:not(:disabled) { transform: scale(0.98); }
 .view.is-entering > :nth-child(7) { --n: 6; }
 .view.is-entering > :nth-child(n+8) { --n: 7; }
 /* Inside a grid, cards follow on from their block. */
-.view.is-entering :is(.stat-grid, .rev-cards, .rev-tiles, .summary-strip, .olt-signals, .rev-findings, .rev-rankings, .fleet-kpis, .sr-kpis, .home-kpis, .home-grid) > :nth-child(1) { --n: 2; }
-.view.is-entering :is(.stat-grid, .rev-cards, .rev-tiles, .summary-strip, .olt-signals, .rev-findings, .rev-rankings, .fleet-kpis, .sr-kpis, .home-kpis, .home-grid) > :nth-child(2) { --n: 3; }
-.view.is-entering :is(.stat-grid, .rev-cards, .rev-tiles, .summary-strip, .olt-signals, .rev-findings, .rev-rankings, .fleet-kpis, .sr-kpis, .home-kpis, .home-grid) > :nth-child(3) { --n: 4; }
-.view.is-entering :is(.stat-grid, .rev-cards, .rev-tiles, .summary-strip, .olt-signals, .rev-findings, .rev-rankings, .fleet-kpis, .sr-kpis, .home-kpis, .home-grid) > :nth-child(4) { --n: 5; }
-.view.is-entering :is(.stat-grid, .rev-cards, .rev-tiles, .summary-strip, .olt-signals, .rev-findings, .rev-rankings, .fleet-kpis, .sr-kpis, .home-kpis, .home-grid) > :nth-child(5) { --n: 6; }
-.view.is-entering :is(.stat-grid, .rev-cards, .rev-tiles, .summary-strip, .olt-signals, .rev-findings, .rev-rankings, .fleet-kpis, .sr-kpis, .home-kpis, .home-grid) > :nth-child(n+6) { --n: 7; }
+.view.is-entering :is(.stat-grid, .rev-cards, .rev-tiles, .summary-strip, .olt-signals, .rev-findings, .rev-rankings, .fleet-kpis, .sr-kpis, .home-kpis, .home-grid, .fin-kpis, .fin-grid) > :nth-child(1) { --n: 2; }
+.view.is-entering :is(.stat-grid, .rev-cards, .rev-tiles, .summary-strip, .olt-signals, .rev-findings, .rev-rankings, .fleet-kpis, .sr-kpis, .home-kpis, .home-grid, .fin-kpis, .fin-grid) > :nth-child(2) { --n: 3; }
+.view.is-entering :is(.stat-grid, .rev-cards, .rev-tiles, .summary-strip, .olt-signals, .rev-findings, .rev-rankings, .fleet-kpis, .sr-kpis, .home-kpis, .home-grid, .fin-kpis, .fin-grid) > :nth-child(3) { --n: 4; }
+.view.is-entering :is(.stat-grid, .rev-cards, .rev-tiles, .summary-strip, .olt-signals, .rev-findings, .rev-rankings, .fleet-kpis, .sr-kpis, .home-kpis, .home-grid, .fin-kpis, .fin-grid) > :nth-child(4) { --n: 5; }
+.view.is-entering :is(.stat-grid, .rev-cards, .rev-tiles, .summary-strip, .olt-signals, .rev-findings, .rev-rankings, .fleet-kpis, .sr-kpis, .home-kpis, .home-grid, .fin-kpis, .fin-grid) > :nth-child(5) { --n: 6; }
+.view.is-entering :is(.stat-grid, .rev-cards, .rev-tiles, .summary-strip, .olt-signals, .rev-findings, .rev-rankings, .fleet-kpis, .sr-kpis, .home-kpis, .home-grid, .fin-kpis, .fin-grid) > :nth-child(n+6) { --n: 7; }
 /* Table rows ripple down quickly: no blur on rows (dozens of blurred rows
    at once would stutter), just a rise and fade. */
 .view.is-entering tbody > tr:nth-child(-n+14) { animation-name: rise-in; animation-duration: 0.6s; animation-delay: calc(var(--enter-delay, 0s) + 0.25s + var(--r, 0) * 40ms); }
@@ -1088,7 +1088,7 @@ button.summary-item:active:not(:disabled) { transform: scale(0.98); }
 }
 @media (max-width: 760px) {
     .view.is-entering > *:not(.modal-overlay):not(.home-tip):not([hidden]),
-    .view.is-entering :is(.stat-grid, .rev-cards, .rev-tiles, .summary-strip, .olt-signals, .rev-findings, .rev-rankings, .fleet-kpis, .sr-kpis, .home-kpis, .home-grid) > * { animation-name: blur-in-phone; }
+    .view.is-entering :is(.stat-grid, .rev-cards, .rev-tiles, .summary-strip, .olt-signals, .rev-findings, .rev-rankings, .fleet-kpis, .sr-kpis, .home-kpis, .home-grid, .fin-kpis, .fin-grid) > * { animation-name: blur-in-phone; }
     .view-ghost { animation-name: blur-out-phone; }
 }
 

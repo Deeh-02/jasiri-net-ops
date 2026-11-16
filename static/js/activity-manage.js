@@ -23,7 +23,7 @@ function render() {
                     <button type="button" class="act-btn act-btn-small" data-act="toggle-cat">${c.is_active ? "Deactivate" : "Activate"}</button>
                 </div>
             </header>
-            <label class="act-check"><input type="checkbox" data-act="repeat-cat" ${c.repeat_visit_tracking ? "checked" : ""}> Count these reports in the Overview's repeat visits</label>
+            <label class="act-check"><input type="checkbox" data-act="repeat-cat" ${c.repeat_visit_tracking ? "checked" : ""}> Count these reports in the Summary's repeat visits</label>
             <ul class="act-mtypes">${c.types.map((t, ti) => typeRow(c, t, ti)).join("")}</ul>
             <button type="button" class="act-link-btn" data-act="add-type">+ Add type</button>
         </section>`).join("");

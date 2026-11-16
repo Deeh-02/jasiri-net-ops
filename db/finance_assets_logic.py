@@ -148,13 +148,13 @@ def alerts(assets):
     if no_date:
         out.append({"level": "warn", "kind": "no_date",
                     "title": f"{len(no_date)} item{'s have' if len(no_date) != 1 else ' has'} no purchase date",
-                    "detail": "No book value or depreciation is worked out without one. Set a date for a whole "
-                              "category under Categories below, or per item."})
+                    "detail": "No book value or depreciation is worked out without one. On the Assets page, set a "
+                              "date for a whole category under Categories, or per item."})
     no_life = [a for a in live if "useful life" in a["terms"]["missing"]]
     if no_life:
         out.append({"level": "warn", "kind": "no_life",
                     "title": f"{len(no_life)} item{'s have' if len(no_life) != 1 else ' has'} no useful life",
-                    "detail": "Their category has no default life. Set one under Categories below."})
+                    "detail": "Their category has no default life. Set one under Categories on the Assets page."})
     for a in sorted((a for a in live if a["warranty_ending"]), key=lambda a: a["warranty_until"]):
         out.append({"level": "warn", "kind": "warranty", "item_id": a["id"],
                     "title": f"Warranty ends {a['warranty_until']:%-d %b %Y}: {a['name']} ({a['serial'] or 'no serial'})",
