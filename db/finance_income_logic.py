@@ -172,10 +172,11 @@ def package_shares(package_rows, month_total):
             for name, total, sales in package_rows]
 
 
-def segment_split(hotspot_total):
-    """The thin split bar on the All view. Only hotspot income is recorded so
-    far: PPPoE and other income are None (no data), not zero."""
-    return {"pppoe": None, "hotspot": hotspot_total, "other": None}
+def segment_split(hotspot_total, pppoe_total=None):
+    """The thin split bar on the All view. A segment not recorded for the
+    whole month is None (no data), not zero; other income (installation and
+    equipment) has no source yet."""
+    return {"pppoe": pppoe_total, "hotspot": hotspot_total, "other": None}
 
 
 def mask_account(account):

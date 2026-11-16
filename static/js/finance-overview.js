@@ -2,7 +2,7 @@ import { showView, registerRoute, navigate, stateHtml } from "./common.js";
 import {
     esc, money, dayLabel, monthLabel, nairobiMonth, fetchReport, wireTips, tipAttr, markFresh,
     kpi, card, legend, alertList, figures, ranked, splitBar, bridge, monthsChart, mountPace, sparkline, redrawOnResize,
-    changeBetween, monthPoints, monthsTable, profitSteps,
+    changeBetween, monthPoints, monthsTable, profitSteps, incomeGap,
 } from "./finance-common.js";
 
 // Finance > Snapshot: the month on one screen. It owns no figures: every
@@ -102,7 +102,7 @@ function drawLead() {
             (cash < 0 ? `so <b>${money(Math.abs(cash))}</b> more went out than came in.` : `leaving <b>${money(cash)}</b> in cash.`);
     }
     const notes = ["Cash basis: money counts on the day it is paid."];
-    if (t?.income_incomplete) notes.unshift("Hotspot income only: PPPoE isn't recorded yet, so income and profit are understated.");
+    if (incomeGap(t)) notes.unshift(incomeGap(t).text);
     if (draft) notes.push("The month is still running, so these figures will change.");
     $("fin-ov-lead").innerHTML = `<p class="fin-lead">${text}</p><p class="fin-lead-note">${notes.map(esc).join(" ")}</p>`;
     $("fin-ov-status").innerHTML = draft ? `<span class="fin-badge draft" title="This month is still running: figures will change"><i class="fin-dot"></i>Draft</span>` : "";
@@ -137,7 +137,7 @@ function drawIncomeKpis() {
         note: vs.days ? `vs first ${vs.days} days of ${asMonthName(vs.previous_month, { month: "long" })}` : `vs ${asMonthName(vs.previous_month, { month: "long" })}`,
     } : null;
     const daily = inc.trend.day.filter(p => !p.partial && p.value != null).map(p => Number(p.value));
-    setKpi("in", kpi({ label: "Money in", value: money(s.total), change, sub: `${Number(s.sales).toLocaleString()} sales${s.is_current_month ? " so far" : ""}`,
+    setKpi("in", kpi({ label: "Money in", value: money(s.total), change, sub: `${Number(s.sales).toLocaleString()} payments${s.is_current_month ? " so far" : ""}`,
                        href: `finance-income/${month}/all`, spark: sparkline(daily) }));
     const projected = inc.target?.projected;
     setKpi("ahead", projected
@@ -166,7 +166,7 @@ function drawPerformanceKpis() {
     const net = t.net_profit;
     setKpi("profit", kpi({
         label: "Profit", value: net == null ? null : money(net), none: "No figure yet",
-        change: monthChange(perf, net, last.net_profit, true),
+        change: perf.income_comparable ? monthChange(perf, net, last.net_profit, true) : null,
         flag: net == null ? null : Number(net) < 0 ? ["A loss", "bad"] : null,
         sub: net == null ? "Needs this month's expenses" : t.net_margin != null ? `${t.net_margin}% of income is left after costs` : "After all recorded costs",
         href: `finance-performance/${month}/all`,
@@ -174,7 +174,7 @@ function drawPerformanceKpis() {
     const cash = t.cash_left;
     setKpi("cash", kpi({
         label: "Cash left", value: cash == null ? null : money(cash), none: "No figure yet",
-        change: monthChange(perf, cash, last.cash_left, true),
+        change: perf.income_comparable ? monthChange(perf, cash, last.cash_left, true) : null,
         flag: cash != null && Number(cash) < 0 ? ["More went out than came in", "bad"] : null,
         sub: cash == null ? "Needs this month's expenses"
             : Number(t.equipment_total) ? `Profit less ${money(t.equipment_total)} of equipment bought` : "Profit; no equipment bought this month",
@@ -344,7 +344,7 @@ function drawSources() {
     const parts = Object.entries(inc.split || {}).map(([key, v]) => ({ key, label: names[key] || key, amount: v, value: v == null ? "" : money(v) }));
     const packages = inc.packages.slice(0, 5).map(p => ({
         label: p.package, amount: Number(p.total), value: money(p.total), share: p.share_pct == null ? "" : `${Math.round(Number(p.share_pct))}%`,
-        tip: tipAttr(p.package, [{ key: "income", label: "Income", value: money(p.total) }, { label: "Sales", value: Number(p.sales).toLocaleString() },
+        tip: tipAttr(p.package, [{ key: "income", label: "Income", value: money(p.total) }, { label: "Payments", value: Number(p.sales).toLocaleString() },
                                  { label: "Share of income", value: `${p.share_pct}%` }]),
     }));
     fill("fin-ov-sources", `${parts.length ? splitBar(parts, "Income by segment") : ""}

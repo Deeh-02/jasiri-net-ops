@@ -125,6 +125,7 @@ class Patterns(unittest.TestCase):
 class SplitAndPrivacy(unittest.TestCase):
     def test_pppoe_and_other_are_no_data_not_zero(self):
         self.assertEqual(logic.segment_split(Decimal(500)), {"pppoe": None, "hotspot": Decimal(500), "other": None})
+        self.assertEqual(logic.segment_split(Decimal(500), Decimal(300)), {"pppoe": Decimal(300), "hotspot": Decimal(500), "other": None})
 
     def test_the_middle_of_the_phone_number_is_hidden(self):
         self.assertEqual(logic.mask_account("254700000001-F:D2"), "2547****0001-F:D2")

@@ -34,7 +34,7 @@ def _cell(v):
     return str(v).strip() if v is not None else ""
 
 
-def _read_rows(filename, content):
+def _read_rows(filename, content, what="the customer export"):
     name = (filename or "").lower()
     if name.endswith(".xlsx"):
         try:
@@ -48,7 +48,7 @@ def _read_rows(filename, content):
         except UnicodeDecodeError:
             text = content.decode("latin-1")
         return list(csv.reader(io.StringIO(text)))
-    raise ImportFileError("Upload the customer export as .xlsx or .csv")
+    raise ImportFileError(f"Upload {what} as .xlsx or .csv")
 
 
 def _parse_expiry(text):

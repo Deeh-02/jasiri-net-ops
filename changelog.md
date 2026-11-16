@@ -9,6 +9,16 @@ and in `phase.md`'s own per-phase writeups.
 
 Started 2026-11-15 at the owner's request, after Phase 6 was merged to `main`.
 
+### PPPoE income (2026-11-16)
+- **Finance → Income → PPPoE** now shows PPPoE income, read from the billing
+  system's recharge list. Export it from the billing system and upload it
+  there: the app shows what it found, and saves only when you press Save.
+  Uploading the full list again only adds recharges it hasn't seen.
+- Test and staff accounts, KSh 0 recharges and a recharge entered twice
+  within minutes are left out of income, each with the reason shown.
+- The All view, Performance and the Snapshot now include PPPoE. Totals say
+  "hotspot only" only for a month PPPoE doesn't fully cover.
+
 ### Old expenses imported (2026-11-16)
 - **425 expenses from the old spreadsheet (May to November 2026, KSh 3.75M)**
   are now in Finance → Expenses, each filed under Finance's own categories by

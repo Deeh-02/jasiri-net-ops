@@ -10,8 +10,13 @@ spreading a purchase over months made a figure nobody could check; the
 accountant works out the tax allowances).
 
 Missing is never zero (spec principle 4):
-  - PPPoE and other income have no source yet: their lines are None, and
-    every total that needs them is marked incomplete.
+  - A segment's income (PPPoE, hotspot) not recorded for the whole month is
+    None, and every total that needs it is marked incomplete, naming what
+    is missing (income_missing).
+  - Other income (installation & equipment) has no source at all yet: its
+    line shows no data, and the page says once that it isn't included,
+    rather than flagging every total for it (PPPoE recorded from
+    2026-11-16).
   - A month with NO expenses recorded is treated as "expenses not entered",
     not as a free month: its expense lines and its profit are None. A
     month with some expenses is shown, with how many it rests on.
@@ -22,6 +27,7 @@ from db.finance_income_logic import add_months, month_days
 
 ZERO = Decimal("0")
 INCOME_LINES = (("pppoe", "PPPoE"), ("hotspot", "Hotspot"), ("other", "Installation & equipment"))
+NO_SOURCE_YET = ("other",)
 
 
 def _sum(values):
@@ -60,7 +66,8 @@ def month_statement(income, expenses, categories, segment="all"):
     wanted_income = INCOME_LINES if segment == "all" else [(k, n) for k, n in INCOME_LINES if k == segment]
     for key, _ in wanted_income:
         lines[f"income.{key}"] = income.get(key)
-    income_total, income_incomplete = _sum([income.get(k) for k, _ in wanted_income])
+    income_total, _ = _sum([income.get(k) for k, _ in wanted_income])
+    missing = [k for k, _ in wanted_income if k not in NO_SOURCE_YET and income.get(k) is None]
 
     groups = {"direct_cost": [], "operating": [], "finance_tax": [], "other": []}
     for category in categories:
@@ -75,7 +82,7 @@ def month_statement(income, expenses, categories, segment="all"):
     direct_total = group_total(groups["direct_cost"])
     result = {
         "segment": segment, "lines": lines, "expenses_recorded": len(expenses),
-        "income_total": income_total, "income_incomplete": income_incomplete,
+        "income_total": income_total, "income_incomplete": bool(missing), "income_missing": missing,
         "direct_total": direct_total,
     }
     gross = None if income_total is None or direct_total is None else income_total - direct_total
@@ -112,6 +119,13 @@ def change(this, last):
     return {"amount": this - last, "pct": pct}
 
 
+def income_comparable(this, last):
+    """Whether two months' income can be compared: both miss the same
+    segments. September 2026 has PPPoE but only part of hotspot, so October
+    against it would read as a 1,700% jump."""
+    return this["income_missing"] == last["income_missing"]
+
+
 def statement_rows(this, last, categories, items_by_category, is_draft=False, equipment_items=()):
     """The statement as display rows, each with this month, last month and
     the change. Expense lines carry their own expenses (drill-down); an
@@ -128,8 +142,13 @@ def statement_rows(this, last, categories, items_by_category, is_draft=False, eq
         a, b = this["lines"].get(key), last["lines"].get(key)
         rows.append(dict({"type": kind, "key": key, "label": label, "this": a, "last": b, "change": compare(a, b)}, **extra))
 
+    same_basis = income_comparable(this, last)
+
     def total(label, a, b, kind="total", **extra):
-        rows.append(dict({"type": kind, "label": label, "this": a, "last": b, "change": compare(a, b)}, **extra))
+        # A total that rests on income (it carries `incomplete`) is only
+        # compared when both months' income covers the same segments.
+        changed = compare(a, b) if same_basis or "incomplete" not in extra else None
+        rows.append(dict({"type": kind, "label": label, "this": a, "last": b, "change": changed}, **extra))
 
     def section(label):
         rows.append({"type": "section", "label": label})

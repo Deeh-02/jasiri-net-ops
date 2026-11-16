@@ -4,10 +4,12 @@ import {
     kpi, card, legend, alertList, figures, ranked, splitBar, barChart, redrawOnResize,
 } from "./finance-common.js";
 import { mountHotspotOverview, initHotspotOverview, redrawHotspotOverview } from "./finance-hotspot.js";
+import { mountPppoeUpload, hidePppoeUpload } from "./finance-pppoe.js";
 
 // Finance > Income (Phase 7C). Everything is read from data the app already
 // records; nothing here is typed. Hotspot income comes from the router's
-// sales; PPPoE has no source yet, so its view says so (never KSh 0).
+// sales; PPPoE income from the billing system's recharge export, uploaded on
+// the PPPoE view (finance-pppoe.js). All adds the two together.
 //
 // Every figure leads to its rows: the best day, a bar in the daily trend and
 // a package each narrow the transactions table below to what made them up.
@@ -29,6 +31,10 @@ let searchTimer = null;
 let txRequest = 0;
 
 function $(id) { return document.getElementById(id); }
+
+// What one row of income is called in each view.
+const UNIT = { all: ["payment", "payments"], pppoe: ["recharge", "recharges"], hotspot: ["sale", "sales"] };
+const unit = (n, segment = state.segment) => UNIT[segment][Number(n) === 1 ? 0 : 1];
 
 const hourSpan = h => `${String(h).padStart(2, "0")}:00–${String((h + 1) % 24).padStart(2, "0")}:00`;
 
@@ -54,7 +60,7 @@ async function load() {
 function render() {
     const r = state.report;
     if (!r.has_data) {
-        const title = r.segment === "pppoe" ? "No PPPoE income recorded yet" : "No income records";
+        const title = r.segment === "pppoe" && !r.records_since ? "No PPPoE income recorded yet" : "No income records";
         $("fin-inc-body").innerHTML = stateHtml("empty", r.reason, title);
         return;
     }
@@ -85,13 +91,13 @@ function tilesHtml(r) {
     const started = s.records_start ? `, records start ${dayLabel(s.records_start, { day: "numeric", month: "short" })}` : "";
     const noCompare = vs ? "" : s.is_current_month && s.completed_days === 0 ? ". Nothing to compare until tomorrow" : ". Last month isn't fully recorded, so no comparison";
     return `<div class="fin-kpis">
-        ${kpi({ label: "Total income", value: money(s.total), change, sub: `${Number(s.sales).toLocaleString()} sales${started}${noCompare}`,
+        ${kpi({ label: "Total income", value: money(s.total), change, sub: `${Number(s.sales).toLocaleString()} ${unit(s.sales)}${started}${noCompare}`,
                 title: vs ? `${money(vs.this)} against ${money(vs.previous)}` : "" })}
         ${s.is_current_month ? kpi({ label: "Today so far", value: money(s.today || 0), sub: "Still counting: not in the average",
-                                     pick: `data-day="${esc(nairobiDate())}"`, title: "Show today's sales" }) : ""}
+                                     pick: `data-day="${esc(nairobiDate())}"`, title: `Show today's ${unit(2)}` }) : ""}
         ${kpi({ label: "Average a day", value: s.average_per_day == null ? null : money(s.average_per_day), none: "No day yet",
                 sub: s.completed_days ? `over ${s.completed_days} completed day${s.completed_days === 1 ? "" : "s"}` : "No completed day yet" })}
-        ${s.best_day ? kpi({ label: "Best day", value: money(s.best_day.total), sub: dayLabel(s.best_day.day), pick: `data-day="${esc(s.best_day.day)}"`, title: "Show this day's sales" })
+        ${s.best_day ? kpi({ label: "Best day", value: money(s.best_day.total), sub: dayLabel(s.best_day.day), pick: `data-day="${esc(s.best_day.day)}"`, title: `Show this day's ${unit(2)}` })
                      : kpi({ label: "Best day", value: null, none: "No day yet", sub: "No completed day yet" })}
         ${t?.projected ? kpi({ label: "Month-end estimate", value: money(t.projected.projected), sub: `If the rest goes like the last ${t.projected.weeks} weeks` }) : ""}
     </div>`;
@@ -102,10 +108,12 @@ function tilesHtml(r) {
 function attentionHtml(items) {
     if (!items) return "";
     if (!items.length) {
-        return `<p class="fin-clear fin-inc-clear"><i class="fin-dot"></i>Nothing needs attention this month: no silent days, no unusually low days, no unpriced packages.</p>`;
+        const clear = state.segment === "pppoe" ? "the recharge upload is recent, no double entries held back"
+            : "no silent days, no unusually low days, no unpriced packages";
+        return `<p class="fin-clear fin-inc-clear"><i class="fin-dot"></i>Nothing needs attention this month: ${clear}.</p>`;
     }
     return card({ title: "Needs attention", sub: "Worst first.", body: alertList(items.map(i => ({
-        level: i.level, title: i.title, detail: i.detail, pick: i.day ? `data-day="${esc(i.day)}"` : "", link: "See that day's sales",
+        level: i.level, title: i.title, detail: i.detail, pick: i.day ? `data-day="${esc(i.day)}"` : "", link: `See that day's ${unit(2)}`,
     }))) });
 }
 
@@ -182,7 +190,7 @@ function trendHtml() {
     const g = state.gran;
     const button = (v, label) => `<button type="button" data-gran="${v}" aria-pressed="${g === v}">${label}</button>`;
     return card({
-        title: "Trend", sub: "Income for each day, week or month. Click a day to see its sales.",
+        title: "Trend", sub: `Income for each day, week or month. Click a day to see its ${unit(2)}.`,
         tools: `<div class="fleet-range" id="fin-inc-gran" role="group" aria-label="Trend by">${button("day", "Day")}${button("week", "Week")}${button("month", "Month")}</div>`,
         body: `<div id="fin-inc-legend"></div>
             <div class="fin-chart-box" id="fin-inc-chart"></div>
@@ -217,7 +225,7 @@ function drawChart() {
         tip: tipAttr(`${p.name}${p.partial ? " (so far)" : ""}`, [
             { key: p.partial ? "partial" : "income", label: "Income", value: p.value == null ? "no data" : money(p.value) },
             byDay ? { key: "compare", label: "Same day last month", value: p.compare == null ? "no data" : money(p.compare) } : null,
-        ], p.day && p.value != null ? "Click to see this day's sales" : ""),
+        ], p.day && p.value != null ? `Click to see this day's ${unit(2)}` : ""),
     })), { width: box.clientWidth, id: "fin-inc-hatch", average, what: "Income trend" });
     $("fin-inc-legend").innerHTML = legend([
         { key: "income", label: byDay ? monthLabel(state.month) : state.gran === "week" ? "Each week" : "Each month" },
@@ -248,7 +256,7 @@ function hourCard(r) {
     const max = Math.max(1, ...r.hours.map(h => Number(h.total)));
     const peak = r.hours.reduce((a, b) => (Number(b.total) > Number(a.total) ? b : a));
     const columns = r.hours.map((h, i) => `<span class="fin-inc-hour${h === peak ? " peak" : ""}" ${tipAttr(hourSpan(h.hour), [
-        { key: "income", label: "Income this month", value: money(h.total) }, { label: "Sales", value: Number(h.sales).toLocaleString() }])}>
+        { key: "income", label: "Income this month", value: money(h.total) }, { label: unit(2)[0].toUpperCase() + unit(2).slice(1), value: Number(h.sales).toLocaleString() }])}>
         <span style="height:${(Number(h.total) / max * 100).toFixed(1)}%;--i:${i}"></span></span>`).join("");
     return card({ span: 4, title: "By hour of day", sub: `Busiest: ${hourSpan(peak.hour)}, ${money(peak.total)} this month.`, body: `
         <div class="fin-inc-hours" role="img" aria-label="Income by hour of day. Busiest: ${hourSpan(peak.hour)}">${columns}</div>
@@ -256,10 +264,10 @@ function hourCard(r) {
 }
 
 function packageCard(r) {
-    return card({ span: 4, title: "Top packages", sub: "Share of this month's income. Click one to see its sales.", body: ranked(r.packages.map(p => ({
+    return card({ span: 4, title: "Top packages", sub: `Share of this month's income. Click one to see its ${unit(2)}.`, body: ranked(r.packages.map(p => ({
         label: p.package, amount: Number(p.total), value: money(p.total), share: p.share_pct == null ? "" : `${Math.round(Number(p.share_pct))}%`,
-        pick: `data-package="${esc(p.package)}" title="Show this package's sales"`,
-        tip: tipAttr(p.package, [{ key: "income", label: "Income", value: money(p.total) }, { label: "Sales", value: Number(p.sales).toLocaleString() },
+        pick: `data-package="${esc(p.package)}" title="Show this package's ${unit(2)}"`,
+        tip: tipAttr(p.package, [{ key: "income", label: "Income", value: money(p.total) }, { label: unit(2)[0].toUpperCase() + unit(2).slice(1), value: Number(p.sales).toLocaleString() },
                                  { label: "Share of income", value: `${p.share_pct}%` }]),
     })), { empty: "No packages sold this month." }) });
 }
@@ -270,7 +278,12 @@ function segmentCard(split) {
 }
 
 function buyersCard(b, span) {
-    return card({ span, title: "Customers", sub: "An account is one phone on one device, so one person with two phones counts twice.", body: figures([
+    const sub = {
+        hotspot: "An account is one phone on one device, so one person with two phones counts twice.",
+        pppoe: "PPPoE customers who recharged this month.",
+        all: "Hotspot accounts (one phone on one device) and PPPoE customers together.",
+    }[state.segment];
+    return card({ span, title: "Customers", sub, body: figures([
         [Number(b.buyers).toLocaleString(), "accounts paid"],
         [Number(b.first_time).toLocaleString(), "paid for the first time"],
         [Number(b.repeat).toLocaleString(), "paid more than once"],
@@ -314,18 +327,18 @@ async function loadTransactions() {
         return;
     }
     const data = await res.json();
-    $("fin-inc-count").textContent = `${Number(data.matching).toLocaleString()} sales · ${money(data.matching_total)}`;
+    $("fin-inc-count").textContent = `${Number(data.matching).toLocaleString()} ${unit(data.matching)} · ${money(data.matching_total)}`;
     if (!data.rows.length) {
-        tbody.innerHTML = stateRow(6, "empty", "Try another search, or clear the filters.", "No matching sales");
+        tbody.innerHTML = stateRow(6, "empty", "Try another search, or clear the filters.", `No matching ${unit(2)}`);
         $("fin-inc-pager").innerHTML = "";
         return;
     }
     tbody.innerHTML = data.rows.map(r => `<tr>
         <td class="muted">${esc(new Date(r.at).toLocaleString("en-GB", { timeZone: "Africa/Nairobi", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }))}</td>
-        <td class="fin-inc-account">${esc(r.account)}</td>
+        <td class="fin-inc-account">${state.segment === "all" ? `<span class="fin-inc-seg">${r.segment === "pppoe" ? "PPPoE" : "Hotspot"}</span> ` : ""}${esc(r.account)}</td>
         <td>${esc(r.package)}</td>
         <td>${r.site ? esc(r.site) : `<span class="muted">Not linked to a site</span>`}</td>
-        <td class="muted">${r.kind === "renewal" ? "Renewal" : "New account"}</td>
+        <td class="muted">${r.kind === "renewal" ? "Renewal" : r.segment === "pppoe" ? "First recharge" : "New account"}</td>
         <td class="num">${money(r.amount)}</td></tr>`).join("");
     const pages = Math.max(1, Math.ceil(data.matching / data.per_page));
     $("fin-inc-pager").innerHTML = pages === 1 ? "" : `
@@ -421,6 +434,8 @@ export function initFinanceIncome() {
         $("fin-inc-month").value = month;
         $("fin-inc-segment").querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.segment === segment)));
         showView("view-finance-income");
+        if (segment === "pppoe") mountPppoeUpload($("fin-inc-pppoe"), () => { forgetReports(); load(); mountPppoeUpload($("fin-inc-pppoe"), null); });
+        else hidePppoeUpload($("fin-inc-pppoe"));
         load();
     });
 }

@@ -3,7 +3,8 @@
 Two permissions, both in Roles > Finance, checked here on every endpoint (the
 sidebar hiding a page is only cosmetic):
   finance:view             see every Finance page and figure
-  finance:manage_expenses  add, edit and void expenses, and edit supplier rules
+  finance:manage_expenses  add, edit and void expenses, edit supplier rules,
+                           and upload the PPPoE recharge export
   finance:manage_assets    set asset purchase dates, lives and links, and the
                            monthly income target
 The built-in admin passes both, like everywhere else.
@@ -17,7 +18,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
 import logging
@@ -25,6 +26,8 @@ import logging
 from fastapi.responses import Response
 
 from db import deepseek, finance_ai, finance_assets, finance_expenses, finance_income, finance_logic, finance_messages, finance_performance
+from db import finance_pppoe, pppoe_recharge_logic
+from db.customer_import import ImportFileError
 from db.connection import now_eat
 from routers.auth import get_current_user
 from routers.permissions import user_has_permission
@@ -278,6 +281,47 @@ def export_income_transactions(month: str, segment: Segment = "all", search: str
                                            day=day, package=package)
     return Response(content=text, media_type="text/csv",
                     headers={"Content-Disposition": f'attachment; filename="income-{month}-{segment}.csv"'})
+
+
+# ---- PPPoE recharges (the PPPoE income source, owner's choice 2026-11-16) ----
+
+MAX_UPLOAD_BYTES = 5 * 1024 * 1024
+PPPOE_NOT_SET_UP = "PPPoE income isn't set up on this database yet. Run migrations/0039_pppoe_recharges.sql, then reload."
+
+
+def require_recharge_uploader(current_user: dict = Depends(require_finance_view)):
+    if not user_has_permission(current_user, "finance", "manage_expenses"):
+        raise HTTPException(status_code=403, detail="You don't have permission to upload PPPoE recharges")
+    return current_user
+
+
+@router.get("/finance/pppoe/status")
+def get_pppoe_status(current_user: dict = Depends(require_finance_view)):
+    try:
+        return _plain(finance_pppoe.status())
+    except finance_pppoe.PppoeNotSetUp:
+        raise HTTPException(status_code=503, detail=PPPOE_NOT_SET_UP)
+
+
+@router.post("/finance/pppoe/import")
+async def import_pppoe_recharges(commit: bool = Form(False), file: UploadFile = File(...),
+                                 current_user: dict = Depends(require_recharge_uploader)):
+    """Dry run unless commit=true: the same call, so what the preview showed
+    is exactly what a save does. Only recharges not saved before are added."""
+    content = await file.read(MAX_UPLOAD_BYTES + 1)
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=400, detail="That file is over 5 MB. Is it the right one?")
+    try:
+        parsed = pppoe_recharge_logic.parse_recharge_file(file.filename, content)
+    except ImportFileError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if not parsed["rows"]:
+        raise HTTPException(status_code=400, detail="No recharges found in that file.")
+    try:
+        result = finance_pppoe.import_recharges(file.filename, parsed["rows"], current_user["id"], commit)
+    except finance_pppoe.PppoeNotSetUp:
+        raise HTTPException(status_code=503, detail=PPPOE_NOT_SET_UP)
+    return _plain(dict(result, unreadable=parsed["unreadable"]))
 
 
 # ---- Performance (Phase 7D) ----

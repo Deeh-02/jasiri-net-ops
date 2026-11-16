@@ -73,8 +73,10 @@ static/
                              # the same kind of shared domain module;
                              # finance-income.js also imports
                              # finance-hotspot.js, the Revenue Overview
-                             # graphs shown on its Hotspot view (a section
-                             # of that one page, kept in its own file).
+                             # graphs shown on its Hotspot view, and
+                             # finance-pppoe.js, the recharge upload on its
+                             # PPPoE view (sections of that one page, each
+                             # kept in its own file).
                              # inventory-manage.js is Categories-only —
                              # Locations has no management screen any more.
                              # inventory.js (Items) and stock.js (Stock) now

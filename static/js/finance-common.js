@@ -312,13 +312,31 @@ export function monthsTable(points) {
         </table></div></details>`;
 }
 
+// What a month's income is missing (the statement's income_missing:
+// segments not recorded for the whole month), as a tag ("Hotspot only"),
+// the same mid-sentence ("hotspot only"; PPPoE keeps its capitals) and a
+// sentence. null when nothing is missing.
+const SEGMENT_TITLE = { pppoe: "PPPoE", hotspot: "Hotspot" };
+const SEGMENT_INLINE = { pppoe: "PPPoE", hotspot: "hotspot" };
+export function incomeGap(t) {
+    const missing = t?.income_missing || [];
+    if (!missing.length) return null;
+    const have = Object.keys(SEGMENT_TITLE).filter(k => !missing.includes(k));
+    const names = missing.map(k => SEGMENT_TITLE[k] || k).join(" and ");
+    return {
+        tag: have.length ? `${SEGMENT_TITLE[have[0]]} only` : "Not recorded",
+        short: have.length ? `${SEGMENT_INLINE[have[0]]} only` : "not recorded",
+        text: `${names} income isn't recorded for all of this month, so income and profit here are understated.`,
+    };
+}
+
 // One month's statement (the Performance report's `this`) as the steps of
 // the bridge: income, less each kind of cost, leaving net profit; then the
 // equipment bought, leaving the cash.
 export function profitSteps(t) {
     const tip = (label, amount, note) => amount == null ? "" : tipAttr(label, [{ label: "Amount", value: money(amount) }], note);
     return [
-        { kind: "start", label: "Income", amount: t.income_total, tip: tip("Income", t.income_total, t.income_incomplete ? "Hotspot only: PPPoE isn't recorded yet" : "") },
+        { kind: "start", label: "Income", amount: t.income_total, tip: tip("Income", t.income_total, incomeGap(t)?.tag || "") },
         { kind: "minus", label: "Direct costs", amount: t.direct_total, none: "not recorded", tip: tip("Direct costs", t.direct_total, "Bandwidth and fibre rental") },
         { kind: "minus", label: "Operating expenses", amount: t.operating_total, none: "not recorded", tip: tip("Operating expenses", t.operating_total, "Power, rent, salaries, airtime and the rest") },
         { kind: "minus", label: "Taxes and charges", amount: t.finance_total, none: "not recorded", tip: tip("Taxes and charges", t.finance_total, "M-Pesa and bank charges, licences, taxes") },

@@ -1,12 +1,13 @@
 """Finance > Performance (Phase 7D): the monthly profit statement. Gathers
-income (hotspot sales, through db/monitoring.py) and expenses
+income (hotspot sales through db/monitoring.py, PPPoE recharges through
+db/finance_pppoe.py) and expenses
 (db/finance_expenses.py) and hands them to db/finance_performance_logic.py.
 Read only: nothing here writes.
 """
 from datetime import date
 from decimal import Decimal
 
-from db import finance_expenses, monitoring
+from db import finance_expenses, finance_pppoe, monitoring
 from db import finance_performance_logic as logic
 from db.finance_income_logic import add_months, month_days
 
@@ -19,14 +20,26 @@ def _month_end(first_day):
     return date(first_day.year, first_day.month, month_days(first_day))
 
 
-def _income(first_day, daily, tracking_start, today):
-    """{'pppoe', 'hotspot', 'other'} for a month. Hotspot is None for a month
-    records don't fully cover or that hasn't started."""
-    covered = tracking_start is not None and tracking_start <= first_day <= today
-    hotspot = None
-    if covered:
-        hotspot = sum((v for d, v in daily.items() if first_day <= d <= _month_end(first_day)), Decimal("0"))
-    return {"pppoe": None, "hotspot": hotspot, "other": None}
+def _month_total(first_day, daily, tracking_start, today):
+    """A segment's income for a month, None when records don't cover the
+    whole month or it hasn't started."""
+    if tracking_start is None or not tracking_start <= first_day <= today:
+        return None
+    return sum((v for d, v in daily.items() if first_day <= d <= _month_end(first_day)), Decimal("0"))
+
+
+def _income(first_day, segments, today):
+    """{'pppoe', 'hotspot', 'other'} for a month. segments: {name: (daily,
+    tracking_start)}. Other income has no source yet."""
+    income = {name: _month_total(first_day, daily, start, today) for name, (daily, start) in segments.items()}
+    return dict(income, other=None)
+
+
+def _pppoe_daily(first_day, last_day):
+    try:
+        return finance_pppoe.daily_totals(first_day, last_day)
+    except finance_pppoe.PppoeNotSetUp:
+        return [], None
 
 
 def report(first_day, segment, today):
@@ -34,14 +47,22 @@ def report(first_day, segment, today):
     trend_from = add_months(first_day, -(TREND_MONTHS - 1))
     last_day = min(_month_end(first_day), today)
 
-    daily_rows, tracking_start = monitoring.hotspot_daily_totals(trend_from, max(last_day, trend_from))
-    daily = {day: total for day, total in daily_rows}
+    hotspot_rows, hotspot_start = monitoring.hotspot_daily_totals(trend_from, max(last_day, trend_from))
+    pppoe_rows, pppoe_start = _pppoe_daily(trend_from, max(last_day, trend_from))
+    segments = {"hotspot": ({d: t for d, t in hotspot_rows}, hotspot_start),
+                "pppoe": ({d: t for d, t in pppoe_rows}, pppoe_start)}
+    # The whole business: both segments added up, over the days both are
+    # recorded. Before any PPPoE upload it is hotspot alone (marked so).
+    daily = dict(segments["hotspot"][0])
+    for d, t in segments["pppoe"][0].items():
+        daily[d] = daily.get(d, Decimal("0")) + t
+    tracking_start = max(hotspot_start, pppoe_start) if hotspot_start and pppoe_start else hotspot_start or pppoe_start
     expense_rows, monthly, categories = finance_expenses.performance_expenses(trend_from, previous, _month_end(first_day))
 
     this_expenses = [e for e in expense_rows if e["spent_on"] >= first_day.isoformat()]
     last_expenses = [e for e in expense_rows if e["spent_on"] < first_day.isoformat()]
-    this = logic.month_statement(_income(first_day, daily, tracking_start, today), this_expenses, categories, segment)
-    last = logic.month_statement(_income(previous, daily, tracking_start, today), last_expenses, categories, segment)
+    this = logic.month_statement(_income(first_day, segments, today), this_expenses, categories, segment)
+    last = logic.month_statement(_income(previous, segments, today), last_expenses, categories, segment)
 
     items = {}
     for e in this_expenses:
@@ -64,6 +85,8 @@ def report(first_day, segment, today):
         "rows": logic.statement_rows(this, last, categories, items, is_draft=is_draft,
                                      equipment_items=[e for e in this_expenses if e["kind"] == "capital"]),
         "notes": logic.notes(this_expenses, categories),
+        "pppoe_recorded_from": pppoe_start,
+        "income_comparable": logic.income_comparable(this, last),
     }
     if segment == "all":
         result.update(

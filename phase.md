@@ -46,7 +46,8 @@ the user confirming it.
   never disagree. These are not M-Pesa payments: there is no M-Pesa code or
   payment method per hotspot sale, so the "M-Pesa 92% · Bank 8%" line can
   only cover PPPoE/other income.
-- **PPPoE income does not exist in OPS yet.** `ppp_customers` (loaded from
+- **PPPoE income did not exist in OPS** (now read from the recharge export,
+  2026-11-16). `ppp_customers` (loaded from
   the FreeISPRadius export) has plan name, expiry and status, but **no price
   and no payments**. A source has to be chosen (open question 1 below) before
   PPPoE income, expected-vs-received or the month target can be built.
@@ -250,6 +251,22 @@ REVIEW in the review CSV (the rule was a guess); anything wrong is fixed per
 row on the Expenses page. Re-running the tool adds nothing (rows are matched
 by their spreadsheet id).
 
+**PPPoE income from the recharge export (2026-11-16, owner's call):** the
+owner supplied the billing system's recharge list ("use this for PPPoE"),
+answering open question 1. Migration 0039 (`pppoe_recharges`,
+`pppoe_recharge_imports`); upload with check-then-save on Income > PPPoE
+(`static/js/finance-pppoe.js`, permission finance:manage_expenses); rules in
+`db/pppoe_recharge_logic.py`, tested. Left out but kept, with the reason:
+test/staff accounts (Test, Jasiri), KSh 0 and a double entry within 10
+minutes. The 18 accounts recharged in 3 seconds on 20 Jun 2026 17:46 COUNT:
+the owner confirmed those customers paid (KSh 27,000). PPPoE now feeds Income
+(PPPoE and All), Performance and the Snapshot; totals are flagged only when
+a segment is missing for the month (other income has no source and says so
+once). The owner's file: 106 rows, 98 counted, KSh 140,500 (20 Jun to 15 Nov
+2026), saved with the owner's approval. Re-uploading the full export adds only new recharges. Still open:
+expected vs received (who is due and hasn't paid), which can now use each
+customer's last recharge.
+
 **7G Month-end, deferred (2026-11-15):** owner's call: 7G is a "nice to
 have", not a must for Phase 7. Nothing built; revisit as the module gets
 used. If picked up: exports and the M-Pesa statement check need no new
@@ -260,9 +277,9 @@ table; closing a month needs one (proposed for approval first).
 1. **PPPoE payments: where do they come from?** Not in OPS today. Options:
    a FreeISPRadius payments export uploaded like the customer export; the
    M-Pesa statement CSV; or pasted M-Pesa received messages (reusing the 7B
-   parser). Decides 7C and 7E. *Owner, 2026-11-15: being worked out. Until
-   then PPPoE income stays blank and the build carries on with everything
-   else.*
+   parser). Decides 7C and 7E. *Owner, 2026-11-15: being worked out.*
+   **Answered 2026-11-16: the billing system's recharge export** (see
+   "PPPoE income from the recharge export" above).
 2. **PPPoE package prices and due dates.** `ppp_customers.expiry` is the
    due date; plan prices are not stored anywhere. Read from billing, or a
    PPPoE price list like the hotspot Packages page?

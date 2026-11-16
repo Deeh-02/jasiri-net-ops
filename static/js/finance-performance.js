@@ -1,15 +1,16 @@
 import { showView, registerRoute, navigate, stateHtml, skeletonCards } from "./common.js";
 import {
     esc, money, moneyOrNone, dayLabel, monthLabel, nairobiMonth, fetchReport, wireTips, tipAttr, markFresh,
-    kpi, card, legend, ranked, bridge, monthsChart, redrawOnResize, changeBetween, monthPoints, monthsTable, profitSteps,
+    kpi, card, legend, ranked, bridge, monthsChart, redrawOnResize, changeBetween, monthPoints, monthsTable, profitSteps, incomeGap,
 } from "./finance-common.js";
 
 // Finance > Performance (Phase 7D): the monthly profit statement. Read only.
 // Every line opens what made it: an income line goes to Income for that
 // month and segment; an expense line unfolds into its expenses.
 //
-// What's missing is said, never shown as 0: PPPoE income isn't recorded yet,
-// a month with no expenses recorded has no profit figure, and a month still
+// What's missing is said, never shown as 0: a segment's income not recorded
+// for the whole month (PPPoE recharges start 20 Jun 2026, hotspot sales 21
+// Sep 2026) marks every total that needs it, a month with no expenses recorded has no profit figure, and a month still
 // running is a Draft with no change column.
 //
 // Below Net profit the statement takes off the equipment bought, leaving the
@@ -77,7 +78,9 @@ function render() {
 
 function basisHtml(r) {
     const t = r.this, warnings = [];
-    if (t.income_incomplete) warnings.push("PPPoE income isn't recorded yet, so income and profit here are understated.");
+    const gap = incomeGap(t);
+    if (gap) warnings.push(gap.text);
+    if (r.segment === "all") warnings.push("Installation and equipment income has no source in the app yet, so it isn't included.");
     if (!t.expenses_recorded) warnings.push(`No expenses are recorded for ${esc(monthName(r.month))}, so there is no profit figure. Add them on the <a href="#/finance-expenses/${r.month.slice(0, 7)}">Expenses page</a>.`);
     else warnings.push(`These figures rest on the ${t.expenses_recorded} expense${t.expenses_recorded === 1 ? "" : "s"} recorded for ${esc(monthName(r.month))}. Anything not entered isn't counted.`);
     if (r.segment !== "all") warnings.push(`Only direct costs tagged ${r.segment === "pppoe" ? "PPPoE" : "Hotspot"} count here; tag an expense's segment by editing it on the Expenses page. Shared costs (upstream, salaries, rent) aren't split between segments.`);
@@ -97,7 +100,7 @@ function tilesHtml(r) {
         const left = t.before_shared_costs;
         return `<div class="fin-kpis">
             ${kpi({ label: "Income", value: t.income_total == null ? null : money(t.income_total), none: "Not recorded",
-                    change: versus(t.income_total, last.income_total, true), sub: r.segment === "pppoe" ? "PPPoE has no income source yet" : "Hotspot sales" })}
+                    change: r.income_comparable ? versus(t.income_total, last.income_total, true) : null, sub: r.segment === "pppoe" ? "PPPoE recharges" : "Hotspot sales" })}
             ${kpi({ label: "Direct costs", value: t.direct_total == null ? null : money(t.direct_total), none: "Not recorded", sub: "Tagged to this segment" })}
             ${kpi({ label: "Before shared costs", value: left == null ? null : money(left), none: "No figure yet",
                     flag: left == null ? null : Number(left) < 0 ? ["Costs more than it earns", "bad"] : null,
@@ -110,17 +113,17 @@ function tilesHtml(r) {
         : kpi({ label: "Break-even", value: null, none: "No costs yet", sub: "Needs this month's expenses" });
     const cash = t.cash_left;
     return `<div class="fin-kpis">
-        ${kpi({ label: "Net profit", value: net == null ? null : money(net), none: "No figure yet", change: versus(net, last.net_profit, true),
+        ${kpi({ label: "Net profit", value: net == null ? null : money(net), none: "No figure yet", change: r.income_comparable ? versus(net, last.net_profit, true) : null,
                 flag: net != null && Number(net) < 0 ? ["A loss", "bad"] : null,
                 sub: net == null ? "Needs this month's expenses"
-                    : `${t.net_margin != null ? `${t.net_margin}% of income, ` : ""}after all running costs${t.income_incomplete ? " (hotspot only)" : ""}` })}
+                    : `${t.net_margin != null ? `${t.net_margin}% of income, ` : ""}after all running costs${incomeGap(t) ? ` (${incomeGap(t).short})` : ""}` })}
         ${kpi({ label: "Equipment bought", value: t.equipment_total == null ? null : money(t.equipment_total), none: "Not recorded",
                 sub: "Kept, not a running cost, so not in profit" })}
-        ${kpi({ label: "Cash left", value: cash == null ? null : money(cash), none: "No figure yet", change: versus(cash, last.cash_left, true),
+        ${kpi({ label: "Cash left", value: cash == null ? null : money(cash), none: "No figure yet", change: r.income_comparable ? versus(cash, last.cash_left, true) : null,
                 flag: cash != null && Number(cash) < 0 ? ["More went out than came in", "bad"] : null,
                 sub: cash == null ? "Needs this month's expenses" : "Net profit less the equipment bought" })}
-        ${kpi({ label: "Income", value: t.income_total == null ? null : money(t.income_total), change: versus(t.income_total, last.income_total, true),
-                sub: t.income_incomplete ? "Hotspot only: PPPoE not recorded" : "All segments", href: `finance-income/${r.month.slice(0, 7)}/all` })}
+        ${kpi({ label: "Income", value: t.income_total == null ? null : money(t.income_total), change: r.income_comparable ? versus(t.income_total, last.income_total, true) : null,
+                sub: incomeGap(t)?.tag || "PPPoE and hotspot", href: `finance-income/${r.month.slice(0, 7)}/all` })}
         ${kpi({ label: "Expenses", value: t.expenses_total == null ? null : money(t.expenses_total), none: "Not recorded",
                 change: versus(t.expenses_total, last.expenses_total, false),
                 sub: "Operating; equipment bought to keep is left out", href: `finance-expenses/${r.month.slice(0, 7)}` })}
@@ -193,7 +196,8 @@ function statementHtml(r) {
         if (hasItems) label = `<button type="button" class="fin-perf-open" aria-expanded="false" aria-controls="${id}">${label} <span class="muted">· ${row.items.length}</span></button>`;
         if (row.note) label += `<div class="cell-sub">${esc(row.note)}</div>`;
         const margin = row.margin != null ? `<div class="cell-sub">${row.margin}% margin</div>` : "";
-        const flag = row.incomplete ? ` <span class="fin-perf-flag" title="PPPoE income isn't recorded yet">hotspot only</span>` : "";
+        const gap = row.incomplete ? incomeGap(r.this) : null;
+        const flag = gap ? ` <span class="fin-perf-flag" title="${esc(gap.text)}">${esc(gap.short)}</span>` : "";
         const main = `<tr class="fin-perf-${row.type}"><td>${label}${flag}</td>
             <td class="num">${moneyOrNone(row.this)}${margin}</td><td class="num">${moneyOrNone(row.last)}</td><td class="num">${changeHtml(row.change)}</td></tr>`;
         if (!hasItems) return main;

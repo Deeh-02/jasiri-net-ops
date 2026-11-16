@@ -53,6 +53,18 @@ class Statement(unittest.TestCase):
         s = logic.month_statement(INCOME, MONTH, CATEGORIES)
         self.assertIsNone(s["lines"]["income.pppoe"])
         self.assertTrue(s["income_incomplete"])
+        self.assertEqual(s["income_missing"], ["pppoe"])
+
+    def test_other_income_without_a_source_does_not_flag_the_totals(self):
+        s = logic.month_statement({"pppoe": Decimal(30000), "hotspot": Decimal(100000), "other": None}, MONTH, CATEGORIES)
+        self.assertEqual(s["income_total"], Decimal(130000))
+        self.assertFalse(s["income_incomplete"])
+        self.assertIsNone(s["lines"]["income.other"])                  # still no data, not 0
+
+    def test_a_segment_view_with_its_income_recorded(self):
+        s = logic.month_statement({"pppoe": Decimal(30000), "hotspot": None, "other": None}, MONTH, CATEGORIES, segment="pppoe")
+        self.assertEqual(s["before_shared_costs"], Decimal(25000))     # 30,000 less the 5,000 tagged PPPoE
+        self.assertFalse(s["income_incomplete"])
 
     def test_a_month_with_no_expenses_has_no_profit_figure(self):
         s = logic.month_statement(INCOME, [], CATEGORIES)
@@ -70,6 +82,19 @@ class Statement(unittest.TestCase):
 
 
 class Rows(unittest.TestCase):
+    def test_income_totals_are_not_compared_across_different_coverage(self):
+        # Last month had PPPoE only (hotspot records began part-way): no change, not +1,700%.
+        this = logic.month_statement({"pppoe": Decimal(35000), "hotspot": Decimal(353400), "other": None}, MONTH, CATEGORIES)
+        last = logic.month_statement({"pppoe": Decimal(21500), "hotspot": None, "other": None}, MONTH, CATEGORIES)
+        self.assertFalse(logic.income_comparable(this, last))
+        rows = logic.statement_rows(this, last, CATEGORIES, {})
+        by_label = {r["label"]: r for r in rows if "label" in r}
+        self.assertIsNone(by_label["Total income"]["change"])
+        self.assertIsNone(by_label["Net profit"]["change"])
+        self.assertIsNotNone(by_label["Total operating expenses"]["change"])   # costs don't rest on income
+        pppoe = next(r for r in rows if r.get("key") == "income.pppoe")
+        self.assertEqual(pppoe["change"]["amount"], Decimal(13500))            # PPPoE itself is known both months
+
     def rows(self, is_draft=False):
         this = logic.month_statement(INCOME, MONTH, CATEGORIES)
         last = logic.month_statement({"pppoe": None, "hotspot": Decimal(80000), "other": None}, MONTH[:3], CATEGORIES)

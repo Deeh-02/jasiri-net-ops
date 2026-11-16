@@ -2259,6 +2259,28 @@ connection, since opening one cost more than all of them together. Paid
 sale = not `baseline`, priced above 0. Days are EAT. The two pages agree
 except for unlinked sales: KSh 910 in September 2026, none since.
 
+**PPPoE income comes from the billing system's recharge export** (owner's
+choice, 2026-11-16). `ppp_customers` has plans and expiries but no money, so
+the FreeISPRadius recharge list (User, Plan, Amount, Recharge Date, Created
+By) is uploaded on Finance → Income → PPPoE, checked first and saved on
+confirmation, like the customer export on Customers. `db/finance_pppoe.py`
+owns `pppoe_recharges` and `pppoe_recharge_imports` (migration 0039); the
+rules are pure in `db/pppoe_recharge_logic.py`. Every recharge is kept;
+`left_out` (test account, KSh 0, a double entry within 10 minutes) says why one isn't income, so the call can be seen
+and reversed. A recharge is matched on (username, time, plan, amount), so
+uploading the full list again only adds new ones. "Created By" NCBAServer is
+the bank paybill; anyone else is a staff recharge. How far PPPoE is recorded
+is the last upload; an upload two or more days old shows in Needs attention.
+The PPPoE queries return the hotspot ones' shapes, so Income's rules treat
+both alike; All adds them over the days both are recorded (from the later
+start). The month-end estimate (same weekdays) stays off the PPPoE view:
+monthly renewals don't follow weekdays. Other income (installation &
+equipment) has no source: its line shows no data, but only a missing
+segment flags the totals. A total that rests on income is compared with last
+month only when both months miss the same segments (September 2026 has
+PPPoE but only part of hotspot, so October against it is left blank, not
++1,700%).
+
 **Assets sit beside Inventory, not inside it.** Inventory is the register
 (items, unit cost, status, location, movement log); Finance reads it only
 through `db/inventory_items.get_all_items` and
@@ -2295,7 +2317,7 @@ its own: it reads `/finance/performance`, `/finance/income` and
 (`fetchReport` in `finance-common.js`). They take seconds to work out, and
 the Snapshot links straight into them. A failed request is never kept;
 `forgetReports()` runs after every Finance write (expense save/edit/void,
-month target, asset or category save) and on logout. What can still be up
+month target, asset or category save, PPPoE upload) and on logout. What can still be up
 to three minutes old is a change made by someone else on another device.
 The expenses list and Income's transactions are not remembered.
 
