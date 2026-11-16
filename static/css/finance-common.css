@@ -457,9 +457,7 @@ button.fin-rank { cursor: pointer; }
     .fin-rank-label { white-space: normal; overflow: visible; }
 }
 
-/* ---- The Snapshot's headline row ----
-   Six tiles that read as a sum: money in - money out = profit, - equipment
-   bought = cash left; then the forecast, which is not part of the sum. */
+/* ---- The Snapshot's headline row: six tiles, one figure size ---- */
 #fin-ov-kpis { grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 14px; }
 #fin-ov-kpis .fin-kpi {
     gap: 6px;
@@ -471,29 +469,5 @@ button.fin-rank { cursor: pointer; }
 #fin-ov-kpis .fin-kpi-value { font-size: clamp(15px, calc(100cqi / (var(--row-chars, 12) * 0.6)), 23px); }
 #fin-ov-kpis .fin-spark { width: 56px; height: 20px; top: 13px; right: 14px; }
 
-/* The results, tinted by how they came out. */
-#fin-ov-kpis [data-tone="good"] .fin-kpi {
-    background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 13%, var(--surface)), var(--surface) 78%);
-    border-color: color-mix(in srgb, var(--accent) 34%, var(--border));
-}
-#fin-ov-kpis [data-tone="bad"] .fin-kpi {
-    background: linear-gradient(180deg, color-mix(in srgb, var(--danger) 13%, var(--surface)), var(--surface) 78%);
-    border-color: color-mix(in srgb, var(--danger) 36%, var(--border));
-}
-/* The forecast (or the average) stands apart: it isn't money counted. */
-#fin-ov-kpi-ahead .fin-kpi { background: none; border-style: dashed; border-color: var(--border-strong); box-shadow: none; }
-
-/* The signs of the sum, sitting in the gaps between the tiles (only when all six are in one row). */
-@media (min-width: 1181px) {
-    :is(#fin-ov-kpi-out, #fin-ov-kpi-profit, #fin-ov-kpi-equip, #fin-ov-kpi-cash) .fin-kpi::before {
-        content: "\2212";
-        position: absolute; z-index: 1; left: -18px; top: 50%; translate: 0 -50%;
-        width: 22px; height: 22px; border-radius: 50%;
-        display: grid; place-items: center;
-        background: var(--surface); border: 1px solid var(--border-strong);
-        color: var(--text-soft); font-size: 13px; font-weight: 600; line-height: 1;
-    }
-    :is(#fin-ov-kpi-profit, #fin-ov-kpi-cash) .fin-kpi::before { content: "="; }
-}
 @media (max-width: 1180px) { #fin-ov-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 760px) { #fin-ov-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; } }

@@ -197,26 +197,23 @@ function drawRangeKpis() {
                        spark: sparkline(t.points.map(p => p.income)) }));
     setKpi("out", kpi({ label: "Money out", value: t.expenses == null ? null : money(t.expenses), none, href: `finance-expenses/${to}` }));
     setKpi("profit", kpi({ label: "Profit", value: t.profit == null ? null : money(t.profit), none: "No figure yet",
-                          flag: t.profit != null && t.profit < 0 ? ["A loss", "bad"] : null, href: `finance-performance/${to}/all` }), toneOf(t.profit));
+                          flag: t.profit != null && t.profit < 0 ? ["A loss", "bad"] : null, href: `finance-performance/${to}/all` }));
     setKpi("equip", kpi({ label: "Equipment bought", value: t.equipment == null ? null : money(t.equipment), none: "No figure yet", href: `finance-assets` }));
     setKpi("cash", kpi({ label: "Cash left", value: t.cash == null ? null : money(t.cash), none: "No figure yet",
-                         flag: t.cash != null && t.cash < 0 ? ["More went out than came in", "bad"] : null, href: `finance-performance/${to}/all` }), toneOf(t.cash));
+                         flag: t.cash != null && t.cash < 0 ? ["More went out than came in", "bad"] : null, href: `finance-performance/${to}/all` }));
     setKpi("ahead", kpi({ label: "Average a month", value: t.average == null ? null : money(t.average), none: "No figure yet" }));
 }
 
 // ---- Headline figures ----
 
-// tone ("good" | "bad") tints a result tile (Profit, Cash left) by how it came out.
 // Every figure in the row is drawn at one size, set by the longest of them.
-function setKpi(id, html, tone = "") {
+function setKpi(id, html) {
     const slot = $(`fin-ov-kpi-${id}`), row = $("fin-ov-kpis");
     if (!slot) return;
     slot.innerHTML = html;
-    slot.dataset.tone = tone;
     row.style.setProperty("--row-chars", Math.max(1, ...[...row.querySelectorAll(".fin-kpi-value")].map(v => v.textContent.length)));
 }
 
-const toneOf = amount => (amount == null ? "" : Number(amount) < 0 ? "bad" : "good");
 
 // A change from last month is shown only once the month is over: half a
 // month against a whole one would read as a collapse.
@@ -270,7 +267,7 @@ function drawPerformanceKpis() {
         flag: net == null ? null : Number(net) < 0 ? ["A loss", "bad"] : null,
         sub: net == null ? "Needs this month's expenses" : "",
         href: `finance-performance/${month}/all`,
-    }), toneOf(net));
+    }));
     const cash = t.cash_left;
     setKpi("equip", kpi({
         label: "Equipment bought", value: cash == null ? null : money(t.equipment_total || 0), none: "No figure yet",
@@ -282,7 +279,7 @@ function drawPerformanceKpis() {
         flag: cash != null && Number(cash) < 0 ? ["More went out than came in", "bad"] : null,
         sub: cash == null ? "Needs this month's expenses" : "",
         href: `finance-performance/${month}/all`,
-    }), toneOf(cash));
+    }));
 }
 
 // ---- Income adding up day by day ----
