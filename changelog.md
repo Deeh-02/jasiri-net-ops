@@ -9,6 +9,19 @@ and in `phase.md`'s own per-phase writeups.
 
 Started 2026-11-15 at the owner's request, after Phase 6 was merged to `main`.
 
+### Old expenses imported (2026-11-16)
+- **425 expenses from the old spreadsheet (May to November 2026, KSh 3.75M)**
+  are now in Finance → Expenses, each filed under Finance's own categories by
+  what it was, not the spreadsheet's. About KSh 2.1M of it (fibre, closures,
+  servers, solar, batteries, laptops, the motorbikes) is marked as equipment
+  kept, so it shows under Equipment bought and Cash left, not in profit.
+  Each row remembers its spreadsheet row, title, vendor and old category.
+- Two new categories: **Office & supplies** and **Tools & safety gear**.
+- The month target (break-even) is now worked out from real monthly costs.
+- Your four October expenses pasted earlier were replaced by the
+  spreadsheet's versions of the same payments (the old ones stay on record,
+  voided).
+
 ### Revenue Overview inside Finance, and two fixes (2026-11-16)
 - **Finance → Income → Hotspot** now carries the Revenue Overview: income
   against the average (a day, week or month at a time, with total, average,

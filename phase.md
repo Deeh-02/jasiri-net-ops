@@ -237,11 +237,18 @@ Overview graphs (`static/js/finance-hotspot.js`; the Reports > Revenue
 expenses spreadsheet (429 rows, May to Nov 2026, about KSh 3.75M) and files
 each row under OUR categories by its title and vendor, not the spreadsheet's
 own, deciding running cost vs equipment kept; guesses are marked REVIEW.
-Preview only until the owner approves: it writes a review CSV and saves
-nothing without `--apply`. Rows that match an expense already in the app,
-or repeat another row, are held back. Two categories the old file needed
-(Office & supplies, Tools & safety gear) are proposed as data rows, not a
-schema change.
+Preview first (a review CSV; saves nothing without `--apply`). **Run on
+2026-11-16 with the owner's approval:** 425 expenses, KSh 3,748,306.10 saved
+(about KSh 2.1M of it kept as equipment, the rest running costs); the 4
+October expenses the owner had pasted were voided ("Replaced by the
+spreadsheet import") and the spreadsheet's versions imported; 4 rows that
+repeat another row exactly (#400, #226, #176, #179, KSh 3,000) were held
+back; two categories added as data rows (Office & supplies, Tools & safety
+gear; not a schema change); 13 supplier rules saved for single-purpose
+payees (fuel stations, KPLC, billing systems, Safaricom). 47 rows are marked
+REVIEW in the review CSV (the rule was a guess); anything wrong is fixed per
+row on the Expenses page. Re-running the tool adds nothing (rows are matched
+by their spreadsheet id).
 
 **7G Month-end, deferred (2026-11-15):** owner's call: 7G is a "nice to
 have", not a must for Phase 7. Nothing built; revisit as the module gets
