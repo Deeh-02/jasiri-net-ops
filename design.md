@@ -375,7 +375,11 @@ what is truly its own.
     rest. Where lines converge, the figure goes in the legend instead.
   - **Hover:** every mark has a `data-tip` (built with `tipAttr`, plain text
     only) shown in the one floating label by `wireTips`; line charts use a
-    crosshair that snaps to the nearest day. It also shows on tap and on
+    crosshair that snaps to the nearest day. The label stays inside its own
+    card: it sits right of the pointer and turns to the left of it once it
+    would cross the card's right edge (owner's call, 2026-11-16; the
+    Dashboard does the same). Any new Finance card gets this for free by
+    being a `card()` and its chart passing through `wireTips`/`showTip`. It also shows on tap and on
     keyboard focus, and it is never the only way to read a figure: each
     chart has "Show as a table" or a list beside it.
   - **Part of a whole** is a ranked list of bars (`ranked()`), or one split

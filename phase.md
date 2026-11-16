@@ -230,6 +230,19 @@ its drill-down. No schema change: `asset_category_lives` and the life/salvage
 columns stay, unused. Assets keeps cost by category, status, warranties,
 "Paid by", and a per-category "Set date".
 
+**Revenue Overview in Finance; expenses spreadsheet import prepared
+(2026-11-16, owner's requests):** Income > Hotspot now carries the Revenue
+Overview graphs (`static/js/finance-hotspot.js`; the Reports > Revenue
+> Overview page is untouched). `tools/import_expenses_csv.py` reads the old
+expenses spreadsheet (429 rows, May to Nov 2026, about KSh 3.75M) and files
+each row under OUR categories by its title and vendor, not the spreadsheet's
+own, deciding running cost vs equipment kept; guesses are marked REVIEW.
+Preview only until the owner approves: it writes a review CSV and saves
+nothing without `--apply`. Rows that match an expense already in the app,
+or repeat another row, are held back. Two categories the old file needed
+(Office & supplies, Tools & safety gear) are proposed as data rows, not a
+schema change.
+
 **7G Month-end, deferred (2026-11-15):** owner's call: 7G is a "nice to
 have", not a must for Phase 7. Nothing built; revisit as the module gets
 used. If picked up: exports and the M-Pesa statement check need no new

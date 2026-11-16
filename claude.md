@@ -70,7 +70,11 @@ static/
                              # ALSO EXCEPT the five finance-*.js pages, which
                              # import from finance-common.js (tiles, cards,
                              # charts, the hover label, remembered reports),
-                             # the same kind of shared domain module.
+                             # the same kind of shared domain module;
+                             # finance-income.js also imports
+                             # finance-hotspot.js, the Revenue Overview
+                             # graphs shown on its Hotspot view (a section
+                             # of that one page, kept in its own file).
                              # inventory-manage.js is Categories-only —
                              # Locations has no management screen any more.
                              # inventory.js (Items) and stock.js (Stock) now

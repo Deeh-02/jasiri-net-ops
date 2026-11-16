@@ -77,3 +77,10 @@
 @media (max-width: 760px) {
     .fin-inc-search { flex: 1 1 100%; }
 }
+
+/* The Revenue Overview, inside the Hotspot segment (finance-hotspot.js) */
+.fin-hot-title { margin: var(--section-gap) 0 4px; }
+.fin-hot-note { margin-bottom: 12px; }
+.fin-hot-select .control { min-height: 34px; padding-top: 4px; padding-bottom: 4px; }
+.fin-hot-direction { margin: 0; font-size: 13px; color: var(--text-dim); line-height: 1.5; display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; }
+.fin-hot-direction b { color: var(--text); font-weight: 600; }

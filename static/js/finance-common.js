@@ -115,12 +115,14 @@ registerLogoutHandler(forgetReports);
 // ---- The floating label -----------------------------------------------------------
 // One for all Finance pages. It lives on <body> (not inside a page), so a
 // page's entrance animation can't move it, and it follows the pointer while
-// staying on screen.
+// staying inside the card it belongs to: it sits to the right of the pointer
+// and turns to the left once it would cross the card's right edge (the same
+// as the Dashboard's).
 
 let tipBox = null;
 let tipTimer = null;
 
-export function showTip(html, x, y) {
+export function showTip(html, x, y, card = null) {
     if (!tipBox) {
         tipBox = document.createElement("div");
         tipBox.className = "fin-tip";
@@ -130,9 +132,12 @@ export function showTip(html, x, y) {
     tipBox.innerHTML = html;
     tipBox.hidden = false;
     const w = tipBox.offsetWidth, h = tipBox.offsetHeight, gap = 14, pad = 8;
+    const bounds = card?.getBoundingClientRect();
+    const minX = bounds ? Math.max(pad, bounds.left + pad) : pad;
+    const maxX = bounds ? Math.min(window.innerWidth - pad, bounds.right - pad) : window.innerWidth - pad;
     let left = x + gap;
-    if (left + w > window.innerWidth - pad) left = x - gap - w;
-    left = Math.max(pad, Math.min(left, window.innerWidth - pad - w));
+    if (left + w > maxX) left = x - gap - w;
+    left = Math.max(minX, Math.min(left, maxX - w));   // a card narrower than the label: stay on the card
     const above = y - h - 12;                    // no room under the top bar: go below the pointer
     tipBox.style.transform = `translate(${Math.round(left)}px, ${Math.round(above < 70 ? y + 18 : above)}px)`;
 }
@@ -168,7 +173,7 @@ export function wireTips(root) {
         if (e.target.closest?.("[data-own-tip]")) return;
         const el = e.target.closest?.("[data-tip]");
         if (!el || !root.contains(el)) { hideTip(); return; }
-        showTip(el.dataset.tip, e.clientX, e.clientY);
+        showTip(el.dataset.tip, e.clientX, e.clientY, el.closest(".fin-card"));
     };
     root.addEventListener("pointermove", show);
     root.addEventListener("pointerdown", show);
@@ -181,7 +186,7 @@ export function wireTips(root) {
         const el = e.target.closest?.("[data-tip]");
         if (!el) return;
         const r = el.getBoundingClientRect();
-        showTip(el.dataset.tip, r.left + r.width / 2, r.top);
+        showTip(el.dataset.tip, r.left + r.width / 2, r.top, el.closest(".fin-card"));
     });
     root.addEventListener("focusout", hideTip);
 }
@@ -458,14 +463,15 @@ const pathOf = run => run.map((p, n) => `${n ? "L" : "M"}${p[0].toFixed(1)},${p[
 //   value null = no data (a gap);  compare = the same period last time (a line)
 //   partial = still counting (hatched);  pick = attributes that make it clickable
 // options: width, id (unique per chart on the page), average (a dashed rule),
-//          what (the chart's name for screen readers)
-export function barChart(points, { width, id, average = null, what = "Income over time" }) {
+//          what (the chart's name for screen readers), labelWidth (pixels one
+//          axis label needs, so longer labels are shown every few bars)
+export function barChart(points, { width, id, average = null, what = "Income over time", labelWidth = 26 }) {
     const f = frame(width), { W, H, L, R, T, B } = f;
     const values = points.flatMap(p => [p.value, p.compare]).filter(v => v != null).map(Number);
     const scale = axisScale(0, Math.max(0, ...values, Number(average || 0)));
     const y = v => T + (scale.top - v) / (scale.top - scale.bottom) * (H - T - B);
     const slot = (W - L - R) / points.length, bar = Math.max(3, Math.min(24, slot * 0.62));
-    const every = Math.max(1, Math.ceil(26 / slot));
+    const every = Math.max(1, Math.ceil(labelWidth / slot));
     // The highest finished bar carries its figure; the axis and the hover label carry the rest.
     let best = -1;
     points.forEach((p, i) => {
@@ -485,6 +491,46 @@ export function barChart(points, { width, id, average = null, what = "Income ove
     const rule = average == null ? "" : `<line class="avg" x1="${L}" x2="${W - R}" y1="${y(Number(average))}" y2="${y(Number(average))}"/>`;
     return `<svg class="fin-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(what)}" style="--hatch-income:url(#${id}-income)">
         ${hatchDefs(id, ["income"])}${gridSvg(f, scale, y)}${rule}${slots}${compare}</svg>`;
+}
+
+// One line over time with the range it usually stays in as a soft band, its
+// recent average as a dashed line, and a ring on any period that fell outside
+// the usual range. The ranges and the flags come from the server; this only
+// draws them.
+// points: [{ label, value, avg, band: { low, high } | null, partial,
+//            unusual: "low" | "high" | null, tip }]
+export function trendChart(points, { width, id, what = "Income trend" }) {
+    const f = frame(width, { tall: 250, short: 210 }), { W, H, L, R, T, B } = f;
+    const values = points.flatMap(p => [p.value, p.avg, p.band?.high]).filter(v => v != null).map(Number);
+    const scale = axisScale(0, Math.max(0, ...values));
+    const y = v => T + (scale.top - v) / (scale.top - scale.bottom) * (H - T - B);
+    const slot = (W - L - R) / points.length, x = i => L + slot * i + slot / 2;
+    const every = Math.max(1, Math.ceil(60 / slot));
+    const bands = runs(points.map((p, i) => p.band ? [i, p.band] : null)).filter(run => run.length > 1).map(run => {
+        const up = run.map(([i, b]) => `${x(i).toFixed(1)},${y(Number(b.high)).toFixed(1)}`);
+        const down = [...run].reverse().map(([i, b]) => `${x(i).toFixed(1)},${y(Number(b.low)).toFixed(1)}`);
+        return `<polygon class="band" points="${[...up, ...down].join(" ")}"/>`;
+    }).join("");
+    const average = runs(points.map((p, i) => p.avg == null ? null : [x(i), y(Number(p.avg))]))
+        .map(run => run.length > 1 ? `<path class="line avg" d="${pathOf(run)}"/>` : "").join("");
+    const finished = points.map((p, i) => p.partial || p.value == null ? null : [x(i), y(Number(p.value))]);
+    const line = runs(finished).map(run => run.length > 1 ? `<path class="line income" d="${pathOf(run)}"/>` : "").join("");
+    // A dot on every point while there are few enough to tell apart; with
+    // more, only the latest and the unusual ones.
+    const dense = points.length > 31, lastFinished = finished.map((p, i) => p && i).filter(i => i !== null && i !== false).pop();
+    const dots = points.map((p, i) => {
+        if (p.value == null) return "";
+        const cx = x(i), cy = y(Number(p.value));
+        const ring = p.unusual ? `<circle class="ring ${p.unusual}" cx="${cx}" cy="${cy}" r="8"/>` : "";
+        const dot = p.partial ? `<circle class="dot projected" cx="${cx}" cy="${cy}" r="4"/>`
+            : !dense || i === lastFinished ? `<circle class="dot income" cx="${cx}" cy="${cy}" r="4"/>` : "";
+        return ring + dot;
+    }).join("");
+    const slots = points.map((p, i) => `<g class="slot" ${p.tip || ""}><rect class="hit" x="${L + slot * i}" y="${T - 10}" width="${slot}" height="${y(0) - T + 10}" rx="4"/></g>`
+        // Every few points, and always the last, unless that would sit on top of the one before it.
+        + (i === points.length - 1 || (i % every === 0 && points.length - 1 - i >= every) ? `<text class="tick" x="${x(i)}" y="${H - 8}" text-anchor="middle">${esc(p.label)}</text>` : "")).join("");
+    return `<svg class="fin-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(what)}">
+        ${gridSvg(f, scale, y)}${bands}${average}${line}${dots}${slots}</svg>`;
 }
 
 // Income and expenses side by side for each month, with profit as a line
@@ -591,7 +637,7 @@ export function mountPace(box, model) {
         showTip(tipHtml(d.name, [
             { key: "income", label: `${m.model.thisName}, up to this day`, value: d.total == null ? "not reached yet" : money(d.total) },
             { key: "compare", label: `${m.model.lastName}, up to the same day`, value: d.last == null ? "no data" : money(d.last) },
-        ], gap == null ? "" : gap === 0 ? "Level with last month" : `${gap > 0 ? "▲ Ahead of" : "▼ Behind"} last month by ${money(Math.abs(gap))}`), e.clientX, e.clientY);
+        ], gap == null ? "" : gap === 0 ? "Level with last month" : `${gap > 0 ? "▲ Ahead of" : "▼ Behind"} last month by ${money(Math.abs(gap))}`), e.clientX, e.clientY, box.closest(".fin-card"));
     };
     const leave = () => {
         box.querySelector(".hover")?.setAttribute("hidden", "");

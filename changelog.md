@@ -9,6 +9,17 @@ and in `phase.md`'s own per-phase writeups.
 
 Started 2026-11-15 at the owner's request, after Phase 6 was merged to `main`.
 
+### Revenue Overview inside Finance, and two fixes (2026-11-16)
+- **Finance → Income → Hotspot** now carries the Revenue Overview: income
+  against the average (a day, week or month at a time, with total, average,
+  highest and lowest) and the trend line with the range income usually stays
+  in, a ring on anything outside it, and whether income is rising, falling or
+  steady. Same figures as Reports → Revenue → Overview (which stays as it
+  is). Shown to people who may see revenue.
+- **The month target box** accepts any amount (it only accepted 1, 101, 201…).
+- **The hover card** on every Finance chart stays inside its own card and
+  turns to the left of the pointer at the card's right edge.
+
 ### No more depreciation; "Cash left" instead (2026-11-16)
 - **Book value and depreciation are gone** from Assets, Performance and the
   Snapshot, along with useful life and salvage. They rested on lives we had

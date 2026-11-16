@@ -3,6 +3,7 @@ import {
     esc, money, asDay, dayLabel, monthLabel, nairobiDate, errorText, fetchReport, forgetReports, wireTips, tipAttr, markFresh,
     kpi, card, legend, alertList, figures, ranked, splitBar, barChart, redrawOnResize,
 } from "./finance-common.js";
+import { mountHotspotOverview, initHotspotOverview, redrawHotspotOverview } from "./finance-hotspot.js";
 
 // Finance > Income (Phase 7C). Everything is read from data the app already
 // records; nothing here is typed. Hotspot income comes from the router's
@@ -60,8 +61,16 @@ function render() {
     $("fin-inc-body").innerHTML = [
         tilesHtml(r), attentionHtml(r.attention), targetHtml(r.target, r.summary.is_current_month, r.segment),
         trendHtml(), patternsHtml(r),
+        showsRevenueOverview() ? `<div id="fin-inc-revenue"></div>` : "",
     ].join("");
     drawChart();
+    if (showsRevenueOverview()) mountHotspotOverview($("fin-inc-revenue"));
+}
+
+// The Revenue Overview graphs join the Hotspot view, for people who may see
+// revenue (the same permission as the Revenue page).
+function showsRevenueOverview() {
+    return state.segment === "hotspot" && can("sites", "view_revenue");
 }
 
 // ---- Headline figures ----
@@ -147,7 +156,7 @@ function targetHtml(t, isCurrent, segment) {
 function openTargetEditor() {
     const t = state.report.target;
     $("fin-inc-target-edit").innerHTML = `<form class="fin-inc-target-form" id="fin-inc-target-form">
-        <input type="number" class="control" id="fin-inc-target-amount" min="1" step="100" placeholder="KSh"
+        <input type="number" class="control" id="fin-inc-target-amount" min="1" step="1" inputmode="numeric" placeholder="KSh"
             value="${t.target_source === "manual" ? Number(t.target) : ""}" aria-label="Income target for the month">
         <button type="submit" class="btn-primary fin-inc-small">Save</button>
         ${t.target_source === "manual" ? `<button type="button" class="btn-secondary fin-inc-small" data-target-clear>Clear</button>` : ""}
@@ -397,7 +406,8 @@ export function initFinanceIncome() {
 
     wireTips($("fin-inc-body"));
     // The chart is drawn at the width it's shown at; redraw when that changes.
-    redrawOnResize("view-finance-income", () => { if (state.report?.has_data) drawChart(); });
+    initHotspotOverview($("fin-inc-body"));
+    redrawOnResize("view-finance-income", () => { if (state.report?.has_data) { drawChart(); if (showsRevenueOverview()) redrawHotspotOverview(); } });
 
     registerRoute("finance-income", (params) => {
         const month = /^\d{4}-\d{2}$/.test(params[0] || "") ? params[0] : nairobiDate().slice(0, 7);
