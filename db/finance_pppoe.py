@@ -3,20 +3,38 @@ Finance > Income > PPPoE. Owns pppoe_recharges and pppoe_recharge_imports
 (migrations/0039_pppoe_recharges.sql). The rules (what counts, what is left
 out and why) are in db/pppoe_recharge_logic.py.
 
-Only rows with left_out IS NULL are income. Every query here returns the
-same shapes as db/monitoring.py's hotspot ones, so Finance > Income treats
-both segments alike.
+Only rows with left_out IS NULL are income. Income also includes the old
+billing system's PPPoE payments (db/billing_history.py), from before PPPoE
+moved to the new system on 20 Jun 2026: the queries below read one union of
+the two ("income"). "Bronze" is shown as Standard, its new name. Every query
+here returns the same shapes as db/monitoring.py's hotspot ones, so Finance
+> Income treats both segments alike.
 """
 from datetime import timedelta
 from decimal import Decimal
 
 import psycopg2
 
+from db import billing_history
+from db import billing_history_logic as history_logic
 from db import pppoe_recharge_logic as logic
 from db.connection import db_cursor, to_eat, utc_iso
 
 _EAT = "(r.recharged_at + interval '3 hours')"
 _COUNTS = "r.left_out IS NULL"
+_I_EAT = "(i.at + interval '3 hours')"
+_NEW_SYSTEM = f"""
+    SELECT 'p' || r.id, r.recharged_at, r.username, r.customer_name, {logic.plan_sql('r.plan')}, r.amount,
+           r.created_by, 'new'
+    FROM pppoe_recharges r WHERE r.left_out IS NULL"""
+
+
+def _income(cur):
+    """The WITH clause every income query starts with: counted recharges from
+    the new system, and the old system's counted PPPoE payments once its
+    history is loaded. Columns: id, at, account, name, plan, amount, how, source."""
+    parts = [_NEW_SYSTEM] + ([billing_history.HISTORY_PPPOE_SQL] if billing_history.available(cur) else [])
+    return "WITH income (id, at, account, name, plan, amount, how, source) AS (" + " UNION ALL ".join(parts) + ") "
 
 
 class PppoeNotSetUp(RuntimeError):
@@ -87,10 +105,14 @@ def import_recharges(file_name, rows, user_id, commit):
 
 
 def coverage(cur):
-    """(first EAT day with a recharge, last upload time, latest recharge),
-    all None when nothing is uploaded yet."""
+    """(first EAT day PPPoE income is recorded from, last upload time, latest
+    recharge). The first day is where the old system's history starts once
+    it is loaded, else the first recharge uploaded; all None when nothing is
+    recorded yet."""
+    history_first, _ = billing_history.coverage(cur)
     cur.execute(f"SELECT min({_EAT})::date FROM pppoe_recharges r")
     first = cur.fetchone()[0]
+    first = min(d for d in (first, history_first) if d) if (first or history_first) else None
     cur.execute("SELECT imported_at, latest_recharge FROM pppoe_recharge_imports ORDER BY imported_at DESC LIMIT 1")
     last = cur.fetchone()
     return first, (last[0] if last else None), (last[1] if last else None)
@@ -117,31 +139,35 @@ def income_for_month(history_from, first_day, last_day):
     month = _range(first_day, last_day)
     with db_cursor() as (conn, cur):
         tracking_start, imported_at, latest = coverage(cur)
+        income = _income(cur)
         cur.execute(
-            f"""SELECT {_EAT}::date, sum(r.amount), count(*) FROM pppoe_recharges r
-                WHERE {_COUNTS} AND {_EAT} >= %s AND {_EAT} < %s GROUP BY 1 ORDER BY 1""",
+            f"""{income}SELECT {_I_EAT}::date, sum(i.amount), count(*) FROM income i
+                WHERE {_I_EAT} >= %s AND {_I_EAT} < %s GROUP BY 1 ORDER BY 1""",
             _range(history_from, last_day))
         daily = cur.fetchall()
         cur.execute(
-            f"""SELECT extract(hour FROM {_EAT})::int, sum(r.amount), count(*) FROM pppoe_recharges r
-                WHERE {_COUNTS} AND {_EAT} >= %s AND {_EAT} < %s GROUP BY 1 ORDER BY 1""", month)
+            f"""{income}SELECT extract(hour FROM {_I_EAT})::int, sum(i.amount), count(*) FROM income i
+                WHERE {_I_EAT} >= %s AND {_I_EAT} < %s GROUP BY 1 ORDER BY 1""", month)
         hourly = cur.fetchall()
         cur.execute(
-            f"""SELECT r.plan, sum(r.amount), count(*) FROM pppoe_recharges r
-                WHERE {_COUNTS} AND {_EAT} >= %s AND {_EAT} < %s GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 8""", month)
+            f"""{income}SELECT i.plan, sum(i.amount), count(*) FROM income i
+                WHERE {_I_EAT} >= %s AND {_I_EAT} < %s GROUP BY 1 ORDER BY 2 DESC, 1 LIMIT 8""", month)
         packages = cur.fetchall()
+        # An account is the same customer in both systems (JS06 is JS06).
         cur.execute(
-            f"""WITH period AS (
-                    SELECT r.username, count(*) AS recharges FROM pppoe_recharges r
-                    WHERE {_COUNTS} AND {_EAT} >= %s AND {_EAT} < %s GROUP BY 1
+            f"""{income}, period AS (
+                    SELECT upper(i.account) AS account, count(*) AS recharges FROM income i
+                    WHERE {_I_EAT} >= %s AND {_I_EAT} < %s GROUP BY 1
                 ), earlier AS (
-                    SELECT DISTINCT r.username FROM pppoe_recharges r JOIN period p ON p.username = r.username
-                    WHERE r.left_out IS DISTINCT FROM 'test' AND {_EAT} < %s
+                    SELECT DISTINCT upper(i.account) AS account FROM income i
+                    WHERE upper(i.account) IN (SELECT account FROM period) AND {_I_EAT} < %s
                 )
-                SELECT count(*), count(*) FILTER (WHERE username NOT IN (SELECT username FROM earlier)),
+                SELECT count(*), count(*) FILTER (WHERE account NOT IN (SELECT account FROM earlier)),
                        count(*) FILTER (WHERE recharges > 1)
                 FROM period""", (*month, first_day))
         buyers, first_time, repeat = cur.fetchone()
+        if first_day <= (tracking_start or first_day):
+            first_time = None   # the first month on record: earlier recharges unknown
         cur.execute(
             f"""SELECT count(*), COALESCE(sum(r.amount), 0) FROM pppoe_recharges r
                 WHERE {_COUNTS} AND lower(r.billing_status) = 'inactive' AND r.quantity LIKE '1/%%'
@@ -161,8 +187,8 @@ def daily_totals(first_day, last_day):
     """Finance > Performance: ([(EAT day, total)], records start)."""
     with db_cursor() as (conn, cur):
         cur.execute(
-            f"""SELECT {_EAT}::date, sum(r.amount) FROM pppoe_recharges r
-                WHERE {_COUNTS} AND {_EAT} >= %s AND {_EAT} < %s GROUP BY 1 ORDER BY 1""",
+            f"""{_income(cur)}SELECT {_I_EAT}::date, sum(i.amount) FROM income i
+                WHERE {_I_EAT} >= %s AND {_I_EAT} < %s GROUP BY 1 ORDER BY 1""",
             _range(first_day, last_day))
         daily = cur.fetchall()
         first, _, _ = coverage(cur)
@@ -171,36 +197,37 @@ def daily_totals(first_day, last_day):
 
 @_guard
 def recharges(first_day, last_day, search=None, day=None, package=None, limit=50, offset=0):
-    """One page of counted recharges, newest first, in the hotspot sale shape
-    (at, account, package, site, kind, amount) plus 'segment'. 'site' holds
-    how it was paid; 'kind' is 'new' for an account's first recharge on
-    record, else 'renewal'."""
-    where = [_COUNTS, f"{_EAT} >= %s", f"{_EAT} < %s"]
+    """One page of counted recharges (both systems), newest first, in the
+    hotspot sale shape (at, account, package, site, kind, amount) plus
+    'segment'. 'site' holds how it was paid; 'kind' is 'new' for an
+    account's first recharge on record, else 'renewal'."""
+    where = [f"{_I_EAT} >= %s", f"{_I_EAT} < %s"]
     args = list(_range(first_day, last_day))
     if day:
-        where.append(f"{_EAT}::date = %s")
+        where.append(f"{_I_EAT}::date = %s")
         args.append(day)
     if package:
-        where.append("r.plan = %s")
+        where.append("i.plan = %s")
         args.append(package)
     if search:
-        where.append("(r.username ILIKE %s OR r.customer_name ILIKE %s OR r.plan ILIKE %s OR r.created_by ILIKE %s)")
+        where.append("(i.account ILIKE %s OR i.name ILIKE %s OR i.plan ILIKE %s OR i.how ILIKE %s)")
         args += [f"%{search}%"] * 4
     where_sql = " AND ".join(where)
     with db_cursor() as (conn, cur):
-        cur.execute(f"SELECT count(*), COALESCE(sum(r.amount), 0) FROM pppoe_recharges r WHERE {where_sql}", args)
+        income = _income(cur)
+        cur.execute(f"{income}SELECT count(*), COALESCE(sum(i.amount), 0) FROM income i WHERE {where_sql}", args)
         matching, matching_total = cur.fetchone()
         page_sql = "" if limit is None else " LIMIT %s OFFSET %s"
         cur.execute(
-            f"""SELECT r.id, r.recharged_at, r.username, r.customer_name, r.plan, r.amount, r.created_by,
-                       NOT EXISTS (SELECT 1 FROM pppoe_recharges e WHERE e.username = r.username
-                                   AND e.left_out IS DISTINCT FROM 'test' AND e.recharged_at < r.recharged_at)
-                FROM pppoe_recharges r WHERE {where_sql}
-                ORDER BY r.recharged_at DESC, r.id DESC{page_sql}""",
+            f"""{income}SELECT i.id, i.at, i.account, i.name, i.plan, i.amount, i.how, i.source,
+                       NOT EXISTS (SELECT 1 FROM income e WHERE upper(e.account) = upper(i.account) AND e.at < i.at)
+                FROM income i WHERE {where_sql}
+                ORDER BY i.at DESC, i.id DESC{page_sql}""",
             args + ([] if limit is None else [limit, offset]))
-        rows = [{"id": f"p{r[0]}", "at": utc_iso(r[1]), "sort_at": r[1],
+        rows = [{"id": r[0], "at": utc_iso(r[1]), "sort_at": r[1],
                  "account": f"{r[2]} · {r[3]}" if r[3] else r[2], "package": r[4], "amount": r[5],
-                 "site": logic.how_paid(r[6]), "kind": "new" if r[7] else "renewal", "segment": "pppoe"}
+                 "site": logic.how_paid(r[6]) if r[7] == "new" else f"{history_logic.how_paid(r[6])} (old system)",
+                 "kind": "new" if r[8] else "renewal", "segment": "pppoe"}
                 for r in cur.fetchall()]
     return {"rows": rows, "matching": matching, "matching_total": matching_total}
 

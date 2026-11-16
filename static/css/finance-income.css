@@ -9,6 +9,9 @@
 
 .fin-inc-clear { margin-bottom: 14px; }
 
+/* Where the month's figures come from, when part is the old billing history. */
+.fin-inc-source { margin: -4px 0 14px; font-size: 12.5px; line-height: 1.5; color: var(--text-dim); }
+
 /* Month target: one bar for income, a line for the target, and thinner
    lines for break-even, last month and the month-end estimate. */
 .fin-inc-target-edit { flex: none; }

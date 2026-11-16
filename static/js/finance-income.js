@@ -65,7 +65,7 @@ function render() {
         return;
     }
     $("fin-inc-body").innerHTML = [
-        tilesHtml(r), attentionHtml(r.attention), targetHtml(r.target, r.summary.is_current_month, r.segment),
+        tilesHtml(r), sourcesHtml(r.sources), attentionHtml(r.attention), targetHtml(r.target, r.summary.is_current_month, r.segment),
         trendHtml(), patternsHtml(r),
         showsRevenueOverview() ? `<div id="fin-inc-revenue"></div>` : "",
     ].join("");
@@ -101,6 +101,12 @@ function tilesHtml(r) {
                      : kpi({ label: "Best day", value: null, none: "No day yet", sub: "No completed day yet" })}
         ${t?.projected ? kpi({ label: "Month-end estimate", value: money(t.projected.projected), sub: `If the rest goes like the last ${t.projected.weeks} weeks` }) : ""}
     </div>`;
+}
+
+// Where the month's figures come from, when part of it is from the old
+// billing history rather than the router or the new billing system.
+function sourcesHtml(notes) {
+    return notes && notes.length ? `<p class="fin-inc-source">${notes.map(esc).join(" ")}</p>` : "";
 }
 
 // ---- Needs attention (worst first; a day item opens that day's sales) ----
@@ -283,11 +289,12 @@ function buyersCard(b, span) {
         pppoe: "PPPoE customers who recharged this month.",
         all: "Hotspot accounts (one phone on one device) and PPPoE customers together.",
     }[state.segment];
+    // first_time is null in the first month on record: earlier purchases aren't known.
     return card({ span, title: "Customers", sub, body: figures([
         [Number(b.buyers).toLocaleString(), "accounts paid"],
-        [Number(b.first_time).toLocaleString(), "paid for the first time"],
+        b.first_time == null ? null : [Number(b.first_time).toLocaleString(), "paid for the first time"],
         [Number(b.repeat).toLocaleString(), "paid more than once"],
-    ]) });
+    ].filter(Boolean)) });
 }
 
 function patternsHtml(r) {

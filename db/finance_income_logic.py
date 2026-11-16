@@ -179,6 +179,31 @@ def segment_split(hotspot_total, pppoe_total=None):
     return {"pppoe": pppoe_total, "hotspot": hotspot_total, "other": None}
 
 
+def source_notes(first_day, last_day, hotspot_sources, pppoe_from, move_day):
+    """Where this month's figures come from, when it isn't simply the router
+    and the new billing system: one plain sentence per segment.
+    hotspot_sources: {router_from, history_from} (db/finance_hotspot.py);
+    pppoe_from: the day PPPoE income is recorded from; move_day: the day
+    PPPoE moved to the new billing system."""
+    notes = []
+    if hotspot_sources and hotspot_sources.get("history_from"):
+        router_from = hotspot_sources["router_from"]
+        if router_from is None or last_day < router_from:
+            notes.append("Hotspot: from the billing system's transactions export"
+                         + (f" (the router started recording sales on {router_from - timedelta(days=1):%-d %b %Y})."
+                            if router_from else "."))
+        elif first_day < router_from:
+            notes.append(f"Hotspot: {first_day:%-d} to {router_from - timedelta(days=1):%-d %b} from the billing "
+                         f"system's transactions export, from {router_from:%-d %b} the router's sales.")
+    if pppoe_from and pppoe_from < move_day and first_day <= move_day:
+        if last_day < move_day:
+            notes.append(f"PPPoE: payments in the old billing system, before PPPoE moved to the new one on {move_day:%-d %b %Y}.")
+        else:
+            notes.append(f"PPPoE: the old billing system's payments until the move on {move_day:%-d %b}, "
+                         "then the new billing system's recharges.")
+    return notes
+
+
 def mask_account(account):
     """Hotspot accounts are a phone number plus a device tag
     ('254796130050-F:D2'). On screen and in exports the middle of the number

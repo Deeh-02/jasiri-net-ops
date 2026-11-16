@@ -14,14 +14,25 @@ A recharge is income unless a rule leaves it out (kept, never deleted, so
 the call can be seen and reversed):
   - test:   a test or staff account (TEST_ACCOUNTS)
   - free:   KSh 0
+  - moved:  entered by staff on MOVE_DAY, the day PPPoE moved here from the
+            old billing system: the customer's month already paid there
   - repeat: the same account, plan and amount again within REPEAT_MINUTES of
             one that counts: a double click, not a second payment
 
-A burst of accounts recharged within seconds by staff (20 Jun 2026 17:46,
-18 accounts) DOES count: the owner confirmed on 2026-11-16 those customers
-paid.
+The move (owner, 2026-11-16: "they had been moved"): on 20 Jun 2026 staff
+entered every PPPoE customer here (JS02 at 16:34, then 18 accounts within
+seconds at 17:46). Every one of them with a payment in the old system's
+export still had a paid month running there that day, and 7 of the others
+never recharged again: these were existing subscriptions copied across, not
+new money. The old system's payments are counted from its own transactions
+export (db/billing_history_logic.py), so these entries are left out. An
+earlier reading counted them (2026-11-16, before the old system's history
+was in).
+
+Plans: "Bronze" was renamed "Standard" (owner, 2026-11-16), so it is shown
+and grouped as Standard. "Jasiri" (KSh 1) and "Test" (KSh 0) are staff plans.
 """
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 
 from db.customer_import import ImportFileError, _cell, _read_rows
@@ -32,14 +43,29 @@ MAX_ROWS = 50000
 EAT_OFFSET = timedelta(hours=3)
 
 TEST_ACCOUNTS = {"test", "jasiri"}
+TEST_PLANS = {"test", "jasiri"}
 REPEAT_MINUTES = 10
 BANK_CREATOR = "ncbaserver"
+MOVE_DAY = date(2026, 6, 20)
+PLAN_RENAMED = {"Bronze": "Standard"}
 
 LEFT_OUT = {
     "test": "Test or staff account",
     "free": "KSh 0",
+    "moved": "Moved from the old billing system (paid there)",
     "repeat": "Same recharge again within minutes",
 }
+
+
+def plan_name(plan):
+    """The plan as it is called now."""
+    return PLAN_RENAMED.get(plan, plan)
+
+
+def plan_sql(column):
+    """plan_name() as SQL, for grouping and filtering in queries."""
+    whens = " ".join(f"WHEN '{old}' THEN '{new}'" for old, new in PLAN_RENAMED.items())
+    return f"CASE {column} {whens} ELSE {column} END"
 
 
 def _amount(text):
@@ -113,11 +139,13 @@ def classify(rows):
     """Sets row['left_out'] (None when it counts) on rows in time order."""
     last_counted = {}
     for row in rows:
-        key = (row["username"].lower(), row["plan"], row["amount"])
-        if row["username"].lower() in TEST_ACCOUNTS:
+        key = (row["username"].lower(), plan_name(row["plan"]), row["amount"])
+        if row["username"].lower() in TEST_ACCOUNTS or row["plan"].lower() in TEST_PLANS:
             row["left_out"] = "test"
         elif row["amount"] == 0:
             row["left_out"] = "free"
+        elif (row["recharged_at"] + EAT_OFFSET).date() == MOVE_DAY and not paid_by_bank(row["created_by"]):
+            row["left_out"] = "moved"
         elif key in last_counted and row["recharged_at"] - last_counted[key] <= timedelta(minutes=REPEAT_MINUTES):
             row["left_out"] = "repeat"
         else:

@@ -259,13 +259,37 @@ answering open question 1. Migration 0039 (`pppoe_recharges`,
 `db/pppoe_recharge_logic.py`, tested. Left out but kept, with the reason:
 test/staff accounts (Test, Jasiri), KSh 0 and a double entry within 10
 minutes. The 18 accounts recharged in 3 seconds on 20 Jun 2026 17:46 COUNT:
-the owner confirmed those customers paid (KSh 27,000). PPPoE now feeds Income
+the owner confirmed those customers paid (KSh 27,000). *Changed the same
+day once the old system's history was in: they are the move, left out as
+"moved" (see "Old billing history" below).* PPPoE now feeds Income
 (PPPoE and All), Performance and the Snapshot; totals are flagged only when
 a segment is missing for the month (other income has no source and says so
 once). The owner's file: 106 rows, 98 counted, KSh 140,500 (20 Jun to 15 Nov
 2026), saved with the owner's approval. Re-uploading the full export adds only new recharges. Still open:
 expected vs received (who is due and hasn't paid), which can now use each
 customer's last recharge.
+
+**Old billing history, May 2026 on (2026-11-16, owner's files):** the owner
+supplied the billing system's transactions export
+(transactions_2026-05-01_to_2026-11-16.csv, 147,446 rows) with summaries and
+the explanation: PPPoE moved to another billing system, which is why its
+income looked like it started all at once; "Bronze" was renamed "Standard".
+Migration 0040 (`billing_history`, `billing_history_imports`), loaded with
+`tools/import_billing_history.py`; rules in `db/billing_history_logic.py`,
+tested. Read check (2026-11-16): every one of the 200 days matches the
+owner's daily summary exactly; 147,281 rows count, KSh 2,293,380. Hotspot
+before 22 Sep comes from it (the router from then on; they agree within 1%);
+old-system PPPoE payments count once (paybill money, not the plan bought with
+it). **Change to an earlier call:** the 20 Jun 2026 burst in the new system
+(19 entries, KSh 28,500) is now left out as "moved", not income: every one of
+those accounts with old-system data still had a paid month running there
+that day, 7 others never recharged again, and the owner said "they had been
+moved". With the old system's payments now counted, counting the burst too
+would count those months twice. 9 PPPoE payments made into the old paybill
+after the move have no new-system recharge to match (KSh 25,010: JS06,
+JS12, Marvel, mara, charles, Prisca 7,000, Sunton_Hotspot 2,000 and three
+small ones) and are counted; the import prints them for review.
+**Not yet applied to the production database: waiting for the owner's go.**
 
 **7G Month-end, deferred (2026-11-15):** owner's call: 7G is a "nice to
 have", not a must for Phase 7. Nothing built; revisit as the module gets

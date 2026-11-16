@@ -54,10 +54,25 @@ class Rules(unittest.TestCase):
                           line("JS01", "01/11/2026 12:00:00", amount="KSh0.00"), line("JS02", "01/11/2026 13:00:00"))
         self.assertEqual([r["left_out"] for r in rows], ["test", "test", "free", None])
 
-    def test_a_burst_of_staff_recharges_counts(self):
-        # 20 Jun 2026: 18 accounts recharged in 3 seconds; the owner confirmed they paid.
+    def test_the_move_day_entries_are_moved_not_income(self):
+        # 20 Jun 2026: staff entered every PPPoE customer when PPPoE moved here; the
+        # month was already paid in the old system, whose payments count instead.
         rows = classified(*[line(f"JS{n:02}", f"20/06/2026 17:46:{21 + n // 3:02}", by="JASIRINET") for n in range(6)])
-        self.assertTrue(all(r["left_out"] is None for r in rows))
+        self.assertTrue(all(r["left_out"] == "moved" for r in rows))
+
+    def test_a_bank_payment_on_the_move_day_still_counts(self):
+        rows = classified(line("JS01", "20/06/2026 18:00:00", by="NCBAServer"), line("JS02", "21/06/2026 09:00:00", by="JASIRINET"))
+        self.assertEqual([r["left_out"] for r in rows], [None, None])
+
+    def test_staff_plans_are_left_out_on_any_account(self):
+        rows = classified(line("JS40", "01/11/2026 10:00:00", plan="Jasiri", amount="KSh1.00"))
+        self.assertEqual(rows[0]["left_out"], "test")
+
+    def test_bronze_is_standard(self):
+        self.assertEqual(logic.plan_name("Bronze"), "Standard")
+        self.assertEqual(logic.plan_name("Basic"), "Basic")
+        rows = classified(line("JS07", "01/07/2026 10:00:00", plan="Bronze"), line("JS07", "01/07/2026 10:04:00", plan="Standard"))
+        self.assertEqual([r["left_out"] for r in rows], [None, "repeat"])
 
     def test_the_same_recharge_again_within_minutes_is_a_repeat(self):
         rows = classified(line("JS24", "20/08/2026 16:32:39", by="JASIRINET"), line("JS24", "20/08/2026 16:33:58", by="JASIRINET"))

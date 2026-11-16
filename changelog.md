@@ -9,6 +9,21 @@ and in `phase.md`'s own per-phase writeups.
 
 Started 2026-11-15 at the owner's request, after Phase 6 was merged to `main`.
 
+### Income back to May 2026 from the old billing history (2026-11-16)
+- **Finance now shows income from 1 May 2026**, not just from when the router
+  (hotspot, 21 Sep) and the new billing system (PPPoE, 20 Jun) started. It
+  comes from the billing system's transactions export: every hotspot sale
+  before 22 Sep, and every PPPoE payment made in the old system. Income,
+  Performance and the Snapshot all use it, and the transactions list shows
+  each sale.
+- A line under the Income figures says where a month's numbers come from.
+- Not counted, each with its reason kept: support and test rows (KSh 0 or 1),
+  the May balance correction, a payment recorded twice, and a PPPoE plan paid
+  from balance (the payment itself is counted once).
+- The 20 Jun entries in the new PPPoE system are now left out as "moved":
+  they copied over months already paid in the old system, which now count.
+- PPPoE "Bronze" is shown as Standard, its new name.
+
 ### PPPoE income (2026-11-16)
 - **Finance → Income → PPPoE** now shows PPPoE income, read from the billing
   system's recharge list. Export it from the billing system and upload it

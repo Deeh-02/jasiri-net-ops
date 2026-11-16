@@ -1,5 +1,5 @@
 """Finance > Performance (Phase 7D): the monthly profit statement. Gathers
-income (hotspot sales through db/monitoring.py, PPPoE recharges through
+income (hotspot sales through db/finance_hotspot.py, PPPoE recharges through
 db/finance_pppoe.py) and expenses
 (db/finance_expenses.py) and hands them to db/finance_performance_logic.py.
 Read only: nothing here writes.
@@ -7,7 +7,7 @@ Read only: nothing here writes.
 from datetime import date
 from decimal import Decimal
 
-from db import finance_expenses, finance_pppoe, monitoring
+from db import finance_expenses, finance_hotspot, finance_pppoe
 from db import finance_performance_logic as logic
 from db.finance_income_logic import add_months, month_days
 
@@ -47,7 +47,7 @@ def report(first_day, segment, today):
     trend_from = add_months(first_day, -(TREND_MONTHS - 1))
     last_day = min(_month_end(first_day), today)
 
-    hotspot_rows, hotspot_start = monitoring.hotspot_daily_totals(trend_from, max(last_day, trend_from))
+    hotspot_rows, hotspot_start = finance_hotspot.daily_totals(trend_from, max(last_day, trend_from))
     pppoe_rows, pppoe_start = _pppoe_daily(trend_from, max(last_day, trend_from))
     segments = {"hotspot": ({d: t for d, t in hotspot_rows}, hotspot_start),
                 "pppoe": ({d: t for d, t in pppoe_rows}, pppoe_start)}

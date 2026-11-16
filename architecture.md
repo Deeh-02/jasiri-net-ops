@@ -2281,6 +2281,36 @@ month only when both months miss the same segments (September 2026 has
 PPPoE but only part of hotspot, so October against it is left blank, not
 +1,700%).
 
+**Old billing history fills the months before the router and the move**
+(owner's file, 2026-11-16). The billing system that sells the hotspot (and
+ran PPPoE until it moved to the new billing system on 20 Jun 2026) exports
+every transaction: Invoice, Username, Plan, Type (Hotspot / PPPOE /
+Balance), Price, Method, Recharged. `tools/import_billing_history.py` loads
+it (preview by default; `--check-dir` compares every day with the owner's
+summary, `--apply` saves) into `billing_history` and
+`billing_history_imports` (migration 0040), owned by `db/billing_history.py`;
+the rules are pure in `db/billing_history_logic.py`. Every row is kept;
+`left_out` says why one isn't income: a balance correction, KSh 0/1 or an
+Admin Bypass, the same payment twice (an M-Pesa code reused, or a PPPoE
+period already paid), PPPoE paid from balance (the Balance row is the cash;
+the PPPOE row that spends it is not), or PPPoE after the move that the new
+system also has (same account, 1 day before to 7 after).
+- **Hotspot** is read through `db/finance_hotspot.py`: the history before the
+  router's first full day (22 Sep 2026; it started mid-day on the 21st), the
+  router from then on. The two agreed within 1% a day where both exist; the
+  router stays the source because it is live and the Revenue page's sites
+  come from it. Customers for a month that starts before the router are
+  counted from the history alone (accounts can't be matched across sources).
+  The router's queries take a `since` day for this.
+- **PPPoE** queries in `db/finance_pppoe.py` read one union: the new system's
+  counted recharges and the history's counted PPPoE rows (`HISTORY_PPPOE_SQL`).
+  The 20 Jun 2026 move-day entries in the new system are left out as `moved`
+  (each copied a month already paid in the old system). "Bronze" is shown
+  and grouped as Standard (`plan_sql`).
+- Without migration 0040 everything reads as before (`billing_history.available`).
+  The Income page shows a one-line note when part of the month comes from the
+  history (`source_notes`).
+
 **Assets sit beside Inventory, not inside it.** Inventory is the register
 (items, unit cost, status, location, movement log); Finance reads it only
 through `db/inventory_items.get_all_items` and

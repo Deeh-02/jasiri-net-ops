@@ -1917,9 +1917,19 @@ def _eat_range_args(first_day, last_day):
     return first_day, last_day + timedelta(days=1)
 
 
-def hotspot_income_for_month(history_from, first_day, last_day):
+def hotspot_records_start(cur):
+    """The EAT day the router started recording sales (its first day is
+    partial), or None. Takes a cursor so Finance can ask on its own
+    connection."""
+    cur.execute(f"SELECT min({_SALE_EAT})::date FROM revenue_events re WHERE re.event_type <> 'baseline'")
+    return cur.fetchone()[0]
+
+
+def hotspot_income_for_month(history_from, first_day, last_day, since=None):
     """Everything Finance > Income needs for one month, over ONE database
-    connection (opening one costs more than all five queries together):
+    connection (opening one costs more than all five queries together).
+    since: leave out days before it (Finance takes those from the old
+    billing history, db/finance_hotspot.py). Returns:
       first_day   the EAT day sales started being recorded, or None
       daily       [(day, total, sales)] from history_from to last_day
       hourly      [(hour 0-23, total, sales)] over first_day..last_day
@@ -1934,10 +1944,9 @@ def hotspot_income_for_month(history_from, first_day, last_day):
                   Finance, left out of the Revenue page)
       last_sale   the latest paid sale, ever (naive UTC), for "no sales in
                   N hours" """
-    month = _eat_range_args(first_day, last_day)
+    month = _eat_range_args(max(first_day, since) if since else first_day, last_day)
     with db_cursor() as (conn, cur):
-        cur.execute(f"SELECT min({_SALE_EAT})::date FROM revenue_events re WHERE re.event_type <> 'baseline'")
-        tracking_start = cur.fetchone()[0]
+        tracking_start = hotspot_records_start(cur)
         cur.execute(
             f"""
             SELECT {_SALE_EAT}::date, sum(re.price_kes), count(*)
@@ -1945,7 +1954,7 @@ def hotspot_income_for_month(history_from, first_day, last_day):
             WHERE {_PAID_SALE} AND {_SALE_EAT} >= %s AND {_SALE_EAT} < %s
             GROUP BY 1 ORDER BY 1
             """,
-            _eat_range_args(history_from, last_day),
+            _eat_range_args(max(history_from, since) if since else history_from, last_day),
         )
         daily = cur.fetchall()
         cur.execute(
@@ -2068,5 +2077,4 @@ def hotspot_daily_totals(first_day, last_day):
             _eat_range_args(first_day, last_day),
         )
         daily = cur.fetchall()
-        cur.execute(f"SELECT min({_SALE_EAT})::date FROM revenue_events re WHERE re.event_type <> 'baseline'")
-        return daily, cur.fetchone()[0]
+        return daily, hotspot_records_start(cur)

@@ -1,18 +1,19 @@
 """Finance > Income (Phase 7C): gathers the month's income and hands it to the
 rules in db/finance_income_logic.py. Income is never typed: hotspot income
-comes from the router's sales (read through db/monitoring.py, which owns
-revenue_events); PPPoE income from the billing system's recharge export,
-uploaded on the PPPoE view (db/finance_pppoe.py, owner's choice 2026-11-16).
-The All view adds the two together over the days both are recorded.
+comes from the router's sales, and before the router started from the
+billing system's transactions export (db/finance_hotspot.py); PPPoE income
+from the new billing system's recharge export, uploaded on the PPPoE view,
+and before the move from the old system's payments (db/finance_pppoe.py,
+owner's choices 2026-11-16). The All view adds the two together over the
+days both are recorded.
 """
 import csv
 import io
 from datetime import date, datetime
 from decimal import Decimal
 
-from db import finance_assets, finance_expenses, finance_pppoe, monitoring
+from db import finance_assets, finance_expenses, finance_hotspot, finance_pppoe, pppoe_recharge_logic
 from db import finance_income_logic as logic
-from db import pppoe_recharge_logic
 from db.connection import now_eat, to_eat
 
 SEGMENTS = ("all", "pppoe", "hotspot")
@@ -55,7 +56,10 @@ def _merge(parts):
         "daily": sorted((d, t, c) for d, (t, c) in daily.items()),
         "hourly": sorted((h, t, c) for h, (t, c) in hourly.items()),
         "packages": sorted(packages, key=lambda p: (-p[1], p[0]))[:8],
-        "buyers": {k: sum(b[k] for b in buyers) for k in ("buyers", "first_time", "repeat")} if buyers else None,
+        # A count one segment doesn't know (first_time in its first month on
+        # record) leaves the sum unknown too.
+        "buyers": {k: None if any(b[k] is None for b in buyers) else sum(b[k] for b in buyers)
+                   for k in ("buyers", "first_time", "repeat")} if buyers else None,
     }
 
 
@@ -74,7 +78,7 @@ def income_report(first_day, segment, today):
     if last_day < first_day:
         return {"segment": segment, "has_data": False, "reason": "This month hasn't started yet."}
 
-    hotspot = monitoring.hotspot_income_for_month(history_from, first_day, last_day) if segment != "pppoe" else None
+    hotspot = finance_hotspot.income_for_month(history_from, first_day, last_day) if segment != "pppoe" else None
     pppoe, pppoe_reason = _pppoe(history_from, first_day, last_day) if segment != "hotspot" else (None, None)
     if segment == "pppoe" and pppoe is None:
         return {"segment": segment, "has_data": False, "reason": pppoe_reason}
@@ -88,7 +92,9 @@ def income_report(first_day, segment, today):
     daily = {day: (total, sales) for day, total, sales in data["daily"]}
 
     summary = logic.month_summary(first_day, daily, today, tracking_start)
-    report = {"segment": segment, "has_data": summary["has_data"], "records_since": tracking_start}
+    report = {"segment": segment, "has_data": summary["has_data"], "records_since": tracking_start,
+              "sources": logic.source_notes(first_day, last_day, hotspot and hotspot.get("sources"),
+                                            pppoe and pppoe["first_day"], pppoe_recharge_logic.MOVE_DAY)}
     if pppoe:
         report["pppoe"] = {"last_upload": pppoe["last_upload"], "latest_recharge": pppoe["latest_recharge"]}
     if not summary["has_data"]:
@@ -170,7 +176,7 @@ def _rows(first_day, segment, today, search, day, package, limit, offset=0):
     wanted = None if limit is None else offset + limit
     parts = []
     if segment != "pppoe":
-        found = monitoring.hotspot_sales(first_day, last_day, limit=wanted, **filters)
+        found = finance_hotspot.sales(first_day, last_day, limit=wanted, **filters)
         parts.append(dict(found, rows=[_shown(r) for r in found["rows"]]))
     if segment != "hotspot":
         parts.append(_pppoe_rows(first_day, last_day, wanted, **filters))
