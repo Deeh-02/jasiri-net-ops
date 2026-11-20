@@ -2351,6 +2351,118 @@ month target, asset or category save, PPPoE upload) and on logout. What can stil
 to three minutes old is a change made by someone else on another device.
 The expenses list and Income's transactions are not remembered.
 
+## Network Health (2026-11-20)
+
+Detects a slow or dirty uplink before customers complain and texts the owner.
+Owner's scope of 2026-11-16, fed per `docs/network-health-ingest-contract.md`
+(2026-11-20). Not the Network Analysis page, and not part of Finance, though
+it was built on `phase-7-finance` at the owner's call.
+
+### Its own domain, in one folder
+
+Everything lives in `network_health/` (router, service, store, rules, alerts,
+messages, feed, config), its tables are `nh_`-prefixed, its routes are under
+`/network/health/`, and its page is `network-health.{html,js,css}`, which
+imports only `common.js`. From the rest of the app it may use only
+`routers.auth.get_current_user`, `routers.permissions.user_has_permission`,
+`db.connection.db_cursor` and `db.alert_channels.send_sms` (the SMS module is
+called, never copied or changed). `tests/test_network_health_isolation.py`
+fails on any other import, and on anyone importing it except `main.py` and
+the one line below. Removing the feature = deleting the folder, the page
+files, the six tables and those two call sites.
+
+The one link the other way, at the owner's request: `routers/network.py`'s
+CCR2116 heartbeat calls `network_health.service.tick()` next to
+`onu_alerts.tick()`. It is a second, independent clock for the silence checks
+(see below).
+
+### Why the feed is a shipper, not the routers
+
+The routers log to a server in Frankfurt; its `jasiri-shipper` posts batches
+here. So there are no Network Health RouterOS scripts and no per-device
+tokens: one `NETWORK_HEALTH_TOKEN`, compared in constant time; an unset token
+refuses everything. The contract's rules shape the ingest:
+
+- **2xx only after the batch is stored**, otherwise the shipper resends it.
+- **Dedupe on `key`** (`ON CONFLICT DO NOTHING`): a resent batch is harmless.
+- **A bad record is skipped, not refused.** One unreadable line answered
+  with a 4xx would come back at the head of every later batch and block the
+  feed forever. Unknown kinds and fields are ignored.
+- **`rtt_ms` null with 100 % loss is an outage, stored as null, never 0.**
+  `feed.py` also turns a 0 ms rtt with 100 % loss into null; averages and
+  graphs leave nulls out, so an outage shows as a gap, not the best minute.
+- **An empty batch is a heartbeat** (once a minute): it updates `nh_feed`.
+
+### No background worker: three clocks
+
+The app has no scheduler, so the rules run when something calls:
+
+1. **Ingest:** every new reading is judged in time order (a backfill is
+   replayed reading by reading), then the silence checks.
+2. **The CCR2116 heartbeat tick**, at most once a minute on its own thread.
+3. **`GET /network/health/status?key=NH_STATUS_KEY`**, for an outside uptime
+   checker: 200, or 503 when anything is RED or OFFLINE.
+
+Two silences, because they mean different things: **FEED_SILENT** (no POST
+at all for 10 min: Frankfurt or the shipper is down) and **ROUTER_SILENT**
+(posts arriving, none carrying that router's readings for 10 min: expected
+during an Airtel outage, since the routers reach Frankfurt over that
+uplink). ROUTER_SILENT is measured from when OPS *received* the newest
+reading, not its `ts`, so a backfill of hours-old lines doesn't look like a
+silent router; it isn't judged while the feed itself is silent, nor for a
+router that has never reported (the CCR2004 until its script is in).
+
+Evaluation runs in one transaction under a Postgres advisory lock, so the
+tick and an ingest can't judge at the same moment. Each rule's state
+(`nh_rule_state`) remembers when it was last checked; a reading older than
+that arrives late and is stored but not judged again.
+
+### The rules: window averages plus hysteresis
+
+Pure functions in `rules.py`; every number in `config.py`. A check looks at
+an **average over a short window** (owner, 2026-11-20): one probe test is 10
+pings, so loss moves in 10 % steps and a single minute must not decide.
+`step()` then needs FIRE_AFTER bad checks to fire and CLEAR_AFTER good ones
+to clear. A window with too few readings gives "unknown", which leaves the
+rule as it was: missing data is never read as fine. Baselines (latency per
+hour of day, SFP power, the 03:30 speed test) cover 7 days but never reach
+back past the admin's "provider switched at" time. Readings for the new
+provider (`-new` probes, `linknew`, `speednew`) are drawn, never judged.
+
+Latency is judged on Frankfurt (`p-fra`), our own server, not 1.1.1.1, which
+gives ping low priority: more than 40 ms over that hour's 7-day median,
+averaged over 10 minutes (the switch plan PDF's alert rule). Loss is judged
+on the Airtel gateway and 1.1.1.1 over 5 minutes. A rise in the uplink's
+`link_downs` is its own rule, LINK_DOWN, which fires at once and texts (a
+flap cuts every customer); rising error and drop counters (LINK_ERRORS) and
+falling SFP power stay on the page.
+
+The speed test is a single TCP stream to Frankfurt (about 30 Mbps on a
+healthy 350 Mbps link), so it is only ever compared with its own past 03:30
+results, never with capacity; the 20:30 test runs at peak and is shown with
+the load before it, never judged.
+
+### SMS: planned purely, sent after commit
+
+`alerts.plan()` is pure and decides, per fire/clear, whether to text and
+why not: only SMS rules or RED; never for readings over 10 min old (a
+backfill); not for flapping (fires within 30 min of clearing); not in
+`NH_SMS_MODE=log_only` (the default, for the first week); a clear only if
+its fire was sent; 3+ fires on one device within 2 min become one SMS; past
+`NH_SMS_DAILY_CAP` (per Nairobi day) one "paused until midnight" SMS, then
+nothing. Every decision is a row in `nh_alerts_sent` (message kept, phone
+numbers never). The rows are written in the evaluation's transaction; the
+actual sending runs on a short thread after commit, so a slow or failing SMS
+provider never delays or breaks an ingest. Every message fits one GSM-7
+segment (`tests/test_network_health_messages.py`).
+
+### Retention
+
+Raw readings are kept 10 days (`KEEP_READINGS_DAYS`; the 7-day baselines need
+7 full days), deleted at most once an hour from ingest or the tick. About
+3,200 readings a day. The graphs average into 5-minute (24 h) or 30-minute
+(7 d) buckets in SQL. Incidents and the SMS log are kept.
+
 ## Visual testing — headless Chromium in this sandbox
 
 Not part of the app's own architecture — a tooling note so a future

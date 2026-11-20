@@ -35,6 +35,7 @@ import { initFinanceIncome } from "./finance-income.js";
 import { initFinanceExpenses } from "./finance-expenses.js";
 import { initFinancePerformance } from "./finance-performance.js";
 import { initFinanceAssets } from "./finance-assets.js";
+import { initNetworkHealth } from "./network-health.js";
 import { initMotion } from "./motion.js";
 import { initTheme } from "./theme.js";
 
@@ -80,6 +81,7 @@ async function boot() {
     initFinanceExpenses();
     initFinancePerformance();
     initFinanceAssets();
+    initNetworkHealth();
     initMotion();
 
     bootAuth();

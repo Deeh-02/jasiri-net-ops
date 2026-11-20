@@ -40,6 +40,11 @@ routers/              # one file per domain: auth, permissions, sites, batteries
                         # network (CCR2116 page + its router ingest),
                         # activity (Technical Activity Log: submit, reports, overview),
                         # finance (Phase 7: one router over db/finance_*.py files)
+network_health/        # Network Health, its own domain in one folder (router, service, store,
+                        # rules, alerts, messages, feed, config). Imports only auth/permissions,
+                        # db.connection and db.alert_channels.send_sms (enforced by
+                        # tests/test_network_health_isolation.py); fed by the Frankfurt shipper
+                        # (docs/network-health-ingest-contract.md)
 router/               # RouterOS scripts — pasted by a HUMAN, never run by an agent; the
                         # CCR2116 ones are linted by tests/test_router_scripts.py
 tools/, docs/          # render_router_script.py; network-monitor-runbook.md
