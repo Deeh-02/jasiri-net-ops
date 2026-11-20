@@ -466,15 +466,20 @@ function drawGraphs() {
         title: "Latency, far", sub: `targets over ${FAR_PROBE_MS} ms`, unit: " ms", yFloor0: true,
         series: probeSeries(c.probes, "rtt", names.filter(isFar)),
     });
-    const judged = names.filter(n => ["p-gw", "p-cf"].includes(n));
+    // Loss and jitter: the two probes the alerts judge, plus Nairobi and
+    // Frankfurt (drawn only), in this fixed order. Each point is the average
+    // over its bucket (5 min on 24 h, 30 min on 7 d): one probe test is 10
+    // pings, so a single minute's loss moves in steps of 10 %.
+    const lossProbes = ["p-gw", "p-cf", "p-nbo", "p-fra"].filter(n => names.includes(n));
+    const qualitySub = `average per ${c.bucket_seconds / 60} min · alerts judge the Airtel gateway and 1.1.1.1 only`;
     drawGraph($("nh-g-loss"), {
-        title: "Packet loss", sub: "Airtel gateway and 1.1.1.1", unit: "%", yFloor0: true,
-        series: probeSeries(c.probes, "loss", judged),
+        title: "Packet loss", sub: qualitySub, unit: "%", yFloor0: true,
+        series: probeSeries(c.probes, "loss", lossProbes),
         refs: [{ v: c.thresholds.loss_amber_pct, label: `${c.thresholds.loss_amber_pct}%` }, { v: c.thresholds.loss_red_pct, label: `${c.thresholds.loss_red_pct}%` }],
     });
     drawGraph($("nh-g-jitter"), {
-        title: "Jitter", sub: "Airtel gateway and 1.1.1.1", unit: " ms", yFloor0: true,
-        series: probeSeries(c.probes, "jitter", judged),
+        title: "Jitter", sub: qualitySub, unit: " ms", yFloor0: true,
+        series: probeSeries(c.probes, "jitter", lossProbes),
         refs: [{ v: c.thresholds.jitter_ms, label: `${c.thresholds.jitter_ms} ms` }],
     });
     const speedPoint = r => ({ t: T(r.t), v: r.status === "failed" ? 0 : r.mbps,
