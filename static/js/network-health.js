@@ -9,7 +9,7 @@ const REFRESH_MS = 60000;
 const tz = { timeZone: "Africa/Nairobi" };
 const SVG = "http://www.w3.org/2000/svg";
 
-const state = { range: "24h", timer: null, overview: null, charts: null, resizeTimer: null };
+const state = { range: "24h", timer: null, overview: null, charts: null, resizeTimer: null, openRoutes: new Set() };
 const $ = id => document.getElementById(id);
 
 function el(tag, className, text) {
@@ -183,6 +183,78 @@ function drawSms(sms) {
         tr.append(cell("Time", hm(a.created_at)), cell("Message", a.message), cell("Outcome", wrap));
         return tr;
     }));
+}
+
+// ---- Where content is served from (traceroutes at 21:00 and 04:00) ----
+
+// Glyph + word, never colour alone (design.md).
+const SERVED = {
+    kenya: ["●", "nh-ok"],
+    africa: ["◐", "nh-unknown"],
+    abroad: ["▲", "nh-warn"],
+};
+
+function servedBadge(site, labels) {
+    if (!site.verdict) return el("span", "nh-badge nh-unknown", site.status === "failed" ? "○ Check failed" : "○ No answer");
+    const [glyph, cls] = SERVED[site.verdict];
+    return el("span", `nh-badge ${cls}`, `${glyph} ${labels[site.verdict]}`);
+}
+
+function hopList(site) {
+    if (!site.hops.length) return el("p", "nh-hops-none", site.status === "failed" ? "The traceroute failed: no hops." : "No hops recorded.");
+    const list = el("ol", "nh-hops");
+    for (const hop of site.hops) {
+        const li = el("li");
+        li.append(el("span", "nh-hop-n", hop.hop == null ? "?" : String(hop.hop)),
+                  el("span", "nh-hop-addr", hop.address || "no reply"),
+                  el("span", "nh-hop-ms", hop.ms == null ? "—" : `${num(hop.ms)} ms`));
+        if (!hop.address) li.classList.add("is-silent");
+        list.append(li);
+    }
+    return list;
+}
+
+function drawRoutes(data) {
+    $("nh-routes-sub").textContent = `traceroute from the CCR2116 at 21:00 and 04:00 · last hop under ${data.limits.kenya_under_ms} ms = Kenya, `
+        + `${data.limits.abroad_from_ms} ms or more = abroad · tap a site for its hops`;
+    const tbody = $("nh-routes");
+    if (!data.sites.length) return emptyRow(tbody, 5, "No traceroutes yet. They run at 21:00 and 04:00.");
+    const rows = [];
+    for (const site of data.sites) {
+        const isOpen = state.openRoutes.has(site.host);
+        const tr = el("tr", "nh-route-row");
+        const toggle = el("button", "nh-route-toggle", `${isOpen ? "▾" : "▸"} ${site.host}`);
+        toggle.type = "button";
+        toggle.setAttribute("aria-expanded", String(isOpen));
+        toggle.setAttribute("aria-controls", `nh-hops-${site.host}`);
+        const checked = `${when(site.checked_at)} (${data.slots[site.slot]})`;
+        let change = el("span", "nh-route-same", !site.verdict ? "Not compared (no answer)"
+            : (site.previous_checked_at ? "No change" : "First check of this time"));
+        if (site.change) {
+            change = el("span", "nh-badge nh-warn",
+                `⇄ was ${data.labels[site.change.was]}, now ${data.labels[site.change.now]}`);
+            change.title = `Compared with the ${data.slots[site.slot]} check of ${when(site.previous_checked_at)}`;
+        }
+        tr.append(cell("Site", toggle), cell("Served from", servedBadge(site, data.labels)),
+                  cell("Last hop", site.last_ms == null ? "—" : `${num(site.last_ms)} ms`),
+                  cell("Checked", checked), cell("Since the last check", change));
+        tr.addEventListener("click", () => {
+            if (state.openRoutes.has(site.host)) state.openRoutes.delete(site.host);
+            else state.openRoutes.add(site.host);
+            drawRoutes(data);
+        });
+        rows.push(tr);
+        if (isOpen) {
+            const detail = el("tr", "nh-route-detail");
+            detail.id = `nh-hops-${site.host}`;
+            const td = el("td");
+            td.colSpan = 5;
+            td.append(el("div", "nh-hops-head", `${site.host} → ${site.ip || "no address"} · ${checked}`), hopList(site));
+            detail.append(td);
+            rows.push(detail);
+        }
+    }
+    tbody.replaceChildren(...rows);
 }
 
 // ---- Graphs ----
@@ -491,16 +563,18 @@ async function saveSettings(e) {
 async function load() {
     if ($("view-network-health").hidden) return;
     try {
-        const [overview, charts, incidents] = await Promise.all([
+        const [overview, charts, incidents, routes] = await Promise.all([
             api("/network/health/overview"),
             api(`/network/health/charts?range=${state.range}`),
             api("/network/health/incidents?limit=100"),
+            api("/network/health/routes"),
         ]);
         state.overview = overview;
         state.charts = charts;
         drawBanner(overview);
         drawDevices(overview);
         drawGraphs();
+        drawRoutes(routes);
         drawIncidents(incidents);
         drawSms(overview.sms);
         $("nh-updated").textContent = `Updated ${hm(overview.generated_at)}`;

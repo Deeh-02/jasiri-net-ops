@@ -18,7 +18,7 @@ import threading
 import time
 from datetime import timedelta
 
-from network_health import alerts, config, feed, messages, rules, store
+from network_health import alerts, config, feed, messages, routes, rules, store
 
 log = logging.getLogger(__name__)
 
@@ -317,6 +317,15 @@ def overview():
                 "log": sms},
         "generated_at": store.now_utc(),
     }
+
+
+def routes_card():
+    """'Where content is served from': one row per site, its latest check and
+    whether the verdict changed since the previous check of the same slot."""
+    since = store.now_utc() - timedelta(days=config.ROUTE_LOOKBACK_DAYS)
+    return {"sites": routes.site_rows(store.route_records(since)),
+            "labels": routes.VERDICT_LABELS, "slots": routes.SLOT_LABELS,
+            "limits": {"kenya_under_ms": config.ROUTE_KENYA_UNDER_MS, "abroad_from_ms": config.ROUTE_ABROAD_FROM_MS}}
 
 
 def charts(range_name):

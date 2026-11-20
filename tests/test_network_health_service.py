@@ -158,6 +158,19 @@ class Flow(unittest.TestCase):
         self.assertEqual(fake.alerts[0]["reason"], "log-only mode")
 
 
+class RoutesCard(unittest.TestCase):
+    def test_rows_labels_and_limits(self):
+        route = {"host": "www.youtube.com", "ip": "142.251.157.4", "status": "ok", "last_ms": 180, "hops": []}
+        store = mock.Mock(now_utc=mock.Mock(return_value=NOW),
+                          route_records=mock.Mock(return_value=[{"ts": NOW, "route": route}]))
+        with mock.patch.object(service, "store", store):
+            card = service.routes_card()
+        store.route_records.assert_called_once_with(NOW - timedelta(days=30))
+        self.assertEqual([(s["host"], s["verdict"]) for s in card["sites"]], [("www.youtube.com", "abroad")])
+        self.assertEqual(card["labels"]["kenya"], "Kenya")
+        self.assertEqual(card["limits"], {"kenya_under_ms": 15, "abroad_from_ms": 140})
+
+
 class Overview(unittest.TestCase):
     """Before the shipper has ever posted, nothing may show as green."""
 

@@ -378,6 +378,13 @@ until there's a week of data) instead of 1.1.1.1 at 2x; loss averages over
 5 minutes, not 3; a link drop is its own rule, LINK_DOWN, and texts. Amber
 loss and falling SFP power stay page only.
 
+**Where content is served from (owner, 2026-11-20):** new `route` record
+kind (traceroutes at 21:00 and 04:00 to four sites), stored in
+`nh_readings.route` (migration 0042, approved and run 2026-11-20), kept
+forever; card on the page with a "changed since the same slot's previous
+check" mark, page only. Route records that arrived before this was deployed
+were answered 2xx as an unknown kind and not stored.
+
 **Cutover day:** after repointing `p-gw` to the new gateway, set "Provider
 switched at" on the Network Health page, and give the Frankfurt report
 script the same time as its SWITCH_TIME, so both split history at the same

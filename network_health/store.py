@@ -46,10 +46,10 @@ def save_batch(source, sent_at, records):
         stored_keys = set()
         if records:
             rows = [(r["key"], r["ts"], r["kind"], r["from_ip"], r["raw"], _json(r["load"]), _json(r["probes"]),
-                     _json(r["link"]), _json(r["speed"])) for r in records]
+                     _json(r["link"]), _json(r["speed"]), _json(r.get("route"))) for r in records]
             stored = execute_values(
                 cur,
-                """INSERT INTO nh_readings (key, ts, kind, from_ip, raw, load, probes, link, speed) VALUES %s
+                """INSERT INTO nh_readings (key, ts, kind, from_ip, raw, load, probes, link, speed, route) VALUES %s
                    ON CONFLICT (key) DO NOTHING RETURNING key""",
                 rows, page_size=500, fetch=True)
             stored_keys = {row[0] for row in stored}
@@ -66,8 +66,11 @@ def _json(value):
 
 
 def delete_old_readings():
+    """Raw readings older than KEEP_READINGS_DAYS go; `route` rows are kept
+    (8 a day: the before/after of the provider switch)."""
     with transaction() as cur:
-        cur.execute("DELETE FROM nh_readings WHERE ts < now() - %s * interval '1 day'", (config.KEEP_READINGS_DAYS,))
+        cur.execute("DELETE FROM nh_readings WHERE kind <> 'route' AND ts < now() - %s * interval '1 day'",
+                    (config.KEEP_READINGS_DAYS,))
         return cur.rowcount
 
 
@@ -102,6 +105,14 @@ def feed(cur):
     cur.execute("SELECT last_post_at, last_sent_at, last_source, last_from_ip FROM nh_feed WHERE id = 1")
     row = cur.fetchone() or (None, None, None, None)
     return {"last_post_at": row[0], "last_sent_at": row[1], "source": row[2], "from_ip": row[3]}
+
+
+def route_records(since):
+    """Every `route` record since a moment, oldest first: {ts, route}."""
+    with transaction() as cur:
+        cur.execute("SELECT ts, route FROM nh_readings WHERE kind = 'route' AND route IS NOT NULL AND ts >= %s "
+                    "ORDER BY ts", (since,))
+        return [{"ts": row[0], "route": row[1]} for row in cur.fetchall()]
 
 
 # ---- Baselines (the "usual" a reading is compared with) ----
