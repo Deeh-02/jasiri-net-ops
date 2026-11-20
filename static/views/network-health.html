@@ -1,0 +1,73 @@
+    <section class="view" id="view-network-health" hidden>
+        <!-- Network Health: the uplink's speed and quality, read from the
+             Frankfurt shipper's feed (docs/network-health-ingest-contract.md).
+             Not the Network Analysis page: nothing here is per customer.
+             Every value is put on the page as text. -->
+        <div class="page-header-row">
+            <h1 class="page-title">Network <span>Health</span></h1>
+            <div class="nh-updated" id="nh-updated">Loading&hellip;</div>
+        </div>
+
+        <div class="nh-banner" id="nh-banner" role="status" aria-live="polite">Loading&hellip;</div>
+
+        <div class="nh-devices" id="nh-devices" aria-label="Devices"></div>
+
+        <div class="nh-section-head">
+            <h2 class="nh-h2">Graphs <span class="nh-h2-sub" id="nh-graphs-sub"></span></h2>
+            <div class="tabs nh-range" role="tablist" aria-label="Time range">
+                <button type="button" class="tab" role="tab" data-range="24h" aria-selected="true">24 hours</button>
+                <button type="button" class="tab" role="tab" data-range="7d" aria-selected="false">7 days</button>
+            </div>
+        </div>
+        <div class="nh-graphs" id="nh-graphs">
+            <figure class="nh-graph nh-graph-wide" id="nh-g-uplink"></figure>
+            <figure class="nh-graph" id="nh-g-latency"></figure>
+            <figure class="nh-graph" id="nh-g-latency-far"></figure>
+            <figure class="nh-graph" id="nh-g-loss"></figure>
+            <figure class="nh-graph" id="nh-g-jitter"></figure>
+            <figure class="nh-graph" id="nh-g-speed"></figure>
+            <figure class="nh-graph" id="nh-g-optic"></figure>
+            <figure class="nh-graph" id="nh-g-ppp"></figure>
+            <figure class="nh-graph" id="nh-g-cpu"></figure>
+        </div>
+
+        <h2 class="nh-h2">Incidents <span class="nh-h2-sub">newest first</span></h2>
+        <div class="table-scroll table-compact">
+            <table class="nh-table">
+                <thead><tr><th>Started</th><th>Device</th><th>Problem</th><th>Level</th><th>Lasted</th><th>Worst</th><th>SMS</th></tr></thead>
+                <tbody id="nh-incidents" data-skeleton="7"></tbody>
+            </table>
+        </div>
+
+        <h2 class="nh-h2">SMS today <span class="nh-h2-sub" id="nh-sms-sub"></span></h2>
+        <div class="table-scroll table-compact">
+            <table class="nh-table">
+                <thead><tr><th>Time</th><th>Message</th><th>Outcome</th></tr></thead>
+                <tbody id="nh-sms" data-skeleton="3"></tbody>
+            </table>
+        </div>
+
+        <!-- Network Health > Admin only (the server checks it too). -->
+        <div id="nh-admin" hidden>
+            <h2 class="nh-h2">Settings</h2>
+            <form class="nh-settings" id="nh-settings-form">
+                <label class="nh-field"><span>Uplink capacity (Mbps)</span>
+                    <input type="number" id="nh-capacity" min="1" max="100000" step="1" required></label>
+                <label class="nh-field"><span>Provider switched at (Nairobi time)</span>
+                    <input type="datetime-local" id="nh-switched"></label>
+                <div class="nh-settings-actions">
+                    <button type="submit" class="btn-primary">Save</button>
+                    <span class="nh-settings-msg" id="nh-settings-msg" role="status"></span>
+                </div>
+                <p class="nh-note">History before the switch time is labelled Airtel, after it the new provider; baselines
+                    never reach back past it. Leave it empty until the cutover.</p>
+            </form>
+            <div class="nh-env" id="nh-env"></div>
+            <details class="nh-thresholds">
+                <summary>Thresholds (network_health/config.py, read only)</summary>
+                <div class="table-scroll table-compact">
+                    <table class="nh-table"><tbody id="nh-thresholds"></tbody></table>
+                </div>
+            </details>
+        </div>
+    </section>

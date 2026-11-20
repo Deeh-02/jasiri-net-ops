@@ -5,6 +5,34 @@ Phase-based, not version-based — this project ships in named phases (see
 concise, user-facing summary; full technical detail lives in the git log
 and in `phase.md`'s own per-phase writeups.
 
+## Network Health (on `network-health`)
+
+Its own branch from `main` (owner's call, 2026-11-21); deployed by merging into
+`phase-7-finance`, which production runs.
+
+### Network Health (2026-11-20)
+- **New page: Network > Network Health.** One line at the top says "All good"
+  or the worst problem; a card each for the Frankfurt feed, the CCR2116 and
+  the CCR2004; 24-hour / 7-day graphs of uplink traffic, latency (nearby and
+  far), packet loss, jitter, speed tests, SFP power, PPPoE sessions and CPU;
+  every incident with how long it lasted; today's SMS and why each was sent
+  or held back.
+- **Readings come from the Frankfurt server's shipper**
+  (`docs/network-health-ingest-contract.md`). Outages (no reply) show as gaps,
+  never as 0 ms.
+- **SMS alerts** for a busy uplink, high latency to Frankfurt (40 ms over its
+  usual for 10 minutes), the uplink link dropping, a bad night speed test, any
+  RED, and silence (no data from Frankfurt, or no readings from a router for
+  10 minutes). One SMS when a problem starts and one when it ends, nothing for
+  flapping or old (backfilled) readings, three at once become one, at most 20 a
+  day. Every SMS fits one 160-character segment. **Starts log-only:** for the
+  first week it records what it would have sent and sends nothing.
+- `GET /network/health/status?key=...` answers 200 / 503 for an outside uptime
+  checker, so the "no data" SMS still goes out when Airtel is down.
+- Migration 0041 has run. Needs the `NETWORK_HEALTH_TOKEN` / `NH_*` settings
+  before it shows anything; until the first data arrives the page says
+  "Waiting for data", not "All good".
+
 ## Phase 6 — SmartOLT (on `phase-6-smartolt`)
 
 Started 2026-11-10 at the owner's request, after Phase 5 was merged to `main`.

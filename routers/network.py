@@ -27,6 +27,11 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 
 from db import network as db
 from db import onu_alerts, smartolt
+# The only link between the two features, at the owner's request
+# (2026-11-20): this heartbeat is Network Health's second clock. Deleting
+# this import and the tick() line below removes it; nothing else here
+# knows Network Health exists.
+from network_health.service import tick as network_health_tick
 from routers.auth import get_current_user
 from routers.permissions import require_admin, user_has_permission
 
@@ -262,6 +267,7 @@ async def ingest(request: Request):
         # only starts a thread when a poll is due, and never raises.
         smartolt.poll_if_due()
         onu_alerts.tick()              # LOS alerts' reminder clock (at most once a minute)
+        network_health_tick()          # Network Health's silence checks (at most once a minute)
         return {"ok": True, **result}
     if message.part > message.parts:
         _reject(422, "part is larger than parts", slug)

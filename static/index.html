@@ -61,6 +61,7 @@
     <link rel="stylesheet" href="/static/css/inventory-reports.css">
     <link rel="stylesheet" href="/static/css/chat.css">
     <link rel="stylesheet" href="/static/css/network.css">
+    <link rel="stylesheet" href="/static/css/network-health.css">
     <link rel="stylesheet" href="/static/css/olt.css">
     <link rel="stylesheet" href="/static/css/activity.css">
 </head>
@@ -218,6 +219,7 @@
                         <button type="button" class="nav-link sub" data-view="network" data-label="Network Analysis"><svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5.5" y="1.5" width="5" height="4" rx="1"/><rect x="1.5" y="10.5" width="5" height="4" rx="1"/><rect x="9.5" y="10.5" width="5" height="4" rx="1"/><path d="M8 5.5V8M4 10.5V8H12V10.5"/></svg><span class="nav-link-text">Network Analysis</span></button>
                         <button type="button" class="nav-link sub" data-view="status" data-label="Hotspot Status"><svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="9" r="1.2" fill="currentColor" stroke="none"/><path d="M5.6 11.4a3.4 3.4 0 010-4.8M10.4 6.6a3.4 3.4 0 010 4.8"/><path d="M3.5 13.5a6.4 6.4 0 010-9M12.5 4.5a6.4 6.4 0 010 9"/></svg><span class="nav-link-text">Hotspot Status</span></button>
                         <button type="button" class="nav-link sub" data-view="olt" data-label="OLT"><svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="1.5" y="4" width="13" height="8" rx="1.5"/><path d="M4 8h.01M6.5 8h.01M9 8h.01"/><path d="M11.5 6.5v3"/></svg><span class="nav-link-text">OLT</span></button>
+                        <button type="button" class="nav-link sub" data-view="network-health" data-label="Network Health"><svg class="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 8.5h3l1.5-4 3 8 1.5-4h4"/></svg><span class="nav-link-text">Network Health</span></button>
                     </div>
                 </div>
             </div>
@@ -321,6 +323,7 @@
             <div data-view-mount="revenue-overview"></div>
             <div data-view-mount="network"></div>
             <div data-view-mount="olt"></div>
+            <div data-view-mount="network-health"></div>
             <div data-view-mount="activity-overview"></div>
             <div data-view-mount="activity-reports"></div>
             <div data-view-mount="activity-submit"></div>

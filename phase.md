@@ -17,6 +17,60 @@ with its own branch from `main` once Phase 6 has been merged.
 
 ---
 
+## ALSO ON THIS BRANCH: Network Health (owner's scope, 2026-11-16)
+
+Not part of Finance: the owner asked for it on `phase-7-finance` ("new scope
+will continue on this branch", 2026-11-16). Detect degraded speed and quality
+on the uplink before customers complain, and text the owner. Not the Network
+Analysis / PPPoE page.
+
+**Feed (owner, 2026-11-20):** readings come from the Frankfurt server's
+`jasiri-shipper`, not from the routers directly, per
+`docs/network-health-ingest-contract.md` (the contract wins on payload, auth
+and endpoint). So the brief's two RouterOS scripts, per-device tokens and
+token rotation are not built: one `NETWORK_HEALTH_TOKEN`, dedupe on `key`.
+
+**Owner's answers (2026-11-20):** download = rx on sfp-sfpplus1, utilisation =
+max(down, up) / capacity (350, its own setting: the Network page's stored
+capacity belongs to another domain); `-new` twins dashboard only, with a
+"provider switched at" setting that splits history and baselines; loss is an
+average over the window (10 pings a test, steps of 10 %); speed: only the
+03:30 test is judged (failed, or under half its 7-day median), 20:30 shown,
+never compared with 350; SESSIONS_DROP dropped (the feed only counts the
+CCR2116's 29 sessions); start in `NH_SMS_MODE=log_only` for a week; the
+silence check also runs from the CCR2116 `/network/ingest` heartbeat. CRS326
+and OLT pings are not in the feed, so INTERNAL_LINK is not built; the
+CCR2004's `i-fra` / `i-nbo` are drawn, not judged.
+
+**Built (2026-11-20):** `network_health/` (router, service, store, rules,
+alerts, messages, feed, config), migration `0041_network_health.sql` (six
+nh_ tables, **run on the production DB 2026-11-20 at the owner's go**), page Network > Network Health,
+Roles > Network Health (view, Admin). Tests: every rule fire/hold/clear,
+the flow end to end on a fake store, ingest auth and limits, SMS
+de-dupe/flapping/combining/cap/log-only, the 160-character GSM-7 test, the
+isolation test. Checked in headless Chromium with made-up data.
+
+**Still to do:** set the env vars on Render
+(`.env.example`), point the shipper at `/network/health/ingest`, point an
+uptime checker at `/network/health/status?key=…`, switch `NH_SMS_MODE=live`
+after the first week. After that week, revisit whether falling SFP power
+should text (a slow drop is often the first sign of a damaged fibre or dirty
+connector).
+
+**From the switch plan PDF (owner agreed 2026-11-20):** latency is judged on
+Frankfurt (`p-fra`, +40 ms over that hour's 7-day median for 10 min; 250 ms
+until there's a week of data) instead of 1.1.1.1 at 2x; loss averages over
+5 minutes, not 3; a link drop is its own rule, LINK_DOWN, and texts. Amber
+loss and falling SFP power stay page only.
+
+**Cutover day:** after repointing `p-gw` to the new gateway, set "Provider
+switched at" on the Network Health page, and give the Frankfurt report
+script the same time as its SWITCH_TIME, so both split history at the same
+minute. The new gateway probe must be named `p-gw-new` (the contract's name;
+the PDF copy read here said `p-gw2` in step 20).
+
+---
+
 ## UPCOMING PHASES (order locked; each stays a one-liner per the usual
 ## convention until it becomes active, at which point its full brief goes
 ## here the same way Phase 3's did before it was completed)

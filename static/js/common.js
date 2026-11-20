@@ -125,6 +125,9 @@ const ROUTE_PERMISSION_MAP = {
     // The OLT page (SmartOLT): the same switch as Network Analysis. Authorize
     // is admin only, enforced by the server.
     olt: ["sites", "view_network"],
+    // Network Health: its own section (network_health:view), not Sites:
+    // the uplink's health, no customer data.
+    "network-health": ["network_health", "view"],
     // Technical Activity Log: Reports is the group's base permission (your own
     // reports, plus everyone's with view_all), Submit and Overview each have
     // their own switch. The group shows when any of them is allowed.
@@ -463,7 +466,7 @@ function parseRoute(hash) {
 // opens it so the current page is always visible.
 const NAV_GROUP_ROUTES = {
     ops: ["home", "dashboard", "sites"],
-    network: ["status", "trends", "site-detail", "manage-sites", "packages", "network", "olt"],
+    network: ["status", "trends", "site-detail", "manage-sites", "packages", "network", "olt", "network-health"],
     system: ["users", "roles"],
     inventory: ["inventory", "stock", "inventory-log", "inventory-manage"],
     alerts: ["notifications", "alert-templates", "customers", "broadcast"],
@@ -820,7 +823,7 @@ function renderCmdkResults(query) {
 // ---- Fragment loader: fetches every view's HTML and injects it into its
 // mount point. Loaded eagerly, all at once, at startup — the app is small
 // enough that lazy-per-nav loading isn't worth the added state-tracking. ----
-const VIEW_NAMES = ["home", "dashboard", "sites", "movements", "status", "site-detail", "trends", "manage-sites", "packages", "notifications", "alert-templates", "customers", "broadcast", "users", "roles", "settings", "inventory", "stock", "inventory-log", "issue-materials", "return-materials", "inventory-reports", "sms-status", "revenue", "revenue-overview", "inventory-manage", "network", "olt", "activity-overview", "activity-reports", "activity-submit", "activity-manage"];
+const VIEW_NAMES = ["home", "dashboard", "sites", "movements", "status", "site-detail", "trends", "manage-sites", "packages", "notifications", "alert-templates", "customers", "broadcast", "users", "roles", "settings", "inventory", "stock", "inventory-log", "issue-materials", "return-materials", "inventory-reports", "sms-status", "revenue", "revenue-overview", "inventory-manage", "network", "olt", "network-health", "activity-overview", "activity-reports", "activity-submit", "activity-manage"];
 
 export async function loadViewFragments() {
     await Promise.all(VIEW_NAMES.map(async (name) => {

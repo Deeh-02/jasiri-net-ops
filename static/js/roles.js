@@ -160,6 +160,15 @@ const PERM_SECTIONS = [
     // inventory_items:view).
     { key: "reports", label: "Reports", actions: [] },
     {
+        // Network Health: the uplink's speed/quality page. Its own toggle is
+        // network_health:view; Admin changes its settings (capacity, the
+        // provider switch time) and sees which env settings are in place.
+        key: "network_health", label: "Network Health",
+        actions: [
+            { label: "Admin: change settings", action: "admin" },
+        ],
+    },
+    {
         // "Inventory" is the master switch for the whole domain — its own
         // toggle reads/writes inventory_items:view, which now gates only the
         // domain as a whole (the entire Inventory nav group hides when this

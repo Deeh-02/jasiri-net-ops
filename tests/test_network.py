@@ -83,6 +83,9 @@ class Ingest(unittest.TestCase):
         self.record_live = self.live.start()
         self.parts = mock.patch.object(api.db, "record_session_part", return_value={"complete": False})
         self.record_part = self.parts.start()
+        # The heartbeat also runs Network Health's silence check (its own
+        # tests cover it); here it must not start a thread that reaches a database.
+        mock.patch.object(api, "network_health_tick").start()
         api._recent_posts.clear()
 
     def tearDown(self):

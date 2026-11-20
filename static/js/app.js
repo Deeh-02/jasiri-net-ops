@@ -30,6 +30,7 @@ import { initActivitySubmit } from "./activity-submit.js";
 import { initActivityReports } from "./activity-reports.js";
 import { initActivityOverview } from "./activity-overview.js";
 import { initActivityManage } from "./activity-manage.js";
+import { initNetworkHealth } from "./network-health.js";
 import { initMotion } from "./motion.js";
 import { initTheme } from "./theme.js";
 
@@ -70,6 +71,7 @@ async function boot() {
     initActivityReports();
     initActivityOverview();
     initActivityManage();
+    initNetworkHealth();
     initMotion();
 
     bootAuth();

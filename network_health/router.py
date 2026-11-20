@@ -1,0 +1,163 @@
+"""Network Health's HTTP endpoints, all under /network/health/.
+
+INGEST follows docs/network-health-ingest-contract.md: the Frankfurt
+shipper posts batches with "Authorization: Bearer <NETWORK_HEALTH_TOKEN>".
+That token can only post readings. The answer is 2xx only once the batch is
+stored (anything else makes the shipper resend it); unknown kinds, unknown
+fields and records that can't be read are skipped, not refused, so one odd
+line can never block the feed.
+
+STATUS is for an outside uptime checker: ?key=<NH_STATUS_KEY>, 200 when
+nothing is RED or OFFLINE, 503 otherwise. Calling it runs the silence checks.
+
+READS need Network Health > View on the role; Settings needs Network Health
+> Admin (admins always pass both).
+"""
+import hmac
+import json
+import logging
+import os
+import threading
+import time
+from collections import deque
+from datetime import datetime
+from typing import Any, Literal, Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+
+from routers.auth import get_current_user
+from routers.permissions import user_has_permission
+
+from network_health import alerts, config, service, store
+
+router = APIRouter()
+log = logging.getLogger(__name__)
+
+_recent_posts = deque()
+_rate_lock = threading.Lock()
+
+
+class Batch(BaseModel):
+    """The shipper's envelope. Records are read one by one in feed.py."""
+    model_config = ConfigDict(extra="ignore")
+    source: Optional[str] = Field(None, max_length=64)
+    sent_at: Optional[datetime] = None
+    records: list[Any] = Field(default_factory=list, max_length=2000)
+
+
+def _reject(status_code, reason):
+    """Logs why a post was refused (visible in the Render log) and refuses it."""
+    log.warning("network health ingest rejected (%s): %s", status_code, reason)
+    raise HTTPException(status_code=status_code, detail=reason)
+
+
+def token_is_valid(authorization):
+    """Constant-time comparison with NETWORK_HEALTH_TOKEN. An unset token
+    refuses everything: an empty secret must never let a post in."""
+    expected = (os.environ.get("NETWORK_HEALTH_TOKEN") or "").strip()
+    sent = (authorization or "").removeprefix("Bearer ").strip()
+    if not expected or not sent:
+        return False
+    return hmac.compare_digest(sent.encode(), expected.encode())
+
+
+def _check_rate():
+    now = time.monotonic()
+    with _rate_lock:
+        while _recent_posts and now - _recent_posts[0] > 60:
+            _recent_posts.popleft()
+        if len(_recent_posts) >= config.INGEST_LIMIT_PER_MINUTE:
+            _reject(429, "too many posts this minute; resend later")
+        _recent_posts.append(now)
+
+
+@router.post("/network/health/ingest")
+async def ingest(request: Request):
+    if not token_is_valid(request.headers.get("authorization")):
+        # Lengths only, never values: tells "token not set" (0) from "different".
+        configured = len((os.environ.get("NETWORK_HEALTH_TOKEN") or "").strip())
+        log.warning("network health ingest: wrong token (configured length %s)", configured)
+        raise HTTPException(status_code=401, detail="invalid token")
+    _check_rate()
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > config.MAX_BODY_BYTES:
+        _reject(413, "batch too large")
+    body = await request.body()
+    if len(body) > config.MAX_BODY_BYTES:
+        _reject(413, "batch too large")
+    try:
+        batch = Batch.model_validate(json.loads(body))
+    except ValueError as e:        # bad JSON, or ValidationError (a ValueError) for a bad envelope
+        detail = e.errors()[0]["msg"] if isinstance(e, ValidationError) else "body is not valid JSON"
+        _reject(422, f"not a batch: {detail}")
+    try:
+        result = await run_in_threadpool(service.ingest, batch.source, batch.sent_at, batch.records)
+    except Exception:
+        log.exception("network health ingest: storing the batch failed")
+        raise HTTPException(status_code=503, detail="couldn't store the batch; resend it")
+    return {"ok": True, **result}
+
+
+@router.get("/network/health/status")
+def health_status(key: str = Query("")):
+    expected = (os.environ.get("NH_STATUS_KEY") or "").strip()
+    if not expected or not hmac.compare_digest(key.encode(), expected.encode()):
+        raise HTTPException(status_code=401, detail="invalid key")
+    code, body = service.status()
+    return JSONResponse(body, status_code=code)
+
+
+# ---- Reads ----
+
+def require_view(current_user: dict = Depends(get_current_user)):
+    if not user_has_permission(current_user, "network_health", "view"):
+        raise HTTPException(status_code=403, detail="You don't have permission to view Network Health")
+    return current_user
+
+
+def require_health_admin(current_user: dict = Depends(get_current_user)):
+    if not user_has_permission(current_user, "network_health", "admin"):
+        raise HTTPException(status_code=403, detail="You don't have permission to change Network Health settings")
+    return current_user
+
+
+@router.get("/network/health/overview")
+def get_overview(current_user: dict = Depends(require_view)):
+    return service.overview()
+
+
+@router.get("/network/health/charts")
+def get_charts(range: Literal["24h", "7d"] = "24h", current_user: dict = Depends(require_view)):
+    return service.charts(range)
+
+
+@router.get("/network/health/incidents")
+def get_incidents(limit: int = Query(100, ge=1, le=500), current_user: dict = Depends(require_view)):
+    return store.incidents(limit)
+
+
+class SettingsUpdate(BaseModel):
+    uplink_capacity_mbps: float = Field(gt=0, le=100000)
+    provider_switched_at: Optional[datetime] = None
+
+
+@router.get("/network/health/settings")
+def get_settings(current_user: dict = Depends(require_health_admin)):
+    with store.transaction() as cur:
+        settings = store.settings(cur)
+    return {"settings": settings, "thresholds": service.thresholds(),
+            "sms": {"mode": alerts.sms_mode(), "cap": alerts.daily_cap(), "recipients": len(alerts.alert_phones())},
+            "token_is_set": bool((os.environ.get("NETWORK_HEALTH_TOKEN") or "").strip()),
+            "status_key_is_set": bool((os.environ.get("NH_STATUS_KEY") or "").strip())}
+
+
+@router.put("/network/health/settings")
+def put_settings(body: SettingsUpdate, current_user: dict = Depends(require_health_admin)):
+    switched = body.provider_switched_at
+    if switched is not None and switched.tzinfo is None:
+        raise HTTPException(status_code=422, detail="provider_switched_at needs a time zone (e.g. +03:00)")
+    store.save_settings(body.uplink_capacity_mbps, switched, current_user.get("id") or None)
+    return {"ok": True}
