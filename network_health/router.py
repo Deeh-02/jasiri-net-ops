@@ -134,6 +134,11 @@ def get_charts(range: Literal["24h", "7d"] = "24h", current_user: dict = Depends
     return service.charts(range)
 
 
+@router.get("/network/health/routes")
+def get_routes(current_user: dict = Depends(require_view)):
+    return service.routes_card()
+
+
 @router.get("/network/health/incidents")
 def get_incidents(limit: int = Query(100, ge=1, le=500), current_user: dict = Depends(require_view)):
     return store.incidents(limit)

@@ -10,6 +10,17 @@ and in `phase.md`'s own per-phase writeups.
 Its own branch from `main` (owner's call, 2026-11-21); deployed by merging into
 `phase-7-finance`, which production runs.
 
+### Network Health: where content is served from (2026-11-20)
+- **New card on Network Health:** for YouTube, Facebook, TikTok and Safaricom,
+  where each is served from (Kenya, elsewhere in Africa / unclear, or Europe /
+  abroad), from the router's traceroutes at 21:00 and 04:00. Tap a site for
+  the hop list of its latest check.
+- **Marks a site that moved**, e.g. "was Kenya, now Europe / abroad", comparing
+  the 21:00 check with the previous 21:00 one and 04:00 with 04:00. On the page
+  only, no SMS.
+- Every check is kept, for comparing before and after the December provider
+  switch. Needed migration 0042 (run).
+
 ### Network Health (2026-11-20)
 - **New page: Network > Network Health.** One line at the top says "All good"
   or the worst problem; a card each for the Frankfurt feed, the CCR2116 and

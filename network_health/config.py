@@ -88,6 +88,15 @@ SPEED_JUDGED_HOUR_EAT = 3
 SPEED_LOW_FRACTION = 0.5            # under half the 7-day median of 03:30 results
 SPEED_BASELINE_MIN_TESTS = 3
 
+# Where content is served from (`route` records, 21:00 and 04:00). The last
+# hop that answered: under 15 ms = Kenya, 15 up to 140 = elsewhere in Africa
+# or unclear, 140 and over = Europe / abroad. Page only, never an SMS.
+ROUTE_SITES = ("www.youtube.com", "www.facebook.com", "www.tiktok.com", "api.safaricom.co.ke")
+ROUTE_KENYA_UNDER_MS = 15
+ROUTE_ABROAD_FROM_MS = 140
+# The card compares with the previous check of the same slot within this long.
+ROUTE_LOOKBACK_DAYS = 30
+
 # A window must hold at least this many readings to be judged at all;
 # otherwise the rule keeps its current state (no data is not "fine").
 MIN_READINGS_IN_WINDOW = 3

@@ -2290,6 +2290,20 @@ healthy 350 Mbps link), so it is only ever compared with its own past 03:30
 results, never with capacity; the 20:30 test runs at peak and is shown with
 the load before it, never judged.
 
+### Where content is served from (`route` records, 2026-11-20)
+
+The CCR2116 traceroutes www.youtube.com, www.facebook.com, www.tiktok.com
+and api.safaricom.co.ke daily at 21:00 and 04:00; each result is a `route`
+record through the same ingest and dedupe, stored in `nh_readings.route`
+(migration 0042). The pure logic is `routes.py`: the last hop that answered
+gives the verdict (under 15 ms Kenya, 15 up to 140 elsewhere in Africa /
+unclear, 140+ Europe / abroad; a failed check has none), and a site is
+marked changed when its verdict differs from its previous check **of the
+same slot** that had a verdict (21:00 against 21:00, 04:00 against 04:00,
+split at midday Nairobi time). Page only, never an SMS. Route rows are the
+one kind the 10-day cleanup keeps: they are the before/after of the
+provider switch (8 a day).
+
 ### SMS: planned purely, sent after commit
 
 `alerts.plan()` is pure and decides, per fire/clear, whether to text and

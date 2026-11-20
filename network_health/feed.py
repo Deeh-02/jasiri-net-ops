@@ -10,11 +10,13 @@ starts with it again). Skips are counted and logged by the caller.
 """
 from datetime import datetime, timezone
 
-KNOWN_KINDS = ("probe", "inner", "link", "linknew", "speed", "speednew")
+KNOWN_KINDS = ("probe", "inner", "link", "linknew", "speed", "speednew", "route")
 MAX_KEY_LENGTH = 200
 MAX_RAW_LENGTH = 4000
 MAX_NAME_LENGTH = 40
 MAX_PROBES = 50
+MAX_HOPS = 64
+MAX_HOST_LENGTH = 253
 
 LOAD_FIELDS = ("down_mbps", "up_mbps", "new_down_mbps", "ppp", "cpu_pct", "conns")
 LINK_FIELDS = ("rx_dbm", "tx_dbm", "temp_c", "link_downs", "rx_fcs", "rx_err_events", "rx_overflow", "tx_drop")
@@ -94,8 +96,40 @@ def _speed(value):
     return speed
 
 
+def _hop(entry):
+    """One traceroute hop. A null address/ms is a hop that didn't answer
+    (normal for traceroute, not loss) and stays null."""
+    if not isinstance(entry, dict):
+        return None
+    address = entry.get("address")
+    number = number_or_none(entry.get("hop"))
+    return {"hop": None if number is None else int(number),
+            "address": address.strip()[:64] if isinstance(address, str) and address.strip() else None,
+            "ms": number_or_none(entry.get("ms"))}
+
+
+def _route(value):
+    """A traceroute to one site. status "failed" comes with ip null and no
+    hops. A route without a host can't be placed on the page: skipped."""
+    if not isinstance(value, dict):
+        return None
+    host = value.get("host")
+    if not isinstance(host, str) or not host.strip():
+        raise SkipRecord("route record has no host")
+    ip = value.get("ip")
+    status = value.get("status")
+    hops = value.get("hops") if isinstance(value.get("hops"), list) else []
+    return {
+        "host": host.strip().lower()[:MAX_HOST_LENGTH],
+        "ip": ip.strip()[:64] if isinstance(ip, str) and ip.strip() else None,
+        "status": status if status in ("ok", "failed") else "unknown",
+        "last_ms": number_or_none(value.get("last_ms")),
+        "hops": [hop for hop in (_hop(entry) for entry in hops[:MAX_HOPS]) if hop is not None],
+    }
+
+
 def parse_record(record):
-    """One record -> {key, ts, kind, from_ip, raw, load, probes, link, speed},
+    """One record -> {key, ts, kind, from_ip, raw, load, probes, link, speed, route},
     or None for a kind this version doesn't know (ignored, as the contract
     asks). Raises SkipRecord for a record that can't be stored."""
     if not isinstance(record, dict):
@@ -114,7 +148,7 @@ def parse_record(record):
         "kind": kind,
         "from_ip": from_ip[:64] if isinstance(from_ip, str) else None,
         "raw": raw[:MAX_RAW_LENGTH] if isinstance(raw, str) else None,
-        "load": None, "probes": None, "link": None, "speed": None,
+        "load": None, "probes": None, "link": None, "speed": None, "route": None,
     }
     if kind in ("probe", "inner"):
         parsed["load"] = _pick_numbers(record.get("load"), LOAD_FIELDS)
@@ -123,6 +157,10 @@ def parse_record(record):
         parsed["link"] = _pick_numbers(record.get("link"), LINK_FIELDS)
         if parsed["link"] is None:
             raise SkipRecord(f"{kind} record has no link object")
+    elif kind == "route":
+        parsed["route"] = _route(record.get("route"))
+        if parsed["route"] is None:
+            raise SkipRecord("route record has no route object")
     else:
         parsed["speed"] = _speed(record.get("speed"))
         if parsed["speed"] is None:

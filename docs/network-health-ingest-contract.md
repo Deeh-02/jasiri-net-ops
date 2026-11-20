@@ -73,6 +73,16 @@ the change between readings and treat a drop as a reset.
 ```
 `status: "failed"` comes with nulls.
 
+**`route`** (CCR2116, daily at 21:00 and 04:00, one record per site: www.youtube.com,
+www.facebook.com, www.tiktok.com, api.safaricom.co.ke)
+```json
+"route": {"host": "www.youtube.com", "ip": "142.251.157.4", "status": "ok", "last_ms": 7.2,
+          "hops": [{"hop": 1, "address": "102.0.27.189", "ms": 1.0},
+                   {"hop": 2, "address": null, "ms": null}, ...]}
+```
+- address/ms null = that hop didn't answer (normal for traceroute, not loss).
+- last_ms = the last hop that answered. status "failed" comes with ip null and no hops.
+
 ## Response
 
 - Answer **2xx only after the batch is stored**. Anything else makes the
@@ -83,5 +93,5 @@ the change between readings and treat a drop as a reset.
 
 ## Volume
 
-About 1,440 `probe` + 1,440 `inner` + 288 `link` + 2 `speed` records a day.
+About 1,440 `probe` + 1,440 `inner` + 288 `link` + 2 `speed` + 8 `route` records a day.
 The first run backfills everything since 20 Nov 2026 17:15 in batches of 500.
