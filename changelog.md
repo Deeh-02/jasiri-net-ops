@@ -9,6 +9,12 @@ and in `phase.md`'s own per-phase writeups.
 
 Started 2026-11-15 at the owner's request, after Phase 6 was merged to `main`.
 
+### Network Health: loss and jitter for Nairobi and Frankfurt (2026-11-21)
+- **The Packet loss and Jitter graphs also draw Nairobi (KIXP) and Frankfurt**,
+  each in its own colour with a legend, averaged per 5 minutes (30 on the
+  7-day view). The 2 % / 20 % and 30 ms lines stay. Alerts still judge only
+  the Airtel gateway and 1.1.1.1; the graph says so.
+
 ### Network Health: where content is served from (2026-11-20)
 - **New card on Network Health:** for YouTube, Facebook, TikTok and Safaricom,
   where each is served from (Kenya, elsewhere in Africa / unclear, or Europe /
