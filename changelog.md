@@ -22,6 +22,9 @@ Started 2026-11-15 at the owner's request, after Phase 6 was merged to `main`.
   cached for 10 minutes): about 6 US cents for the first question, 1-2 for
   each follow-up on Sonnet.
 - The Diagnose card under the device tiles is gone.
+- **Ask turns into Diagnose with a morph, not a blink**: going to or from
+  Network Health the pill widens (or narrows) and the word rolls up inside
+  it. Nothing moves with Settings > motion off.
 - **Fixes:** a key pasted into Render with a newline now works; error
   messages and logs never show the key.
 
