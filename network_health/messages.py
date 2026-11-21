@@ -52,6 +52,23 @@ def duration_text(minutes):
     return f"{mins}min"
 
 
+def seconds_text(seconds):
+    """'2 min 13 s' (the OLT link coming back); hours once it's that long."""
+    seconds = max(int(round(seconds)), 0)
+    if seconds >= 3600:
+        return duration_text(seconds / 60)
+    minutes, rest = divmod(seconds, 60)
+    return f"{minutes} min {rest} s" if minutes else f"{rest} s"
+
+
+def pct_text(value):
+    """A damaged-frames percentage: one decimal, more when it's small."""
+    if value is None:
+        return "?"
+    value = max(min(value, 100), 0)
+    return f"{value:.1f}" if value >= 0.1 else f"{value:.3f}".rstrip("0").rstrip(".") or "0"
+
+
 def probe_label(name):
     return PROBE_LABELS.get(name, name)
 
@@ -90,6 +107,16 @@ def problem_text(rule, facts):
         return f"router DNS slow, worst lookup {number(facts.get('ms'))}ms"
     if rule == "ROUTER_SILENT":
         return f"no readings {number(facts.get('minutes'))}min. Airtel or router down"
+    if rule == "OLT_CRC":
+        return f"OLT uplink damaging frames, {pct_text(facts.get('pct'))}% of frames to customers (CRS326-OLT link)"
+    if rule == "OLT_RESTART":
+        uptime = facts.get("previous_uptime_s")
+        was_up = "" if uptime is None else f", had been up {duration_text(uptime / 60)}"
+        return f"OLT restarted (power switchover?){was_up}"
+    if rule == "OLT_LINK_DOWN":
+        return f"OLT link DOWN (CRS326 {facts.get('interface', '')}). Customers cut off"
+    if rule == "OLT_SNMP_SILENT":
+        return f"OLT not answering SNMP for {number(facts.get('minutes'))}min"
     return rule
 
 
@@ -107,14 +134,23 @@ def recovered_text(rule, subject):
         "LINK_ERRORS": "uplink errors",
         "DNS_ROUTER": "router DNS",
         "ROUTER_SILENT": "readings",
+        "OLT_CRC": "OLT uplink frames",
+        "OLT_RESTART": "OLT",
+        "OLT_LINK_DOWN": "OLT link",
+        "OLT_SNMP_SILENT": "OLT SNMP",
     }.get(rule, rule)
 
 
 def fire_message(device, rule, facts, since):
     # A silence rule fires 10 minutes INTO the silence; "Since" should say
     # when the data stopped, not when OPS noticed.
-    if rule in ("FEED_SILENT", "ROUTER_SILENT") and facts.get("minutes") is not None:
+    if rule in ("FEED_SILENT", "ROUTER_SILENT", "OLT_SNMP_SILENT") and facts.get("minutes") is not None:
         since = since - timedelta(minutes=facts["minutes"])
+    if rule == "OLT_RESTART":
+        # Seen at the first reading after it; the uptime says when it came back.
+        booted = since - timedelta(seconds=facts.get("uptime_s") or 0)
+        return fit(f"JNET ALERT {DEVICE_LABELS.get(device, device)}: {problem_text(rule, facts)}. "
+                   f"Back up at {clock_eat(booted)}")
     if rule == "FEED_SILENT":
         return fit(f"JNET ALERT: no data from Frankfurt server {number(facts.get('minutes'))}min. "
                    f"Server or shipper down. Since {clock_eat(since)}")
@@ -122,6 +158,8 @@ def fire_message(device, rule, facts, since):
 
 
 def clear_message(device, rule, subject, lasted_minutes):
+    if rule == "OLT_LINK_DOWN":
+        return fit(f"JNET OK {DEVICE_LABELS.get(device, device)}: OLT link back after {seconds_text(lasted_minutes * 60)}")
     if rule == "FEED_SILENT":
         return fit(f"JNET OK: data from Frankfurt server is back. Lasted {duration_text(lasted_minutes)}")
     return fit(f"JNET OK {DEVICE_LABELS.get(device, device)}: {recovered_text(rule, subject)} back to normal. "

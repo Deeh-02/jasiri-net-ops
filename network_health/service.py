@@ -18,7 +18,7 @@ import threading
 import time
 from datetime import timedelta
 
-from network_health import alerts, config, feed, messages, routes, rules, store
+from network_health import alerts, config, feed, inside, messages, routes, rules, store
 
 log = logging.getLogger(__name__)
 
@@ -97,6 +97,22 @@ class Evaluation:
             self.judge_speed(record)
         for record in by_kind.get("dns", []):
             self.apply(rules.check_dns_router(record["dns"]), record["ts"])
+        if "olt" in by_kind:
+            self.judge_olt(by_kind["olt"])
+        for record in by_kind.get("crs_link", []):
+            check = rules.check_olt_link(record["crs_link"])
+            if check:
+                self.apply(check, record["ts"])
+
+    def judge_olt(self, records):
+        """Each new OLT reading against the ones before it (a day back is
+        plenty to find the last uptime and the previous reading)."""
+        new_times = {r["ts"] for r in records}
+        readings = store.olt_readings(self.cur, records[0]["ts"] - timedelta(days=1), records[-1]["ts"])
+        for step in inside.walk_olt(readings):
+            if step["ts"] in new_times:
+                self.apply(rules.check_olt_restart(step), step["ts"])
+                self.apply(rules.check_olt_crc(step), step["ts"])
 
     def judge_probes(self, times):
         """Every check the CCR2116's per-minute readings drive, once per new
@@ -138,9 +154,13 @@ class Evaluation:
     def judge_silence(self):
         last_post = store.feed(self.cur)["last_post_at"]
         self.apply(rules.check_feed_silent(last_post, self.now), self.now)
+        last_probe = None
         for device, kind in (("ccr2116", "probe"), ("ccr2004", "inner")):
             last = store.last_received_at(self.cur, kind)
+            last_probe = last if kind == "probe" else last_probe
             self.apply(rules.check_router_silent(device, last, last_post, self.now), self.now)
+        self.apply(rules.check_olt_snmp(store.last_olt_success_received(self.cur), last_probe, last_post, self.now),
+                   self.now)
 
     # -- state and incidents --
 
@@ -329,6 +349,44 @@ def routes_card():
             "labels": routes.VERDICT_LABELS, "slots": routes.SLOT_LABELS,
             "limits": {"kenya_under_ms": config.ROUTE_KENYA_UNDER_MS, "za_from_ms": config.ROUTE_ZA_FROM_MS,
                        "za_under_ms": config.ROUTE_ZA_UNDER_MS, "abroad_from_ms": config.ROUTE_ABROAD_FROM_MS}}
+
+
+def inside_card(range_name):
+    """'Inside network': the OLT uplink's damaged frames over the range, the
+    OLT's restarts and the CRS326's port events over INSIDE_LOOKBACK_DAYS,
+    and whether the OLT is still answering SNMP."""
+    now = store.now_utc()
+    hours, bucket = (24, 300) if range_name == "24h" else (24 * 7, 1800)
+    since = now - timedelta(hours=hours)
+    lookback = now - timedelta(days=config.INSIDE_LOOKBACK_DAYS)
+    with store.transaction() as cur:
+        # One reading before the range, so its first 5 minutes have a pair.
+        steps = inside.walk_olt(store.olt_readings(cur, since - timedelta(minutes=15), now))
+        restarts = store.olt_restarts(cur, lookback)
+        links = store.crs_link_records(cur, lookback)
+        last_poll, last_success = store.olt_last_reads(cur)
+    steps = [s for s in steps if s["ts"] > since]
+    latest = next((s["interval"] for s in reversed(steps)
+                   if s["interval"] and s["interval"]["crc_pct"] is not None), None)
+    silent_for = None if last_success is None else (now - last_success).total_seconds() / 60
+    active = [describe(a) for a in store.active_rules() if a["device"] == "olt"]
+    return {
+        "range": range_name, "bucket_seconds": bucket,
+        "crc": {"series": inside.crc_buckets(steps, bucket),
+                "current": None if latest is None else {"t": latest["end"], "pct": latest["crc_pct"],
+                                                        "level": inside.crc_level(latest["crc_pct"])},
+                "range_pct": inside.overall_pct(steps),
+                "green_under_pct": config.OLT_CRC_GREEN_UNDER_PCT, "red_over_pct": config.OLT_CRC_RED_OVER_PCT},
+        "restarts": restarts,
+        "link_events": inside.link_events(links)[:config.INSIDE_EVENTS_LIMIT],
+        "snmp": {"last_success_at": last_success, "last_poll_at": last_poll,
+                 "is_stale": silent_for is not None and silent_for >= config.OLT_SNMP_SILENT_MINUTES,
+                 "stale_after_minutes": config.OLT_SNMP_SILENT_MINUTES,
+                 "polls": len(steps), "failed_polls": sum(1 for s in steps if s["failed"])},
+        "olt_interface": config.OLT_LINK_INTERFACE, "ports": config.CRS_PORT_LABELS,
+        "lookback_days": config.INSIDE_LOOKBACK_DAYS,
+        "active": active,
+    }
 
 
 def charts(range_name):

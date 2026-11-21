@@ -10,7 +10,7 @@ starts with it again). Skips are counted and logged by the caller.
 """
 from datetime import datetime, timezone
 
-KNOWN_KINDS = ("probe", "inner", "link", "linknew", "speed", "speednew", "route", "dns")
+KNOWN_KINDS = ("probe", "inner", "link", "linknew", "speed", "speednew", "route", "dns", "olt", "crs_link")
 MAX_KEY_LENGTH = 200
 MAX_RAW_LENGTH = 4000
 MAX_NAME_LENGTH = 40
@@ -152,8 +152,45 @@ def _dns(value):
     return {"resolvers": [r for r in resolvers if r is not None]}
 
 
+def _counter(value):
+    """A counter: a whole number kept whole (up_rx is 64-bit; a float would
+    round it past 2^53), or None."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    if isinstance(value, float):
+        if not value.is_integer():
+            return None
+        value = int(value)
+    return value if value >= 0 else None
+
+
+def _olt(value):
+    """The OLT's SNMP read. Any field may be null: that read failed."""
+    if not isinstance(value, dict):
+        return None
+    return {"uptime_s": number_or_none(value.get("uptime_s")), "up_rx": _counter(value.get("up_rx")),
+            "up_crc": _counter(value.get("up_crc"))}
+
+
+def _crs_link(value):
+    """A CRS326 port going up or down. Without an interface or an up/down
+    state it can't be paired or judged: skipped."""
+    if not isinstance(value, dict):
+        return None
+    interface = value.get("interface")
+    if not isinstance(interface, str) or not interface.strip():
+        raise SkipRecord("crs_link record has no interface")
+    state = value.get("state")
+    if state not in ("up", "down"):
+        raise SkipRecord("crs_link record's state is not up or down")
+    device, speed = value.get("device"), value.get("speed")
+    return {"device": device.strip()[:MAX_NAME_LENGTH] if isinstance(device, str) and device.strip() else None,
+            "interface": interface.strip()[:MAX_NAME_LENGTH], "state": state,
+            "speed": speed.strip()[:MAX_NAME_LENGTH] if isinstance(speed, str) and speed.strip() else None}
+
+
 def parse_record(record):
-    """One record -> {key, ts, kind, from_ip, raw, load, probes, link, speed, route, dns},
+    """One record -> {key, ts, kind, from_ip, raw, load, probes, link, speed, route, dns, olt, crs_link},
     or None for a kind this version doesn't know (ignored, as the contract
     asks). Raises SkipRecord for a record that can't be stored."""
     if not isinstance(record, dict):
@@ -173,6 +210,7 @@ def parse_record(record):
         "from_ip": from_ip[:64] if isinstance(from_ip, str) else None,
         "raw": raw[:MAX_RAW_LENGTH] if isinstance(raw, str) else None,
         "load": None, "probes": None, "link": None, "speed": None, "route": None, "dns": None,
+        "olt": None, "crs_link": None,
     }
     if kind in ("probe", "inner"):
         parsed["load"] = _pick_numbers(record.get("load"), LOAD_FIELDS)
@@ -185,6 +223,14 @@ def parse_record(record):
         parsed["dns"] = _dns(record.get("dns"))
         if parsed["dns"] is None:
             raise SkipRecord("dns record has no dns.resolvers list")
+    elif kind == "olt":
+        parsed["olt"] = _olt(record.get("olt"))
+        if parsed["olt"] is None:
+            raise SkipRecord("olt record has no olt object")
+    elif kind == "crs_link":
+        parsed["crs_link"] = _crs_link(record.get("crs_link"))
+        if parsed["crs_link"] is None:
+            raise SkipRecord("crs_link record has no crs_link object")
     elif kind == "route":
         parsed["route"] = _route(record.get("route"))
         if parsed["route"] is None:

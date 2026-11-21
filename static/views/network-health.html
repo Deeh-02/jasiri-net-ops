@@ -32,6 +32,30 @@
             <figure class="nh-graph" id="nh-g-cpu"></figure>
         </div>
 
+        <!-- Inside network: the OLT (MA5680T) read over SNMP by the CCR2116,
+             and the CRS326's port events. The graph follows the range tabs above. -->
+        <h2 class="nh-h2">Inside network <span class="nh-h2-sub" id="nh-inside-sub"></span></h2>
+        <ul class="nh-device-rules nh-inside-active" id="nh-inside-active" aria-label="Active OLT problems"></ul>
+        <div class="nh-inside">
+            <div class="nh-tile" id="nh-crc-now"></div>
+            <div class="nh-tile" id="nh-snmp"></div>
+            <figure class="nh-graph nh-graph-wide" id="nh-g-crc"></figure>
+        </div>
+        <h3 class="nh-h3">OLT restarts <span class="nh-h2-sub" id="nh-restarts-sub"></span></h3>
+        <div class="table-scroll table-compact">
+            <table class="nh-table">
+                <thead><tr><th>Back up at</th><th>Had been up</th><th>Seen at</th></tr></thead>
+                <tbody id="nh-restarts" data-skeleton="3"></tbody>
+            </table>
+        </div>
+        <h3 class="nh-h3">Inside link events <span class="nh-h2-sub" id="nh-links-sub"></span></h3>
+        <div class="table-scroll table-compact">
+            <table class="nh-table">
+                <thead><tr><th>Port</th><th>Went down</th><th>Came back</th><th>Outage</th><th>Speed</th></tr></thead>
+                <tbody id="nh-link-events" data-skeleton="5"></tbody>
+            </table>
+        </div>
+
         <h2 class="nh-h2">Where content is served from <span class="nh-h2-sub" id="nh-routes-sub"></span></h2>
         <div class="table-scroll table-compact">
             <table class="nh-table nh-routes">

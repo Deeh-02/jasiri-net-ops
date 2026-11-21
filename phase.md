@@ -392,6 +392,19 @@ ms = South Africa (likely) and the "International path" group (Frankfurt,
 1.1.1.1). `dns` records that arrived before this was deployed were answered
 2xx as an unknown kind and not stored.
 
+**Inside network (owner, 2026-11-21):** new `olt` (SNMP read of the
+MA5680T every 5 min: uptime, uplink 0/19/0 good / errored frames) and
+`crs_link` (CRS326 port up/down) record kinds in `nh_readings.olt` /
+`.crs_link` (migration 0044, approved and run 2026-11-21). Pure logic in
+`network_health/inside.py` (restarts, damaged frames with the 32-bit wrap,
+failed polls, down/up pairing). The "Inside network" section: damaged-frames
+graph and badge, OLT SNMP status, restarts list, link events table. Rules
+OLT_CRC (over 1 %, two readings in a row), OLT_RESTART (no "back" SMS),
+OLT_LINK_DOWN (sfp-sfpplus3; the up texts "back after X min Y s") and
+OLT_SNMP_SILENT (15 min): all in SMS_RULES, AMBER, so log_only governs them
+and /status stays 200. `olt` rows kept 90 days, `crs_link` kept. On 21 Nov
+damaged frames measured ~10 % (bad DAC, swap planned).
+
 **Cutover day:** after repointing `p-gw` to the new gateway, set "Provider
 switched at" on the Network Health page, and give the Frankfurt report
 script the same time as its SWITCH_TIME, so both split history at the same

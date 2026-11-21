@@ -9,7 +9,7 @@ const REFRESH_MS = 60000;
 const tz = { timeZone: "Africa/Nairobi" };
 const SVG = "http://www.w3.org/2000/svg";
 
-const state = { range: "24h", timer: null, overview: null, charts: null, resizeTimer: null, openRoutes: new Set() };
+const state = { range: "24h", timer: null, overview: null, charts: null, inside: null, resizeTimer: null, openRoutes: new Set() };
 const $ = id => document.getElementById(id);
 
 function el(tag, className, text) {
@@ -131,10 +131,16 @@ const RULE_LABELS = {
     FEED_SILENT: "No data from Frankfurt", ROUTER_SILENT: "No readings", UPLINK_CONGESTED: "Uplink busy",
     SPEED_LOW: "Night speed test low", LATENCY_HIGH: "Latency high", LOSS: "Packet loss", JITTER_HIGH: "Jitter high",
     OPTIC_DEGRADING: "SFP signal weak", LINK_DOWN: "Uplink dropped", LINK_ERRORS: "Link errors", CPU_HIGH: "CPU high",
+    DNS_ROUTER: "Router DNS failing or slow", OLT_CRC: "OLT uplink damaging frames", OLT_RESTART: "OLT restarted",
+    OLT_LINK_DOWN: "OLT link down", OLT_SNMP_SILENT: "OLT not answering SNMP",
 };
-const DEVICE_LABELS = { ccr2116: "CCR2116", ccr2004: "CCR2004", feed: "Frankfurt feed" };
+const DEVICE_LABELS = { ccr2116: "CCR2116", ccr2004: "CCR2004", feed: "Frankfurt feed", olt: "OLT" };
 const PEAK_UNITS = { UPLINK_CONGESTED: "%", LATENCY_HIGH: " ms", LOSS: "%", JITTER_HIGH: " ms", CPU_HIGH: "%",
-                     OPTIC_DEGRADING: " dBm", SPEED_LOW: " Mbps", ROUTER_SILENT: " min", FEED_SILENT: " min" };
+                     OPTIC_DEGRADING: " dBm", SPEED_LOW: " Mbps", ROUTER_SILENT: " min", FEED_SILENT: " min",
+                     OLT_CRC: "%", OLT_SNMP_SILENT: " min" };
+// CRS326 ports (the incident subject of OLT_LINK_DOWN, the link events table).
+const PORT_NAMES = { "sfp-sfpplus1": "CCR2116", "sfp-sfpplus2": "CCR2004", "sfp-sfpplus3": "OLT uplink", "sfp-sfpplus4": "Proxmox" };
+const subjectName = s => (PORT_NAMES[s] ? `${PORT_NAMES[s]}, ${s}` : probeName(s));
 
 function cell(label, child) {
     const td = el("td");
@@ -158,9 +164,10 @@ function drawIncidents(list) {
     tbody.replaceChildren(...list.map(i => {
         const tr = el("tr");
         const lasted = i.ended_at ? minutesText((new Date(i.ended_at) - new Date(i.started_at)) / 60000) : "ongoing";
-        const problem = `${RULE_LABELS[i.rule] || i.rule}${i.subject ? ` (${probeName(i.subject)})` : ""}`;
+        const problem = `${RULE_LABELS[i.rule] || i.rule}${i.subject ? ` (${subjectName(i.subject)})` : ""}`;
         const sms = i.is_flapping ? "flapping, not sent" : (i.fire_sms_sent ? "sent" : "—");
         const peak = i.rule === "SPEED_LOW" && i.facts && i.facts.failed ? "test failed"
+            : i.rule === "OLT_RESTART" ? (i.facts?.previous_uptime_s == null ? "—" : `had been up ${minutesText(i.facts.previous_uptime_s / 60)}`)
             : (i.peak_value == null ? "—" : `${num(i.peak_value)}${PEAK_UNITS[i.rule] || ""}`);
         tr.append(cell("Started", when(i.started_at)), cell("Device", DEVICE_LABELS[i.device] || i.device),
                   cell("Problem", problem), cell("Level", badge(i.severity)), cell("Lasted", lasted),
@@ -332,7 +339,8 @@ function tickLabel(t) {
 }
 
 /* One graph. spec: {title, sub, unit, series: [{name, colour, dash, dots, values: [{t, v, note}]}],
-   refs: [{v, label}], marks: [{t, label}] (red ticks on the baseline: outages), yFloor0}. */
+   refs: [{v, label}], marks: [{t, label}] (red ticks on the baseline: outages), yFloor0,
+   fmt (optional: the y-axis number format, default num)}. */
 function drawGraph(fig, spec) {
     fig.replaceChildren();
     const head = el("figcaption", "nh-graph-head");
@@ -363,7 +371,7 @@ function drawGraph(fig, spec) {
     for (const v of niceTicks(lo, hi)) {
         root.append(svg("line", { x1: pad.l, x2: width - pad.r, y1: y(v), y2: y(v), class: "nh-grid" }));
         const label = svg("text", { x: pad.l - 6, y: y(v) + 3, class: "nh-axis", "text-anchor": "end" });
-        label.textContent = num(v);
+        label.textContent = (spec.fmt || num)(v);
         root.append(label);
     }
     // Every other time label when they'd sit closer than 56 px (phones).
@@ -601,6 +609,163 @@ function drawGraphs() {
     $("nh-graphs-sub").textContent = state.range === "24h" ? "last 24 hours, Nairobi time" : "last 7 days, Nairobi time";
 }
 
+// ---- Inside network (the OLT's uplink, read by the CCR2116 over SNMP) ----
+
+// A damaged-frames percentage: one decimal, more when it is small (0.004 %).
+function pctText(v) {
+    if (v == null) return "—";
+    if (v === 0) return "0";
+    if (v >= 0.1) return v.toFixed(1);
+    return (+v.toPrecision(2)).toString();
+}
+
+function countText(n) {
+    if (n == null) return "—";
+    if (n >= 1e9) return `${(n / 1e9).toFixed(1)} billion`;
+    if (n >= 1e6) return `${(n / 1e6).toFixed(1)} million`;
+    return Math.round(n).toLocaleString("en-GB");
+}
+
+// Glyph + word, never colour alone.
+const CRC_LEVELS = { green: ["●", "Clean", "nh-ok"], amber: ["▲", "Some damage", "nh-warn"], red: ["◆", "Damaging", "nh-bad"] };
+
+function secondsText(s) {
+    if (s == null) return "—";
+    const total = Math.max(0, Math.round(s));
+    if (total >= 3600) return minutesText(total / 60);
+    const m = Math.floor(total / 60), r = total % 60;
+    return m ? `${m} min ${r} s` : `${r} s`;
+}
+
+function drawInsideActive(d) {
+    const list = $("nh-inside-active");
+    if (!d.active.length) {
+        list.replaceChildren(el("li", "nh-none", "No active problems on the OLT"));
+        return;
+    }
+    list.replaceChildren(...d.active.map(rule => {
+        const item = el("li");
+        const [glyph, , cls] = STATUS[rule.severity] || STATUS.AMBER;
+        item.append(el("span", `nh-rule-glyph ${cls}`, glyph), el("strong", null, ` ${rule.label}`),
+                    el("span", "nh-rule-text", ` ${rule.text}. Since ${hm(rule.started_at)}`));
+        if (rule.is_flapping) item.append(el("span", "nh-tag", "flapping"));
+        return item;
+    }));
+}
+
+function drawCrcNow(d) {
+    const box = $("nh-crc-now");
+    const now = d.crc.current;
+    if (!now) {
+        box.replaceChildren(el("div", "nh-tile-label", "OLT uplink damaged frames"),
+                            el("p", "nh-tile-line", d.snmp.last_poll_at ? "No complete pair of OLT readings yet."
+                                : "No OLT readings yet. They start once the CCR2116 reads the OLT over SNMP."));
+        return;
+    }
+    const [glyph, word, cls] = CRC_LEVELS[now.level] || CRC_LEVELS.amber;
+    const head = el("div", "nh-tile-head");
+    head.append(el("span", "nh-tile-value", `${pctText(now.pct)} %`), el("span", `nh-badge ${cls}`, `${glyph} ${word}`));
+    const line = now.level === "green"
+        ? (now.pct === 0 ? "CRS→OLT link is clean: no damaged frames." : `CRS→OLT link is clean: ${pctText(now.pct)} % of frames damaged.`)
+        : `CRS→OLT link is damaging ${pctText(now.pct)} % of frames going to customers.`;
+    const range = state.range === "24h" ? "last 24 h" : "last 7 days";
+    const old = (Date.now() - new Date(now.t)) / 60000 > d.snmp.stale_after_minutes;
+    box.replaceChildren(
+        el("div", "nh-tile-label", "OLT uplink damaged frames"), head, el("p", "nh-tile-line", line),
+        el("p", "nh-tile-sub", `5 min to ${hm(now.t)}${old ? " (old: see SNMP)" : ""} · ${range}: ${pctText(d.crc.range_pct)} % overall`
+            + ` · green under ${d.crc.green_under_pct} %, red over ${d.crc.red_over_pct} %`),
+    );
+}
+
+function drawSnmp(d) {
+    const box = $("nh-snmp");
+    const s = d.snmp;
+    const range = state.range === "24h" ? "24 h" : "7 days";
+    let status;
+    if (!s.last_poll_at) status = el("span", "nh-badge nh-unknown", "○ Not reporting yet");
+    else if (!s.last_success_at || s.is_stale) status = el("span", "nh-badge nh-warn", "▲ Not answering");
+    else status = el("span", "nh-badge nh-ok", "● Answering");
+    const head = el("div", "nh-tile-head");
+    head.append(el("span", "nh-tile-value nh-tile-value-sm", s.last_success_at ? ago(s.last_success_at) : "never"), status);
+    const lines = [el("div", "nh-tile-label", "OLT SNMP: last good read"), head];
+    if (s.is_stale) lines.push(el("p", "nh-tile-line", `No complete read for over ${s.stale_after_minutes} min (last at ${when(s.last_success_at)}).`));
+    lines.push(el("p", "nh-tile-sub", s.polls ? `${s.failed_polls} of ${s.polls} polls had a failed read in the last ${range}`
+        : `No polls in the last ${range}`));
+    box.replaceChildren(...lines);
+}
+
+function drawCrcGraph() {
+    const d = state.inside;
+    if (!d || d.error) return;
+    const fig = $("nh-g-crc");
+    const series = d.crc.series.map(r => ({ t: T(r.t), v: r.pct,
+        note: `${pctText(r.pct)} % damaged (${countText(r.d_crc)} of ${countText(r.frames)} frames)` }));
+    const worst = Math.max(0, ...d.crc.series.map(r => r.pct));
+    const start = Date.now() - (state.range === "24h" ? 24 : 168) * 3600000;
+    // The OLT link going down (a DAC swap does this) and OLT restarts, on the baseline.
+    const marks = [
+        ...d.link_events.filter(e => e.is_olt && e.down_at && T(e.down_at) > start).map(e => ({ t: T(e.down_at) })),
+        ...d.restarts.filter(r => T(r.booted_at) > start).map(r => ({ t: T(r.booted_at) })),
+    ];
+    drawGraph(fig, {
+        title: "OLT uplink damaged frames",
+        sub: `frames from the CRS326 arriving damaged at OLT port 0/19/0, per ${d.bucket_seconds / 60} min · alert over ${d.crc.red_over_pct} % twice in a row`,
+        unit: "%", yFloor0: true, fmt: v => (v >= 1 ? num(v) : (+v.toPrecision(2)).toString()),
+        series: [{ name: "Damaged frames", colour: "--nh-c1", values: series }],
+        // Always the 1 % line, so after a fix the line visibly sits far under it;
+        // the 0.01 % line only once everything is that small.
+        refs: [{ v: d.crc.red_over_pct, label: `${d.crc.red_over_pct}% alert` },
+               ...(worst < 0.1 ? [{ v: d.crc.green_under_pct, label: `${d.crc.green_under_pct}%` }] : [])],
+        marks, markNote: "Red ticks on the baseline: the OLT link went down or the OLT restarted (see the tables below).",
+    });
+}
+
+function drawRestarts(d) {
+    const tbody = $("nh-restarts");
+    if (!d.restarts.length) return emptyRow(tbody, 3, `No OLT restarts in the last ${d.lookback_days} days.`);
+    tbody.replaceChildren(...d.restarts.map(r => {
+        const tr = el("tr");
+        tr.append(cell("Back up at", when(r.booted_at)), cell("Had been up", minutesText(r.previous_uptime_s / 60)),
+                  cell("Seen at", when(r.detected_at)));
+        return tr;
+    }));
+}
+
+function drawLinkEvents(d) {
+    const tbody = $("nh-link-events");
+    if (!d.link_events.length) return emptyRow(tbody, 5, `No CRS326 port went down in the last ${d.lookback_days} days.`);
+    tbody.replaceChildren(...d.link_events.map(e => {
+        const tr = el("tr", e.is_olt ? "nh-olt-row" : null);
+        const port = el("span", "nh-route-name");
+        port.append(el("strong", null, `${e.is_olt ? "◆ " : ""}${e.label}`), el("span", "nh-route-host", e.interface));
+        let outage;
+        if (e.status === "back") outage = secondsText(e.outage_s);
+        else if (e.status === "down") outage = el("span", "nh-badge nh-bad", `▼ Still down, ${secondsText((Date.now() - new Date(e.down_at)) / 1000)} so far`);
+        else if (e.status === "no_up") outage = el("span", "nh-route-note", "unknown (its up was never received)");
+        else outage = el("span", "nh-route-note", "unknown (went down before this list)");
+        tr.append(cell("Port", port), cell("Went down", e.down_at ? when(e.down_at) : "—"),
+                  cell("Came back", e.up_at ? when(e.up_at) : "—"), cell("Outage", outage), cell("Speed", e.speed || "—"));
+        return tr;
+    }));
+}
+
+function drawInside(d) {
+    state.inside = d;
+    if (d.error) {
+        $("nh-inside-sub").textContent = `couldn't load: ${d.error}`;
+        return;
+    }
+    $("nh-inside-sub").textContent = "the CRS326 → OLT uplink, read by the CCR2116 every 5 min";
+    $("nh-restarts-sub").textContent = `last ${d.lookback_days} days · power switchovers restart it`;
+    $("nh-links-sub").textContent = `CRS326 ports, last ${d.lookback_days} days · the OLT uplink is ${d.olt_interface}, marked ◆`;
+    drawInsideActive(d);
+    drawCrcNow(d);
+    drawSnmp(d);
+    drawCrcGraph();
+    drawRestarts(d);
+    drawLinkEvents(d);
+}
+
 // ---- Settings (Network Health > Admin) ----
 
 function toLocalInput(iso) {
@@ -651,17 +816,20 @@ async function saveSettings(e) {
 async function load() {
     if ($("view-network-health").hidden) return;
     try {
-        const [overview, charts, incidents, routes] = await Promise.all([
+        const [overview, charts, incidents, routes, inside] = await Promise.all([
             api("/network/health/overview"),
             api(`/network/health/charts?range=${state.range}`),
             api("/network/health/incidents?limit=100"),
             api("/network/health/routes"),
+            // Its own failure doesn't take the rest of the page down.
+            api(`/network/health/inside?range=${state.range}`).catch(err => ({ error: err.message })),
         ]);
         state.overview = overview;
         state.charts = charts;
         drawBanner(overview);
         drawDevices(overview);
         drawGraphs();
+        drawInside(inside);
         drawRoutes(routes);
         drawIncidents(incidents);
         drawSms(overview.sms);
@@ -681,10 +849,12 @@ export function initNetworkHealth() {
         load();
     });
     $("nh-settings-form").addEventListener("submit", saveSettings);
-    new ResizeObserver(() => {
+    const observer = new ResizeObserver(() => {
         clearTimeout(state.resizeTimer);
-        state.resizeTimer = setTimeout(drawGraphs, 150);
-    }).observe($("nh-graphs"));
+        state.resizeTimer = setTimeout(() => { drawGraphs(); drawCrcGraph(); }, 150);
+    });
+    observer.observe($("nh-graphs"));
+    observer.observe($("nh-g-crc"));
 
     registerRoute("network-health", () => {
         showView("view-network-health");

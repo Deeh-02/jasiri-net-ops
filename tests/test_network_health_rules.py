@@ -295,6 +295,52 @@ class Silence(unittest.TestCase):
         self.assertIsNone(rules.check_router_silent("ccr2004", None, minute(11), minute(12))["verdict"])
 
 
+class InsideNetwork(unittest.TestCase):
+    def step(self, pct=None, restart=None, uptime=1000):
+        interval = None if pct is None else {"crc_pct": pct}
+        return {"interval": interval, "restart": restart, "uptime_s": uptime}
+
+    def test_damaged_frames_over_1_pct_twice_in_a_row_fires(self):
+        _, seen = run([rules.check_olt_crc(self.step(10.2)), rules.check_olt_crc(self.step(9.8))])
+        self.assertEqual(seen, [None, "fire"])
+
+    def test_1_pct_exactly_is_not_over_and_a_gap_keeps_the_count(self):
+        self.assertFalse(rules.check_olt_crc(self.step(1))["verdict"])
+        self.assertIsNone(rules.check_olt_crc(self.step(None))["verdict"])
+
+    def test_clears_after_two_clean_intervals(self):
+        checks = [rules.check_olt_crc(self.step(p)) for p in (10, 10, 0.001, 0.001)]
+        self.assertEqual(run(checks)[1], [None, "fire", "hold", "clear"])
+
+    def test_a_restart_fires_at_once_and_clears_on_the_next_reading(self):
+        restart = {"previous_uptime_s": 626553.26, "uptime_s": 120}
+        checks = [rules.check_olt_restart(self.step(restart=restart)), rules.check_olt_restart(self.step(uptime=420))]
+        self.assertEqual(run(checks)[1], ["fire", "clear"])
+        self.assertEqual(checks[0]["facts"], restart)
+        self.assertIsNone(rules.check_olt_restart(self.step(uptime=None))["verdict"])
+
+    def test_only_the_olt_port_is_judged(self):
+        def link(interface, state):
+            return {"interface": interface, "state": state}
+        self.assertIsNone(rules.check_olt_link(link("sfp-sfpplus1", "down")))
+        checks = [rules.check_olt_link(link("sfp-sfpplus3", "down")), rules.check_olt_link(link("sfp-sfpplus3", "up"))]
+        self.assertEqual(run(checks)[1], ["fire", "clear"])
+        self.assertEqual(checks[0]["subject"], "sfp-sfpplus3")
+
+    def test_snmp_silent_after_15_minutes_of_no_complete_read(self):
+        self.assertTrue(rules.check_olt_snmp(minute(0), minute(14), minute(15), minute(15))["verdict"])
+        self.assertFalse(rules.check_olt_snmp(minute(1), minute(14), minute(15), minute(15))["verdict"])
+
+    def test_snmp_not_judged_while_the_ccr2116_or_feed_is_silent_or_before_any_read(self):
+        self.assertIsNone(rules.check_olt_snmp(minute(0), minute(0), minute(15), minute(15))["verdict"])
+        self.assertIsNone(rules.check_olt_snmp(minute(0), minute(14), minute(0), minute(15))["verdict"])
+        self.assertIsNone(rules.check_olt_snmp(None, minute(14), minute(15), minute(15))["verdict"])
+
+    def test_all_four_text(self):
+        for rule in ("OLT_CRC", "OLT_RESTART", "OLT_LINK_DOWN", "OLT_SNMP_SILENT"):
+            self.assertIn(rule, config.SMS_RULES)
+
+
 class Status(unittest.TestCase):
     def test_worst_active_rule(self):
         self.assertEqual(rules.device_status([]), "GREEN")
