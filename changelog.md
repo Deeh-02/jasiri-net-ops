@@ -9,6 +9,22 @@ and in `phase.md`'s own per-phase writeups.
 
 Started 2026-11-15 at the owner's request, after Phase 6 was merged to `main`.
 
+### Network Health: Diagnose is now a chat (2026-11-21)
+- **On Network Health, the "Ask" button becomes "Diagnose"**: the same kind
+  of panel, but you talk to Claude about the network, with this page's data
+  in front of it. Ask follow-up questions; it only answers network-health
+  questions and points to Ask for anything else.
+- **Everyone** gets Claude Sonnet 5.5 and picks Medium or High effort;
+  **Network Health admins** can switch to Claude Opus 5.5. "Quick check" and
+  (admins) "Detailed analysis" buttons start a chat.
+- Each answer shows its model, effort and cost; the panel shows what the
+  chat has cost. Follow-up questions are cheaper (the page summary is
+  cached for 10 minutes): about 6 US cents for the first question, 1-2 for
+  each follow-up on Sonnet.
+- The Diagnose card under the device tiles is gone.
+- **Fixes:** a key pasted into Render with a newline now works; error
+  messages and logs never show the key.
+
 ### Network Health: Diagnose with Claude (2026-11-21)
 - **New "Diagnose" card** under the device tiles. "Quick check" asks Claude
   Sonnet 5.5 to read a summary of the page and say what's wrong and what to

@@ -1,4 +1,4 @@
-import { authHeaders, showView, registerRoute, can } from "./common.js";
+import { authHeaders, showView, registerRoute, can, getCurrentUser, registerLogoutHandler } from "./common.js";
 
 // Network Health (#/network-health): is the uplink fast and clean right now,
 // and what happened lately. Reads only /network/health/* (its own domain) and
@@ -9,8 +9,7 @@ const REFRESH_MS = 60000;
 const tz = { timeZone: "Africa/Nairobi" };
 const SVG = "http://www.w3.org/2000/svg";
 
-const state = { range: "24h", timer: null, overview: null, charts: null, inside: null, resizeTimer: null, openRoutes: new Set(),
-                answerShown: false };
+const state = { range: "24h", timer: null, overview: null, charts: null, inside: null, resizeTimer: null, openRoutes: new Set() };
 const $ = id => document.getElementById(id);
 
 function el(tag, className, text) {
@@ -933,7 +932,46 @@ function drawInside(d) {
     drawInsideProbes();
 }
 
-// ---- Diagnose (Claude reads a summary of this page) ----
+// ---- Diagnose: a chat with Claude, in the corner where "Ask" usually is ----
+// On this page the shared Ask button makes way for this one (network-health.css).
+// Same look as Ask (chat.css classes), but it talks only to
+// /network/health/diagnose. The conversation is kept in sessionStorage like
+// Ask's. Claude's answers go on the page with textContent only.
+
+const DX_MAX_TURNS = 20;    // matches DIAGNOSE_MAX_TURNS
+const DX_MAX_CHARS = 4000;  // matches DIAGNOSE_QUESTION_MAX
+const DX_STARTERS = {
+    quick: "Quick check: is anything wrong right now, and what should I check first?",
+    deep: "Detailed analysis: go through every layer and find what's wrong.",
+};
+const dx = { els: null, info: null, sending: false, convo: null };
+
+const dxKey = () => `nh-diagnose-${getCurrentUser()?.id ?? "none"}`;
+
+function newConversationId() {
+    if (globalThis.crypto?.randomUUID) return crypto.randomUUID();
+    return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
+function newConvo(previous) {
+    return { id: newConversationId(), model: previous?.model || "sonnet", effort: previous?.effort || "medium", turns: [] };
+}
+
+function dxLoad() {
+    try {
+        const saved = JSON.parse(sessionStorage.getItem(dxKey()) || "null");
+        if (saved && typeof saved.id === "string" && Array.isArray(saved.turns)) {
+            saved.turns = saved.turns.filter(t => (t.role === "user" || t.role === "assistant") && typeof t.content === "string");
+            dx.convo = saved;
+            return;
+        }
+    } catch { /* private mode or junk: start fresh */ }
+    dx.convo = newConvo();
+}
+
+function dxSave() {
+    try { sessionStorage.setItem(dxKey(), JSON.stringify(dx.convo)); } catch { /* memory only */ }
+}
 
 // Claude's answer is plain text: headings end with ":", bullets start "- ".
 // Built with textContent only, so nothing in it can become markup.
@@ -950,7 +988,7 @@ function answerNodes(text) {
         }
         list = null;
         if (line.endsWith(":") && line.length <= 60) {
-            out.push(el("div", "nh-diagnose-h", line));
+            out.push(el("div", "nh-ask-h", line));
             continue;
         }
         // "Verdict: ..." on one line: the label in bold.
@@ -966,66 +1004,240 @@ function answerNodes(text) {
     return out;
 }
 
-function drawAnswer(a) {
-    const box = $("nh-diagnose-answer");
-    if (!a) { box.hidden = true; return; }
-    const kind = a.depth === "deep" ? "Detailed analysis" : "Quick check";
-    const bits = [kind, a.model_label, when(a.at)];
-    bits.push(`${num(a.input_tokens, 0)} tokens in, ${num(a.output_tokens, 0)} out`);
-    if (a.cost_usd != null) bits.push(`about US$${a.cost_usd < 0.01 ? "0.01" : a.cost_usd.toFixed(2)}`);
-    if (a.reused) bits.push("shown again (asked less than 5 min ago)");
-    if (a.truncated) bits.push("cut short: hit the length limit");
-    $("nh-diagnose-meta").textContent = bits.join(" · ");
-    const nodes = answerNodes(a.text);
-    if (a.question) nodes.unshift(el("p", "nh-tile-sub", `Asked: ${a.question}`));
-    $("nh-diagnose-text").replaceChildren(...nodes);
-    box.hidden = false;
-}
-
-function drawDiagnoseInfo(info) {
-    const quick = $("nh-diagnose-quick"), deep = $("nh-diagnose-deep");
-    quick.textContent = `Quick check (${info.models.quick})`;
-    deep.textContent = `Detailed analysis (${info.models.deep})`;
-    deep.hidden = !info.can_deep;
-    const counts = [`quick ${info.used_today.quick}/${info.limits.quick} today`];
-    if (info.can_deep) counts.push(`detailed ${info.used_today.deep}/${info.limits.deep}`);
-    $("nh-diagnose-sub").textContent = `Claude reads a summary of this page · ${counts.join(" · ")}`;
-    if (!info.available) {
-        quick.disabled = deep.disabled = true;
-        $("nh-diagnose-msg").textContent = "ANTHROPIC_API_KEY isn't set on the server, so Claude can't be asked.";
+function segment(label, options) {
+    const group = el("div", "nh-seg");
+    group.setAttribute("role", "group");
+    group.setAttribute("aria-label", label);
+    for (const [value, text] of options) {
+        const b = el("button", null, text);
+        b.type = "button";
+        b.dataset.value = value;
+        group.append(b);
     }
-    const latest = Object.values(info.last).sort((x, y) => new Date(y.at) - new Date(x.at))[0];
-    if (!state.answerShown) drawAnswer(latest);
+    return group;
 }
 
-async function loadDiagnose() {
-    drawDiagnoseInfo(await api("/network/health/diagnose"));
+function buildDx() {
+    const launcher = el("button", "chat-launcher nh-ask-launcher");
+    launcher.type = "button";
+    launcher.setAttribute("aria-label", "Open Diagnose: ask Claude about the network");
+    const icon = svg("svg", { width: 20, height: 20, viewBox: "0 0 24 24", fill: "none", "aria-hidden": "true" });
+    icon.append(svg("path", { d: "M3 12h4l3-7 4 14 3-7h4", stroke: "currentColor", "stroke-width": 1.8,
+                              "stroke-linecap": "round", "stroke-linejoin": "round" }));
+    launcher.append(icon, el("span", null, "Diagnose"));
+
+    const panel = el("section", "chat-panel nh-ask-panel");
+    panel.hidden = true;
+    panel.setAttribute("aria-label", "Diagnose");
+    const header = el("header", "chat-header");
+    const titles = el("div");
+    titles.append(el("div", "chat-title", "Diagnose"),
+                  el("div", "chat-subtitle", "Claude reads this page's data. Network health questions only."));
+    const fresh = el("button", "chat-header-btn", "New");
+    fresh.type = "button";
+    fresh.title = "Start a new chat";
+    const close = el("button", "chat-header-btn", "✕");
+    close.type = "button";
+    close.setAttribute("aria-label", "Close Diagnose");
+    header.append(titles, fresh, close);
+
+    const controls = el("div", "nh-ask-controls");
+    const model = segment("Model", [["sonnet", "Sonnet 5.5"], ["opus", "Opus 5.5"]]);
+    const effort = segment("Effort", [["medium", "Medium"], ["high", "High"]]);
+    const cost = el("span", "nh-ask-cost");
+    controls.append(model, effort, cost);
+
+    const feed = el("div", "chat-feed");
+    feed.setAttribute("role", "log");
+    feed.setAttribute("aria-live", "polite");
+    const form = el("form", "chat-form");
+    const input = el("textarea", "chat-input");
+    input.rows = 1;
+    input.maxLength = DX_MAX_CHARS;
+    input.placeholder = "Ask about the network…";
+    input.setAttribute("aria-label", "Your question");
+    const send = el("button", "chat-send", "Send");
+    send.type = "submit";
+    form.append(input, send);
+    panel.append(header, controls, feed, form);
+    document.body.append(launcher, panel);
+
+    launcher.addEventListener("click", () => openDx(true));
+    close.addEventListener("click", () => openDx(false));
+    fresh.addEventListener("click", () => {
+        if (dx.sending) return;
+        dx.convo = newConvo(dx.convo);
+        dxSave();
+        renderDx();
+        input.focus();
+    });
+    model.addEventListener("click", e => {
+        const b = e.target.closest("button[data-value]");
+        if (!b) return;
+        dx.convo.model = b.dataset.value;
+        dxSave();
+        drawDxControls();
+    });
+    effort.addEventListener("click", e => {
+        const b = e.target.closest("button[data-value]");
+        if (!b) return;
+        dx.convo.effort = b.dataset.value;
+        dxSave();
+        drawDxControls();
+    });
+    form.addEventListener("submit", e => { e.preventDefault(); submitDx(); });
+    input.addEventListener("keydown", e => {
+        // Enter sends; Shift+Enter is a new line.
+        if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submitDx(); }
+    });
+    input.addEventListener("input", () => {
+        input.style.height = "auto";
+        input.style.height = `${Math.min(input.scrollHeight, 140)}px`;
+    });
+    return { launcher, panel, model, effort, cost, feed, input, send };
 }
 
-async function runDiagnose(e) {
-    e.preventDefault();
-    const depth = e.submitter?.dataset.depth || "quick";
-    const buttons = [$("nh-diagnose-quick"), $("nh-diagnose-deep")];
-    const msg = $("nh-diagnose-msg");
-    const question = $("nh-diagnose-question").value.trim();
-    buttons.forEach(b => { b.disabled = true; });
-    msg.textContent = depth === "deep"
-        ? "Claude is going through everything. This can take a few minutes; you can keep using the page."
-        : "Asking Claude… usually under a minute.";
+function openDx(isOpen) {
+    dx.els.panel.hidden = !isOpen;
+    dx.els.launcher.hidden = isOpen;
+    if (isOpen) {
+        renderDx();
+        dx.els.input.focus();
+        loadDxInfo().catch(() => {});
+    }
+}
+
+async function loadDxInfo() {
+    dx.info = await api("/network/health/diagnose");
+    if (!dx.info.can_opus && dx.convo.model === "opus") { dx.convo.model = "sonnet"; dxSave(); }
+    drawDxControls();
+    if (!dx.els.panel.hidden && !dx.convo.turns.length) renderDx();
+}
+
+function usd(v) {
+    return v < 0.01 ? "under US$0.01" : `US$${v.toFixed(2)}`;
+}
+
+function drawDxControls() {
+    const { model, effort, cost, input, send } = dx.els;
+    model.hidden = !dx.info?.can_opus;
+    model.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.value === dx.convo.model)));
+    effort.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.value === dx.convo.effort)));
+    const spent = dx.convo.turns.reduce((sum, t) => sum + (t.meta?.cost_usd || 0), 0);
+    cost.textContent = spent ? `This chat: ${usd(spent)}` : "";
+    const off = dx.sending || dx.info?.available === false;
+    input.disabled = send.disabled = off;
+}
+
+function metaLine(meta) {
+    const bits = [meta.model_label, `${meta.effort} effort`];
+    if (meta.cost_usd != null) bits.push(usd(meta.cost_usd));
+    if (meta.truncated) bits.push("cut short: hit the length limit");
+    return bits.join(" · ");
+}
+
+function dxBubble(turn) {
+    if (turn.role === "user") return el("div", "chat-bubble chat-user", turn.content);
+    const div = el("div", "chat-bubble chat-assistant nh-ask-answer");
+    div.append(...answerNodes(turn.content));
+    if (turn.meta) div.append(el("div", "chat-checked", metaLine(turn.meta)));
+    return div;
+}
+
+function renderDx() {
+    const { feed } = dx.els;
+    feed.replaceChildren();
+    if (!dx.convo.turns.length) {
+        const hint = el("div", "chat-bubble chat-hint");
+        if (dx.info && !dx.info.available) {
+            hint.textContent = "ANTHROPIC_API_KEY isn't set on the server, so Claude can't be asked.";
+        } else {
+            hint.append(el("p", null, "Ask about the network: what's wrong right now, why an area is slow, "
+                + "what happened overnight. Claude reads a summary of this page's data."));
+            const starters = el("div", "nh-ask-starters");
+            const quick = el("button", "chat-header-btn", "Quick check");
+            quick.type = "button";
+            quick.addEventListener("click", () => askDx(DX_STARTERS.quick));
+            starters.append(quick);
+            if (dx.info?.can_opus) {
+                const deep = el("button", "chat-header-btn", "Detailed analysis (Opus, high)");
+                deep.type = "button";
+                deep.addEventListener("click", () => {
+                    dx.convo.model = "opus";
+                    dx.convo.effort = "high";
+                    askDx(DX_STARTERS.deep);
+                });
+                starters.append(deep);
+            }
+            hint.append(starters);
+        }
+        feed.append(hint);
+    }
+    dx.convo.turns.forEach(t => feed.append(dxBubble(t)));
+    drawDxControls();
+    feed.scrollTop = feed.scrollHeight;
+}
+
+function submitDx() {
+    const text = dx.els.input.value.trim();
+    if (!text || dx.sending) return;
+    dx.els.input.value = "";
+    dx.els.input.style.height = "auto";
+    askDx(text);
+}
+
+// Oldest turns go first; what's sent must still start with a question.
+function dxMessages() {
+    let turns = dx.convo.turns.slice(-DX_MAX_TURNS);
+    while (turns.length && turns[0].role !== "user") turns = turns.slice(1);
+    return turns.map(t => ({ role: t.role, content: t.content }));
+}
+
+async function askDx(question) {
+    if (dx.sending) return;
+    if (question != null) {
+        // A question that failed and wasn't retried is replaced, so turns still alternate.
+        if (dx.convo.turns.at(-1)?.role === "user") dx.convo.turns.pop();
+        dx.convo.turns.push({ role: "user", content: question });
+        dxSave();
+        renderDx();
+    }
+    dx.sending = true;
+    drawDxControls();
+    const { feed } = dx.els;
+    feed.querySelectorAll(".chat-error").forEach(e => e.remove());
+    const typing = el("div", "chat-bubble chat-assistant chat-typing");
+    typing.setAttribute("aria-label", "Claude is thinking");
+    typing.append(el("span"), el("span"), el("span"));
+    feed.append(typing);
+    feed.scrollTop = feed.scrollHeight;
     try {
-        const answer = await api("/network/health/diagnose", {
+        const a = await api("/network/health/diagnose/chat", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ depth, question: question || null }),
+            body: JSON.stringify({ conversation_id: dx.convo.id, model: dx.convo.model, effort: dx.convo.effort,
+                                   messages: dxMessages() }),
         });
-        state.answerShown = true;
-        drawAnswer(answer);
-        msg.textContent = "";
+        dx.convo.turns.push({ role: "assistant", content: a.text,
+                              meta: { model_label: a.model_label, effort: a.effort, cost_usd: a.cost_usd, truncated: a.truncated } });
+        dxSave();
+        typing.remove();
+        feed.append(dxBubble(dx.convo.turns.at(-1)));
     } catch (err) {
-        msg.textContent = err.message;
+        typing.remove();
+        const box = el("div", "chat-bubble chat-error",
+                       err.message === "Failed to fetch" ? "Couldn't reach the server. Check your connection." : err.message);
+        const retry = el("button", "chat-retry", "Retry");
+        retry.type = "button";
+        retry.addEventListener("click", () => { box.remove(); askDx(); });
+        box.append(retry);
+        feed.append(box);
     } finally {
-        buttons.forEach(b => { b.disabled = false; });
-        loadDiagnose().catch(() => {});
+        typing.remove();
+        dx.sending = false;
+        drawDxControls();
+        feed.scrollTop = feed.scrollHeight;
+        dx.els.input.focus();
     }
 }
 
@@ -1112,7 +1324,14 @@ export function initNetworkHealth() {
         load();
     });
     $("nh-settings-form").addEventListener("submit", saveSettings);
-    $("nh-diagnose-form").addEventListener("submit", runDiagnose);
+    dx.els = buildDx();
+    registerLogoutHandler(() => {
+        try { sessionStorage.removeItem(dxKey()); } catch { /* nothing stored */ }
+        dx.convo = null;
+        dx.info = null;
+        dx.els.panel.hidden = true;
+        dx.els.launcher.hidden = false;
+    });
     const observer = new ResizeObserver(() => {
         clearTimeout(state.resizeTimer);
         state.resizeTimer = setTimeout(() => { drawGraphs(); drawCrcGraph(); drawInsideProbes(); }, 150);
@@ -1125,7 +1344,8 @@ export function initNetworkHealth() {
         showView("view-network-health");
         load();
         loadSettings().catch(err => { $("nh-settings-msg").textContent = err.message; });
-        loadDiagnose().catch(err => { $("nh-diagnose-msg").textContent = err.message; });
+        if (!dx.convo || dx.userKey !== dxKey()) { dxLoad(); dx.userKey = dxKey(); }
+        loadDxInfo().catch(() => {});
         if (!state.timer) state.timer = setInterval(load, REFRESH_MS);
     });
 }
