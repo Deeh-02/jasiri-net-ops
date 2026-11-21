@@ -9,7 +9,8 @@ const REFRESH_MS = 60000;
 const tz = { timeZone: "Africa/Nairobi" };
 const SVG = "http://www.w3.org/2000/svg";
 
-const state = { range: "24h", timer: null, overview: null, charts: null, inside: null, resizeTimer: null, openRoutes: new Set() };
+const state = { range: "24h", timer: null, overview: null, charts: null, inside: null, resizeTimer: null, openRoutes: new Set(),
+                answerShown: false };
 const $ = id => document.getElementById(id);
 
 function el(tag, className, text) {
@@ -932,6 +933,102 @@ function drawInside(d) {
     drawInsideProbes();
 }
 
+// ---- Diagnose (Claude reads a summary of this page) ----
+
+// Claude's answer is plain text: headings end with ":", bullets start "- ".
+// Built with textContent only, so nothing in it can become markup.
+function answerNodes(text) {
+    const out = [];
+    let list = null;
+    for (const raw of text.split("\n")) {
+        const line = raw.trim();
+        if (!line) { list = null; continue; }
+        if (/^[-•*] /.test(line)) {
+            if (!list) { list = el("ul"); out.push(list); }
+            list.append(el("li", null, line.slice(2)));
+            continue;
+        }
+        list = null;
+        if (line.endsWith(":") && line.length <= 60) {
+            out.push(el("div", "nh-diagnose-h", line));
+            continue;
+        }
+        // "Verdict: ..." on one line: the label in bold.
+        const labelled = line.match(/^([A-Z][A-Za-z ]{0,24}):\s+(.+)$/);
+        if (labelled) {
+            const p = el("p");
+            p.append(el("strong", null, `${labelled[1]}:`), ` ${labelled[2]}`);
+            out.push(p);
+            continue;
+        }
+        out.push(el("p", null, line));
+    }
+    return out;
+}
+
+function drawAnswer(a) {
+    const box = $("nh-diagnose-answer");
+    if (!a) { box.hidden = true; return; }
+    const kind = a.depth === "deep" ? "Detailed analysis" : "Quick check";
+    const bits = [kind, a.model_label, when(a.at)];
+    bits.push(`${num(a.input_tokens, 0)} tokens in, ${num(a.output_tokens, 0)} out`);
+    if (a.cost_usd != null) bits.push(`about US$${a.cost_usd < 0.01 ? "0.01" : a.cost_usd.toFixed(2)}`);
+    if (a.reused) bits.push("shown again (asked less than 5 min ago)");
+    if (a.truncated) bits.push("cut short: hit the length limit");
+    $("nh-diagnose-meta").textContent = bits.join(" · ");
+    const nodes = answerNodes(a.text);
+    if (a.question) nodes.unshift(el("p", "nh-tile-sub", `Asked: ${a.question}`));
+    $("nh-diagnose-text").replaceChildren(...nodes);
+    box.hidden = false;
+}
+
+function drawDiagnoseInfo(info) {
+    const quick = $("nh-diagnose-quick"), deep = $("nh-diagnose-deep");
+    quick.textContent = `Quick check (${info.models.quick})`;
+    deep.textContent = `Detailed analysis (${info.models.deep})`;
+    deep.hidden = !info.can_deep;
+    const counts = [`quick ${info.used_today.quick}/${info.limits.quick} today`];
+    if (info.can_deep) counts.push(`detailed ${info.used_today.deep}/${info.limits.deep}`);
+    $("nh-diagnose-sub").textContent = `Claude reads a summary of this page · ${counts.join(" · ")}`;
+    if (!info.available) {
+        quick.disabled = deep.disabled = true;
+        $("nh-diagnose-msg").textContent = "ANTHROPIC_API_KEY isn't set on the server, so Claude can't be asked.";
+    }
+    const latest = Object.values(info.last).sort((x, y) => new Date(y.at) - new Date(x.at))[0];
+    if (!state.answerShown) drawAnswer(latest);
+}
+
+async function loadDiagnose() {
+    drawDiagnoseInfo(await api("/network/health/diagnose"));
+}
+
+async function runDiagnose(e) {
+    e.preventDefault();
+    const depth = e.submitter?.dataset.depth || "quick";
+    const buttons = [$("nh-diagnose-quick"), $("nh-diagnose-deep")];
+    const msg = $("nh-diagnose-msg");
+    const question = $("nh-diagnose-question").value.trim();
+    buttons.forEach(b => { b.disabled = true; });
+    msg.textContent = depth === "deep"
+        ? "Claude is going through everything. This can take a few minutes; you can keep using the page."
+        : "Asking Claude… usually under a minute.";
+    try {
+        const answer = await api("/network/health/diagnose", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ depth, question: question || null }),
+        });
+        state.answerShown = true;
+        drawAnswer(answer);
+        msg.textContent = "";
+    } catch (err) {
+        msg.textContent = err.message;
+    } finally {
+        buttons.forEach(b => { b.disabled = false; });
+        loadDiagnose().catch(() => {});
+    }
+}
+
 // ---- Settings (Network Health > Admin) ----
 
 function toLocalInput(iso) {
@@ -1015,6 +1112,7 @@ export function initNetworkHealth() {
         load();
     });
     $("nh-settings-form").addEventListener("submit", saveSettings);
+    $("nh-diagnose-form").addEventListener("submit", runDiagnose);
     const observer = new ResizeObserver(() => {
         clearTimeout(state.resizeTimer);
         state.resizeTimer = setTimeout(() => { drawGraphs(); drawCrcGraph(); drawInsideProbes(); }, 150);
@@ -1027,6 +1125,7 @@ export function initNetworkHealth() {
         showView("view-network-health");
         load();
         loadSettings().catch(err => { $("nh-settings-msg").textContent = err.message; });
+        loadDiagnose().catch(err => { $("nh-diagnose-msg").textContent = err.message; });
         if (!state.timer) state.timer = setInterval(load, REFRESH_MS);
     });
 }
