@@ -40,8 +40,52 @@ class WhereServed(unittest.TestCase):
         self.assertIsNone(routes.verdict_of({"status": "failed", "last_ms": 7}))
         self.assertIsNone(routes.verdict_of(None))
 
+    def test_50_up_to_110_is_south_africa_likely(self):
+        self.assertEqual(routes.where_served(49.9), routes.AFRICA)
+        self.assertEqual(routes.where_served(50), routes.SOUTH_AFRICA)
+        self.assertEqual(routes.where_served(72), routes.SOUTH_AFRICA)      # 1.1.1.1 today
+        self.assertEqual(routes.where_served(109.9), routes.SOUTH_AFRICA)
+        self.assertEqual(routes.where_served(110), routes.AFRICA)
+
     def test_every_verdict_has_a_word(self):
-        self.assertEqual(set(routes.VERDICT_LABELS), {routes.KENYA, routes.AFRICA, routes.ABROAD})
+        self.assertEqual(set(routes.VERDICT_LABELS), {routes.KENYA, routes.AFRICA, routes.SOUTH_AFRICA, routes.ABROAD})
+        self.assertEqual(routes.VERDICT_LABELS[routes.SOUTH_AFRICA], "South Africa (likely)")
+
+
+class InternationalPath(unittest.TestCase):
+    def frankfurt(self, hops, status="ok", last_ms=203.1):
+        return {"ts": at(21, 21), "route": {"host": "195.238.122.164", "ip": "195.238.122.164", "status": status,
+                                            "last_ms": last_ms, "hops": hops}}
+
+    def test_labels_and_group(self):
+        records = [record(at(21, 21), 7, host="www.youtube.com"), record(at(21, 21), 72, host="1.1.1.1"),
+                   self.frankfurt([])]
+        rows = routes.site_rows(records)
+        self.assertEqual([(r["host"], r["label"], r["group"]) for r in rows], [
+            ("www.youtube.com", "www.youtube.com", routes.CONTENT),
+            ("195.238.122.164", "Frankfurt (our server)", routes.INTERNATIONAL),
+            ("1.1.1.1", "Cloudflare DNS", routes.INTERNATIONAL)])
+        self.assertEqual(rows[2]["verdict"], routes.SOUTH_AFRICA)
+
+    def test_content_sites_come_first_even_unknown_ones(self):
+        records = [record(at(21, 21), 72, host="1.1.1.1"), record(at(21, 21), 7, host="example.org")]
+        self.assertEqual([r["group"] for r in routes.site_rows(records)], [routes.CONTENT, routes.INTERNATIONAL])
+
+    def test_stopping_at_the_hop_limit_is_not_a_failure(self):
+        hops = [{"hop": n, "address": None if n == 20 else f"10.0.0.{n}", "ms": None if n == 20 else n * 10.0}
+                for n in range(1, 21)]
+        row = routes.site_rows([self.frankfurt(hops, last_ms=190.0)])[0]
+        self.assertEqual(row["verdict"], routes.ABROAD)
+        self.assertIs(row["reached_target"], False)
+        self.assertEqual((row["last_hop_number"], row["last_hop_address"]), (19, "10.0.0.19"))
+
+    def test_an_unusual_status_with_a_last_hop_still_has_a_verdict(self):
+        self.assertEqual(routes.verdict_of({"status": "incomplete", "last_ms": 190}), routes.ABROAD)
+
+    def test_reaching_the_target(self):
+        hops = [{"hop": 1, "address": "102.0.27.189", "ms": 1.0}, {"hop": 2, "address": "195.238.122.164", "ms": 203.0}]
+        self.assertIs(routes.site_rows([self.frankfurt(hops)])[0]["reached_target"], True)
+        self.assertIsNone(routes.reached_target({"ip": None, "hops": hops}))
 
 
 class Slot(unittest.TestCase):

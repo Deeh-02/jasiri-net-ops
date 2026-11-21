@@ -21,6 +21,7 @@ LONG_FACTS = {
     "OPTIC_DEGRADING": [{"rx": -40.123, "usual": -39.9}],
     "LINK_DOWN": [{"link_downs": 99999}],
     "LINK_ERRORS": [{"errors": 99999}],
+    "DNS_ROUTER": [{"ms": 99999, "fails": 2}, {"ms": 99999, "fails": 0}],
     "ROUTER_SILENT": [{"minutes": 99999}],
     "FEED_SILENT": [{"minutes": 99999}],
 }

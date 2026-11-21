@@ -70,7 +70,8 @@ function badge(status) {
     return el("span", `nh-badge ${cls}`, `${glyph} ${word}`);
 }
 
-const PROBE_NAMES = { "p-gw": "Airtel gateway", "p-cf": "1.1.1.1", "p-goog": "8.8.8.8", "p-nbo": "Nairobi (KIXP)", "p-fra": "Frankfurt" };
+const PROBE_NAMES = { "p-gw": "Airtel gateway", "p-cf": "1.1.1.1", "p-goog": "8.8.8.8", "p-nbo": "Nairobi (KIXP)", "p-fra": "Frankfurt",
+                      "p-za": "South Africa (Vodacom)" };
 function probeName(name) {
     if (name.startsWith("i-")) return `${PROBE_NAMES[`p-${name.slice(2)}`] || name} via CCR2004`;
     return PROBE_NAMES[name] || name;
@@ -190,14 +191,15 @@ function drawSms(sms) {
 // Glyph + word, never colour alone (design.md).
 const SERVED = {
     kenya: ["●", "nh-ok"],
+    south_africa: ["◆", "nh-info"],
     africa: ["◐", "nh-unknown"],
     abroad: ["▲", "nh-warn"],
 };
 
 function servedBadge(site, labels) {
     if (!site.verdict) return el("span", "nh-badge nh-unknown", site.status === "failed" ? "○ Check failed" : "○ No answer");
-    const [glyph, cls] = SERVED[site.verdict];
-    return el("span", `nh-badge ${cls}`, `${glyph} ${labels[site.verdict]}`);
+    const [glyph, cls] = SERVED[site.verdict] || ["◐", "nh-unknown"];
+    return el("span", `nh-badge ${cls}`, `${glyph} ${labels[site.verdict] || site.verdict}`);
 }
 
 function hopList(site) {
@@ -214,19 +216,34 @@ function hopList(site) {
     return list;
 }
 
-function drawRoutes(data) {
-    $("nh-routes-sub").textContent = `traceroute from the CCR2116 at 21:00 and 04:00 · last hop under ${data.limits.kenya_under_ms} ms = Kenya, `
-        + `${data.limits.abroad_from_ms} ms or more = abroad · tap a site for its hops`;
-    const tbody = $("nh-routes");
-    if (!data.sites.length) return emptyRow(tbody, 5, "No traceroutes yet. They run at 21:00 and 04:00.");
+// The traceroute stops at 20 hops: a far target can end on the last hop
+// that answered instead of the target. Said in words, not a failure.
+function lastHopCell(site) {
+    if (site.last_ms == null) return cell("Last hop", "—");
+    const wrap = el("span", null, `${num(site.last_ms)} ms`);
+    if (site.reached_target === false) {
+        wrap.append(el("span", "nh-route-note", ` · stopped at hop ${site.last_hop_number ?? "?"}, before the target`));
+    }
+    return cell("Last hop", wrap);
+}
+
+function siteName(site) {
+    const isOpen = state.openRoutes.has(site.host);
+    const toggle = el("button", "nh-route-toggle", `${isOpen ? "▾" : "▸"} ${site.label}`);
+    toggle.type = "button";
+    toggle.setAttribute("aria-expanded", String(isOpen));
+    toggle.setAttribute("aria-controls", `nh-hops-${site.host}`);
+    if (site.label === site.host) return toggle;
+    const wrap = el("span", "nh-route-name");
+    wrap.append(toggle, el("span", "nh-route-host", site.host));
+    return wrap;
+}
+
+function routeRows(sites, data, nameHeader, verdictHeader) {
     const rows = [];
-    for (const site of data.sites) {
+    for (const site of sites) {
         const isOpen = state.openRoutes.has(site.host);
         const tr = el("tr", "nh-route-row");
-        const toggle = el("button", "nh-route-toggle", `${isOpen ? "▾" : "▸"} ${site.host}`);
-        toggle.type = "button";
-        toggle.setAttribute("aria-expanded", String(isOpen));
-        toggle.setAttribute("aria-controls", `nh-hops-${site.host}`);
         const checked = `${when(site.checked_at)} (${data.slots[site.slot]})`;
         let change = el("span", "nh-route-same", !site.verdict ? "Not compared (no answer)"
             : (site.previous_checked_at ? "No change" : "First check of this time"));
@@ -235,9 +252,8 @@ function drawRoutes(data) {
                 `⇄ was ${data.labels[site.change.was]}, now ${data.labels[site.change.now]}`);
             change.title = `Compared with the ${data.slots[site.slot]} check of ${when(site.previous_checked_at)}`;
         }
-        tr.append(cell("Site", toggle), cell("Served from", servedBadge(site, data.labels)),
-                  cell("Last hop", site.last_ms == null ? "—" : `${num(site.last_ms)} ms`),
-                  cell("Checked", checked), cell("Since the last check", change));
+        tr.append(cell(nameHeader, siteName(site)), cell(verdictHeader, servedBadge(site, data.labels)),
+                  lastHopCell(site), cell("Checked", checked), cell("Since the last check", change));
         tr.addEventListener("click", () => {
             if (state.openRoutes.has(site.host)) state.openRoutes.delete(site.host);
             else state.openRoutes.add(site.host);
@@ -249,22 +265,44 @@ function drawRoutes(data) {
             detail.id = `nh-hops-${site.host}`;
             const td = el("td");
             td.colSpan = 5;
-            td.append(el("div", "nh-hops-head", `${site.host} → ${site.ip || "no address"} · ${checked}`), hopList(site));
+            const ends = site.reached_target === false
+                ? ` · stopped at hop ${site.last_hop_number ?? "?"} (${site.last_hop_address}), the 20-hop limit` : "";
+            td.append(el("div", "nh-hops-head", `${site.host} → ${site.ip || "no address"} · ${checked}${ends}`), hopList(site));
             detail.append(td);
             rows.push(detail);
         }
     }
-    tbody.replaceChildren(...rows);
+    return rows;
+}
+
+function drawRoutes(data) {
+    const l = data.limits;
+    $("nh-routes-sub").textContent = `traceroute from the CCR2116 at 21:00 and 04:00 · last hop under ${l.kenya_under_ms} ms = Kenya, `
+        + `${l.za_from_ms}–${l.za_under_ms} ms = South Africa (likely), ${l.abroad_from_ms} ms or more = abroad · tap a row for its hops`;
+    const content = data.sites.filter(s => s.group !== "international");
+    const international = data.sites.filter(s => s.group === "international");
+    const tbody = $("nh-routes");
+    if (!content.length) emptyRow(tbody, 5, "No traceroutes yet. They run at 21:00 and 04:00.");
+    else tbody.replaceChildren(...routeRows(content, data, "Site", "Served from"));
+    const intl = $("nh-routes-intl");
+    if (!international.length) emptyRow(intl, 5, "No traceroutes yet. Frankfurt and 1.1.1.1 start with the 21:00 run.");
+    else intl.replaceChildren(...routeRows(international, data, "Target", "Path ends in"));
 }
 
 // ---- Graphs ----
 
 // Fixed colour per probe target (never by rank): CCR2004 twins (i-*) share
 // their p-* colour, dashed; new-provider twins are dotted.
-const PROBE_COLOURS = { "p-gw": "--nh-c1", "p-cf": "--nh-c2", "p-nbo": "--nh-c3", "p-goog": "--nh-c4", "p-fra": "--nh-c5" };
+// p-za's green can't be told from 1.1.1.1's orange (colour-blind) or
+// Nairobi's aqua on colour alone, so it is also dash-dotted. A probe this
+// page doesn't know yet is grey, under its raw name.
+const PROBE_COLOURS = { "p-gw": "--nh-c1", "p-cf": "--nh-c2", "p-nbo": "--nh-c3", "p-goog": "--nh-c4", "p-fra": "--nh-c5",
+                        "p-za": "--nh-c6" };
+const PROBE_DASHES = { "p-za": "9 3 2 3" };
 function probeStyle(name) {
     const base = name.replace(/^i-/, "p-").replace(/-new$/, "");
-    return { colour: PROBE_COLOURS[base] || "--nh-c6", dash: name.startsWith("i-") ? "6 4" : (name.endsWith("-new") ? "2 3" : null) };
+    const dash = name.startsWith("i-") ? "6 4" : (name.endsWith("-new") ? "2 3" : (PROBE_DASHES[base] || null));
+    return { colour: PROBE_COLOURS[base] || "--nh-other", dash };
 }
 
 function niceTicks(min, max, count = 4) {
@@ -382,14 +420,24 @@ function drawGraph(fig, spec) {
         const legend = el("div", "nh-legend");
         for (const s of spec.series) {
             const item = el("span", "nh-legend-item");
-            const swatch = el("span", `nh-swatch${s.dash ? " is-dashed" : ""}${s.hollow ? " is-hollow" : ""}`);
-            swatch.style.setProperty("--swatch", `var(${s.colour})`);
+            let swatch;
+            if (s.dots) {
+                swatch = el("span", `nh-swatch is-hollow`);
+                swatch.style.setProperty("--swatch", `var(${s.colour})`);
+                if (!s.hollow) swatch.style.background = `var(${s.colour})`;
+            } else {
+                swatch = svg("svg", { width: 22, height: 6, class: "nh-swatch-line", "aria-hidden": "true" });
+                const line = svg("line", { x1: 1, x2: 21, y1: 3, y2: 3, stroke: `var(${s.colour})`, "stroke-width": 2,
+                                           "stroke-linecap": "round" });
+                if (s.dash) line.setAttribute("stroke-dasharray", s.dash);
+                swatch.append(line);
+            }
             item.append(swatch, document.createTextNode(s.name));
             legend.append(item);
         }
         fig.append(legend);
     }
-    if (spec.marks?.length) fig.append(el("div", "nh-graph-note", "Red ticks on the baseline: no reply at all (outage)."));
+    if (spec.marks?.length) fig.append(el("div", "nh-graph-note", spec.markNote || "Red ticks on the baseline: no reply at all (outage)."));
 }
 
 // Crosshair + a label with every series' value at the nearest reading.
@@ -436,6 +484,40 @@ function probeSeries(rows, field, names) {
         values: rows.filter(r => r.name === name).map(r => ({ t: T(r.t), v: r[field] })) }));
 }
 
+// DNS lookup time: one line per resolver (the slower of its two lookups),
+// averaged over the runs with no failure; a failed lookup is a red tick on
+// the baseline and is named in the hover label, not drawn as 10 s.
+const DNS_NAMES = { rt: "Router", g8: "Google 8.8.8.8", q9: "Quad9 9.9.9.9" };
+const DNS_COLOURS = { rt: "--nh-c1", g8: "--nh-c4", q9: "--nh-c3" };
+const DNS_ORDER = ["rt", "g8", "q9"];
+
+function drawDnsGraph(c) {
+    const rows = c.dns || [];
+    const names = [...new Set(rows.map(r => r.name))]
+        .sort((a, b) => (DNS_ORDER.includes(a) ? DNS_ORDER.indexOf(a) : 99) - (DNS_ORDER.includes(b) ? DNS_ORDER.indexOf(b) : 99) || a.localeCompare(b));
+    const label = name => DNS_NAMES[name] || `${name} (${rows.find(r => r.name === name)?.server || "?"})`;
+    const series = names.map(name => ({
+        name: label(name), colour: DNS_COLOURS[name] || "--nh-other",
+        values: rows.filter(r => r.name === name).map(r => ({
+            t: T(r.t), v: r.ms,
+            note: r.fails ? `${r.fails} failed lookup${r.fails === 1 ? "" : "s"}${r.ms == null ? "" : `, otherwise ${num(r.ms)} ms`}` : null,
+        })),
+    }));
+    const slow = c.thresholds.dns_slow_ms;
+    // The 500 ms line only once lookups get anywhere near it: on a healthy
+    // day (1-10 ms) it would flatten every line to the floor.
+    const worst = Math.max(0, ...rows.map(r => r.ms ?? 0));
+    const failed = rows.filter(r => r.fails > 0);
+    drawGraph($("nh-g-dns"), {
+        title: "DNS lookup time", unit: " ms", yFloor0: true,
+        sub: `slower of two lookups, average per ${c.bucket_seconds / 60} min · router alert: failing or over ${slow} ms twice in a row (page only)`,
+        series,
+        refs: worst > slow / 5 ? [{ v: slow, label: `${slow} ms` }] : [],
+        marks: failed.map(r => ({ t: T(r.t) })),
+        markNote: "Red ticks on the baseline: a failed lookup (hover for which resolver).",
+    });
+}
+
 function drawGraphs() {
     const c = state.charts;
     if (!c) return;
@@ -466,11 +548,11 @@ function drawGraphs() {
         title: "Latency, far", sub: `targets over ${FAR_PROBE_MS} ms`, unit: " ms", yFloor0: true,
         series: probeSeries(c.probes, "rtt", names.filter(isFar)),
     });
-    // Loss and jitter: the two probes the alerts judge, plus Nairobi and
-    // Frankfurt (drawn only), in this fixed order. Each point is the average
+    // Loss and jitter: the two probes the alerts judge, plus Nairobi, South
+    // Africa and Frankfurt (drawn only), in this fixed order. Each point is the average
     // over its bucket (5 min on 24 h, 30 min on 7 d): one probe test is 10
     // pings, so a single minute's loss moves in steps of 10 %.
-    const lossProbes = ["p-gw", "p-cf", "p-nbo", "p-fra"].filter(n => names.includes(n));
+    const lossProbes = ["p-gw", "p-cf", "p-nbo", "p-za", "p-fra"].filter(n => names.includes(n));
     const qualitySub = `average per ${c.bucket_seconds / 60} min · alerts judge the Airtel gateway and 1.1.1.1 only`;
     drawGraph($("nh-g-loss"), {
         title: "Packet loss", sub: qualitySub, unit: "%", yFloor0: true,
@@ -482,6 +564,7 @@ function drawGraphs() {
         series: probeSeries(c.probes, "jitter", lossProbes),
         refs: [{ v: c.thresholds.jitter_ms, label: `${c.thresholds.jitter_ms} ms` }],
     });
+    drawDnsGraph(c);
     const speedPoint = r => ({ t: T(r.t), v: r.status === "failed" ? 0 : r.mbps,
         note: r.status === "failed" ? "test failed" : `${num(r.mbps)} Mbps, load before ${num(r.load_before_mbps)} Mbps` });
     const nightHour = r => new Date(T(r.t) + 3 * 3600000).getUTCHours() === 3;

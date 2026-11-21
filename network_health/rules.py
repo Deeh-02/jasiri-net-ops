@@ -33,12 +33,13 @@ RULE_LABELS = {
     "LINK_DOWN": "Uplink dropped",
     "LINK_ERRORS": "Link errors",
     "CPU_HIGH": "CPU high",
+    "DNS_ROUTER": "Router DNS failing or slow",
 }
 # Checks needed in a row before firing / clearing, where it isn't the default.
-FIRE_AFTER = {"OPTIC_DEGRADING": 2, "LINK_ERRORS": config.LINK_ERRORS_FIRE_AFTER}
+FIRE_AFTER = {"OPTIC_DEGRADING": 2, "LINK_ERRORS": config.LINK_ERRORS_FIRE_AFTER, "DNS_ROUTER": config.DNS_FIRE_AFTER}
 # LINK_DOWN clears on the next 5-minute reading with no new drop.
 CLEAR_AFTER = {"FEED_SILENT": 1, "ROUTER_SILENT": 1, "SPEED_LOW": 1, "OPTIC_DEGRADING": 2, "LINK_DOWN": 1,
-               "LINK_ERRORS": config.LINK_ERRORS_FIRE_AFTER}
+               "LINK_ERRORS": config.LINK_ERRORS_FIRE_AFTER, "DNS_ROUTER": config.DNS_CLEAR_AFTER}
 # For these a LOWER value is worse (an incident's "peak" is its lowest value).
 LOWER_IS_WORSE = ("SPEED_LOW", "OPTIC_DEGRADING")
 
@@ -202,6 +203,23 @@ def check_optic(link, baseline_avg_dbm, baseline_count):
     usual = baseline_avg_dbm if has_baseline else None
     is_weak = rx < config.OPTIC_FLOOR_DBM or (usual is not None and usual - rx > config.OPTIC_DROP_DB)
     return make_check("ccr2116", "OPTIC_DEGRADING", is_weak, value=rx, facts={"rx": rx, "usual": usual})
+
+
+# ---- DNS (the 5-minute `dns` readings) ----
+
+def check_dns_router(dns):
+    """One run of the router's own resolver: bad when a lookup failed or the
+    slower of its two lookups took over 500 ms. Fires after DNS_FIRE_AFTER
+    bad runs in a row (step() counts them). A run without the router
+    resolver says nothing."""
+    resolver = next((r for r in (dns or {}).get("resolvers") or []
+                     if r.get("name") == config.DNS_ROUTER_RESOLVER), None)
+    if resolver is None or (resolver.get("worst_ms") is None and resolver.get("fails") is None):
+        return make_check("ccr2116", "DNS_ROUTER", None)
+    fails = resolver.get("fails") or 0
+    worst = resolver.get("worst_ms")
+    is_bad = fails > 0 or (worst is not None and worst > config.DNS_SLOW_MS)
+    return make_check("ccr2116", "DNS_ROUTER", is_bad, value=worst, facts={"ms": worst, "fails": fails})
 
 
 # ---- The speed test ----

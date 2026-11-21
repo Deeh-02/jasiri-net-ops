@@ -9,6 +9,22 @@ and in `phase.md`'s own per-phase writeups.
 
 Started 2026-11-15 at the owner's request, after Phase 6 was merged to `main`.
 
+### Network Health: South Africa probe, DNS, international path (2026-11-21)
+- **New probe: South Africa (Vodacom)**, about 72 ms, on "Latency, nearby" and
+  on the Packet loss and Jitter graphs. It is green and dash-dotted, so it
+  isn't told apart from 1.1.1.1 or Nairobi by colour alone; the legend shows
+  each line's own pattern. A probe the page doesn't know yet shows grey,
+  under its raw name.
+- **New graph: DNS lookup time**, every 5 minutes, for the router, Google
+  8.8.8.8 and Quad9 9.9.9.9. Failed lookups are red ticks (hover says which
+  resolver). If the router's own DNS fails or takes over half a second twice
+  in a row, an incident opens on the page; no SMS for now.
+- **Route card:** a new "South Africa (likely)" verdict for a last hop of
+  50-110 ms, and a separate "International path" table for Frankfurt (our
+  server) and Cloudflare DNS (1.1.1.1). A traceroute that stops at its 20-hop
+  limit says where it stopped and isn't counted as failed.
+- Needed migration 0043 (run).
+
 ### Network Health: loss and jitter for Nairobi and Frankfurt (2026-11-21)
 - **The Packet loss and Jitter graphs also draw Nairobi (KIXP) and Frankfurt**,
   each in its own colour with a legend, averaged per 5 minutes (30 on the

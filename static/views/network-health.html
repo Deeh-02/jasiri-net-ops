@@ -25,6 +25,7 @@
             <figure class="nh-graph" id="nh-g-latency-far"></figure>
             <figure class="nh-graph" id="nh-g-loss"></figure>
             <figure class="nh-graph" id="nh-g-jitter"></figure>
+            <figure class="nh-graph" id="nh-g-dns"></figure>
             <figure class="nh-graph" id="nh-g-speed"></figure>
             <figure class="nh-graph" id="nh-g-optic"></figure>
             <figure class="nh-graph" id="nh-g-ppp"></figure>
@@ -36,6 +37,13 @@
             <table class="nh-table nh-routes">
                 <thead><tr><th>Site</th><th>Served from</th><th>Last hop</th><th>Checked</th><th>Since the last check</th></tr></thead>
                 <tbody id="nh-routes" data-skeleton="5"></tbody>
+            </table>
+        </div>
+        <h3 class="nh-h3">International path <span class="nh-h2-sub">watches for transit changes, not where content is served</span></h3>
+        <div class="table-scroll table-compact">
+            <table class="nh-table nh-routes">
+                <thead><tr><th>Target</th><th>Path ends in</th><th>Last hop</th><th>Checked</th><th>Since the last check</th></tr></thead>
+                <tbody id="nh-routes-intl" data-skeleton="5"></tbody>
             </table>
         </div>
 

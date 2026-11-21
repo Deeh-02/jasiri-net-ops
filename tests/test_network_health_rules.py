@@ -172,6 +172,46 @@ class Cpu(unittest.TestCase):
         self.assertEqual((check["device"], check["verdict"]), ("ccr2004", False))
 
 
+class Dns(unittest.TestCase):
+    def run_of(self, worst_ms=1.6, fails=0, name="rt"):
+        return {"resolvers": [{"name": "g8", "server": "8.8.8.8", "worst_ms": 10000, "fails": 2},
+                              {"name": name, "server": "router", "worst_ms": worst_ms, "fails": fails}]}
+
+    def checks(self, *runs):
+        return [rules.check_dns_router(run) for run in runs]
+
+    def test_one_failed_run_does_not_fire_two_do(self):
+        _, seen = run(self.checks(self.run_of(10000, 1), self.run_of(10000, 1)))
+        self.assertEqual(seen, [None, "fire"])
+
+    def test_slow_twice_in_a_row_fires(self):
+        _, seen = run(self.checks(self.run_of(501), self.run_of(900)))
+        self.assertEqual(seen, [None, "fire"])
+
+    def test_500_ms_exactly_is_not_slow(self):
+        self.assertFalse(rules.check_dns_router(self.run_of(500))["verdict"])
+
+    def test_a_good_run_in_between_resets(self):
+        _, seen = run(self.checks(self.run_of(900), self.run_of(2), self.run_of(900)))
+        self.assertEqual(seen, [None, None, None])
+
+    def test_clears_after_two_good_runs(self):
+        _, seen = run(self.checks(self.run_of(900), self.run_of(900), self.run_of(2), self.run_of(2)))
+        self.assertEqual(seen, [None, "fire", "hold", "clear"])
+
+    def test_only_the_router_resolver_counts(self):
+        # g8 fails in every run above; that alone never makes the check bad.
+        self.assertFalse(rules.check_dns_router(self.run_of(2))["verdict"])
+        self.assertIsNone(rules.check_dns_router(self.run_of(name="q9"))["verdict"])
+        self.assertIsNone(rules.check_dns_router(None)["verdict"])
+
+    def test_page_only(self):
+        check = rules.check_dns_router(self.run_of(10000, 2))
+        self.assertEqual(check["severity"], rules.AMBER)
+        self.assertNotIn("DNS_ROUTER", config.SMS_RULES)
+        self.assertEqual(check["facts"], {"ms": 10000, "fails": 2})
+
+
 class Link(unittest.TestCase):
     BASE = {"rx_dbm": -6.3, "link_downs": 7, "rx_fcs": 0, "rx_err_events": 0, "rx_overflow": 0, "tx_drop": 58}
 

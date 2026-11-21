@@ -2456,6 +2456,27 @@ split at midday Nairobi time). Page only, never an SMS. Route rows are the
 one kind the 10-day cleanup keeps: they are the before/after of the
 provider switch (8 a day).
 
+From 2026-11-21 the band 50 up to 110 ms reads "South Africa (likely)"
+(1.1.1.1 and the Vodacom probe sit at about 72 ms; 110 up to 140 is unclear
+again), and two more targets arrive: 195.238.122.164 ("Frankfurt (our
+server)") and 1.1.1.1 ("Cloudflare DNS"). They are their own "International
+path" group below the content sites: they catch transit changes, not where
+content is served. Only status "failed" means no verdict: a traceroute that
+stops at its 20-hop limit before the target is read from the last hop that
+answered, and the page says where it stopped.
+
+### DNS lookup time (`dns` records, 2026-11-21)
+
+Every 5 minutes the CCR2116 times two lookups against 8.8.8.8, 9.9.9.9 and
+itself; each resolver reports the slower lookup (a failure counts as 10 s)
+and how many failed. Stored in `nh_readings.dns` (migration 0043), kept 10
+days like the other frequent readings. The graph averages only the runs
+with no failure and marks failures as ticks, so one failure doesn't flatten
+it to a 10 s spike. DNS_ROUTER fires when the router's own resolver fails a
+lookup or takes over 500 ms in two runs in a row (a failure is also over
+500 ms, so either way it is "bad twice running"), clears after two good
+runs, and is AMBER and outside SMS_RULES: page only for now.
+
 ### SMS: planned purely, sent after commit
 
 `alerts.plan()` is pure and decides, per fire/clear, whether to text and

@@ -46,10 +46,10 @@ def save_batch(source, sent_at, records):
         stored_keys = set()
         if records:
             rows = [(r["key"], r["ts"], r["kind"], r["from_ip"], r["raw"], _json(r["load"]), _json(r["probes"]),
-                     _json(r["link"]), _json(r["speed"]), _json(r.get("route"))) for r in records]
+                     _json(r["link"]), _json(r["speed"]), _json(r.get("route")), _json(r.get("dns"))) for r in records]
             stored = execute_values(
                 cur,
-                """INSERT INTO nh_readings (key, ts, kind, from_ip, raw, load, probes, link, speed, route) VALUES %s
+                """INSERT INTO nh_readings (key, ts, kind, from_ip, raw, load, probes, link, speed, route, dns) VALUES %s
                    ON CONFLICT (key) DO NOTHING RETURNING key""",
                 rows, page_size=500, fetch=True)
             stored_keys = {row[0] for row in stored}
@@ -79,20 +79,21 @@ def delete_old_readings():
 def readings(cur, kinds, since, until):
     """Readings of these kinds with since < ts <= until, oldest first."""
     cur.execute(
-        """SELECT ts, kind, load, probes, link, speed FROM nh_readings
+        """SELECT ts, kind, load, probes, link, speed, dns FROM nh_readings
            WHERE kind = ANY(%s) AND ts > %s AND ts <= %s ORDER BY ts""",
         (list(kinds), since, until))
-    return [{"ts": r[0], "kind": r[1], "load": r[2], "probes": r[3], "link": r[4], "speed": r[5]}
+    return [{"ts": r[0], "kind": r[1], "load": r[2], "probes": r[3], "link": r[4], "speed": r[5], "dns": r[6]}
             for r in cur.fetchall()]
 
 
 def previous_reading(cur, kind, before):
     """The latest reading of this kind strictly before a moment, or None."""
     cur.execute(
-        "SELECT ts, kind, load, probes, link, speed FROM nh_readings WHERE kind = %s AND ts < %s ORDER BY ts DESC LIMIT 1",
+        "SELECT ts, kind, load, probes, link, speed, dns FROM nh_readings WHERE kind = %s AND ts < %s ORDER BY ts DESC LIMIT 1",
         (kind, before))
     r = cur.fetchone()
-    return None if r is None else {"ts": r[0], "kind": r[1], "load": r[2], "probes": r[3], "link": r[4], "speed": r[5]}
+    return None if r is None else {"ts": r[0], "kind": r[1], "load": r[2], "probes": r[3], "link": r[4], "speed": r[5],
+                                   "dns": r[6]}
 
 
 def last_received_at(cur, kind):
@@ -387,4 +388,15 @@ def chart_series(since, bucket_seconds):
             """SELECT ts, kind, speed FROM nh_readings WHERE kind IN ('speed', 'speednew') AND ts >= %(since)s
                ORDER BY ts""", args)
         speed = [{"t": r[0], "kind": r[1], **(r[2] or {})} for r in cur.fetchall()]
-    return {"load": load, "inner_cpu": inner_cpu, "probes": probes, "link": link, "speed": speed}
+        # DNS: lookup time averaged over the runs with no failed lookup (a
+        # failure is recorded as 10 s and would flatten the graph); failed
+        # lookups are counted separately and marked on the graph instead.
+        cur.execute(
+            f"""SELECT {BUCKET} AS b, x->>'name', max(x->>'server'),
+                       avg((x->>'worst_ms')::float8) FILTER (WHERE coalesce((x->>'fails')::float8, 0) = 0),
+                       coalesce(sum((x->>'fails')::float8), 0), count(*)
+                FROM nh_readings r CROSS JOIN LATERAL jsonb_array_elements(r.dns->'resolvers') x
+                WHERE r.kind = 'dns' AND r.ts >= %(since)s GROUP BY b, 2 ORDER BY b""", args)
+        dns = [{"t": r[0], "name": r[1], "server": r[2], "ms": r[3], "fails": int(r[4]), "runs": r[5]}
+               for r in cur.fetchall()]
+    return {"load": load, "inner_cpu": inner_cpu, "probes": probes, "link": link, "speed": speed, "dns": dns}

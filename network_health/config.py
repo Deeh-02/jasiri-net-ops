@@ -89,13 +89,30 @@ SPEED_LOW_FRACTION = 0.5            # under half the 7-day median of 03:30 resul
 SPEED_BASELINE_MIN_TESTS = 3
 
 # Where content is served from (`route` records, 21:00 and 04:00). The last
-# hop that answered: under 15 ms = Kenya, 15 up to 140 = elsewhere in Africa
-# or unclear, 140 and over = Europe / abroad. Page only, never an SMS.
+# hop that answered: under 15 ms = Kenya; 15 up to 50 = elsewhere in Africa
+# or unclear; 50 up to 110 = South Africa (likely; 1.1.1.1 and the Vodacom
+# probe sit at about 72); 110 up to 140 = unclear again; 140 and over =
+# Europe / abroad. Page only, never an SMS.
 ROUTE_SITES = ("www.youtube.com", "www.facebook.com", "www.tiktok.com", "api.safaricom.co.ke")
 ROUTE_KENYA_UNDER_MS = 15
+ROUTE_ZA_FROM_MS = 50
+ROUTE_ZA_UNDER_MS = 110
 ROUTE_ABROAD_FROM_MS = 140
+# Traceroutes that watch the international path (transit changes), not where
+# content is served: shown as their own group, below the content sites.
+ROUTE_INTERNATIONAL = ("195.238.122.164", "1.1.1.1")
+ROUTE_HOST_LABELS = {"195.238.122.164": "Frankfurt (our server)", "1.1.1.1": "Cloudflare DNS"}
 # The card compares with the previous check of the same slot within this long.
 ROUTE_LOOKBACK_DAYS = 30
+
+# DNS (`dns` records, every 5 minutes). DNS_ROUTER fires when the router's
+# own resolver has a failed lookup, or its slower lookup takes over 500 ms,
+# in DNS_FIRE_AFTER runs in a row (a failed lookup counts as 10 s, so it is
+# also "slow"). Page only for now: not in SMS_RULES, and AMBER (RED texts).
+DNS_ROUTER_RESOLVER = "rt"
+DNS_SLOW_MS = 500
+DNS_FIRE_AFTER = 2
+DNS_CLEAR_AFTER = 2
 
 # A window must hold at least this many readings to be judged at all;
 # otherwise the rule keeps its current state (no data is not "fine").
