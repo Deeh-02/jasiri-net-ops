@@ -168,7 +168,8 @@ class RoutesCard(unittest.TestCase):
         store.route_records.assert_called_once_with(NOW - timedelta(days=30))
         self.assertEqual([(s["host"], s["verdict"]) for s in card["sites"]], [("www.youtube.com", "abroad")])
         self.assertEqual(card["labels"]["kenya"], "Kenya")
-        self.assertEqual(card["limits"], {"kenya_under_ms": 15, "abroad_from_ms": 140})
+        self.assertEqual(card["limits"], {"kenya_under_ms": 15, "za_from_ms": 50, "za_under_ms": 110,
+                                          "abroad_from_ms": 140})
 
 
 class Overview(unittest.TestCase):

@@ -10,12 +10,13 @@ starts with it again). Skips are counted and logged by the caller.
 """
 from datetime import datetime, timezone
 
-KNOWN_KINDS = ("probe", "inner", "link", "linknew", "speed", "speednew", "route")
+KNOWN_KINDS = ("probe", "inner", "link", "linknew", "speed", "speednew", "route", "dns")
 MAX_KEY_LENGTH = 200
 MAX_RAW_LENGTH = 4000
 MAX_NAME_LENGTH = 40
 MAX_PROBES = 50
 MAX_HOPS = 64
+MAX_RESOLVERS = 10
 MAX_HOST_LENGTH = 253
 
 LOAD_FIELDS = ("down_mbps", "up_mbps", "new_down_mbps", "ppp", "cpu_pct", "conns")
@@ -128,8 +129,31 @@ def _route(value):
     }
 
 
+def _resolver(entry):
+    """One resolver's run: the slower of its two lookups (a failed lookup
+    counts as 10 s there) and how many failed (0-2)."""
+    if not isinstance(entry, dict):
+        return None
+    name = entry.get("name")
+    if not isinstance(name, str) or not name.strip():
+        return None
+    server = entry.get("server")
+    fails = number_or_none(entry.get("fails"))
+    return {"name": name.strip()[:MAX_NAME_LENGTH],
+            "server": server.strip()[:64] if isinstance(server, str) and server.strip() else None,
+            "worst_ms": number_or_none(entry.get("worst_ms")),
+            "fails": None if fails is None else int(fails)}
+
+
+def _dns(value):
+    if not isinstance(value, dict) or not isinstance(value.get("resolvers"), list):
+        return None
+    resolvers = (_resolver(entry) for entry in value["resolvers"][:MAX_RESOLVERS])
+    return {"resolvers": [r for r in resolvers if r is not None]}
+
+
 def parse_record(record):
-    """One record -> {key, ts, kind, from_ip, raw, load, probes, link, speed, route},
+    """One record -> {key, ts, kind, from_ip, raw, load, probes, link, speed, route, dns},
     or None for a kind this version doesn't know (ignored, as the contract
     asks). Raises SkipRecord for a record that can't be stored."""
     if not isinstance(record, dict):
@@ -148,7 +172,7 @@ def parse_record(record):
         "kind": kind,
         "from_ip": from_ip[:64] if isinstance(from_ip, str) else None,
         "raw": raw[:MAX_RAW_LENGTH] if isinstance(raw, str) else None,
-        "load": None, "probes": None, "link": None, "speed": None, "route": None,
+        "load": None, "probes": None, "link": None, "speed": None, "route": None, "dns": None,
     }
     if kind in ("probe", "inner"):
         parsed["load"] = _pick_numbers(record.get("load"), LOAD_FIELDS)
@@ -157,6 +181,10 @@ def parse_record(record):
         parsed["link"] = _pick_numbers(record.get("link"), LINK_FIELDS)
         if parsed["link"] is None:
             raise SkipRecord(f"{kind} record has no link object")
+    elif kind == "dns":
+        parsed["dns"] = _dns(record.get("dns"))
+        if parsed["dns"] is None:
+            raise SkipRecord("dns record has no dns.resolvers list")
     elif kind == "route":
         parsed["route"] = _route(record.get("route"))
         if parsed["route"] is None:

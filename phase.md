@@ -70,6 +70,13 @@ forever; card on the page with a "changed since the same slot's previous
 check" mark, page only. Route records that arrived before this was deployed
 were answered 2xx as an unknown kind and not stored.
 
+**Owner, 2026-11-21:** new probe `p-za` (South Africa, Vodacom); new
+`dns` record kind in `nh_readings.dns` (migration 0043, approved and run
+2026-11-21), its graph and the page-only DNS_ROUTER rule; route band 50-110
+ms = South Africa (likely) and the "International path" group (Frankfurt,
+1.1.1.1). `dns` records that arrived before this was deployed were answered
+2xx as an unknown kind and not stored.
+
 **Cutover day:** after repointing `p-gw` to the new gateway, set "Provider
 switched at" on the Network Health page, and give the Frankfurt report
 script the same time as its SWITCH_TIME, so both split history at the same

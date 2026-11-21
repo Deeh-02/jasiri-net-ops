@@ -15,7 +15,7 @@ GSM7_BASIC = set(
     "@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ !\"#¤%&'()*+,-./0123456789:;<=>?"
     "¡ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÑÜ§¿abcdefghijklmnopqrstuvwxyzäöñüà"
 )
-PROBE_LABELS = {"p-gw": "Airtel gateway", "p-cf": "1.1.1.1", "p-fra": "Frankfurt"}
+PROBE_LABELS = {"p-gw": "Airtel gateway", "p-cf": "1.1.1.1", "p-fra": "Frankfurt", "p-za": "South Africa (Vodacom)"}
 
 
 def is_gsm7(text):
@@ -84,6 +84,10 @@ def problem_text(rule, facts):
         return f"uplink link dropped {number(facts.get('link_downs'))}x in 5min. Customers cut off"
     if rule == "LINK_ERRORS":
         return f"uplink errors rising ({number(facts.get('errors'))} new)"
+    if rule == "DNS_ROUTER":
+        if facts.get("fails"):
+            return f"router DNS failing ({number(facts.get('fails'))} of 2 lookups failed)"
+        return f"router DNS slow, worst lookup {number(facts.get('ms'))}ms"
     if rule == "ROUTER_SILENT":
         return f"no readings {number(facts.get('minutes'))}min. Airtel or router down"
     return rule
@@ -101,6 +105,7 @@ def recovered_text(rule, subject):
         "OPTIC_DEGRADING": "SFP signal",
         "LINK_DOWN": "uplink link",
         "LINK_ERRORS": "uplink errors",
+        "DNS_ROUTER": "router DNS",
         "ROUTER_SILENT": "readings",
     }.get(rule, rule)
 

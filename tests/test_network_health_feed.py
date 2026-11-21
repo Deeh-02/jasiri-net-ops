@@ -31,7 +31,7 @@ class Records(unittest.TestCase):
         self.assertIsNone(zero["probes"][0]["rtt_ms"])
 
     def test_unknown_kind_is_ignored(self):
-        self.assertIsNone(feed.parse_record(record(kind="dns")))
+        self.assertIsNone(feed.parse_record(record(kind="weather")))
 
     def test_unknown_fields_are_ignored(self):
         parsed = feed.parse_record(record(extra="x", load={"cpu_pct": 4, "brand_new": 1}))
@@ -59,12 +59,36 @@ class Records(unittest.TestCase):
 
 class Batches(unittest.TestCase):
     def test_counts_and_duplicate_keys(self):
-        parsed, ignored, skipped = feed.parse_batch([record(), record(), record(key="k2", kind="dns"),
+        parsed, ignored, skipped = feed.parse_batch([record(), record(), record(key="k2", kind="weather"),
                                                      record(key="k3", ts=None)])
         self.assertEqual((len(parsed), ignored, len(skipped)), (1, 1, 1))
 
     def test_empty_batch_is_a_heartbeat(self):
         self.assertEqual(feed.parse_batch([]), ([], 0, []))
+
+
+class DnsRecord(unittest.TestCase):
+    def raw(self, dns):
+        return {"key": "d1", "ts": "2026-11-21T11:05:00+03:00", "from_ip": "102.0.27.188", "kind": "dns",
+                "raw": "DNS ...", "dns": dns}
+
+    def test_the_contract_example(self):
+        parsed = feed.parse_record(self.raw({"resolvers": [
+            {"name": "g8", "server": "8.8.8.8", "worst_ms": 10.4, "fails": 0},
+            {"name": "q9", "server": "9.9.9.9", "worst_ms": 1.8, "fails": 0},
+            {"name": "rt", "server": "router", "worst_ms": 1.6, "fails": 0, "extra": 1}]}))
+        self.assertEqual(parsed["kind"], "dns")
+        self.assertEqual(parsed["dns"]["resolvers"][2], {"name": "rt", "server": "router", "worst_ms": 1.6, "fails": 0})
+
+    def test_bad_entries_are_dropped_and_numbers_checked(self):
+        parsed = feed.parse_record(self.raw({"resolvers": [{"server": "x"}, "junk",
+                                                           {"name": "rt", "worst_ms": "slow", "fails": 2.0}]}))
+        self.assertEqual(parsed["dns"]["resolvers"], [{"name": "rt", "server": None, "worst_ms": None, "fails": 2}])
+
+    def test_without_resolvers_it_is_skipped(self):
+        for dns in (None, {}, {"resolvers": "rt"}):
+            with self.assertRaises(feed.SkipRecord):
+                feed.parse_record(self.raw(dns))
 
 
 if __name__ == "__main__":

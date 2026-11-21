@@ -95,6 +95,8 @@ class Evaluation:
             self.judge_links(by_kind["link"])
         for record in by_kind.get("speed", []):
             self.judge_speed(record)
+        for record in by_kind.get("dns", []):
+            self.apply(rules.check_dns_router(record["dns"]), record["ts"])
 
     def judge_probes(self, times):
         """Every check the CCR2116's per-minute readings drive, once per new
@@ -325,7 +327,8 @@ def routes_card():
     since = store.now_utc() - timedelta(days=config.ROUTE_LOOKBACK_DAYS)
     return {"sites": routes.site_rows(store.route_records(since)),
             "labels": routes.VERDICT_LABELS, "slots": routes.SLOT_LABELS,
-            "limits": {"kenya_under_ms": config.ROUTE_KENYA_UNDER_MS, "abroad_from_ms": config.ROUTE_ABROAD_FROM_MS}}
+            "limits": {"kenya_under_ms": config.ROUTE_KENYA_UNDER_MS, "za_from_ms": config.ROUTE_ZA_FROM_MS,
+                       "za_under_ms": config.ROUTE_ZA_UNDER_MS, "abroad_from_ms": config.ROUTE_ABROAD_FROM_MS}}
 
 
 def charts(range_name):
@@ -336,7 +339,8 @@ def charts(range_name):
     return {"range": range_name, "bucket_seconds": bucket, **series, "settings": settings,
             "thresholds": {"uplink_pct": config.UPLINK_CONGESTED_PCT, "optic_floor_dbm": config.OPTIC_FLOOR_DBM,
                            "loss_amber_pct": config.LOSS_AMBER_PCT, "loss_red_pct": config.LOSS_RED_PCT,
-                           "jitter_ms": config.JITTER_HIGH_MS, "cpu_pct": config.CPU_HIGH_PCT}}
+                           "jitter_ms": config.JITTER_HIGH_MS, "cpu_pct": config.CPU_HIGH_PCT,
+                           "dns_slow_ms": config.DNS_SLOW_MS}}
 
 
 def thresholds():

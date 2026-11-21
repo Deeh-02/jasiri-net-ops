@@ -41,7 +41,7 @@ Every record has:
 | `key` | Unique id of the log line. **Dedupe on it**: the shipper resends a batch whenever it didn't get a 2xx, so the same record can arrive twice. |
 | `ts` | When the server received the reading, ISO 8601 with offset (`+03:00`). Store as timestamptz. |
 | `from_ip` | Public IP it came from (102.0.27.188 today; changes at the provider switch). |
-| `kind` | `probe`, `inner`, `link`, `linknew`, `speed`, `speednew` |
+| `kind` | `probe`, `inner`, `link`, `linknew`, `speed`, `speednew`, `route`, `dns` |
 | `raw` | The original log line, for audit and re-parsing. |
 
 Plus one of these, by `kind`:
@@ -53,7 +53,8 @@ Plus one of these, by `kind`:
 ```
 - `inner` only has `load.cpu_pct`; its probe names start with `i-`.
 - Probe names today: `p-gw` (Airtel gateway), `p-nbo` (Nairobi, UoN via KIXP),
-  `p-goog` (8.8.8.8), `p-cf` (1.1.1.1), `p-fra` (Frankfurt). Later: `p-jnb`, `p-far`,
+  `p-goog` (8.8.8.8), `p-cf` (1.1.1.1), `p-fra` (Frankfurt), `p-za` (South Africa,
+  Vodacom 196.207.45.2, about 72 ms; added 21 Nov 2026). Later: `p-jnb`, `p-far`,
   `p-gw-new`, and `-new` twins. Don't hard-code the list.
 - **`rtt_ms: null` with `loss_pct: 100` means no reply at all (an outage).
   Store it as null, never 0**, and show it as an outage.
@@ -82,6 +83,21 @@ www.facebook.com, www.tiktok.com, api.safaricom.co.ke)
 ```
 - address/ms null = that hop didn't answer (normal for traceroute, not loss).
 - last_ms = the last hop that answered. status "failed" comes with ip null and no hops.
+- From 21 Nov 2026 (21:00 run) also `host` = `1.1.1.1` (Cloudflare DNS) and
+  `195.238.122.164` (our Frankfurt monitoring server). These watch the
+  international path (transit), not where content is served.
+- The traceroute stops at 20 hops, so a far target may end on the last hop that
+  answered rather than the target itself. That is not a failure.
+
+**`dns`** (CCR2116, every 5 minutes)
+```json
+"dns": {"resolvers": [
+  {"name": "g8", "server": "8.8.8.8", "worst_ms": 10.4, "fails": 0},
+  {"name": "q9", "server": "9.9.9.9", "worst_ms": 1.8, "fails": 0},
+  {"name": "rt", "server": "router", "worst_ms": 1.6, "fails": 0}]}
+```
+- worst_ms = the slower of two lookups (www.youtube.com, api.safaricom.co.ke).
+- fails = lookups that failed (0-2). A failed lookup counts as 10 s in worst_ms.
 
 ## Response
 
@@ -93,5 +109,5 @@ www.facebook.com, www.tiktok.com, api.safaricom.co.ke)
 
 ## Volume
 
-About 1,440 `probe` + 1,440 `inner` + 288 `link` + 2 `speed` + 8 `route` records a day.
+About 1,440 `probe` + 1,440 `inner` + 288 `link` + 288 `dns` + 2 `speed` + 12 `route` records a day.
 The first run backfills everything since 20 Nov 2026 17:15 in batches of 500.
