@@ -17,6 +17,7 @@ memory: a deploy or restart resets them.
 import json
 import logging
 import os
+import re
 import ssl
 import statistics
 import threading
@@ -38,8 +39,24 @@ MODEL_LABELS = {"claude-sonnet-5-5": "Claude Sonnet 5.5", "claude-opus-5-5": "Cl
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
 
 
+_SECRET_PATTERNS = (re.compile(r"sk-ant-[A-Za-z0-9_\-]+"), re.compile(r"(?i)\bbearer\s+[^\s'\"]+"))
+
+
+def redact(text):
+    """Errors from the HTTP layer can quote the Authorization header, i.e.
+    the key. Nothing that leaves this module (page or log) keeps a key."""
+    text = str(text)
+    key = (os.environ.get("ANTHROPIC_API_KEY") or "").strip()
+    if len(key) >= 8:
+        text = text.replace(key, "[key]")
+    for pattern in _SECRET_PATTERNS:
+        text = pattern.sub("[key]", text)
+    return text
+
+
 class DiagnoseError(Exception):
     def __init__(self, status, message):
+        message = redact(message)
         super().__init__(message)
         self.status = status
         self.message = message
@@ -281,9 +298,13 @@ def _client():
     """The SDK's HTTP library (httpx2) trusts the operating system's
     certificate store by default, which Render's Python may not be able to
     read: every call then fails as "couldn't reach". Use certifi's bundle,
-    as `requests` does everywhere else in this app."""
+    as `requests` does everywhere else in this app.
+
+    The key is stripped: a key pasted into Render with a newline at the end
+    makes an illegal header and every call fails."""
     tls = ssl.create_default_context(cafile=certifi.where())
-    return anthropic.Anthropic(timeout=config.DIAGNOSE_TIMEOUT_SECONDS, max_retries=2,
+    return anthropic.Anthropic(api_key=(os.environ.get("ANTHROPIC_API_KEY") or "").strip(),
+                               timeout=config.DIAGNOSE_TIMEOUT_SECONDS, max_retries=2,
                                http_client=anthropic.DefaultHttpxClient(verify=tls))
 
 
@@ -316,7 +337,7 @@ def _call(model, effort, max_tokens, system, user):
     except anthropic.RateLimitError:
         raise DiagnoseError(503, "Anthropic is rate-limiting this key; try again in a minute.")
     except anthropic.BadRequestError as e:
-        log.warning("network health diagnosis refused by the API: %s", e.message)
+        log.warning("network health diagnosis refused by the API: %s", redact(e.message))
         raise DiagnoseError(502, f"Anthropic refused the request: {e.message}")
     except anthropic.APIStatusError as e:
         log.warning("network health diagnosis: API error %s", e.status_code)
@@ -327,8 +348,10 @@ def _call(model, effort, max_tokens, system, user):
                                  " try again.")
     except anthropic.APIConnectionError as e:
         root = _root_cause(e)
-        reason = f"{type(root).__name__}: {str(root)[:160]}".rstrip(": ")
-        log.warning("network health diagnosis: couldn't reach Anthropic: %s", reason, exc_info=True)
+        # Redacted before it is cut short, so a key can't be half-shown. No
+        # traceback in the log: it would repeat the unredacted header.
+        reason = redact(f"{type(root).__name__}: {root}")[:200].rstrip(": ")
+        log.warning("network health diagnosis: couldn't reach Anthropic: %s", reason)
         raise DiagnoseError(504, f"Couldn't reach Anthropic ({reason}); try again.")
 
 

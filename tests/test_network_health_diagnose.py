@@ -265,6 +265,36 @@ class Call(unittest.TestCase):
         self.assertIn("SSLCertVerificationError", e.message)
         self.assertIn("unable to get local issuer certificate", e.message)
 
+    def test_the_key_never_reaches_the_page_or_the_log(self):
+        import anthropic
+        import httpx2
+        fake = "sk-ant-usr-FAKEfakeFAKEfake0123456789"
+        request = httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
+        try:
+            try:
+                raise httpx2.LocalProtocolError(f"Illegal header value b'Bearer {fake}\\n'")
+            except httpx2.LocalProtocolError as inner:
+                raise anthropic.APIConnectionError(request=request) from inner
+        except anthropic.APIConnectionError as outer:
+            error = outer
+        with mock.patch.dict(os.environ, {"ANTHROPIC_API_KEY": fake + "\n"}):
+            with self.assertLogs(diagnose.log, "WARNING") as logs:
+                e = self.call_failing_with(error)
+        for text in [e.message, str(e), *logs.output]:
+            self.assertNotIn("FAKEfake", text)
+            self.assertNotIn("sk-ant-", text)
+        self.assertIn("LocalProtocolError", e.message)
+        self.assertIn("[key]", e.message)
+
+    def test_redact_catches_other_keys_and_bearer_tokens(self):
+        with mock.patch.dict(os.environ, {"ANTHROPIC_API_KEY": "plain-secret-value"}):
+            text = diagnose.redact("a sk-ant-api03-XYZ_xyz-123 b Bearer abc.def c plain-secret-value d")
+        self.assertEqual(text, "a [key] b [key] c [key] d")
+
+    def test_key_with_a_newline_is_stripped(self):
+        with mock.patch.dict(os.environ, {"ANTHROPIC_API_KEY": "  sk-ant-test-key\n"}):
+            self.assertEqual(diagnose._client().api_key, "sk-ant-test-key")
+
     def test_timeout_says_so(self):
         import anthropic
         import httpx2
