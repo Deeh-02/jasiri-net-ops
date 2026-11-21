@@ -29,7 +29,8 @@ MAX_BODY_BYTES = 1024 * 1024
 INGEST_LIMIT_PER_MINUTE = 120
 # Raw readings older than this are deleted (checked once an hour on ingest).
 # The 7-day baselines need 7 full days; the rest is margin for the 7d graphs.
-# About 3,200 readings a day at roughly 1 KB each.
+# About 3,200 readings a day at roughly 1 KB each. (`route` and `crs_link`
+# rows are kept; `olt` rows KEEP_OLT_DAYS, below.)
 KEEP_READINGS_DAYS = 10
 
 # ---- Which readings the rules look at ----
@@ -114,6 +115,30 @@ DNS_SLOW_MS = 500
 DNS_FIRE_AFTER = 2
 DNS_CLEAR_AFTER = 2
 
+# ---- Inside network (`olt` every 5 min, `crs_link` on each port change) ----
+
+# The OLT (Huawei MA5680T) uplink is its port 0/19/0, fed by the CRS326's
+# sfp-sfpplus3. Damaged frames = up_crc's increase / (up_rx's + up_crc's),
+# per 5-minute pair of readings (up_rx counts good frames only).
+# Under GREEN_UNDER is clean; over RED_OVER is bad and, OLT_CRC_FIRE_AFTER
+# readings in a row, opens OLT_CRC and texts. In between: amber on the page.
+# On 21 Nov 2026 it measured ~10 % (a bad DAC; replacement planned).
+OLT_CRC_GREEN_UNDER_PCT = 0.01
+OLT_CRC_RED_OVER_PCT = 1
+OLT_CRC_FIRE_AFTER = 2
+OLT_CRC_CLEAR_AFTER = 2
+OLT_ERRORS_COUNTER_WRAP = 2 ** 32   # up_crc is ifInErrors, a 32-bit counter
+# No complete OLT reading received for this long = OLT not answering SNMP.
+OLT_SNMP_SILENT_MINUTES = 15
+OLT_LINK_INTERFACE = "sfp-sfpplus3"
+CRS_PORT_LABELS = {"sfp-sfpplus1": "CCR2116", "sfp-sfpplus2": "CCR2004", "sfp-sfpplus3": "OLT uplink",
+                   "sfp-sfpplus4": "Proxmox"}
+# The restart list and the link events table reach back this far. `olt`
+# rows are kept KEEP_OLT_DAYS (the DAC before/after); `crs_link` rows are kept.
+INSIDE_LOOKBACK_DAYS = 30
+KEEP_OLT_DAYS = 90
+INSIDE_EVENTS_LIMIT = 100
+
 # A window must hold at least this many readings to be judged at all;
 # otherwise the rule keeps its current state (no data is not "fine").
 MIN_READINGS_IN_WINDOW = 3
@@ -126,7 +151,11 @@ CLEAR_AFTER = 3
 # ---- SMS ----
 
 # Rules that send an SMS when they fire. Any rule at RED also sends.
-SMS_RULES = ("SPEED_LOW", "UPLINK_CONGESTED", "LATENCY_HIGH", "LINK_DOWN", "FEED_SILENT", "ROUTER_SILENT")
+SMS_RULES = ("SPEED_LOW", "UPLINK_CONGESTED", "LATENCY_HIGH", "LINK_DOWN", "FEED_SILENT", "ROUTER_SILENT",
+             "OLT_CRC", "OLT_RESTART", "OLT_LINK_DOWN", "OLT_SNMP_SILENT")
+# A restart is over by the time it is seen: its fire SMS says so, and there
+# is no "back to normal" SMS after it.
+NO_CLEAR_SMS = ("OLT_RESTART",)
 # Only readings this fresh may cause an SMS. A backfill replays old readings
 # into incidents and history, but never texts about them.
 SMS_MAX_RECORD_AGE_MINUTES = 10

@@ -41,7 +41,7 @@ Every record has:
 | `key` | Unique id of the log line. **Dedupe on it**: the shipper resends a batch whenever it didn't get a 2xx, so the same record can arrive twice. |
 | `ts` | When the server received the reading, ISO 8601 with offset (`+03:00`). Store as timestamptz. |
 | `from_ip` | Public IP it came from (102.0.27.188 today; changes at the provider switch). |
-| `kind` | `probe`, `inner`, `link`, `linknew`, `speed`, `speednew`, `route`, `dns` |
+| `kind` | `probe`, `inner`, `link`, `linknew`, `speed`, `speednew`, `route`, `dns`, `olt`, `crs_link` |
 | `raw` | The original log line, for audit and re-parsing. |
 
 Plus one of these, by `kind`:
@@ -99,6 +99,33 @@ www.facebook.com, www.tiktok.com, api.safaricom.co.ke)
 - worst_ms = the slower of two lookups (www.youtube.com, api.safaricom.co.ke).
 - fails = lookups that failed (0-2). A failed lookup counts as 10 s in worst_ms.
 
+**`olt`** (CCR2116, every 5 minutes: an SNMP read of the Huawei OLT, MA5680T.
+The OLT's uplink is its port 0/19/0, which receives from the CRS326.)
+```json
+"olt": {"uptime_s": 626553.26, "up_rx": 8712156132, "up_crc": 1062606263}
+```
+- `uptime_s`: the OLT's uptime in seconds. It going DOWN between readings is
+  an OLT restart (power switchovers do this, about twice a week).
+- `up_rx`: good unicast frames received on 0/19/0 (64-bit counter).
+- `up_crc`: errored frames received on 0/19/0 (ifInErrors, 32-bit: wraps at
+  2^32). Errored frames are NOT in `up_rx`.
+- **Any field can be null: that SNMP read failed.** Store it as null; OPS
+  counts the reading as a failed poll.
+- OPS works out damaged frames per pair of readings:
+  `d_crc / (d_rx + d_crc) * 100` (a negative `d_crc` without a restart gets
+  +2^32). Never across a restart, never with a null.
+
+**`crs_link`** (when a CRS326 port goes up or down: event-driven)
+```json
+"crs_link": {"device": "crs326", "interface": "sfp-sfpplus3", "state": "down", "speed": null}
+"crs_link": {"device": "crs326", "interface": "sfp-sfpplus3", "state": "up", "speed": "10G"}
+```
+- `state` is `up` or `down` (anything else is skipped). `speed` is null on a down.
+- Ports: `sfp-sfpplus1` = CCR2116, `sfp-sfpplus2` = CCR2004,
+  `sfp-sfpplus3` = OLT uplink, `sfp-sfpplus4` = Proxmox.
+- OPS pairs each `down` with the next `up` on the same interface (the outage).
+  Only `sfp-sfpplus3` alerts.
+
 ## Response
 
 - Answer **2xx only after the batch is stored**. Anything else makes the
@@ -109,5 +136,6 @@ www.facebook.com, www.tiktok.com, api.safaricom.co.ke)
 
 ## Volume
 
-About 1,440 `probe` + 1,440 `inner` + 288 `link` + 288 `dns` + 2 `speed` + 12 `route` records a day.
+About 1,440 `probe` + 1,440 `inner` + 288 `link` + 288 `dns` + 288 `olt` + 2 `speed` + 12 `route` records
+a day, plus a `crs_link` record whenever a CRS326 port changes.
 The first run backfills everything since 20 Nov 2026 17:15 in batches of 500.

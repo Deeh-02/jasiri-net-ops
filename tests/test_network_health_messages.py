@@ -24,6 +24,10 @@ LONG_FACTS = {
     "DNS_ROUTER": [{"ms": 99999, "fails": 2}, {"ms": 99999, "fails": 0}],
     "ROUTER_SILENT": [{"minutes": 99999}],
     "FEED_SILENT": [{"minutes": 99999}],
+    "OLT_CRC": [{"pct": 100}, {"pct": 0.0001}],
+    "OLT_RESTART": [{"previous_uptime_s": 9_999_999_999, "uptime_s": 99999}, {"previous_uptime_s": None}],
+    "OLT_LINK_DOWN": [{"interface": "x" * 40}],
+    "OLT_SNMP_SILENT": [{"minutes": 99999}],
 }
 
 
@@ -64,6 +68,20 @@ class OneSegment(unittest.TestCase):
         self.assertEqual(text, "JNET ALERT CCR2116: uplink link dropped 1x in 5min. Customers cut off. Since 23:40")
         self.assertEqual(messages.clear_message("ccr2116", "LINK_DOWN", "", 5),
                          "JNET OK CCR2116: uplink link back to normal. Lasted 5min")
+
+    def test_inside_network_texts(self):
+        self.assertEqual(messages.fire_message("olt", "OLT_CRC", {"pct": 10.23}, SINCE),
+                         "JNET ALERT OLT: OLT uplink damaging frames, 10.2% of frames to customers (CRS326-OLT link). "
+                         "Since 23:40")
+        self.assertEqual(messages.fire_message("olt", "OLT_RESTART", {"previous_uptime_s": 626553.26, "uptime_s": 120},
+                                               SINCE),
+                         "JNET ALERT OLT: OLT restarted (power switchover?), had been up 7d6h. Back up at 23:38")
+        self.assertEqual(messages.fire_message("olt", "OLT_LINK_DOWN", {"interface": "sfp-sfpplus3"}, SINCE),
+                         "JNET ALERT OLT: OLT link DOWN (CRS326 sfp-sfpplus3). Customers cut off. Since 23:40")
+        self.assertEqual(messages.clear_message("olt", "OLT_LINK_DOWN", "sfp-sfpplus3", 133 / 60),
+                         "JNET OK OLT: OLT link back after 2 min 13 s")
+        self.assertEqual(messages.fire_message("olt", "OLT_SNMP_SILENT", {"minutes": 15}, SINCE),
+                         "JNET ALERT OLT: OLT not answering SNMP for 15min. Since 23:25")
 
     def test_silence_since_is_when_the_data_stopped(self):
         text = messages.fire_message("ccr2004", "ROUTER_SILENT", {"minutes": 10}, SINCE)

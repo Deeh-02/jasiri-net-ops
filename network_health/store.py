@@ -46,10 +46,12 @@ def save_batch(source, sent_at, records):
         stored_keys = set()
         if records:
             rows = [(r["key"], r["ts"], r["kind"], r["from_ip"], r["raw"], _json(r["load"]), _json(r["probes"]),
-                     _json(r["link"]), _json(r["speed"]), _json(r.get("route")), _json(r.get("dns"))) for r in records]
+                     _json(r["link"]), _json(r["speed"]), _json(r.get("route")), _json(r.get("dns")),
+                     _json(r.get("olt")), _json(r.get("crs_link"))) for r in records]
             stored = execute_values(
                 cur,
-                """INSERT INTO nh_readings (key, ts, kind, from_ip, raw, load, probes, link, speed, route, dns) VALUES %s
+                """INSERT INTO nh_readings (key, ts, kind, from_ip, raw, load, probes, link, speed, route, dns, olt,
+                                            crs_link) VALUES %s
                    ON CONFLICT (key) DO NOTHING RETURNING key""",
                 rows, page_size=500, fetch=True)
             stored_keys = {row[0] for row in stored}
@@ -66,11 +68,16 @@ def _json(value):
 
 
 def delete_old_readings():
-    """Raw readings older than KEEP_READINGS_DAYS go; `route` rows are kept
-    (8 a day: the before/after of the provider switch)."""
+    """Raw readings older than KEEP_READINGS_DAYS go. `route` rows (the
+    before/after of the provider switch) and `crs_link` rows (a few a week)
+    are kept; `olt` rows go after KEEP_OLT_DAYS (the DAC swap's before/after
+    and the restart list)."""
     with transaction() as cur:
-        cur.execute("DELETE FROM nh_readings WHERE kind <> 'route' AND ts < now() - %s * interval '1 day'",
-                    (config.KEEP_READINGS_DAYS,))
+        cur.execute(
+            """DELETE FROM nh_readings
+               WHERE (kind NOT IN ('route', 'crs_link', 'olt') AND ts < now() - %s * interval '1 day')
+                  OR (kind = 'olt' AND ts < now() - %s * interval '1 day')""",
+            (config.KEEP_READINGS_DAYS, config.KEEP_OLT_DAYS))
         return cur.rowcount
 
 
@@ -114,6 +121,63 @@ def route_records(since):
         cur.execute("SELECT ts, route FROM nh_readings WHERE kind = 'route' AND route IS NOT NULL AND ts >= %s "
                     "ORDER BY ts", (since,))
         return [{"ts": row[0], "route": row[1]} for row in cur.fetchall()]
+
+
+# ---- Inside network (`olt`, `crs_link`) ----
+
+def olt_readings(cur, since, until):
+    """`olt` readings with since < ts <= until, oldest first: {ts, olt}."""
+    cur.execute("SELECT ts, olt FROM nh_readings WHERE kind = 'olt' AND ts > %s AND ts <= %s ORDER BY ts",
+                (since, until))
+    return [{"ts": row[0], "olt": row[1] or {}} for row in cur.fetchall()]
+
+
+def last_olt_success_received(cur):
+    """When OPS received the newest COMPLETE `olt` reading (every SNMP read
+    worked). Received, not its ts: a backfill must not look like silence."""
+    cur.execute(
+        """SELECT received_at FROM nh_readings
+           WHERE kind = 'olt' AND olt->>'uptime_s' IS NOT NULL AND olt->>'up_rx' IS NOT NULL
+             AND olt->>'up_crc' IS NOT NULL
+           ORDER BY ts DESC LIMIT 1""")
+    row = cur.fetchone()
+    return row[0] if row else None
+
+
+def olt_restarts(cur, since):
+    """OLT restarts since a moment, newest first. The same rule as
+    inside.walk_olt: uptime lower than the last reading that HAD an uptime
+    (readings with a failed uptime read are left out before comparing)."""
+    cur.execute(
+        """SELECT ts, up, prev_up FROM (
+               SELECT ts, (olt->>'uptime_s')::float8 AS up,
+                      lag((olt->>'uptime_s')::float8) OVER (ORDER BY ts) AS prev_up
+               FROM nh_readings WHERE kind = 'olt' AND ts >= %s AND olt->>'uptime_s' IS NOT NULL) x
+           WHERE up < prev_up ORDER BY ts DESC""",
+        (since,))
+    return [{"detected_at": ts, "booted_at": ts - timedelta(seconds=up), "previous_uptime_s": prev_up, "uptime_s": up}
+            for ts, up, prev_up in cur.fetchall()]
+
+
+def olt_last_reads(cur):
+    """(ts of the newest `olt` reading, ts of the newest complete one).
+    Both walk the (kind, ts) index from the newest end."""
+    cur.execute("SELECT max(ts) FROM nh_readings WHERE kind = 'olt'")
+    last_poll = cur.fetchone()[0]
+    cur.execute(
+        """SELECT ts FROM nh_readings
+           WHERE kind = 'olt' AND olt->>'uptime_s' IS NOT NULL AND olt->>'up_rx' IS NOT NULL
+             AND olt->>'up_crc' IS NOT NULL
+           ORDER BY ts DESC LIMIT 1""")
+    row = cur.fetchone()
+    return last_poll, (row[0] if row else None)
+
+
+def crs_link_records(cur, since):
+    """`crs_link` records since a moment, oldest first: {ts, crs_link}."""
+    cur.execute("SELECT ts, crs_link FROM nh_readings WHERE kind = 'crs_link' AND crs_link IS NOT NULL AND ts >= %s "
+                "ORDER BY ts", (since,))
+    return [{"ts": row[0], "crs_link": row[1]} for row in cur.fetchall()]
 
 
 # ---- Baselines (the "usual" a reading is compared with) ----

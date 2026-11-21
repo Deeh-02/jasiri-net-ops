@@ -2325,6 +2325,37 @@ lookup or takes over 500 ms in two runs in a row (a failure is also over
 500 ms, so either way it is "bad twice running"), clears after two good
 runs, and is AMBER and outside SMS_RULES: page only for now.
 
+### Inside network (`olt` and `crs_link` records, 2026-11-21)
+
+Every 5 minutes the CCR2116 reads the OLT (Huawei MA5680T) over SNMP:
+uptime, and on the uplink port 0/19/0 (fed by the CRS326's sfp-sfpplus3)
+good unicast frames received (64-bit) and errored frames received
+(ifInErrors, 32-bit). Any field can be null (that read failed). The CRS326
+reports each port going up or down as a `crs_link` record. Stored in
+`nh_readings.olt` / `.crs_link` (migration 0044). The pure logic is
+`inside.py`:
+
+- **Restart:** uptime lower than the last reading that HAD an uptime (so a
+  restart behind a failed read is still seen). Never computed across.
+  `store.olt_restarts` is the same rule in SQL (LAG over the non-null
+  uptimes) for the 30-day list; boot time = reading ts - uptime.
+- **Damaged frames** per consecutive pair of complete readings:
+  `d_crc / (d_rx + d_crc)`; `d_crc` negative = 32-bit wrap (+2^32); `d_rx`
+  negative = counters cleared (skipped). Graph buckets sum frames, not
+  percentages.
+- **Pairing:** each `down` with the next `up` on the same interface.
+
+Rules (device `olt`): OLT_CRC over 1 % in two intervals in a row (a pair
+with no figure keeps the count); OLT_RESTART fires at once and clears on
+the next reading, with no clear SMS (`NO_CLEAR_SMS`); OLT_LINK_DOWN on
+sfp-sfpplus3 only, its clear SMS says "back after X min Y s"; OLT_SNMP_SILENT
+after 15 min without a complete reading received, not judged while the feed
+or the CCR2116 is silent (the OLT is read through it). All four are in
+SMS_RULES at AMBER: they text when NH_SMS_MODE=live but don't turn
+/status 503. `olt` rows are kept 90 days (`KEEP_OLT_DAYS`: the DAC
+before/after and the restart list), `crs_link` rows kept. The page reads
+`/network/health/inside?range=`; its own failure doesn't blank the page.
+
 ### SMS: planned purely, sent after commit
 
 `alerts.plan()` is pure and decides, per fire/clear, whether to text and
@@ -2342,7 +2373,8 @@ segment (`tests/test_network_health_messages.py`).
 ### Retention
 
 Raw readings are kept 10 days (`KEEP_READINGS_DAYS`; the 7-day baselines need
-7 full days), deleted at most once an hour from ingest or the tick. About
+7 full days), deleted at most once an hour from ingest or the tick; `route`
+and `crs_link` rows are kept, `olt` rows 90 days. About
 3,200 readings a day. The graphs average into 5-minute (24 h) or 30-minute
 (7 d) buckets in SQL. Incidents and the SMS log are kept.
 

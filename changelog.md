@@ -10,6 +10,23 @@ and in `phase.md`'s own per-phase writeups.
 Its own branch from `main` (owner's call, 2026-11-21); deployed by merging into
 `phase-7-finance`, which production runs.
 
+### Network Health: inside network, the OLT uplink (2026-11-21)
+- **New section "Inside network"** on Network Health, from the router's
+  5-minute SNMP read of the OLT and the CRS326's port events:
+  - **OLT uplink damaged frames:** the share of frames from the CRS326 that
+    arrive damaged at the OLT, as a graph (24 h / 7 days) and a current value
+    with a badge (green under 0.01 %, amber up to 1 %, red over 1 %) and a
+    plain sentence. A DAC swap shows as the line dropping, with a red tick
+    where the link went down.
+  - **OLT restarts:** when it came back up and how long it had been up.
+  - **Inside link events:** each CRS326 port going down and coming back, with
+    the outage; the OLT uplink (sfp-sfpplus3) is marked.
+  - **OLT SNMP:** when the OLT last answered; a warning after 15 minutes.
+- **Four new alerts** (logged only while SMS is in log-only mode): OLT uplink
+  damaging frames (over 1 % twice in a row), OLT restarted, OLT link down /
+  back after X min Y s, OLT not answering SNMP.
+- Needed migration 0044 (run).
+
 ### Network Health: South Africa probe, DNS, international path (2026-11-21)
 - **New probe: South Africa (Vodacom)**, about 72 ms, on "Latency, nearby" and
   on the Packet loss and Jitter graphs. It is green and dash-dotted, so it

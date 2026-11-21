@@ -44,6 +44,11 @@ class FakeStore:
     def readings(self, cur, kinds, since, until):
         return [r for r in self.rows if r["kind"] in kinds and since < r["ts"] <= until]
 
+    def olt_readings(self, cur, since, until):
+        return [{"ts": r["ts"], "olt": r["olt"]} for r in self.rows if r["kind"] == "olt" and since < r["ts"] <= until]
+
+    def last_olt_success_received(self, cur): return None
+
     def cleared_since(self, cur, key, since):
         return any(i["key"] == key and i["ended_at"] and i["ended_at"] >= since for i in self.incidents.values())
 
@@ -85,6 +90,16 @@ def probe_row(minutes_ago, loss=0, down=100):
             "load": {"down_mbps": down, "up_mbps": 10, "cpu_pct": 5},
             "probes": [{"name": "p-gw", "rtt_ms": None if loss >= 100 else 2.0, "jitter_ms": 0.2, "loss_pct": loss},
                        {"name": "p-cf", "rtt_ms": 20.0, "jitter_ms": 1.0, "loss_pct": 0}]}
+
+
+def olt_row(minutes_ago, uptime, rx, crc):
+    return {"ts": NOW - timedelta(minutes=minutes_ago), "kind": "olt",
+            "olt": {"uptime_s": uptime, "up_rx": rx, "up_crc": crc}}
+
+
+def link_row(seconds_ago, state, interface="sfp-sfpplus3"):
+    return {"ts": NOW - timedelta(seconds=seconds_ago), "kind": "crs_link",
+            "crs_link": {"device": "crs326", "interface": interface, "state": state, "speed": None}}
 
 
 @mock.patch.dict(os.environ, {"NH_SMS_MODE": "live", "NH_ALERT_PHONES": "0712000000"})
@@ -150,6 +165,32 @@ class Flow(unittest.TestCase):
         sent = self.evaluate(fake, [])
         self.assertIn("Frankfurt", sent[0][1])
 
+    def test_olt_damaging_frames_twice_in_a_row_texts_once(self):
+        rows = [olt_row(10, 1000, 0, 0), olt_row(5, 1300, 900, 100), olt_row(0, 1600, 1800, 200)]
+        fake = FakeStore(rows)
+        sent = self.evaluate(fake, rows)
+        self.assertEqual([message for _, message in sent],
+                         ["JNET ALERT OLT: OLT uplink damaging frames, 10.0% of frames to customers (CRS326-OLT link). "
+                          "Since 21:30"])
+
+    def test_olt_link_down_then_back_after_minutes_and_seconds(self):
+        down, up = link_row(133, "down"), link_row(0, "up")
+        fake = FakeStore([down, up])
+        self.assertIn("OLT link DOWN", self.evaluate(fake, [down])[0][1])
+        self.assertEqual(self.evaluate(fake, [up])[0][1], "JNET OK OLT: OLT link back after 2 min 13 s")
+        other = link_row(0, "down", "sfp-sfpplus4")
+        self.assertEqual(self.evaluate(FakeStore([other]), [other]), [])
+
+    def test_olt_restart_texts_but_its_clear_does_not(self):
+        before, after, later = olt_row(10, 626553.26, 9000, 9), olt_row(5, 120, 10, 0), olt_row(0, 420, 20, 0)
+        fake = FakeStore([before, after, later])
+        sent = self.evaluate(fake, [before, after])
+        self.assertEqual([m for _, m in sent],
+                         ["JNET ALERT OLT: OLT restarted (power switchover?), had been up 7d6h. Back up at 21:23"])
+        self.assertEqual(self.evaluate(fake, [later]), [])
+        restart = next(i for i in fake.incidents.values() if i["key"][1] == "OLT_RESTART")
+        self.assertIsNotNone(restart["ended_at"])
+
     def test_log_only_mode_sends_nothing(self):
         rows = [probe_row(m, down=330) for m in range(5, -1, -1)]
         fake = FakeStore(rows)
@@ -170,6 +211,34 @@ class RoutesCard(unittest.TestCase):
         self.assertEqual(card["labels"]["kenya"], "Kenya")
         self.assertEqual(card["limits"], {"kenya_under_ms": 15, "za_from_ms": 50, "za_under_ms": 110,
                                           "abroad_from_ms": 140})
+
+
+class InsideCard(unittest.TestCase):
+    def card(self, readings, last_success):
+        store = mock.Mock(now_utc=mock.Mock(return_value=NOW), olt_readings=mock.Mock(return_value=readings),
+                          olt_restarts=mock.Mock(return_value=[]), crs_link_records=mock.Mock(return_value=[]),
+                          olt_last_reads=mock.Mock(return_value=(NOW, last_success)),
+                          active_rules=mock.Mock(return_value=[]))
+        store.transaction.return_value.__enter__ = mock.Mock(return_value=None)
+        store.transaction.return_value.__exit__ = mock.Mock(return_value=False)
+        with mock.patch.object(service, "store", store):
+            return service.inside_card("24h")
+
+    def test_current_value_level_and_failed_polls(self):
+        rows = [olt_row(m, 1000 + (30 - m) * 60, (30 - m) * 1000, (30 - m) * 100) for m in (30, 25, 20)]
+        rows.append(olt_row(15, None, None, None))
+        rows += [olt_row(m, 1000 + (30 - m) * 60, (30 - m) * 1000, (30 - m) * 100) for m in (10, 5)]
+        card = self.card(rows, NOW - timedelta(minutes=5))
+        self.assertEqual(card["crc"]["current"]["level"], "red")
+        self.assertAlmostEqual(card["crc"]["current"]["pct"], 100 / 1100 * 100)
+        self.assertEqual((card["snmp"]["polls"], card["snmp"]["failed_polls"]), (6, 1))
+        self.assertFalse(card["snmp"]["is_stale"])
+
+    def test_stale_after_15_minutes_and_nothing_yet(self):
+        card = self.card([], NOW - timedelta(minutes=15))
+        self.assertTrue(card["snmp"]["is_stale"])
+        self.assertIsNone(card["crc"]["current"])
+        self.assertEqual(card["crc"]["series"], [])
 
 
 class Overview(unittest.TestCase):

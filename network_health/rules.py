@@ -19,7 +19,7 @@ from network_health import config
 AMBER, RED, OFFLINE = "AMBER", "RED", "OFFLINE"
 SEVERITY_RANK = {None: 0, AMBER: 1, RED: 2, OFFLINE: 3}
 
-DEVICE_LABELS = {"ccr2116": "CCR2116", "ccr2004": "CCR2004", "feed": "Frankfurt feed"}
+DEVICE_LABELS = {"ccr2116": "CCR2116", "ccr2004": "CCR2004", "feed": "Frankfurt feed", "olt": "OLT"}
 # What each rule is called on the page.
 RULE_LABELS = {
     "FEED_SILENT": "No data from Frankfurt",
@@ -34,12 +34,19 @@ RULE_LABELS = {
     "LINK_ERRORS": "Link errors",
     "CPU_HIGH": "CPU high",
     "DNS_ROUTER": "Router DNS failing or slow",
+    "OLT_CRC": "OLT uplink damaging frames",
+    "OLT_RESTART": "OLT restarted",
+    "OLT_LINK_DOWN": "OLT link down",
+    "OLT_SNMP_SILENT": "OLT not answering SNMP",
 }
 # Checks needed in a row before firing / clearing, where it isn't the default.
-FIRE_AFTER = {"OPTIC_DEGRADING": 2, "LINK_ERRORS": config.LINK_ERRORS_FIRE_AFTER, "DNS_ROUTER": config.DNS_FIRE_AFTER}
-# LINK_DOWN clears on the next 5-minute reading with no new drop.
+FIRE_AFTER = {"OPTIC_DEGRADING": 2, "LINK_ERRORS": config.LINK_ERRORS_FIRE_AFTER, "DNS_ROUTER": config.DNS_FIRE_AFTER,
+              "OLT_CRC": config.OLT_CRC_FIRE_AFTER}
+# LINK_DOWN clears on the next 5-minute reading with no new drop, OLT_RESTART
+# on the next reading with no new restart, OLT_LINK_DOWN on the port's `up`.
 CLEAR_AFTER = {"FEED_SILENT": 1, "ROUTER_SILENT": 1, "SPEED_LOW": 1, "OPTIC_DEGRADING": 2, "LINK_DOWN": 1,
-               "LINK_ERRORS": config.LINK_ERRORS_FIRE_AFTER, "DNS_ROUTER": config.DNS_CLEAR_AFTER}
+               "LINK_ERRORS": config.LINK_ERRORS_FIRE_AFTER, "DNS_ROUTER": config.DNS_CLEAR_AFTER,
+               "OLT_CRC": config.OLT_CRC_CLEAR_AFTER, "OLT_RESTART": 1, "OLT_LINK_DOWN": 1, "OLT_SNMP_SILENT": 1}
 # For these a LOWER value is worse (an incident's "peak" is its lowest value).
 LOWER_IS_WORSE = ("SPEED_LOW", "OPTIC_DEGRADING")
 
@@ -220,6 +227,57 @@ def check_dns_router(dns):
     worst = resolver.get("worst_ms")
     is_bad = fails > 0 or (worst is not None and worst > config.DNS_SLOW_MS)
     return make_check("ccr2116", "DNS_ROUTER", is_bad, value=worst, facts={"ms": worst, "fails": fails})
+
+
+# ---- Inside network (`olt` every 5 minutes, `crs_link` on each port change) ----
+
+def check_olt_crc(step):
+    """One 5-minute interval of the OLT uplink (inside.walk_olt's step):
+    bad over OLT_CRC_RED_OVER_PCT damaged frames. Fires after
+    OLT_CRC_FIRE_AFTER bad intervals in a row. No interval (a failed poll,
+    a restart, no traffic) says nothing."""
+    interval = step.get("interval")
+    pct = None if interval is None else interval["crc_pct"]
+    if pct is None:
+        return make_check("olt", "OLT_CRC", None)
+    return make_check("olt", "OLT_CRC", pct > config.OLT_CRC_RED_OVER_PCT, value=pct, facts={"pct": pct})
+
+
+def check_olt_restart(step):
+    """The OLT's uptime went down since the last reading: it restarted
+    (power switchovers do this). Fires at once; clears on the next reading
+    that has an uptime and no new restart."""
+    restart = step.get("restart")
+    if restart:
+        return make_check("olt", "OLT_RESTART", True, facts={"previous_uptime_s": restart["previous_uptime_s"],
+                                                             "uptime_s": restart["uptime_s"]}, immediate=True)
+    if step.get("uptime_s") is None:
+        return make_check("olt", "OLT_RESTART", None)
+    return make_check("olt", "OLT_RESTART", False)
+
+
+def check_olt_link(link):
+    """A CRS326 port event on the OLT uplink (sfp-sfpplus3): down fires at
+    once, the next up clears it. Other ports are shown, never judged."""
+    if link.get("interface") != config.OLT_LINK_INTERFACE:
+        return None
+    return make_check("olt", "OLT_LINK_DOWN", link["state"] == "down", subject=link["interface"],
+                      facts={"interface": link["interface"]}, immediate=True)
+
+
+def check_olt_snmp(last_success_received_at, last_probe_received_at, last_post_at, now):
+    """No complete OLT reading received for OLT_SNMP_SILENT_MINUTES. Not
+    judged while the feed or the CCR2116 itself is silent (those rules
+    already say why nothing arrives: the OLT is read BY the CCR2116), nor
+    before the first complete reading ever."""
+    feed_is_fresh = last_post_at is not None and minutes_since(last_post_at, now) < config.FEED_SILENT_MINUTES
+    router_is_fresh = (last_probe_received_at is not None
+                       and minutes_since(last_probe_received_at, now) < config.ROUTER_SILENT_MINUTES)
+    if last_success_received_at is None or not feed_is_fresh or not router_is_fresh:
+        return make_check("olt", "OLT_SNMP_SILENT", None)
+    minutes = minutes_since(last_success_received_at, now)
+    return make_check("olt", "OLT_SNMP_SILENT", minutes >= config.OLT_SNMP_SILENT_MINUTES, value=minutes,
+                      facts={"minutes": minutes}, immediate=True)
 
 
 # ---- The speed test ----

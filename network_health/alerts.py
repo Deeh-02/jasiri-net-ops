@@ -5,7 +5,8 @@ and returns one log row per SMS-worthy event, either to send ('pending') or
 'suppressed' with the reason. The cost rules, in the order they apply:
 
   1. Only SMS rules (config.SMS_RULES) and anything at RED; everything else
-     is dashboard only and gets no row at all.
+     is dashboard only and gets no row at all. A clear of a NO_CLEAR_SMS
+     rule (an OLT restart: over by the time it is seen) gets no row either.
   2. Old readings never text (a backfill replays history).
   3. Flapping: a rule firing again within 30 min of clearing is shown on the
      page, not texted; its clear isn't either.
@@ -53,6 +54,8 @@ def daily_cap():
 # ---- Planning (pure) ----
 
 def is_sms_worthy(event):
+    if event["kind"] == "clear" and event["rule"] in config.NO_CLEAR_SMS:
+        return False
     return event["rule"] in config.SMS_RULES or event.get("peak_severity") == RED or event["severity"] == RED
 
 
