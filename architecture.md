@@ -2558,6 +2558,11 @@ prices and daily limits are `DIAGNOSE_*` in `config.py`.
   for it), streamed, with adaptive thinking left to the model and the
   server-side refusal fallback on (`fallbacks: "default"`). The answer shows
   the model that actually answered, tokens and the cost.
+- **Certificates:** the SDK's HTTP library (httpx2) trusts the operating
+  system's certificate store by default; on Render the first calls failed as
+  "couldn't reach Anthropic". `_client()` gives it certifi's bundle instead,
+  as `requests` uses everywhere else. A connection failure now names its
+  root cause on the page and logs the traceback.
 - **Cost control in memory, not the database:** per-Nairobi-day counts
   (40 quick, 10 deep), one run at a time per button, the same button
   again within 5 minutes with no question shows the last answer. A deploy
