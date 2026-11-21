@@ -2384,6 +2384,32 @@ CRS326's OLT port, which OLT_LINK_DOWN covers), LANLINK_DAMAGE (rx_fcs or
 rx_err +100 in 5 min), LANLINK_DROPS (tx_drop +1000, page only); a pair over
 15 min apart isn't judged. All new rules AMBER.
 
+### Diagnose with Claude (2026-11-21)
+
+`network_health/diagnose.py`, `GET/POST /network/health/diagnose`. The
+owner's choice of models: quick = Claude Sonnet 5.5 at medium effort
+(Network Health > View), deep = Claude Opus 5.5 at high effort (Network
+Health > Admin, because it costs more). The names, effort, token limits,
+prices and daily limits are `DIAGNOSE_*` in `config.py`.
+
+- **What is sent:** `summarise()` turns the page's own reads (overview,
+  charts and inside for 24 h, routes, the last 30 incidents, active rules)
+  into windows (15 min / 1 h / 24 h: avg and max) per probe, resolver, area
+  and the uplink. Deep adds hour-by-hour series and traceroute hops. Times
+  are Nairobi text. Never sent: raw readings, the SMS log, the feed's IP,
+  phone numbers. About 13,000 input tokens for a quick check (21 Nov).
+- **The prompt** describes the network (boxes, ports, probe names) and how
+  to localise a fault by comparing layers. It asks for plain text, which
+  the page turns into headings and bullets with `textContent` only.
+- **The call** uses the `anthropic` SDK (the one third-party library added
+  for it), streamed, with adaptive thinking left to the model and the
+  server-side refusal fallback on (`fallbacks: "default"`). The answer shows
+  the model that actually answered, tokens and the cost.
+- **Cost control in memory, not the database:** per-Nairobi-day counts
+  (40 quick, 10 deep), one run at a time per button, the same button
+  again within 5 minutes with no question shows the last answer. A deploy
+  resets the counts; a failed call doesn't count. No schema change.
+
 ### SMS: planned purely, sent after commit
 
 `alerts.plan()` is pure and decides, per fire/clear, whether to text and

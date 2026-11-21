@@ -105,6 +105,14 @@ rules) and LANLINK_DROPS (page only). Area names read from OPS's own VLAN
 list (monitored_sites + locations), the one read outside nh_ tables. The
 LOSS incident opened from the 10x data stays in the incident list.
 
+**Diagnose with Claude (owner, 2026-11-21):** quick check on Claude
+Sonnet 5.5 (medium effort), detailed analysis on Claude Opus 5.5 (Admin
+only); `network_health/diagnose.py`, `anthropic` SDK pinned in
+requirements.txt, `ANTHROPIC_API_KEY` on Render. In-memory daily limits
+(40 / 10), no schema change. First real quick check on 21 Nov: 13.4k tokens
+in, 0.8k out, about US$0.035, 46 s; it named the evening uplink congestion
+and the CRS326-OLT link.
+
 **Cutover day:** after repointing `p-gw` to the new gateway, set "Provider
 switched at" on the Network Health page, and give the Frankfurt report
 script the same time as its SWITCH_TIME, so both split history at the same

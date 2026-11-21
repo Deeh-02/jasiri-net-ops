@@ -10,6 +10,18 @@ and in `phase.md`'s own per-phase writeups.
 Its own branch from `main` (owner's call, 2026-11-21); deployed by merging into
 `phase-7-finance`, which production runs.
 
+### Network Health: Diagnose with Claude (2026-11-21)
+- **New "Diagnose" card** under the device tiles. "Quick check" asks Claude
+  Sonnet 5.5 to read a summary of the page and say what's wrong and what to
+  check first (about 3-4 US cents, under a minute). "Detailed analysis"
+  (Network Health > Admin) asks Claude Opus 5.5 to go through every layer
+  hour by hour (more, and can take a few minutes). An optional box takes
+  what customers are seeing.
+- Runs only when a button is pressed: at most 40 quick and 10 detailed a
+  day; pressing again within 5 minutes shows the last answer for free.
+  Sends a summary only, never raw readings, the SMS log or phone numbers.
+- Needs `ANTHROPIC_API_KEY` on Render; without it the card says so.
+
 ### Network Health: areas, inside links, inside probes; loss fix (2026-11-21)
 - **Packet loss was shown 10 times too high before 21 Nov ~17:13.** The router
   reports loss in tenths of a percent and the Frankfurt server passed that on,

@@ -12,6 +12,9 @@ nothing is RED or OFFLINE, 503 otherwise. Calling it runs the silence checks.
 
 READS need Network Health > View on the role; Settings needs Network Health
 > Admin (admins always pass both).
+
+DIAGNOSE asks Claude to read a summary of the page (diagnose.py). The quick
+check needs View; the detailed analysis (Opus, costs more) needs Admin.
 """
 import hmac
 import json
@@ -31,7 +34,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from routers.auth import get_current_user
 from routers.permissions import user_has_permission
 
-from network_health import alerts, config, service, store
+from network_health import alerts, config, diagnose, service, store
 
 router = APIRouter()
 log = logging.getLogger(__name__)
@@ -147,6 +150,33 @@ def get_inside(range: Literal["24h", "7d"] = "24h", current_user: dict = Depends
 @router.get("/network/health/incidents")
 def get_incidents(limit: int = Query(100, ge=1, le=500), current_user: dict = Depends(require_view)):
     return store.incidents(limit)
+
+
+# ---- Diagnosis by Claude ----
+
+class DiagnoseRequest(BaseModel):
+    depth: Literal["quick", "deep"] = "quick"
+    question: Optional[str] = Field(None, max_length=config.DIAGNOSE_QUESTION_MAX)
+
+
+def can_deep(current_user):
+    return user_has_permission(current_user, "network_health", "admin")
+
+
+@router.get("/network/health/diagnose")
+def get_diagnose(current_user: dict = Depends(require_view)):
+    """Whether Claude can be asked, today's counts and the last answers."""
+    return {**diagnose.info(), "can_deep": can_deep(current_user)}
+
+
+@router.post("/network/health/diagnose")
+def post_diagnose(body: DiagnoseRequest, current_user: dict = Depends(require_view)):
+    if body.depth == "deep" and not can_deep(current_user):
+        raise HTTPException(status_code=403, detail="The detailed analysis needs Network Health > Admin")
+    try:
+        return diagnose.run(body.depth, body.question)
+    except diagnose.DiagnoseError as e:
+        raise HTTPException(status_code=e.status, detail=e.message)
 
 
 class SettingsUpdate(BaseModel):

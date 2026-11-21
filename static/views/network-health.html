@@ -12,6 +12,24 @@
 
         <div class="nh-devices" id="nh-devices" aria-label="Devices"></div>
 
+        <!-- Diagnose: Claude reads a summary of this page (network_health/diagnose.py).
+             Runs only when a button is pressed. The answer is put on the page as text. -->
+        <h2 class="nh-h2">Diagnose <span class="nh-h2-sub" id="nh-diagnose-sub"></span></h2>
+        <form class="nh-settings nh-diagnose" id="nh-diagnose-form">
+            <label class="nh-field nh-diagnose-q"><span>What are customers seeing? (optional)</span>
+                <input type="text" id="nh-diagnose-question" maxlength="500" autocomplete="off"
+                       placeholder="e.g. Njeri House slow since 8 pm"></label>
+            <div class="nh-settings-actions">
+                <button type="submit" class="btn-primary" data-depth="quick" id="nh-diagnose-quick">Quick check</button>
+                <button type="submit" class="btn-secondary" data-depth="deep" id="nh-diagnose-deep" hidden>Detailed analysis</button>
+            </div>
+            <p class="nh-note" id="nh-diagnose-msg" role="status"></p>
+        </form>
+        <div class="nh-tile nh-diagnose-answer" id="nh-diagnose-answer" hidden>
+            <div class="nh-tile-label" id="nh-diagnose-meta"></div>
+            <div class="nh-diagnose-text" id="nh-diagnose-text"></div>
+        </div>
+
         <div class="nh-section-head">
             <h2 class="nh-h2">Graphs <span class="nh-h2-sub" id="nh-graphs-sub"></span></h2>
             <div class="tabs nh-range" role="tablist" aria-label="Time range">
