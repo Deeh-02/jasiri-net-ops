@@ -133,14 +133,23 @@ const RULE_LABELS = {
     OPTIC_DEGRADING: "SFP signal weak", LINK_DOWN: "Uplink dropped", LINK_ERRORS: "Link errors", CPU_HIGH: "CPU high",
     DNS_ROUTER: "Router DNS failing or slow", OLT_CRC: "OLT uplink damaging frames", OLT_RESTART: "OLT restarted",
     OLT_LINK_DOWN: "OLT link down", OLT_SNMP_SILENT: "OLT not answering SNMP",
+    INNER_PATH_LOSS: "CCR2004 path out losing packets", INNER_PATH_DOWN: "CCR2004 path out down",
+    CUSTOMER_PATH_LOSS: "Customer path losing packets", CUSTOMER_PATH_DOWN: "Customer path down",
+    AREA_SILENT: "Area gone silent", LANLINK_DOWN: "Inside link went down", LANLINK_DAMAGE: "Inside link damaging frames",
+    LANLINK_DROPS: "Inside link dropping frames",
 };
-const DEVICE_LABELS = { ccr2116: "CCR2116", ccr2004: "CCR2004", feed: "Frankfurt feed", olt: "OLT" };
+const DEVICE_LABELS = { ccr2116: "CCR2116", ccr2004: "CCR2004", feed: "Frankfurt feed", olt: "OLT", crs326: "CRS326" };
 const PEAK_UNITS = { UPLINK_CONGESTED: "%", LATENCY_HIGH: " ms", LOSS: "%", JITTER_HIGH: " ms", CPU_HIGH: "%",
                      OPTIC_DEGRADING: " dBm", SPEED_LOW: " Mbps", ROUTER_SILENT: " min", FEED_SILENT: " min",
-                     OLT_CRC: "%", OLT_SNMP_SILENT: " min" };
+                     OLT_CRC: "%", OLT_SNMP_SILENT: " min", INNER_PATH_LOSS: "%", CUSTOMER_PATH_LOSS: "%",
+                     AREA_SILENT: " Mbps" };
 // CRS326 ports (the incident subject of OLT_LINK_DOWN, the link events table).
 const PORT_NAMES = { "sfp-sfpplus1": "CCR2116", "sfp-sfpplus2": "CCR2004", "sfp-sfpplus3": "OLT uplink", "sfp-sfpplus4": "Proxmox" };
-const subjectName = s => (PORT_NAMES[s] ? `${PORT_NAMES[s]}, ${s}` : probeName(s));
+// Inside links (lanlink): "dev port" subjects.
+const LANLINK_NAMES = { "ccr2116 sfp-sfpplus4": "CCR2116 → CRS326", "ccr2004 sfp-sfpplus1": "CCR2004 → CRS326",
+    "crs326 sfp-sfpplus1": "CRS326 → CCR2116", "crs326 sfp-sfpplus2": "CRS326 → CCR2004", "crs326 sfp-sfpplus3": "CRS326 → OLT",
+    "crs326 sfp-sfpplus4": "CRS326 → Proxmox" };
+const subjectName = s => (PORT_NAMES[s] ? `${PORT_NAMES[s]}, ${s}` : LANLINK_NAMES[s] || insideProbeName(s) || probeName(s));
 
 function cell(label, child) {
     const td = el("td");
@@ -640,13 +649,13 @@ function secondsText(s) {
 function drawInsideActive(d) {
     const list = $("nh-inside-active");
     if (!d.active.length) {
-        list.replaceChildren(el("li", "nh-none", "No active problems on the OLT"));
+        list.replaceChildren(el("li", "nh-none", "No active problems inside the network"));
         return;
     }
     list.replaceChildren(...d.active.map(rule => {
         const item = el("li");
         const [glyph, , cls] = STATUS[rule.severity] || STATUS.AMBER;
-        item.append(el("span", `nh-rule-glyph ${cls}`, glyph), el("strong", null, ` ${rule.label}`),
+        item.append(el("span", `nh-rule-glyph ${cls}`, glyph), el("strong", null, ` ${rule.device_label}: ${rule.label}`),
                     el("span", "nh-rule-text", ` ${rule.text}. Since ${hm(rule.started_at)}`));
         if (rule.is_flapping) item.append(el("span", "nh-tag", "flapping"));
         return item;
@@ -749,6 +758,160 @@ function drawLinkEvents(d) {
     }));
 }
 
+// ---- Areas: per-VLAN traffic on the CCR2004 uplink ----
+
+function mbpsText(v) {
+    if (v == null) return "—";
+    if (v >= 100) return `${Math.round(v)} Mbps`;
+    if (v >= 1) return `${v.toFixed(1)} Mbps`;
+    return `${(+v.toPrecision(2)).toString()} Mbps`;
+}
+
+// A 24 h download sparkline; gaps where there was no reading. The figures
+// are also in the row's text and the title, never only in the line.
+function sparkline(points) {
+    const width = 140, height = 30, pad = 2;
+    const end = Date.now(), start = end - 24 * 3600000;
+    const values = points.filter(p => p.down != null);
+    const box = svg("svg", { width, height, viewBox: `0 0 ${width} ${height}`, class: "nh-spark", role: "img" });
+    if (!values.length) {
+        box.setAttribute("aria-label", "no readings in the last 24 hours");
+        return box;
+    }
+    const hi = Math.max(...values.map(p => p.down), 0.1);
+    const x = t => pad + (t - start) / (end - start) * (width - 2 * pad);
+    const y = v => height - pad - v / hi * (height - 2 * pad);
+    let d = "", prev = null;
+    for (const p of points) {
+        if (p.down == null) { prev = null; continue; }
+        const t = T(p.t);
+        d += `${prev && t - prev <= 1800000 ? "L" : "M"}${x(t).toFixed(1)},${y(p.down).toFixed(1)}`;
+        prev = t;
+    }
+    box.append(svg("line", { x1: pad, x2: width - pad, y1: height - pad, y2: height - pad, class: "nh-grid" }),
+               svg("path", { d, fill: "none", stroke: "var(--nh-c1)", "stroke-width": 1.5, "stroke-linejoin": "round" }));
+    const label = `download over 24 hours: peak ${mbpsText(hi)}`;
+    box.setAttribute("aria-label", label);
+    const title = svg("title");
+    title.textContent = label;
+    box.append(title);
+    return box;
+}
+
+function drawAreas(d) {
+    const tbody = $("nh-areas");
+    $("nh-areas-sub").textContent = `per VLAN on the CCR2004 uplink, every 5 min · alert when an area that's usually busy`
+        + ` falls under ${d.thresholds.area_silent_mbps} Mbps twice in a row (07:00–23:00)`;
+    if (!d.areas.length) return emptyRow(tbody, 5, "No area readings yet.");
+    const silent = new Set(d.active.filter(a => a.rule === "AREA_SILENT").map(a => a.subject));
+    tbody.replaceChildren(...d.areas.map(a => {
+        const tr = el("tr", a.is_total ? "nh-area-total" : null);
+        const name = el("span", "nh-route-name");
+        name.append(el("strong", null, a.name), el("span", "nh-route-host", a.is_total ? `VLAN ${a.vlan}, not an area` : `VLAN ${a.vlan}`));
+        const down = el("span", null, mbpsText(a.down_mbps));
+        if (silent.has(`${a.name} (VLAN ${a.vlan})`)) {
+            down.append(document.createTextNode(" "), el("span", "nh-badge nh-warn", "▼ Silent"));
+        }
+        tr.append(cell("Area", name), cell("Download", down), cell("Upload", mbpsText(a.up_mbps)),
+                  cell("Last 24 h (download)", sparkline(a.spark)), cell("Reading", a.at ? hm(a.at) : "—"));
+        return tr;
+    }));
+}
+
+// ---- Inside links: port counters on the CCR2116, CCR2004 and CRS326 ----
+
+const LANLINK_COLUMNS = [["link_downs", "Link downs"], ["rx_fcs", "FCS errors"], ["rx_err", "RX errors"],
+                         ["rx_overflow", "RX overflow"], ["tx_drop", "TX drops"]];
+
+function counterCell(row, counter) {
+    const total = row.totals?.[counter];
+    if (total == null) return el("span", "nh-route-note", "not reported");
+    const wrap = el("span", "nh-counter");
+    wrap.append(el("span", null, Math.round(total).toLocaleString("en-GB")));
+    const last = row.last?.[counter], day = row.day?.[counter];
+    const change = el("span", "nh-counter-change", `+${last == null ? "—" : last.toLocaleString("en-GB")} in 5 min · +${day == null ? "—" : day.toLocaleString("en-GB")} in 24 h`);
+    if (last) change.classList.add("is-rising");
+    wrap.append(change);
+    return wrap;
+}
+
+function drawLanlinks(d) {
+    const tbody = $("nh-lanlinks");
+    $("nh-lanlinks-sub").textContent = `port counters every 5 min · alerts: a link down, over ${d.thresholds.lanlink_damage_over}`
+        + ` damaged frames in 5 min; over ${d.thresholds.lanlink_drops_over} TX drops is a warning on the page`;
+    if (!d.lanlinks.length) return emptyRow(tbody, 6, "No inside link readings yet.");
+    tbody.replaceChildren(...d.lanlinks.map(row => {
+        const tr = el("tr", row.dev === "crs326" && row.port === d.olt_interface ? "nh-olt-row" : null);
+        const name = el("span", "nh-route-name");
+        name.append(el("strong", null, row.label), el("span", "nh-route-host", `${row.dev} ${row.port} · ${row.at ? hm(row.at) : "—"}`));
+        tr.append(cell("Link", name), ...LANLINK_COLUMNS.map(([key, label]) => cell(label, counterCell(row, key))));
+        return tr;
+    }));
+}
+
+// ---- Probes: the CCR2004's way out (inner) and pings to the boxes (hop) ----
+
+const INSIDE_PROBES = {
+    "i-core": ["To the CCR2116", "--nh-c1"], "i-fra": ["To Frankfurt", "--nh-c5"],
+    "h-crs": ["CRS326", "--nh-c3"], "h-2004": ["CCR2004", "--nh-c2"], "h-olt": ["OLT (management)", "--nh-c5"],
+    "h-cust": ["Customer path", "--nh-c1"],
+};
+function insideProbeName(name) {
+    const base = name.replace(/-big$/, "");
+    if (!INSIDE_PROBES[base]) return null;
+    return `${INSIDE_PROBES[base][0]}${name.endsWith("-big") ? ", 1300-byte" : ""}`;
+}
+// The 1300-byte twin is the same colour, dashed: same target, bigger packets.
+function insideSeries(rows, field, names) {
+    return names.map(name => {
+        const base = name.replace(/-big$/, "");
+        return { name: insideProbeName(name) || name, colour: INSIDE_PROBES[base]?.[1] || "--nh-other",
+                 dash: name.endsWith("-big") ? "6 4" : null,
+                 values: rows.filter(r => r.name === name).map(r => ({ t: T(r.t), v: r[field] })) };
+    });
+}
+const byBaseThenSize = (a, b) => a.replace(/-big$/, "").localeCompare(b.replace(/-big$/, "")) || a.length - b.length;
+
+function drawInsideProbes() {
+    const c = state.charts, d = state.inside;
+    if (!c || !d || d.error) return;
+    const per = `average per ${c.bucket_seconds / 60} min`;
+    const inner = c.probes.filter(r => /^i-(core|fra)(-big)?$/.test(r.name));
+    const innerNames = [...new Set(inner.map(r => r.name))].sort(byBaseThenSize);
+    const lossPct = d.thresholds.path_loss_pct;
+    drawGraph($("nh-g-inner-loss"), {
+        title: "CCR2004 path out: packet loss", unit: "%", yFloor0: true,
+        sub: `${per} · alert: Frankfurt ${lossPct}% or more 3 readings in a row, or no reply twice`,
+        series: insideSeries(inner, "loss", innerNames),
+        refs: [{ v: lossPct, label: `${lossPct}%` }],
+        marks: inner.filter(r => r.name.startsWith("i-fra") && r.loss != null && r.loss >= 100).map(r => ({ t: T(r.t) })),
+    });
+    drawGraph($("nh-g-inner-cpu"), {
+        title: "CCR2004 CPU", unit: "%", yFloor0: true, sub: per,
+        series: [{ name: "CCR2004", colour: "--nh-c2", values: c.inner_cpu.map(r => ({ t: T(r.t), v: r.cpu })) }],
+        refs: [{ v: c.thresholds.cpu_pct, label: `${c.thresholds.cpu_pct}%` }],
+    });
+    drawGraph($("nh-g-inner-core"), {
+        title: "CCR2004 → CCR2116 round trip", unit: " ms", yFloor0: true, sub: `${per} · through the CRS326`,
+        series: insideSeries(inner, "rtt", innerNames.filter(n => n.startsWith("i-core"))),
+    });
+    drawGraph($("nh-g-inner-fra"), {
+        title: "CCR2004 → Frankfurt round trip", unit: " ms", yFloor0: true, sub: `${per} · through the CRS326, CCR2116 and Airtel`,
+        series: insideSeries(inner, "rtt", innerNames.filter(n => n.startsWith("i-fra"))),
+    });
+    const hopNames = [...new Set(d.hop.map(r => r.name))].sort(byBaseThenSize);
+    const infoOnly = `${per} · info only: boxes answer pings at low priority`;
+    drawGraph($("nh-g-hop-loss"), {
+        title: "Pings to the boxes: packet loss", unit: "%", yFloor0: true,
+        sub: `${infoOnly} (the OLT's 1300-byte loss follows the damaged DAC)`,
+        series: insideSeries(d.hop, "loss", hopNames),
+    });
+    drawGraph($("nh-g-hop-rtt"), {
+        title: "Pings to the boxes: round trip", unit: " ms", yFloor0: true, sub: infoOnly,
+        series: insideSeries(d.hop, "rtt", hopNames),
+    });
+}
+
 function drawInside(d) {
     state.inside = d;
     if (d.error) {
@@ -757,13 +920,16 @@ function drawInside(d) {
     }
     $("nh-inside-sub").textContent = "the CRS326 → OLT uplink, read by the CCR2116 every 5 min";
     $("nh-restarts-sub").textContent = `last ${d.lookback_days} days · power switchovers restart it`;
-    $("nh-links-sub").textContent = `CRS326 ports, last ${d.lookback_days} days · the OLT uplink is ${d.olt_interface}, marked ◆`;
+    $("nh-links-sub").textContent = `CRS326 port up/down, last ${d.lookback_days} days · the OLT uplink is ${d.olt_interface}, marked ◆`;
     drawInsideActive(d);
     drawCrcNow(d);
     drawSnmp(d);
     drawCrcGraph();
     drawRestarts(d);
     drawLinkEvents(d);
+    drawAreas(d);
+    drawLanlinks(d);
+    drawInsideProbes();
 }
 
 // ---- Settings (Network Health > Admin) ----
@@ -851,9 +1017,10 @@ export function initNetworkHealth() {
     $("nh-settings-form").addEventListener("submit", saveSettings);
     const observer = new ResizeObserver(() => {
         clearTimeout(state.resizeTimer);
-        state.resizeTimer = setTimeout(() => { drawGraphs(); drawCrcGraph(); }, 150);
+        state.resizeTimer = setTimeout(() => { drawGraphs(); drawCrcGraph(); drawInsideProbes(); }, 150);
     });
     observer.observe($("nh-graphs"));
+    observer.observe($("nh-inside-probes"));
     observer.observe($("nh-g-crc"));
 
     registerRoute("network-health", () => {

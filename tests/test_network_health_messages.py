@@ -28,6 +28,14 @@ LONG_FACTS = {
     "OLT_RESTART": [{"previous_uptime_s": 9_999_999_999, "uptime_s": 99999}, {"previous_uptime_s": None}],
     "OLT_LINK_DOWN": [{"interface": "x" * 40}],
     "OLT_SNMP_SILENT": [{"minutes": 99999}],
+    "INNER_PATH_LOSS": [{"loss": 100, "probe": "x" * 40}],
+    "INNER_PATH_DOWN": [{"loss": 100, "probe": "x" * 40}],
+    "CUSTOMER_PATH_LOSS": [{"loss": 100, "probe": "x" * 40}],
+    "CUSTOMER_PATH_DOWN": [{"loss": 100, "probe": "x" * 40}],
+    "AREA_SILENT": [{"area": "x" * 80, "vlan": 9999, "mbps": 0, "usual": 99999}],
+    "LANLINK_DOWN": [{"label": "x" * 80, "count": 99999}],
+    "LANLINK_DAMAGE": [{"label": "x" * 80, "count": 9_999_999}],
+    "LANLINK_DROPS": [{"label": "x" * 80, "count": 9_999_999}],
 }
 
 
@@ -82,6 +90,24 @@ class OneSegment(unittest.TestCase):
                          "JNET OK OLT: OLT link back after 2 min 13 s")
         self.assertEqual(messages.fire_message("olt", "OLT_SNMP_SILENT", {"minutes": 15}, SINCE),
                          "JNET ALERT OLT: OLT not answering SNMP for 15min. Since 23:25")
+
+    def test_inside_network_part_2_texts(self):
+        self.assertEqual(messages.fire_message("ccr2004", "INNER_PATH_LOSS", {"loss": 30, "probe": "i-fra-big"}, SINCE),
+                         "JNET ALERT CCR2004: CCR2004 path out losing packets, 30% loss on i-fra-big. Since 23:40")
+        self.assertEqual(messages.fire_message("ccr2004", "INNER_PATH_DOWN", {"loss": 100, "probe": "i-fra"}, SINCE),
+                         "JNET ALERT CCR2004: CCR2004 path out DOWN, no reply on i-fra. Since 23:40")
+        self.assertEqual(messages.fire_message("ccr2004", "AREA_SILENT", {"area": "Njeri House"}, SINCE),
+                         "JNET ALERT CCR2004: Area Njeri House has gone silent: possible power or fibre cut at the "
+                         "site. Since 23:40")
+        self.assertEqual(messages.fire_message("crs326", "LANLINK_DOWN", {"label": "CRS326 → CCR2116"}, SINCE),
+                         "JNET ALERT CRS326: Link CRS326 to CCR2116 went down. Since 23:40")
+        self.assertEqual(messages.clear_message("crs326", "LANLINK_DOWN", "crs326 sfp-sfpplus1", 5),
+                         "JNET OK CRS326: link CRS326 to CCR2116 back to normal. Lasted 5min")
+
+    def test_every_clear_message_with_a_long_subject(self):
+        for rule in LONG_FACTS:
+            with self.subTest(rule=rule):
+                self.assert_one_segment(messages.clear_message(LONGEST_DEVICE, rule, "x" * 80, 99999))
 
     def test_silence_since_is_when_the_data_stopped(self):
         text = messages.fire_message("ccr2004", "ROUTER_SILENT", {"minutes": 10}, SINCE)

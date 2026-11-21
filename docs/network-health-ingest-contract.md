@@ -38,10 +38,10 @@ Every record has:
 
 | Field | Meaning |
 |---|---|
-| `key` | Unique id of the log line. **Dedupe on it**: the shipper resends a batch whenever it didn't get a 2xx, so the same record can arrive twice. |
+| `key` | Unique id of the log line. **Upsert on it**: the shipper resends a batch whenever it didn't get a 2xx, so the same record can arrive twice (stored once). A key that arrives again with DIFFERENT values replaces the stored ones: that is how a rewind corrects history (the loss-scale fix, below). |
 | `ts` | When the server received the reading, ISO 8601 with offset (`+03:00`). Store as timestamptz. |
 | `from_ip` | Public IP it came from (102.0.27.188 today; changes at the provider switch). |
-| `kind` | `probe`, `inner`, `link`, `linknew`, `speed`, `speednew`, `route`, `dns`, `olt`, `crs_link` |
+| `kind` | `probe`, `inner`, `link`, `linknew`, `speed`, `speednew`, `route`, `dns`, `olt`, `crs_link`, `hop`, `area`, `lanlink` |
 | `raw` | The original log line, for audit and re-parsing. |
 
 Plus one of these, by `kind`:
@@ -58,6 +58,14 @@ Plus one of these, by `kind`:
   `p-gw-new`, and `-new` twins. Don't hard-code the list.
 - **`rtt_ms: null` with `loss_pct: 100` means no reply at all (an outage).
   Store it as null, never 0**, and show it as an outage.
+- **`loss_pct` is a real percentage, 0-100** (10 pings: one lost = 10). Until
+  21 Nov 2026 ~17:13 EAT the shipper passed on RouterOS netwatch's tenths of a
+  percent (one lost ping = 100, an outage = 1000); a rewind resends those lines
+  corrected and the upsert replaces them. A value over 100 is stored as unknown.
+- `inner` probes: `i-core` / `i-core-big` (to the CCR2116) and `i-fra` /
+  `i-fra-big` (to Frankfurt through the CRS326, CCR2116 and Airtel). `-big`
+  = 1300-byte pings. OPS alerts on `i-fra*`: loss 20 % or more in 3 readings
+  in a row, or no reply in 2.
 
 **`link` / `linknew`** (every 5 minutes)
 ```json
@@ -126,6 +134,38 @@ The OLT's uplink is its port 0/19/0, which receives from the CRS326.)
 - OPS pairs each `down` with the next `up` on the same interface (the outage).
   Only `sfp-sfpplus3` alerts.
 
+**`hop`** (CCR2116, every minute: pings to the inside boxes themselves)
+```json
+"probes": [{"name": "h-crs", "rtt_ms": 0.25, "jitter_ms": 0.08, "loss_pct": 0.0}, ...]
+```
+- Same `probes` list as `probe`. Names: `h-crs` (CRS326), `h-2004` / `h-2004-big`
+  (CCR2004, small / 1300-byte), `h-olt` / `h-olt-big` (OLT management IP).
+  Later `h-cust` / `h-cust-big` (a customer path through the OLT).
+- Boxes answer pings at low priority (the OLT especially), so OPS shows these
+  but never alerts on them, except `h-cust*` (same rule as `i-fra*`).
+  `h-olt-big` shows 10-20 % loss while the CRS326-OLT DAC damages frames.
+
+**`area`** (CCR2004, every 5 minutes, one record per VLAN on its uplink)
+```json
+"area": {"vlan": 5, "if": "sfp-sfpplus1-v5", "down_bytes": 4487076792201, "up_bytes": 529441235403}
+```
+- Running byte counters. OPS: Mbps = change * 8 / seconds between readings of
+  the same VLAN; a counter that went down was reset, so that pair is skipped.
+- Area names come from OPS's VLAN list; an unknown VLAN shows as "VLAN n".
+  **VLAN 99 is not an area**: it is the CCR2004's link to the core, shown as
+  "CCR2004 total".
+
+**`lanlink`** (every 5 minutes, inside port counters)
+```json
+"lanlink": {"dev": "crs326", "port": "sfp-sfpplus3", "link_downs": 19, "rx_fcs": 0, "rx_err": 8,
+            "rx_overflow": 0, "tx_drop": 0}
+```
+- Ports: `ccr2116 sfp-sfpplus4` (to the CRS326), `ccr2004 sfp-sfpplus1` (to the
+  CRS326), `crs326 sfp-sfpplus1` (to the CCR2116), `sfp-sfpplus2` (to the
+  CCR2004), `sfp-sfpplus3` (to the OLT), `sfp-sfpplus4` (to Proxmox).
+- A counter the port doesn't report is null. Counters only go up; a drop is a
+  reset (OPS counts it as 0).
+
 ## Response
 
 - Answer **2xx only after the batch is stored**. Anything else makes the
@@ -136,6 +176,7 @@ The OLT's uplink is its port 0/19/0, which receives from the CRS326.)
 
 ## Volume
 
-About 1,440 `probe` + 1,440 `inner` + 288 `link` + 288 `dns` + 288 `olt` + 2 `speed` + 12 `route` records
-a day, plus a `crs_link` record whenever a CRS326 port changes.
+About 1,440 `probe` + 1,440 `inner` + 1,440 `hop` + 288 `link` + 288 `dns` + 288 `olt` + 288 per VLAN
+`area` + 288 per port `lanlink` + 2 `speed` + 12 `route` records a day, plus a `crs_link` record
+whenever a CRS326 port changes.
 The first run backfills everything since 20 Nov 2026 17:15 in batches of 500.

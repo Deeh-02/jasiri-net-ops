@@ -2356,6 +2356,34 @@ SMS_RULES at AMBER: they text when NH_SMS_MODE=live but don't turn
 before/after and the restart list), `crs_link` rows kept. The page reads
 `/network/health/inside?range=`; its own failure doesn't blank the page.
 
+### Inside network, part 2: areas, inside links, probes (2026-11-21)
+
+**Upsert, and the loss-scale fix.** Ingest is `INSERT ... ON CONFLICT (key)
+DO UPDATE ... WHERE (stored values) IS DISTINCT FROM (sent values)`: an
+ordinary resend changes nothing, a corrected resend replaces the row
+(received_at kept: the silence checks read it). Only newly inserted rows
+are judged; a replaced row is history the rules have moved past. This is how
+the probe loss stored before 21 Nov ~17:13 EAT (RouterOS tenths of a
+percent, 10x too high: one lost ping read as an outage) is corrected: the
+owner rewinds the shipper. A loss over 100 is stored as unknown.
+
+**`hop`** (to-box probes) is stored in `probes` like `probe` and isn't on the
+existing graphs; only `h-cust*` is judged. **`inner`'s** `i-fra*` probes
+are judged per reading (`rules.check_path`): loss 20 %+ in 3 readings, or
+no reply in 2 (an outage reading isn't also counted as loss, so it texts
+once). **`area`** (`nh_readings.area`): Mbps per VLAN from consecutive byte
+counters (`inside.area_rates`; the same rule in SQL for the sparklines and
+the hourly medians); names from OPS's VLAN list (`monitored_sites` +
+`locations`, read only: the owner's call, the one read outside nh_ tables);
+VLAN 99 is the CCR2004 total, never judged. AREA_SILENT: 07:00-23:00 EAT,
+under 0.05 Mbps twice in a row, where that hour's median over the 7 days
+before the batch is over 1 Mbps, and only with 2 days of history.
+**`lanlink`** (`nh_readings.lanlink`): increases per reading
+(`inside.lanlink_steps`, a drop = reset = 0); LANLINK_DOWN (not for the
+CRS326's OLT port, which OLT_LINK_DOWN covers), LANLINK_DAMAGE (rx_fcs or
+rx_err +100 in 5 min), LANLINK_DROPS (tx_drop +1000, page only); a pair over
+15 min apart isn't judged. All new rules AMBER.
+
 ### SMS: planned purely, sent after commit
 
 `alerts.plan()` is pure and decides, per fire/clear, whether to text and

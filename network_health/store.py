@@ -1,4 +1,6 @@
-"""Every SQL statement Network Health runs, over its own nh_ tables only.
+"""Every SQL statement Network Health runs, over its own nh_ tables, plus
+ONE read of OPS's VLAN list (monitored_sites + locations) for area names:
+the owner's call, 2026-11-21 ("use the VLAN/area list OPS already has").
 
 Functions that take `cur` run inside the caller's transaction (service.py
 evaluates a whole batch in one connection: Supabase's pooler is capped at
@@ -38,29 +40,46 @@ def eat_midnight(now):
 
 # ---- Storing a batch ----
 
+READING_COLUMNS = ("ts", "kind", "from_ip", "raw", "load", "probes", "link", "speed", "route", "dns", "olt",
+                   "crs_link", "area", "lanlink")
+_SET = ", ".join(f"{c} = EXCLUDED.{c}" for c in READING_COLUMNS)
+_OURS = ", ".join(f"nh_readings.{c}" for c in READING_COLUMNS)
+_THEIRS = ", ".join(f"EXCLUDED.{c}" for c in READING_COLUMNS)
+
+
 def save_batch(source, sent_at, records):
-    """Stores the records (a key already stored is skipped: the shipper
-    resends) and notes the post on nh_feed, in one transaction. Returns the
-    newly stored records."""
+    """Stores the records and notes the post on nh_feed, in one transaction.
+
+    UPSERT on key: a key already stored is REPLACED when its values differ
+    (the shipper resends corrected lines after a rewind: the loss-scale fix
+    of 21 Nov 2026) and left alone when they are the same (an ordinary
+    resend). received_at stays the first arrival's.
+
+    Returns (newly stored records, how many stored ones were replaced). Only
+    the new ones are judged: a replaced reading is history, and the rules
+    have already moved past it."""
     with transaction() as cur:
-        stored_keys = set()
+        stored_keys, replaced = set(), 0
         if records:
             rows = [(r["key"], r["ts"], r["kind"], r["from_ip"], r["raw"], _json(r["load"]), _json(r["probes"]),
                      _json(r["link"]), _json(r["speed"]), _json(r.get("route")), _json(r.get("dns")),
-                     _json(r.get("olt")), _json(r.get("crs_link"))) for r in records]
+                     _json(r.get("olt")), _json(r.get("crs_link")), _json(r.get("area")), _json(r.get("lanlink")))
+                    for r in records]
             stored = execute_values(
                 cur,
-                """INSERT INTO nh_readings (key, ts, kind, from_ip, raw, load, probes, link, speed, route, dns, olt,
-                                            crs_link) VALUES %s
-                   ON CONFLICT (key) DO NOTHING RETURNING key""",
+                f"""INSERT INTO nh_readings (key, {", ".join(READING_COLUMNS)}) VALUES %s
+                    ON CONFLICT (key) DO UPDATE SET {_SET}
+                    WHERE ({_OURS}) IS DISTINCT FROM ({_THEIRS})
+                    RETURNING key, (xmax = 0) AS inserted""",
                 rows, page_size=500, fetch=True)
-            stored_keys = {row[0] for row in stored}
+            stored_keys = {key for key, inserted in stored if inserted}
+            replaced = sum(1 for _, inserted in stored if not inserted)
         from_ip = next((r["from_ip"] for r in reversed(records) if r["from_ip"]), None)
         cur.execute(
             """UPDATE nh_feed SET last_post_at = now(), last_sent_at = %s, last_source = %s,
                       last_from_ip = COALESCE(%s, last_from_ip) WHERE id = 1""",
             (sent_at, source, from_ip))
-    return [r for r in records if r["key"] in stored_keys]
+    return [r for r in records if r["key"] in stored_keys], replaced
 
 
 def _json(value):
@@ -178,6 +197,87 @@ def crs_link_records(cur, since):
     cur.execute("SELECT ts, crs_link FROM nh_readings WHERE kind = 'crs_link' AND crs_link IS NOT NULL AND ts >= %s "
                 "ORDER BY ts", (since,))
     return [{"ts": row[0], "crs_link": row[1]} for row in cur.fetchall()]
+
+
+# ---- Areas (`area`), inside links (`lanlink`), to-box probes (`hop`) ----
+
+def area_names(cur):
+    """{vlan: name} from OPS's own VLAN list: the location's name, else the
+    site's own name. Read only; Network Health never writes it."""
+    cur.execute(
+        """SELECT ms.vlan_id, COALESCE(l.name, ms.name) FROM monitored_sites ms
+           LEFT JOIN locations l ON l.id = ms.location_id""")
+    return {int(vlan): name for vlan, name in cur.fetchall() if name}
+
+
+def area_readings(cur, since, until):
+    """`area` readings with since < ts <= until, oldest first: {ts, area}."""
+    cur.execute("SELECT ts, area FROM nh_readings WHERE kind = 'area' AND area IS NOT NULL AND ts > %s AND ts <= %s "
+                "ORDER BY ts", (since, until))
+    return [{"ts": row[0], "area": row[1]} for row in cur.fetchall()]
+
+
+# Download Mbps between consecutive readings of one VLAN, in SQL (the page and
+# the baselines). Same rule as areas.rates(): a counter that went down
+# (reset) gives no figure.
+_AREA_RATES = """
+    SELECT vlan, ts, CASE WHEN d_down >= 0 THEN d_down * 8 / secs / 1e6 END AS down_mbps,
+                     CASE WHEN d_up >= 0 THEN d_up * 8 / secs / 1e6 END AS up_mbps
+    FROM (SELECT (area->>'vlan')::int AS vlan, ts,
+                 (area->>'down_bytes')::numeric - lag((area->>'down_bytes')::numeric) OVER w AS d_down,
+                 (area->>'up_bytes')::numeric - lag((area->>'up_bytes')::numeric) OVER w AS d_up,
+                 extract(epoch FROM ts - lag(ts) OVER w) AS secs
+          FROM nh_readings WHERE kind = 'area' AND area IS NOT NULL AND ts >= %(from)s AND ts <= %(until)s
+          WINDOW w AS (PARTITION BY area->>'vlan' ORDER BY ts)) x
+    WHERE secs > 0"""
+
+
+def area_baselines(cur, since, until):
+    """Per VLAN: {hour (EAT): median download Mbps} over [since, until), and
+    the VLAN's first reading kept (for 'at least 2 days of history')."""
+    cur.execute(
+        f"""SELECT vlan, extract(hour FROM ts AT TIME ZONE 'Africa/Nairobi')::int,
+                   percentile_cont(0.5) WITHIN GROUP (ORDER BY down_mbps)
+            FROM ({_AREA_RATES}) r WHERE ts >= %(since)s AND ts < %(until)s AND down_mbps IS NOT NULL
+            GROUP BY 1, 2""",
+        {"from": since, "since": since, "until": until})
+    medians = {}
+    for vlan, hour, median in cur.fetchall():
+        medians.setdefault(vlan, {})[hour] = float(median)
+    cur.execute("SELECT (area->>'vlan')::int, min(ts) FROM nh_readings WHERE kind = 'area' AND area IS NOT NULL "
+                "GROUP BY 1")
+    return medians, dict(cur.fetchall())
+
+
+def area_series(cur, since, bucket_seconds):
+    """Per VLAN, download / upload Mbps averaged per bucket (the sparklines)."""
+    cur.execute(
+        f"""SELECT vlan, to_timestamp(floor(extract(epoch FROM ts) / %(bucket)s) * %(bucket)s) AS b,
+                   avg(down_mbps), avg(up_mbps)
+            FROM ({_AREA_RATES}) r WHERE ts > %(since)s GROUP BY 1, 2 ORDER BY 1, 2""",
+        {"from": since - timedelta(minutes=30), "until": now_utc(), "since": since, "bucket": bucket_seconds})
+    series = {}
+    for vlan, bucket, down, up in cur.fetchall():
+        series.setdefault(vlan, []).append({"t": bucket, "down": None if down is None else float(down),
+                                            "up": None if up is None else float(up)})
+    return series
+
+
+def lanlink_readings(cur, since, until):
+    """`lanlink` readings with since < ts <= until, oldest first: {ts, lanlink}."""
+    cur.execute("SELECT ts, lanlink FROM nh_readings WHERE kind = 'lanlink' AND lanlink IS NOT NULL "
+                "AND ts > %s AND ts <= %s ORDER BY ts", (since, until))
+    return [{"ts": row[0], "lanlink": row[1]} for row in cur.fetchall()]
+
+
+def hop_series(cur, since, bucket_seconds):
+    """The to-box probes (`hop`), averaged per bucket like the other graphs."""
+    cur.execute(
+        f"""SELECT {BUCKET} AS b, p->>'name', avg((p->>'rtt_ms')::float8), avg((p->>'loss_pct')::float8), count(*)
+            FROM nh_readings r CROSS JOIN LATERAL jsonb_array_elements(r.probes) p
+            WHERE r.kind = 'hop' AND r.ts >= %(since)s GROUP BY b, 2 ORDER BY b""",
+        {"since": since, "bucket": bucket_seconds})
+    return [{"t": r[0], "name": r[1], "rtt": r[2], "loss": r[3], "n": r[4]} for r in cur.fetchall()]
 
 
 # ---- Baselines (the "usual" a reading is compared with) ----

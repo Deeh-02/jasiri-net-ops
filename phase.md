@@ -93,6 +93,18 @@ OLT_SNMP_SILENT (15 min): all in SMS_RULES, AMBER, so log_only governs them
 and /status stays 200. `olt` rows kept 90 days, `crs_link` kept. On 21 Nov
 damaged frames measured ~10 % (bad DAC, swap planned).
 
+**Inside network, part 2 (owner, 2026-11-21):** ingest now UPSERTs on
+`key` (replaces a stored line whose values differ) so a shipper rewind fixes
+the probe loss stored 10x too high before ~17:13 EAT (RouterOS tenths of a
+percent). New kinds `hop` (to-box probes, in `probes`; alerts only on
+`h-cust*`), `area` (per-VLAN byte counters, `nh_readings.area`) and
+`lanlink` (inside port counters, `nh_readings.lanlink`): migration 0045,
+approved and run 2026-11-21. Rules INNER_PATH_LOSS/DOWN (i-fra*),
+CUSTOMER_PATH_LOSS/DOWN (h-cust*), AREA_SILENT, LANLINK_DOWN/DAMAGE (SMS
+rules) and LANLINK_DROPS (page only). Area names read from OPS's own VLAN
+list (monitored_sites + locations), the one read outside nh_ tables. The
+LOSS incident opened from the 10x data stays in the incident list.
+
 **Cutover day:** after repointing `p-gw` to the new gateway, set "Provider
 switched at" on the Network Health page, and give the Frankfurt report
 script the same time as its SWITCH_TIME, so both split history at the same
