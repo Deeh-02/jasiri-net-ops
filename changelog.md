@@ -9,6 +9,27 @@ and in `phase.md`'s own per-phase writeups.
 
 Started 2026-11-15 at the owner's request, after Phase 6 was merged to `main`.
 
+### Network Health: areas, inside links, inside probes; loss fix (2026-11-21)
+- **Packet loss was shown 10 times too high before 21 Nov ~17:13.** The router
+  reports loss in tenths of a percent and the Frankfurt server passed that on,
+  so one lost ping in ten showed as 100 % (an outage). The server now sends
+  real percentages, and OPS replaces a reading when the same line arrives
+  again with corrected values, so a rewind of the server fixes the history.
+- **Areas:** each VLAN's download and upload now, with a 24-hour sparkline;
+  VLAN 99 shows as the CCR2004's total. An area that's normally busy going
+  quiet (under 0.05 Mbps twice in a row, 07:00-23:00) raises "Area ... has
+  gone silent: possible power or fibre cut at the site".
+- **Inside links:** the counters on the links between the CCR2116, CCR2004,
+  CRS326, OLT and Proxmox, with what changed in the last 5 minutes and 24
+  hours. Alerts when a link goes down or damages over 100 frames in 5
+  minutes; over 1,000 dropped frames is a warning on the page.
+- **Probes:** the CCR2004's way out (to the CCR2116 and to Frankfurt), its CPU,
+  and pings to the boxes themselves (info only: boxes answer pings slowly).
+  Alerts: "CCR2004 path out losing packets" / "DOWN".
+- Network Health now lives on its own branch, `network-health`.
+- Needed migration 0045 (run). New alerts are logged only while SMS is
+  log-only.
+
 ### Network Health: inside network, the OLT uplink (2026-11-21)
 - **New section "Inside network"** on Network Health, from the router's
   5-minute SNMP read of the OLT and the CRS326's port events:

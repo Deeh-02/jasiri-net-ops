@@ -148,3 +148,91 @@ def link_events(records):
             row.update(up_at=record["ts"], outage_s=(record["ts"] - row["down_at"]).total_seconds(),
                        speed=link.get("speed"), status="back")
     return sorted(rows, key=lambda r: r["down_at"] or r["up_at"], reverse=True)
+
+
+# ---- Areas (`area`: per-VLAN byte counters on the CCR2004 uplink) ----
+
+def area_name(vlan, names):
+    """VLAN 99 is the CCR2004's own link (its total); others are named from
+    OPS's VLAN list, or "VLAN n" when it has no name."""
+    if vlan == config.AREA_TOTAL_VLAN:
+        return config.AREA_TOTAL_LABEL
+    return names.get(vlan) or f"VLAN {vlan}"
+
+
+def _mbps(before, after, seconds):
+    if before is None or after is None or seconds <= 0 or after < before:
+        return None          # a counter that went down was reset: no figure
+    return (after - before) * 8 / seconds / 1e6
+
+
+def area_rates(readings):
+    """[{ts, area}] oldest first -> one step per reading: {ts, vlan,
+    down_mbps, up_mbps}, each the change since that VLAN's previous reading
+    (None for its first reading, or a reset)."""
+    steps, last = [], {}
+    for reading in readings:
+        area = reading["area"]
+        vlan = area["vlan"]
+        previous = last.get(vlan)
+        down = up = None
+        if previous is not None:
+            seconds = (reading["ts"] - previous["ts"]).total_seconds()
+            down = _mbps(previous["area"].get("down_bytes"), area.get("down_bytes"), seconds)
+            up = _mbps(previous["area"].get("up_bytes"), area.get("up_bytes"), seconds)
+        steps.append({"ts": reading["ts"], "vlan": vlan, "down_mbps": down, "up_mbps": up})
+        last[vlan] = reading
+    return steps
+
+
+# ---- Inside links (`lanlink`: port counters on the CCR2116, CCR2004, CRS326) ----
+
+def lanlink_label(dev, port):
+    return config.LANLINK_LABELS.get((dev, port), f"{dev.upper()} {port}")
+
+
+def _increase(before, after):
+    """A counter's increase; a drop is a reset (reboot, cleared): 0. None
+    when either reading lacks the counter (the port doesn't report it)."""
+    if before is None or after is None:
+        return None
+    return max(after - before, 0)
+
+
+def lanlink_steps(readings):
+    """[{ts, lanlink}] oldest first -> one step per reading: {ts, dev, port,
+    label, totals, increases (None for a port's first reading), gap_minutes}."""
+    steps, last = [], {}
+    for reading in readings:
+        link = reading["lanlink"]
+        key = (link["dev"], link["port"])
+        previous = last.get(key)
+        increases = gap = None
+        if previous is not None:
+            increases = {c: _increase(previous["lanlink"].get(c), link.get(c)) for c in config.LANLINK_COUNTERS}
+            gap = (reading["ts"] - previous["ts"]).total_seconds() / 60
+        steps.append({"ts": reading["ts"], "dev": key[0], "port": key[1], "label": lanlink_label(*key),
+                      "totals": {c: link.get(c) for c in config.LANLINK_COUNTERS},
+                      "increases": increases, "gap_minutes": gap})
+        last[key] = reading
+    return steps
+
+
+def lanlink_rows(readings, since):
+    """One row per link for the page: its latest totals, the increase at its
+    latest reading (the last 5 min) and the increases summed since `since`
+    (24 h: resets counted as 0, not as a huge negative). Known links in the
+    configured order, then any others."""
+    by_link = {}
+    for step in lanlink_steps(readings):
+        row = by_link.setdefault((step["dev"], step["port"]), {
+            "dev": step["dev"], "port": step["port"], "label": step["label"],
+            "day": {c: None for c in config.LANLINK_COUNTERS}})
+        row.update(totals=step["totals"], last=step["increases"], at=step["ts"])
+        if step["increases"] and step["ts"] > since:
+            for counter, value in step["increases"].items():
+                if value is not None:
+                    row["day"][counter] = (row["day"][counter] or 0) + value
+    order = list(config.LANLINK_LABELS)
+    return sorted(by_link.values(), key=lambda r: (order.index((r["dev"], r["port"]))
+                                                   if (r["dev"], r["port"]) in order else len(order), r["label"]))

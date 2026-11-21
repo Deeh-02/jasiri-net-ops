@@ -10,7 +10,8 @@ starts with it again). Skips are counted and logged by the caller.
 """
 from datetime import datetime, timezone
 
-KNOWN_KINDS = ("probe", "inner", "link", "linknew", "speed", "speednew", "route", "dns", "olt", "crs_link")
+KNOWN_KINDS = ("probe", "inner", "link", "linknew", "speed", "speednew", "route", "dns", "olt", "crs_link", "hop", "area",
+               "lanlink")
 MAX_KEY_LENGTH = 200
 MAX_RAW_LENGTH = 4000
 MAX_NAME_LENGTH = 40
@@ -63,13 +64,20 @@ def _probe(entry):
     """One probe result. rtt_ms null with 100 % loss is an outage and stays
     null, NEVER 0: an average that counted it as 0 ms would make an outage
     look like the best minute of the day. A 0 ms rtt with 100 % loss is
-    treated the same way."""
+    treated the same way.
+
+    loss_pct is a real percentage, 0-100 (from 21 Nov 2026 ~17:13 EAT; before
+    that the shipper passed on RouterOS's tenths of a percent, 10x too high,
+    and a rewind resends those lines corrected). Over 100 can only be that old
+    scale: stored as unknown (None), never judged."""
     if not isinstance(entry, dict):
         return None
     name = entry.get("name")
     if not isinstance(name, str) or not name.strip():
         return None
     loss = number_or_none(entry.get("loss_pct"))
+    if loss is not None and (loss > 100 or loss < 0):
+        loss = None
     rtt = number_or_none(entry.get("rtt_ms"))
     if loss is not None and loss >= 100:
         rtt = None
@@ -189,8 +197,36 @@ def _crs_link(value):
             "speed": speed.strip()[:MAX_NAME_LENGTH] if isinstance(speed, str) and speed.strip() else None}
 
 
+def _area(value):
+    """One VLAN's running byte counters on the CCR2004 uplink. Without a
+    VLAN number it can't be placed: skipped."""
+    if not isinstance(value, dict):
+        return None
+    vlan = _counter(value.get("vlan"))
+    if vlan is None:
+        raise SkipRecord("area record has no vlan")
+    interface = value.get("if")
+    return {"vlan": vlan, "if": interface.strip()[:MAX_NAME_LENGTH] if isinstance(interface, str) else None,
+            "down_bytes": _counter(value.get("down_bytes")), "up_bytes": _counter(value.get("up_bytes"))}
+
+
+LANLINK_FIELDS = ("link_downs", "rx_fcs", "rx_err", "rx_overflow", "tx_drop")
+
+
+def _lanlink(value):
+    """One inside port's counters. A counter the port doesn't report is null."""
+    if not isinstance(value, dict):
+        return None
+    dev, port = value.get("dev"), value.get("port")
+    if not isinstance(dev, str) or not dev.strip() or not isinstance(port, str) or not port.strip():
+        raise SkipRecord("lanlink record has no dev or port")
+    return {"dev": dev.strip().lower()[:MAX_NAME_LENGTH], "port": port.strip()[:MAX_NAME_LENGTH],
+            **{field: _counter(value.get(field)) for field in LANLINK_FIELDS}}
+
+
 def parse_record(record):
-    """One record -> {key, ts, kind, from_ip, raw, load, probes, link, speed, route, dns, olt, crs_link},
+    """One record -> {key, ts, kind, from_ip, raw, load, probes, link, speed, route, dns, olt, crs_link,
+    area, lanlink},
     or None for a kind this version doesn't know (ignored, as the contract
     asks). Raises SkipRecord for a record that can't be stored."""
     if not isinstance(record, dict):
@@ -210,11 +246,21 @@ def parse_record(record):
         "from_ip": from_ip[:64] if isinstance(from_ip, str) else None,
         "raw": raw[:MAX_RAW_LENGTH] if isinstance(raw, str) else None,
         "load": None, "probes": None, "link": None, "speed": None, "route": None, "dns": None,
-        "olt": None, "crs_link": None,
+        "olt": None, "crs_link": None, "area": None, "lanlink": None,
     }
     if kind in ("probe", "inner"):
         parsed["load"] = _pick_numbers(record.get("load"), LOAD_FIELDS)
         parsed["probes"] = _probes(record.get("probes"))
+    elif kind == "hop":
+        parsed["probes"] = _probes(record.get("probes"))
+    elif kind == "area":
+        parsed["area"] = _area(record.get("area"))
+        if parsed["area"] is None:
+            raise SkipRecord("area record has no area object")
+    elif kind == "lanlink":
+        parsed["lanlink"] = _lanlink(record.get("lanlink"))
+        if parsed["lanlink"] is None:
+            raise SkipRecord("lanlink record has no lanlink object")
     elif kind in ("link", "linknew"):
         parsed["link"] = _pick_numbers(record.get("link"), LINK_FIELDS)
         if parsed["link"] is None:

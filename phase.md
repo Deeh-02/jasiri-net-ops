@@ -332,10 +332,13 @@ exporting a month (7G) is optional and deferred (owner, 2026-11-15). Anything th
 
 ---
 
-## ALSO ON THIS BRANCH: Network Health (owner's scope, 2026-11-16)
+## Network Health (branch `network-health`; owner's scope, 2026-11-16)
 
-Not part of Finance: the owner asked for it on `phase-7-finance` ("new scope
-will continue on this branch", 2026-11-16). Detect degraded speed and quality
+Not part of Finance. Built on `phase-7-finance` until 2026-11-21, when the
+owner moved it to its own branch `network-health`, cut from `main` with the
+Network Health commits cherry-picked. Production runs `phase-7-finance`, so
+it is deployed by merging `network-health` into it; it can merge to `main`
+on its own, without Finance. Detect degraded speed and quality
 on the uplink before customers complain, and text the owner. Not the Network
 Analysis / PPPoE page.
 
@@ -404,6 +407,18 @@ OLT_LINK_DOWN (sfp-sfpplus3; the up texts "back after X min Y s") and
 OLT_SNMP_SILENT (15 min): all in SMS_RULES, AMBER, so log_only governs them
 and /status stays 200. `olt` rows kept 90 days, `crs_link` kept. On 21 Nov
 damaged frames measured ~10 % (bad DAC, swap planned).
+
+**Inside network, part 2 (owner, 2026-11-21):** ingest now UPSERTs on
+`key` (replaces a stored line whose values differ) so a shipper rewind fixes
+the probe loss stored 10x too high before ~17:13 EAT (RouterOS tenths of a
+percent). New kinds `hop` (to-box probes, in `probes`; alerts only on
+`h-cust*`), `area` (per-VLAN byte counters, `nh_readings.area`) and
+`lanlink` (inside port counters, `nh_readings.lanlink`): migration 0045,
+approved and run 2026-11-21. Rules INNER_PATH_LOSS/DOWN (i-fra*),
+CUSTOMER_PATH_LOSS/DOWN (h-cust*), AREA_SILENT, LANLINK_DOWN/DAMAGE (SMS
+rules) and LANLINK_DROPS (page only). Area names read from OPS's own VLAN
+list (monitored_sites + locations), the one read outside nh_ tables. The
+LOSS incident opened from the 10x data stays in the incident list.
 
 **Cutover day:** after repointing `p-gw` to the new gateway, set "Provider
 switched at" on the Network Health page, and give the Frankfurt report

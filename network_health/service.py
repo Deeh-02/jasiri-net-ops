@@ -39,14 +39,14 @@ def ingest(source, sent_at, records):
     parsed, ignored, skipped = feed.parse_batch(records)
     if skipped:
         log.warning("network health: skipped %s record(s), first reason: %s", len(skipped), skipped[0])
-    new_records = store.save_batch(source, sent_at, parsed)
+    new_records, replaced = store.save_batch(source, sent_at, parsed)
     try:
         evaluate(new_records)
     except Exception:
         log.exception("network health: judging the batch failed (the batch itself is stored)")
     cleanup_if_due()
-    return {"stored": len(new_records), "duplicates": len(parsed) - len(new_records),
-            "ignored": ignored, "skipped": len(skipped)}
+    return {"stored": len(new_records), "replaced": replaced,
+            "duplicates": len(parsed) - len(new_records) - replaced, "ignored": ignored, "skipped": len(skipped)}
 
 
 def evaluate(new_records=()):
@@ -91,6 +91,14 @@ class Evaluation:
             self.judge_probes([r["ts"] for r in by_kind["probe"]])
         if "inner" in by_kind:
             self.judge_inner([r["ts"] for r in by_kind["inner"]])
+        for record in by_kind.get("inner", []):
+            self.judge_paths(record, "ccr2004", lambda n: n in config.INNER_PATH_PROBES, "INNER_PATH")
+        for record in by_kind.get("hop", []):
+            self.judge_paths(record, "olt", lambda n: n.startswith(config.CUSTOMER_PATH_PREFIX), "CUSTOMER_PATH")
+        if "area" in by_kind:
+            self.judge_areas(by_kind["area"])
+        if "lanlink" in by_kind:
+            self.judge_lanlinks(by_kind["lanlink"])
         if "link" in by_kind:
             self.judge_links(by_kind["link"])
         for record in by_kind.get("speed", []):
@@ -103,6 +111,40 @@ class Evaluation:
             check = rules.check_olt_link(record["crs_link"])
             if check:
                 self.apply(check, record["ts"])
+
+    def judge_paths(self, record, device, is_judged, rule_prefix):
+        """Per reading: each judged probe's loss and outage (i-fra* on the
+        CCR2004's way out; h-cust* through the OLT). Other probes: shown only."""
+        for probe in record.get("probes") or []:
+            if is_judged(probe["name"]):
+                for check in rules.check_path(probe, device, f"{rule_prefix}_LOSS", f"{rule_prefix}_DOWN"):
+                    self.apply(check, record["ts"])
+
+    def judge_areas(self, records):
+        """Each new VLAN reading's download rate (against that VLAN's reading
+        before it, up to an hour back) for AREA_SILENT. The 'usual' is that
+        hour's median over the BASELINE_DAYS before this batch."""
+        first, last = records[0]["ts"], records[-1]["ts"]
+        new = {(r["ts"], r["area"]["vlan"]) for r in records}
+        steps = inside.area_rates(store.area_readings(self.cur, first - timedelta(hours=1), last))
+        medians, first_seen = store.area_baselines(self.cur, first - timedelta(days=config.BASELINE_DAYS), first)
+        names = store.area_names(self.cur)
+        for step in steps:
+            if (step["ts"], step["vlan"]) not in new:
+                continue
+            vlan = step["vlan"]
+            usual = medians.get(vlan, {}).get(rules.eat_hour(step["ts"]))
+            check = rules.check_area_silent(vlan, inside.area_name(vlan, names), step, usual, first_seen.get(vlan))
+            self.apply(check, step["ts"])
+
+    def judge_lanlinks(self, records):
+        """Each new inside-port reading against that port's previous one."""
+        new = {(r["ts"], r["lanlink"]["dev"], r["lanlink"]["port"]) for r in records}
+        readings = store.lanlink_readings(self.cur, records[0]["ts"] - timedelta(hours=1), records[-1]["ts"])
+        for step in inside.lanlink_steps(readings):
+            if (step["ts"], step["dev"], step["port"]) in new:
+                for check in rules.check_lanlink(step):
+                    self.apply(check, step["ts"])
 
     def judge_olt(self, records):
         """Each new OLT reading against the ones before it (a day back is
@@ -365,11 +407,17 @@ def inside_card(range_name):
         restarts = store.olt_restarts(cur, lookback)
         links = store.crs_link_records(cur, lookback)
         last_poll, last_success = store.olt_last_reads(cur)
+        names = store.area_names(cur)
+        day_ago = now - timedelta(hours=24)
+        sparks = store.area_series(cur, day_ago, config.AREA_SPARK_BUCKET_SECONDS)
+        latest_rates = inside.area_rates(store.area_readings(cur, now - timedelta(hours=1), now))
+        lanlinks = inside.lanlink_rows(store.lanlink_readings(cur, day_ago - timedelta(minutes=15), now), day_ago)
+        hop = store.hop_series(cur, since, bucket)
     steps = [s for s in steps if s["ts"] > since]
     latest = next((s["interval"] for s in reversed(steps)
                    if s["interval"] and s["interval"]["crc_pct"] is not None), None)
     silent_for = None if last_success is None else (now - last_success).total_seconds() / 60
-    active = [describe(a) for a in store.active_rules() if a["device"] == "olt"]
+    active = [describe(a) for a in store.active_rules() if a["rule"] in rules.INSIDE_RULES]
     return {
         "range": range_name, "bucket_seconds": bucket,
         "crc": {"series": inside.crc_buckets(steps, bucket),
@@ -386,7 +434,28 @@ def inside_card(range_name):
         "olt_interface": config.OLT_LINK_INTERFACE, "ports": config.CRS_PORT_LABELS,
         "lookback_days": config.INSIDE_LOOKBACK_DAYS,
         "active": active,
+        "areas": area_rows(names, sparks, latest_rates),
+        "lanlinks": lanlinks,
+        "hop": hop,
+        "thresholds": {"path_loss_pct": config.PATH_LOSS_PCT, "area_silent_mbps": config.AREA_SILENT_MBPS,
+                       "lanlink_damage_over": config.LANLINK_DAMAGE_OVER, "lanlink_drops_over": config.LANLINK_DROPS_OVER},
     }
+
+
+def area_rows(names, sparks, latest_rates):
+    """One row per VLAN seen in the last 24 h: its name, latest rates and
+    sparkline. Areas by name; the CCR2004 total last."""
+    latest = {}
+    for step in latest_rates:
+        if step["down_mbps"] is not None or step["up_mbps"] is not None:
+            latest[step["vlan"]] = step
+    rows = []
+    for vlan in set(sparks) | set(latest):
+        step = latest.get(vlan) or {}
+        rows.append({"vlan": vlan, "name": inside.area_name(vlan, names), "is_total": vlan == config.AREA_TOTAL_VLAN,
+                     "down_mbps": step.get("down_mbps"), "up_mbps": step.get("up_mbps"), "at": step.get("ts"),
+                     "spark": sparks.get(vlan, [])})
+    return sorted(rows, key=lambda r: (r["is_total"], r["name"].lower(), r["vlan"]))
 
 
 def charts(range_name):

@@ -19,7 +19,8 @@ from network_health import config
 AMBER, RED, OFFLINE = "AMBER", "RED", "OFFLINE"
 SEVERITY_RANK = {None: 0, AMBER: 1, RED: 2, OFFLINE: 3}
 
-DEVICE_LABELS = {"ccr2116": "CCR2116", "ccr2004": "CCR2004", "feed": "Frankfurt feed", "olt": "OLT"}
+DEVICE_LABELS = {"ccr2116": "CCR2116", "ccr2004": "CCR2004", "feed": "Frankfurt feed", "olt": "OLT",
+                 "crs326": "CRS326"}
 # What each rule is called on the page.
 RULE_LABELS = {
     "FEED_SILENT": "No data from Frankfurt",
@@ -38,15 +39,31 @@ RULE_LABELS = {
     "OLT_RESTART": "OLT restarted",
     "OLT_LINK_DOWN": "OLT link down",
     "OLT_SNMP_SILENT": "OLT not answering SNMP",
+    "INNER_PATH_LOSS": "CCR2004 path out losing packets",
+    "INNER_PATH_DOWN": "CCR2004 path out down",
+    "CUSTOMER_PATH_LOSS": "Customer path losing packets",
+    "CUSTOMER_PATH_DOWN": "Customer path down",
+    "AREA_SILENT": "Area gone silent",
+    "LANLINK_DOWN": "Inside link went down",
+    "LANLINK_DAMAGE": "Inside link damaging frames",
+    "LANLINK_DROPS": "Inside link dropping frames",
 }
+# The rules the "Inside network" section lists as its active problems.
+INSIDE_RULES = ("OLT_CRC", "OLT_RESTART", "OLT_LINK_DOWN", "OLT_SNMP_SILENT", "INNER_PATH_LOSS", "INNER_PATH_DOWN",
+                "CUSTOMER_PATH_LOSS", "CUSTOMER_PATH_DOWN", "AREA_SILENT", "LANLINK_DOWN", "LANLINK_DAMAGE",
+                "LANLINK_DROPS")
 # Checks needed in a row before firing / clearing, where it isn't the default.
 FIRE_AFTER = {"OPTIC_DEGRADING": 2, "LINK_ERRORS": config.LINK_ERRORS_FIRE_AFTER, "DNS_ROUTER": config.DNS_FIRE_AFTER,
-              "OLT_CRC": config.OLT_CRC_FIRE_AFTER}
+              "OLT_CRC": config.OLT_CRC_FIRE_AFTER,
+              "INNER_PATH_LOSS": config.PATH_LOSS_IN_A_ROW, "INNER_PATH_DOWN": config.PATH_DOWN_IN_A_ROW,
+              "CUSTOMER_PATH_LOSS": config.PATH_LOSS_IN_A_ROW, "CUSTOMER_PATH_DOWN": config.PATH_DOWN_IN_A_ROW,
+              "AREA_SILENT": config.AREA_SILENT_IN_A_ROW}
 # LINK_DOWN clears on the next 5-minute reading with no new drop, OLT_RESTART
 # on the next reading with no new restart, OLT_LINK_DOWN on the port's `up`.
 CLEAR_AFTER = {"FEED_SILENT": 1, "ROUTER_SILENT": 1, "SPEED_LOW": 1, "OPTIC_DEGRADING": 2, "LINK_DOWN": 1,
                "LINK_ERRORS": config.LINK_ERRORS_FIRE_AFTER, "DNS_ROUTER": config.DNS_CLEAR_AFTER,
-               "OLT_CRC": config.OLT_CRC_CLEAR_AFTER, "OLT_RESTART": 1, "OLT_LINK_DOWN": 1, "OLT_SNMP_SILENT": 1}
+               "OLT_CRC": config.OLT_CRC_CLEAR_AFTER, "OLT_RESTART": 1, "OLT_LINK_DOWN": 1, "OLT_SNMP_SILENT": 1,
+               "INNER_PATH_DOWN": 1, "CUSTOMER_PATH_DOWN": 1, "AREA_SILENT": 1, "LANLINK_DOWN": 1}
 # For these a LOWER value is worse (an incident's "peak" is its lowest value).
 LOWER_IS_WORSE = ("SPEED_LOW", "OPTIC_DEGRADING")
 
@@ -278,6 +295,67 @@ def check_olt_snmp(last_success_received_at, last_probe_received_at, last_post_a
     minutes = minutes_since(last_success_received_at, now)
     return make_check("olt", "OLT_SNMP_SILENT", minutes >= config.OLT_SNMP_SILENT_MINUTES, value=minutes,
                       facts={"minutes": minutes}, immediate=True)
+
+
+def check_path(probe, device, loss_rule, down_rule):
+    """One reading of a judged path probe (i-fra*, h-cust*) -> (loss check,
+    down check). DOWN = no reply at all (loss 100, rtt null). An outage
+    reading isn't also judged as "loss" (verdict None: no change), so an
+    outage texts once, as DOWN."""
+    name = probe.get("name")
+    loss = probe.get("loss_pct")
+    if loss is None:
+        return make_check(device, loss_rule, None, subject=name), make_check(device, down_rule, None, subject=name)
+    is_down = loss >= 100 and probe.get("rtt_ms") is None
+    facts = {"probe": name, "loss": loss}
+    return (make_check(device, loss_rule, None if is_down else loss >= config.PATH_LOSS_PCT, value=loss,
+                       subject=name, facts=facts),
+            make_check(device, down_rule, is_down, value=loss, subject=name, facts=facts))
+
+
+def check_area_silent(vlan, name, step, usual_mbps, first_seen):
+    """One VLAN's 5-minute download rate. Judged only 07:00-23:00 EAT, only
+    for a VLAN with AREA_HISTORY_DAYS of readings, never for VLAN 99 (the
+    CCR2004's total, not an area). A VLAN whose median at this hour over the
+    last week is AREA_USUAL_MBPS or less is always quiet: never silent."""
+    subject = f"{name} (VLAN {vlan})"
+    rate = step.get("down_mbps")
+    hour = eat_hour(step["ts"])
+    in_hours = config.AREA_SILENT_FROM_HOUR_EAT <= hour < config.AREA_SILENT_UNTIL_HOUR_EAT
+    has_history = first_seen is not None and first_seen <= step["ts"] - timedelta(days=config.AREA_HISTORY_DAYS)
+    if vlan == config.AREA_TOTAL_VLAN or rate is None or not in_hours or not has_history:
+        return make_check("ccr2004", "AREA_SILENT", None, subject=subject)
+    facts = {"area": name, "vlan": vlan, "mbps": rate, "usual": usual_mbps}
+    if usual_mbps is None or usual_mbps <= config.AREA_USUAL_MBPS:
+        return make_check("ccr2004", "AREA_SILENT", False, value=rate, subject=subject, facts=facts)
+    return make_check("ccr2004", "AREA_SILENT", rate < config.AREA_SILENT_MBPS, value=rate, subject=subject,
+                      facts=facts)
+
+
+def check_lanlink(step):
+    """One inside port's reading against its previous one -> its checks:
+    LANLINK_DOWN (link_downs went up: at once), LANLINK_DAMAGE (rx_fcs or
+    rx_err up by more than 100) and LANLINK_DROPS (tx_drop up by more than
+    1000, page only). A counter the port doesn't report says nothing; nor
+    does a pair over LANLINK_MAX_GAP_MINUTES apart (not "in 5 min")."""
+    dev, port, label = step["dev"], step["port"], step["label"]
+    subject = f"{dev} {port}"
+    increases = step.get("increases")
+    usable = increases is not None and step["gap_minutes"] <= config.LANLINK_MAX_GAP_MINUTES
+    get = (lambda counter: increases.get(counter)) if usable else (lambda counter: None)
+    checks = []
+    if (dev, port) not in config.LANLINK_DOWN_SKIP:
+        downs = get("link_downs")
+        checks.append(make_check(dev, "LANLINK_DOWN", None if downs is None else downs > 0, value=downs,
+                                 subject=subject, facts={"label": label, "count": downs}, immediate=True))
+    errors = [v for v in (get("rx_fcs"), get("rx_err")) if v is not None]
+    worst = max(errors) if errors else None
+    checks.append(make_check(dev, "LANLINK_DAMAGE", None if worst is None else worst > config.LANLINK_DAMAGE_OVER,
+                             value=worst, subject=subject, facts={"label": label, "count": worst}))
+    drops = get("tx_drop")
+    checks.append(make_check(dev, "LANLINK_DROPS", None if drops is None else drops > config.LANLINK_DROPS_OVER,
+                             value=drops, subject=subject, facts={"label": label, "count": drops}))
+    return checks
 
 
 # ---- The speed test ----

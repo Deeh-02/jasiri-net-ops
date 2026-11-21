@@ -49,6 +49,18 @@ class FakeStore:
 
     def last_olt_success_received(self, cur): return None
 
+    def area_readings(self, cur, since, until):
+        return [{"ts": r["ts"], "area": r["area"]} for r in self.rows if r["kind"] == "area" and since < r["ts"] <= until]
+
+    def area_baselines(self, cur, since, until):
+        return {5: {hour: 12.0 for hour in range(24)}}, {5: NOW - timedelta(days=3)}
+
+    def area_names(self, cur): return {5: "Njeri House"}
+
+    def lanlink_readings(self, cur, since, until):
+        return [{"ts": r["ts"], "lanlink": r["lanlink"]} for r in self.rows
+                if r["kind"] == "lanlink" and since < r["ts"] <= until]
+
     def cleared_since(self, cur, key, since):
         return any(i["key"] == key and i["ended_at"] and i["ended_at"] >= since for i in self.incidents.values())
 
@@ -191,6 +203,38 @@ class Flow(unittest.TestCase):
         restart = next(i for i in fake.incidents.values() if i["key"][1] == "OLT_RESTART")
         self.assertIsNotNone(restart["ended_at"])
 
+    def test_ccr2004_path_out_down_texts_once_as_down(self):
+        rows = [{"ts": NOW - timedelta(minutes=m), "kind": "inner", "load": {"cpu_pct": 5},
+                 "probes": [{"name": "i-fra", "rtt_ms": None, "jitter_ms": None, "loss_pct": 100},
+                            {"name": "i-core", "rtt_ms": None, "jitter_ms": None, "loss_pct": 100}]} for m in (1, 0)]
+        sent = self.evaluate(FakeStore(rows), rows)
+        self.assertEqual([m for _, m in sent],
+                         ["JNET ALERT CCR2004: CCR2004 path out DOWN, no reply on i-fra. Since 21:30"])
+
+    def test_a_silent_area_texts(self):
+        # NOW is 21:30 Nairobi; 37.5 MB in 5 min = 1 Mbps, then nothing for 10 min.
+        rows = [{"ts": NOW - timedelta(minutes=m), "kind": "area",
+                 "area": {"vlan": 5, "if": "v5", "down_bytes": b, "up_bytes": 0}}
+                for m, b in ((15, 0), (10, 37_500_000), (5, 37_500_000), (0, 37_500_000))]
+        sent = self.evaluate(FakeStore(rows), rows)
+        self.assertEqual([m for _, m in sent],
+                         ["JNET ALERT CCR2004: Area Njeri House has gone silent: possible power or fibre cut at the "
+                          "site. Since 21:30"])
+
+    def test_an_inside_link_going_down_texts(self):
+        rows = [{"ts": NOW - timedelta(minutes=m), "kind": "lanlink",
+                 "lanlink": {"dev": "ccr2116", "port": "sfp-sfpplus4", "link_downs": d}} for m, d in ((5, 3), (0, 4))]
+        sent = self.evaluate(FakeStore(rows), rows)
+        self.assertEqual([m for _, m in sent], ["JNET ALERT CCR2116: Link CCR2116 to CRS326 went down. Since 21:30"])
+
+    def test_box_probes_never_alert(self):
+        rows = [{"ts": NOW - timedelta(minutes=m), "kind": "hop",
+                 "probes": [{"name": n, "rtt_ms": None, "jitter_ms": None, "loss_pct": 100}
+                            for n in ("h-crs", "h-2004", "h-olt", "h-olt-big")]} for m in (2, 1, 0)]
+        fake = FakeStore(rows)
+        self.assertEqual(self.evaluate(fake, rows), [])
+        self.assertEqual(fake.incidents, {})
+
     def test_log_only_mode_sends_nothing(self):
         rows = [probe_row(m, down=330) for m in range(5, -1, -1)]
         fake = FakeStore(rows)
@@ -218,7 +262,9 @@ class InsideCard(unittest.TestCase):
         store = mock.Mock(now_utc=mock.Mock(return_value=NOW), olt_readings=mock.Mock(return_value=readings),
                           olt_restarts=mock.Mock(return_value=[]), crs_link_records=mock.Mock(return_value=[]),
                           olt_last_reads=mock.Mock(return_value=(NOW, last_success)),
-                          active_rules=mock.Mock(return_value=[]))
+                          active_rules=mock.Mock(return_value=[]), area_names=mock.Mock(return_value={}),
+                          area_series=mock.Mock(return_value={}), area_readings=mock.Mock(return_value=[]),
+                          lanlink_readings=mock.Mock(return_value=[]), hop_series=mock.Mock(return_value=[]))
         store.transaction.return_value.__enter__ = mock.Mock(return_value=None)
         store.transaction.return_value.__exit__ = mock.Mock(return_value=False)
         with mock.patch.object(service, "store", store):

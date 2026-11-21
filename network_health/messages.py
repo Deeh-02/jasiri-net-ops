@@ -69,6 +69,22 @@ def pct_text(value):
     return f"{value:.1f}" if value >= 0.1 else f"{value:.3f}".rstrip("0").rstrip(".") or "0"
 
 
+def short(text, limit=20):
+    """A name from a reading or OPS's lists, cut so the SMS stays one segment."""
+    return str(text or "?")[:limit]
+
+
+def gsm_label(label):
+    """Link labels use an arrow on the page; the SMS says 'to' (GSM-7)."""
+    return short(str(label or "?").replace(" → ", " to "), 40)
+
+
+def link_label_of(subject):
+    """'crs326 sfp-sfpplus3' (a LANLINK subject) -> its label, GSM-7."""
+    dev, _, port = (subject or "").partition(" ")
+    return gsm_label(config.LANLINK_LABELS.get((dev, port), subject))
+
+
 def probe_label(name):
     return PROBE_LABELS.get(name, name)
 
@@ -117,6 +133,22 @@ def problem_text(rule, facts):
         return f"OLT link DOWN (CRS326 {facts.get('interface', '')}). Customers cut off"
     if rule == "OLT_SNMP_SILENT":
         return f"OLT not answering SNMP for {number(facts.get('minutes'))}min"
+    if rule == "INNER_PATH_LOSS":
+        return f"CCR2004 path out losing packets, {number(facts.get('loss'))}% loss on {short(facts.get('probe'))}"
+    if rule == "INNER_PATH_DOWN":
+        return f"CCR2004 path out DOWN, no reply on {short(facts.get('probe'))}"
+    if rule == "CUSTOMER_PATH_LOSS":
+        return f"customer path via OLT losing packets, {number(facts.get('loss'))}% loss on {short(facts.get('probe'))}"
+    if rule == "CUSTOMER_PATH_DOWN":
+        return f"customer path via OLT DOWN, no reply on {short(facts.get('probe'))}"
+    if rule == "AREA_SILENT":
+        return f"Area {short(facts.get('area'), 30)} has gone silent: possible power or fibre cut at the site"
+    if rule == "LANLINK_DOWN":
+        return f"Link {gsm_label(facts.get('label'))} went down"
+    if rule == "LANLINK_DAMAGE":
+        return f"Link {gsm_label(facts.get('label'))} is damaging frames ({number(facts.get('count'))} errors in 5min)"
+    if rule == "LANLINK_DROPS":
+        return f"Link {gsm_label(facts.get('label'))} dropping frames ({number(facts.get('count'))} in 5min)"
     return rule
 
 
@@ -138,6 +170,14 @@ def recovered_text(rule, subject):
         "OLT_RESTART": "OLT",
         "OLT_LINK_DOWN": "OLT link",
         "OLT_SNMP_SILENT": "OLT SNMP",
+        "INNER_PATH_LOSS": f"CCR2004 path out ({short(subject)})",
+        "INNER_PATH_DOWN": f"CCR2004 path out ({short(subject)})",
+        "CUSTOMER_PATH_LOSS": f"customer path ({short(subject)})",
+        "CUSTOMER_PATH_DOWN": f"customer path ({short(subject)})",
+        "AREA_SILENT": f"area {short(subject, 44)}",
+        "LANLINK_DOWN": f"link {link_label_of(subject)}",
+        "LANLINK_DAMAGE": f"link {link_label_of(subject)} frames",
+        "LANLINK_DROPS": f"link {link_label_of(subject)} drops",
     }.get(rule, rule)
 
 

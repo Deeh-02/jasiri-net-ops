@@ -139,6 +139,56 @@ INSIDE_LOOKBACK_DAYS = 30
 KEEP_OLT_DAYS = 90
 INSIDE_EVENTS_LIMIT = 100
 
+# ---- Inside network, part 2 (owner, 2026-11-21) ----
+
+# Paths judged one reading at a time (each reading is a 10-ping test):
+# bad loss is LOSS_PCT or more in LOSS_IN_A_ROW readings; DOWN is no reply at
+# all (rtt null, loss 100) in DOWN_IN_A_ROW. A DOWN reading isn't counted as
+# "loss" too, so an outage texts once, as DOWN.
+#   inner: the CCR2004's way out (through the CRS326, CCR2116 and Airtel).
+#   hop:   h-cust* only (a customer path through the OLT). The other h-*
+#          probes ping the boxes themselves, which answer at low priority:
+#          shown, never judged.
+INNER_PATH_PROBES = ("i-fra", "i-fra-big")
+CUSTOMER_PATH_PREFIX = "h-cust"
+PATH_LOSS_PCT = 20
+PATH_LOSS_IN_A_ROW = 3
+PATH_DOWN_IN_A_ROW = 2
+
+# Areas (`area`, one record per VLAN on the CCR2004 uplink every 5 min).
+# Names come from OPS's own VLAN list (monitored_sites + locations); VLAN 99
+# is the CCR2004's own link to the core, shown as its total, never judged.
+AREA_TOTAL_VLAN = 99
+AREA_TOTAL_LABEL = "CCR2004 total"
+# AREA_SILENT: 07:00-23:00 EAT, download under SILENT_MBPS in
+# SILENT_IN_A_ROW readings, where the median at that hour over the previous
+# BASELINE_DAYS was over USUAL_MBPS, and the VLAN has HISTORY_DAYS of readings.
+AREA_SILENT_FROM_HOUR_EAT = 7
+AREA_SILENT_UNTIL_HOUR_EAT = 23
+AREA_SILENT_MBPS = 0.05
+AREA_SILENT_IN_A_ROW = 2
+AREA_USUAL_MBPS = 1
+AREA_HISTORY_DAYS = 2
+AREA_SPARK_BUCKET_SECONDS = 900     # the 24 h sparklines: one point per 15 min
+
+# Inside links (`lanlink`, every 5 min). Increases are per reading; a pair of
+# readings over MAX_GAP_MINUTES apart isn't judged (not "in 5 min").
+LANLINK_LABELS = {
+    ("ccr2116", "sfp-sfpplus4"): "CCR2116 → CRS326",
+    ("ccr2004", "sfp-sfpplus1"): "CCR2004 → CRS326",
+    ("crs326", "sfp-sfpplus1"): "CRS326 → CCR2116",
+    ("crs326", "sfp-sfpplus2"): "CRS326 → CCR2004",
+    ("crs326", "sfp-sfpplus3"): "CRS326 → OLT",
+    ("crs326", "sfp-sfpplus4"): "CRS326 → Proxmox",
+}
+LANLINK_COUNTERS = ("link_downs", "rx_fcs", "rx_err", "rx_overflow", "tx_drop")
+LANLINK_DAMAGE_OVER = 100           # rx_fcs or rx_err up by more than this in one reading
+LANLINK_DROPS_OVER = 1000           # tx_drop up by more than this: page only
+LANLINK_MAX_GAP_MINUTES = 15
+# The CRS326's OLT port already has OLT_LINK_DOWN (its own up/down events,
+# with the outage time): its link_downs don't text a second time.
+LANLINK_DOWN_SKIP = (("crs326", "sfp-sfpplus3"),)
+
 # A window must hold at least this many readings to be judged at all;
 # otherwise the rule keeps its current state (no data is not "fine").
 MIN_READINGS_IN_WINDOW = 3
@@ -152,7 +202,9 @@ CLEAR_AFTER = 3
 
 # Rules that send an SMS when they fire. Any rule at RED also sends.
 SMS_RULES = ("SPEED_LOW", "UPLINK_CONGESTED", "LATENCY_HIGH", "LINK_DOWN", "FEED_SILENT", "ROUTER_SILENT",
-             "OLT_CRC", "OLT_RESTART", "OLT_LINK_DOWN", "OLT_SNMP_SILENT")
+             "OLT_CRC", "OLT_RESTART", "OLT_LINK_DOWN", "OLT_SNMP_SILENT",
+             "INNER_PATH_LOSS", "INNER_PATH_DOWN", "CUSTOMER_PATH_LOSS", "CUSTOMER_PATH_DOWN", "AREA_SILENT",
+             "LANLINK_DOWN", "LANLINK_DAMAGE")
 # A restart is over by the time it is seen: its fire SMS says so, and there
 # is no "back to normal" SMS after it.
 NO_CLEAR_SMS = ("OLT_RESTART",)

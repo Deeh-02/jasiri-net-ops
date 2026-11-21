@@ -48,12 +48,38 @@
                 <tbody id="nh-restarts" data-skeleton="3"></tbody>
             </table>
         </div>
-        <h3 class="nh-h3">Inside link events <span class="nh-h2-sub" id="nh-links-sub"></span></h3>
+        <h3 class="nh-h3">OLT link events <span class="nh-h2-sub" id="nh-links-sub"></span></h3>
         <div class="table-scroll table-compact">
             <table class="nh-table">
                 <thead><tr><th>Port</th><th>Went down</th><th>Came back</th><th>Outage</th><th>Speed</th></tr></thead>
                 <tbody id="nh-link-events" data-skeleton="5"></tbody>
             </table>
+        </div>
+
+        <h3 class="nh-h3">Areas <span class="nh-h2-sub" id="nh-areas-sub"></span></h3>
+        <div class="table-scroll table-compact">
+            <table class="nh-table nh-areas">
+                <thead><tr><th>Area</th><th>Download</th><th>Upload</th><th>Last 24 h (download)</th><th>Reading</th></tr></thead>
+                <tbody id="nh-areas" data-skeleton="5"></tbody>
+            </table>
+        </div>
+
+        <h3 class="nh-h3">Inside links <span class="nh-h2-sub" id="nh-lanlinks-sub"></span></h3>
+        <div class="table-scroll table-compact">
+            <table class="nh-table nh-lanlinks">
+                <thead><tr><th>Link</th><th>Link downs</th><th>FCS errors</th><th>RX errors</th><th>RX overflow</th><th>TX drops</th></tr></thead>
+                <tbody id="nh-lanlinks" data-skeleton="6"></tbody>
+            </table>
+        </div>
+
+        <h3 class="nh-h3">Probes <span class="nh-h2-sub">the CCR2004's way out is alerted on; pings to the boxes themselves are info only</span></h3>
+        <div class="nh-graphs nh-inside-probes" id="nh-inside-probes">
+            <figure class="nh-graph" id="nh-g-inner-loss"></figure>
+            <figure class="nh-graph" id="nh-g-inner-cpu"></figure>
+            <figure class="nh-graph" id="nh-g-inner-core"></figure>
+            <figure class="nh-graph" id="nh-g-inner-fra"></figure>
+            <figure class="nh-graph" id="nh-g-hop-loss"></figure>
+            <figure class="nh-graph" id="nh-g-hop-rtt"></figure>
         </div>
 
         <h2 class="nh-h2">Where content is served from <span class="nh-h2-sub" id="nh-routes-sub"></span></h2>
