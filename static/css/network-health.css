@@ -177,8 +177,32 @@
 /* ---- Diagnose: Claude, where "Ask" usually is ---- */
 /* On this page the shared Ask button and panel make way for Diagnose, and
    Diagnose shows nowhere else. Both use chat.css's look. */
-body:has(#view-network-health:not([hidden])) :is(.chat-launcher:not(.nh-ask-launcher), .chat-panel:not(.nh-ask-panel)),
-body:not(:has(#view-network-health:not([hidden]))) :is(.nh-ask-launcher, .nh-ask-panel) { display: none !important; }
+body:has(#view-network-health:not([hidden])) .chat-panel:not(.nh-ask-panel),
+body:not(:has(#view-network-health:not([hidden]))) .nh-ask-panel { display: none !important; }
+
+/* The two launchers share one corner. Moving between pages does not swap
+   them: the pill widens from "Ask" to "Diagnose" while the word rolls up
+   inside it (and back again on the way out). Panels still just swap. */
+.chat-launcher {
+    overflow: hidden; white-space: nowrap;
+    transition: max-width .5s cubic-bezier(.22,.8,.24,1), opacity .35s ease, visibility 0s;
+}
+.chat-launcher > span {
+    display: block;
+    transition: transform .5s cubic-bezier(.22,.8,.24,1);
+}
+.chat-launcher:not(.nh-ask-launcher) { max-width: var(--nh-ask-w, 88px); }
+.nh-ask-launcher { max-width: var(--nh-dx-w, 128px); }
+/* Away: Ask rolls up and out (on Network Health); Diagnose rolls down out
+   of sight and narrows back to Ask's width (everywhere else). */
+body:has(#view-network-health:not([hidden])) .chat-launcher:not(.nh-ask-launcher),
+body:not(:has(#view-network-health:not([hidden]))) .nh-ask-launcher {
+    opacity: 0; visibility: hidden; pointer-events: none;
+    transition: max-width .5s cubic-bezier(.22,.8,.24,1), opacity .35s ease, visibility 0s .5s;
+}
+body:has(#view-network-health:not([hidden])) .chat-launcher:not(.nh-ask-launcher) > span { transform: translateY(-140%); }
+body:not(:has(#view-network-health:not([hidden]))) .nh-ask-launcher { max-width: var(--nh-ask-w, 88px); }
+body:not(:has(#view-network-health:not([hidden]))) .nh-ask-launcher > span { transform: translateY(140%); }
 .nh-ask-controls {
     display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 14px;
     border-bottom: 1px solid var(--border);
