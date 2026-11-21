@@ -2384,36 +2384,50 @@ CRS326's OLT port, which OLT_LINK_DOWN covers), LANLINK_DAMAGE (rx_fcs or
 rx_err +100 in 5 min), LANLINK_DROPS (tx_drop +1000, page only); a pair over
 15 min apart isn't judged. All new rules AMBER.
 
-### Diagnose with Claude (2026-11-21)
+### Diagnose: a chat with Claude (2026-11-21)
 
-`network_health/diagnose.py`, `GET/POST /network/health/diagnose`. The
-owner's choice of models: quick = Claude Sonnet 5.5 at medium effort
-(Network Health > View), deep = Claude Opus 5.5 at high effort (Network
-Health > Admin, because it costs more). The names, effort, token limits,
-prices and daily limits are `DIAGNOSE_*` in `config.py`.
+`network_health/diagnose.py`; `GET /network/health/diagnose` (what's on
+offer, `can_opus`) and `POST /network/health/diagnose/chat`. On the Network
+Health page the shared Ask button and panel (`chat.js`, DeepSeek) are hidden
+by `network-health.css` (`body:has(#view-network-health:not([hidden]))`) and
+a "Diagnose" launcher and panel built by `network-health.js` take their
+corner, with chat.css's classes so it looks the same. No shared file
+changed, so the isolation test still holds. The owner's choices: Claude
+Sonnet 5.5 for everyone (View), Claude Opus 5.5 for Network Health > Admin;
+medium or high effort, everyone's choice. Names, token limits, prices,
+limits: `DIAGNOSE_*` in `config.py`.
 
 - **What is sent:** `summarise()` turns the page's own reads (overview,
   charts and inside for 24 h, routes, the last 30 incidents, active rules)
-  into windows (15 min / 1 h / 24 h: avg and max) per probe, resolver, area
-  and the uplink. Deep adds hour-by-hour series and traceroute hops. Times
-  are Nairobi text. Never sent: raw readings, the SMS log, the feed's IP,
-  phone numbers. About 13,000 input tokens for a quick check (21 Nov).
-- **The prompt** describes the network (boxes, ports, probe names) and how
-  to localise a fault by comparing layers. It asks for plain text, which
-  the page turns into headings and bullets with `textContent` only.
-- **The call** uses the `anthropic` SDK (the one third-party library added
-  for it), streamed, with adaptive thinking left to the model and the
-  server-side refusal fallback on (`fallbacks: "default"`). The answer shows
-  the model that actually answered, tokens and the cost.
-- **Certificates:** the SDK's HTTP library (httpx2) trusts the operating
-  system's certificate store by default; on Render the first calls failed as
-  "couldn't reach Anthropic". `_client()` gives it certifi's bundle instead,
-  as `requests` uses everywhere else. A connection failure now names its
-  root cause on the page and logs the traceback.
-- **Cost control in memory, not the database:** per-Nairobi-day counts
-  (40 quick, 10 deep), one run at a time per button, the same button
-  again within 5 minutes with no question shows the last answer. A deploy
-  resets the counts; a failed call doesn't count. No schema change.
+  into windows (15 min / 1 h / 24 h: avg and max) and hour-by-hour series
+  per probe, resolver, area and the uplink, plus traceroute hops. Times are
+  Nairobi text. Never sent: raw readings, the SMS log, the feed's IP, phone
+  numbers. About 19,000 tokens (21 Nov).
+- **The prompt:** a fixed system block (the network, how to localise a fault
+  by comparing layers, network-health questions only, the "Quick check" and
+  "Detailed analysis" formats, plain text), then the snapshot as a second
+  system block, then the conversation (user/assistant text only, at most 20
+  messages, alternating; the page keeps it in sessionStorage and drops the
+  oldest).
+- **Prompt caching:** the snapshot block is marked for caching and kept
+  byte-for-byte per conversation id for `DIAGNOSE_SNAPSHOT_MINUTES` (10),
+  then rebuilt; top-level `cache_control` caches the conversation too. On
+  21 Nov: first question 19k tokens written to the cache, US$0.056;
+  follow-up read them back, US$0.016; an off-topic question US$0.004.
+- **The call:** the `anthropic` SDK, streamed, adaptive thinking left to the
+  model, `output_config.effort`, the server-side refusal fallback on
+  (`fallbacks: "default"`). The answer carries the model that answered,
+  tokens, cache tokens and the cost (cache writes 1.25x input).
+- **Certificates and the key:** httpx2 (the SDK's HTTP library) trusts the
+  OS certificate store, which Render's Python couldn't use, so `_client()`
+  gives it certifi's bundle. The key is stripped (a trailing newline from a
+  paste made an illegal header). `redact()` removes keys and Bearer tokens
+  from every error message and log line, before any cut; connection errors
+  are logged without a traceback, which would repeat the header. On 21 Nov
+  an early version showed the key in an error; the owner was told to rotate it.
+- **Cost control in memory, not the database:** questions per Nairobi day
+  per model, all users together (100 Sonnet, 20 Opus); a failed call
+  doesn't count; a deploy resets the counts. No schema change.
 
 ### SMS: planned purely, sent after commit
 

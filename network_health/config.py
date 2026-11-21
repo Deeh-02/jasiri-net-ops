@@ -219,22 +219,27 @@ COMBINE_MINUTES = 2
 DEFAULT_SMS_DAILY_CAP = 20          # NH_SMS_DAILY_CAP overrides
 SMS_MAX_LENGTH = 160
 
-# ---- Diagnosis by Claude (the "Diagnose" card) ----
+# ---- Diagnose: a chat with Claude on the Network Health page ----
 
-# The owner's choice (2026-11-21): a quick check on Sonnet at medium effort;
-# a detailed "find what's wrong" analysis on Opus. It runs only when someone
-# presses a button, never per reading, and sends a summary of what the page
-# shows (diagnose.py), never raw readings or phone numbers. The key is
-# ANTHROPIC_API_KEY (Render env); without it the card says so.
-DIAGNOSE_MODELS = {"quick": "claude-sonnet-5-5", "deep": "claude-opus-5-5"}
-DIAGNOSE_EFFORT = {"quick": "medium", "deep": "high"}
-DIAGNOSE_MAX_TOKENS = {"quick": 16000, "deep": 64000}
-# US$ per million tokens (input, output), for the cost shown under an answer.
-DIAGNOSE_PRICES = {"claude-sonnet-5-5": (2.0, 10.0), "claude-opus-5-5": (4.0, 20.0)}
-# Calls per Nairobi day (counted in memory: a deploy or restart resets it).
-DIAGNOSE_DAILY_LIMIT = {"quick": 40, "deep": 10}
-# Pressing the same button again within this, with no question, shows the
-# last answer instead of paying for a new one.
-DIAGNOSE_REUSE_MINUTES = 5
-DIAGNOSE_QUESTION_MAX = 500
+# The owner's choices (2026-11-21): everyone gets Claude Sonnet 5.5; admins
+# can switch to Claude Opus 5.5; everyone picks medium or high effort. It
+# runs only when someone sends a question, and sends a summary of what the
+# page shows (diagnose.py), never raw readings or phone numbers. The key is
+# ANTHROPIC_API_KEY (Render env); without it the panel says so.
+DIAGNOSE_MODELS = {"sonnet": "claude-sonnet-5-5", "opus": "claude-opus-5-5"}
+DIAGNOSE_EFFORTS = ("medium", "high")
+DIAGNOSE_MAX_TOKENS = {"sonnet": 16000, "opus": 32000}
+# US$ per million tokens, for the cost shown under an answer. A cache write
+# costs 1.25x "in".
+DIAGNOSE_PRICES = {"claude-sonnet-5-5": {"in": 2.0, "out": 10.0, "cache_read": 0.10},
+                   "claude-opus-5-5": {"in": 4.0, "out": 20.0, "cache_read": 0.20}}
+# Questions per Nairobi day, all users together (counted in memory: a deploy
+# or restart resets it).
+DIAGNOSE_DAILY_LIMIT = {"sonnet": 100, "opus": 20}
+# A conversation keeps its snapshot this long, so follow-up questions read
+# it from Anthropic's cache (a tenth of the price); then it is rebuilt.
+DIAGNOSE_SNAPSHOT_MINUTES = 10
+DIAGNOSE_MAX_TURNS = 20             # messages sent back per question (the page drops older ones)
+DIAGNOSE_QUESTION_MAX = 4000        # characters in one question
+DIAGNOSE_ANSWER_MAX = 20000         # characters in one earlier answer sent back
 DIAGNOSE_TIMEOUT_SECONDS = 600

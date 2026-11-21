@@ -13,8 +13,8 @@ nothing is RED or OFFLINE, 503 otherwise. Calling it runs the silence checks.
 READS need Network Health > View on the role; Settings needs Network Health
 > Admin (admins always pass both).
 
-DIAGNOSE asks Claude to read a summary of the page (diagnose.py). The quick
-check needs View; the detailed analysis (Opus, costs more) needs Admin.
+DIAGNOSE is a chat with Claude about the network (diagnose.py). Sonnet needs
+View; Opus (costs more) needs Admin.
 """
 import hmac
 import json
@@ -152,29 +152,38 @@ def get_incidents(limit: int = Query(100, ge=1, le=500), current_user: dict = De
     return store.incidents(limit)
 
 
-# ---- Diagnosis by Claude ----
+# ---- Diagnose: a chat with Claude ----
 
-class DiagnoseRequest(BaseModel):
-    depth: Literal["quick", "deep"] = "quick"
-    question: Optional[str] = Field(None, max_length=config.DIAGNOSE_QUESTION_MAX)
+class ChatTurn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=config.DIAGNOSE_ANSWER_MAX)
 
 
-def can_deep(current_user):
+class DiagnoseChat(BaseModel):
+    conversation_id: str = Field(min_length=8, max_length=64, pattern=r"^[A-Za-z0-9-]+$")
+    model: Literal["sonnet", "opus"] = "sonnet"
+    effort: Literal["medium", "high"] = "medium"
+    messages: list[ChatTurn] = Field(min_length=1, max_length=config.DIAGNOSE_MAX_TURNS)
+
+
+def can_use_opus(current_user):
     return user_has_permission(current_user, "network_health", "admin")
 
 
 @router.get("/network/health/diagnose")
 def get_diagnose(current_user: dict = Depends(require_view)):
-    """Whether Claude can be asked, today's counts and the last answers."""
-    return {**diagnose.info(), "can_deep": can_deep(current_user)}
+    """Whether Claude can be asked, the models and efforts on offer, today's counts."""
+    return {**diagnose.info(), "can_opus": can_use_opus(current_user)}
 
 
-@router.post("/network/health/diagnose")
-def post_diagnose(body: DiagnoseRequest, current_user: dict = Depends(require_view)):
-    if body.depth == "deep" and not can_deep(current_user):
-        raise HTTPException(status_code=403, detail="The detailed analysis needs Network Health > Admin")
+@router.post("/network/health/diagnose/chat")
+def post_diagnose_chat(body: DiagnoseChat, current_user: dict = Depends(require_view)):
+    if body.model == "opus" and not can_use_opus(current_user):
+        raise HTTPException(status_code=403, detail="Claude Opus needs Network Health > Admin")
     try:
-        return diagnose.run(body.depth, body.question)
+        return diagnose.chat(body.conversation_id, body.model, body.effort,
+                             [t.model_dump() for t in body.messages])
     except diagnose.DiagnoseError as e:
         raise HTTPException(status_code=e.status, detail=e.message)
 

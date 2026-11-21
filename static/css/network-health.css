@@ -174,20 +174,35 @@
 .nh-counter-change.is-rising { color: var(--text); font-weight: 600; }
 .nh-inside-probes { margin-top: 4px; }
 
-/* ---- Diagnose (Claude) ---- */
-.nh-diagnose { margin-bottom: 12px; }
-.nh-diagnose-q { flex: 1 1 320px; }
-.nh-diagnose-answer { margin-bottom: 8px; }
-.nh-diagnose-text { margin-top: 8px; font-size: 14px; line-height: 1.5; color: var(--text); overflow-wrap: anywhere; }
-.nh-diagnose-text p { margin: 0 0 8px; }
-.nh-diagnose-text ul { margin: 0 0 8px; padding-left: 20px; }
-.nh-diagnose-text li { margin: 2px 0; }
-.nh-diagnose-h { margin: 12px 0 4px; font-weight: 600; }
-.nh-diagnose-h:first-child { margin-top: 0; }
-.nh-diagnose-text strong { font-weight: 600; }
-@media (max-width: 600px) {
-    .nh-diagnose .nh-settings-actions { flex-direction: column; align-items: stretch; width: 100%; }
+/* ---- Diagnose: Claude, where "Ask" usually is ---- */
+/* On this page the shared Ask button and panel make way for Diagnose, and
+   Diagnose shows nowhere else. Both use chat.css's look. */
+body:has(#view-network-health:not([hidden])) :is(.chat-launcher:not(.nh-ask-launcher), .chat-panel:not(.nh-ask-panel)),
+body:not(:has(#view-network-health:not([hidden]))) :is(.nh-ask-launcher, .nh-ask-panel) { display: none !important; }
+.nh-ask-controls {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 14px;
+    border-bottom: 1px solid var(--border);
 }
+.nh-seg { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; }
+.nh-seg[hidden] { display: none; }
+.nh-seg button {
+    background: var(--surface-2); color: var(--text-dim); border: 0; padding: 4px 10px;
+    font: inherit; font-size: 12.5px; cursor: pointer;
+}
+.nh-seg button + button { border-left: 1px solid var(--border); }
+.nh-seg button[aria-pressed="true"] {
+    background: color-mix(in srgb, var(--accent) 16%, var(--surface)); color: var(--text); font-weight: 600;
+}
+.nh-ask-cost { margin-left: auto; font-size: 11.5px; color: var(--text-dim); }
+.nh-ask-answer { white-space: normal; }
+.nh-ask-answer p { margin: 0 0 6px; }
+.nh-ask-answer ul { margin: 0 0 6px; padding-left: 18px; }
+.nh-ask-answer li { margin: 2px 0; }
+.nh-ask-answer strong { font-weight: 600; }
+.nh-ask-h { margin: 10px 0 3px; font-weight: 600; }
+.nh-ask-h:first-child { margin-top: 0; }
+.nh-ask-panel .chat-hint p { margin: 0 0 10px; }
+.nh-ask-starters { display: flex; flex-wrap: wrap; gap: 8px; }
 
 /* ---- Settings ---- */
 .nh-settings {

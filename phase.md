@@ -105,13 +105,18 @@ rules) and LANLINK_DROPS (page only). Area names read from OPS's own VLAN
 list (monitored_sites + locations), the one read outside nh_ tables. The
 LOSS incident opened from the 10x data stays in the incident list.
 
-**Diagnose with Claude (owner, 2026-11-21):** quick check on Claude
-Sonnet 5.5 (medium effort), detailed analysis on Claude Opus 5.5 (Admin
-only); `network_health/diagnose.py`, `anthropic` SDK pinned in
-requirements.txt, `ANTHROPIC_API_KEY` on Render. In-memory daily limits
-(40 / 10), no schema change. First real quick check on 21 Nov: 13.4k tokens
-in, 0.8k out, about US$0.035, 46 s; it named the evening uplink congestion
-and the CRS326-OLT link.
+**Diagnose with Claude (owner, 2026-11-21):** first a card (quick check on
+Sonnet, detailed analysis on Opus), then, the same day, a chat in the Ask
+button's corner on the Network Health page (owner: "the ASK button changes
+to Diagnose"). Everyone: Claude Sonnet 5.5, medium or high effort; Network
+Health > Admin: can switch to Claude Opus 5.5. The card was removed.
+Network-health questions only. `network_health/diagnose.py`, `anthropic`
+SDK + `certifi` pinned in requirements.txt, `ANTHROPIC_API_KEY` on Render.
+In-memory daily limits (100 Sonnet / 20 Opus), no schema change. Snapshot
+cached per conversation (10 min): first question about US$0.06, follow-ups
+1-2 cents. Fixed on the way: certifi for TLS on Render, a key with a
+trailing newline, and redacting keys from errors and logs (the owner was
+told to rotate the key that leaked into an error).
 
 **Cutover day:** after repointing `p-gw` to the new gateway, set "Provider
 switched at" on the Network Health page, and give the Frankfurt report
