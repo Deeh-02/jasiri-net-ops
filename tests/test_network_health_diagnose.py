@@ -239,6 +239,46 @@ class Call(unittest.TestCase):
                         diagnose._call("claude-sonnet-5-5", "medium", 100, "s", "u")
                 self.assertEqual(e.exception.status, status)
 
+    def call_failing_with(self, error):
+        client = mock.MagicMock()
+        client.beta.messages.stream.side_effect = error
+        with mock.patch.object(diagnose, "_client", return_value=client):
+            with self.assertRaises(diagnose.DiagnoseError) as e:
+                diagnose._call("claude-sonnet-5-5", "medium", 100, "s", "u")
+        return e.exception
+
+    def test_connection_error_says_what_went_wrong(self):
+        import ssl
+        import anthropic
+        import httpx2
+        request = httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
+        try:
+            try:
+                raise ssl.SSLCertVerificationError("certificate verify failed: unable to get local issuer certificate")
+            except ssl.SSLError as inner:
+                raise anthropic.APIConnectionError(request=request) from inner
+        except anthropic.APIConnectionError as outer:
+            error = outer
+        with self.assertLogs(diagnose.log, "WARNING"):
+            e = self.call_failing_with(error)
+        self.assertEqual(e.status, 504)
+        self.assertIn("SSLCertVerificationError", e.message)
+        self.assertIn("unable to get local issuer certificate", e.message)
+
+    def test_timeout_says_so(self):
+        import anthropic
+        import httpx2
+        request = httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
+        with self.assertLogs(diagnose.log, "WARNING"):
+            e = self.call_failing_with(anthropic.APITimeoutError(request=request))
+        self.assertEqual(e.status, 504)
+        self.assertIn("didn't answer within 10 min", e.message)
+
+    def test_client_trusts_certifis_bundle(self):
+        with mock.patch.object(diagnose.ssl, "create_default_context", wraps=diagnose.ssl.create_default_context) as ctx:
+            diagnose._client()
+        self.assertEqual(ctx.call_args.kwargs["cafile"], diagnose.certifi.where())
+
     def test_request_shape(self):
         client = mock.MagicMock()
         with mock.patch.object(diagnose.anthropic, "Anthropic", return_value=client):

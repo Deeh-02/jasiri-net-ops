@@ -17,11 +17,13 @@ memory: a deploy or restart resets them.
 import json
 import logging
 import os
+import ssl
 import statistics
 import threading
 from datetime import datetime, timedelta, timezone
 
 import anthropic
+import certifi
 
 from network_health import config, service, store
 
@@ -275,10 +277,30 @@ def _user_message(depth, snapshot, question):
     return "\n".join(parts)
 
 
+def _client():
+    """The SDK's HTTP library (httpx2) trusts the operating system's
+    certificate store by default, which Render's Python may not be able to
+    read: every call then fails as "couldn't reach". Use certifi's bundle,
+    as `requests` does everywhere else in this app."""
+    tls = ssl.create_default_context(cafile=certifi.where())
+    return anthropic.Anthropic(timeout=config.DIAGNOSE_TIMEOUT_SECONDS, max_retries=2,
+                               http_client=anthropic.DefaultHttpxClient(verify=tls))
+
+
+def _root_cause(error):
+    """The innermost exception behind an SDK error (e.g. the SSL or DNS one)."""
+    for _ in range(10):
+        inner = error.__cause__ or error.__context__
+        if inner is None:
+            break
+        error = inner
+    return error
+
+
 def _call(model, effort, max_tokens, system, user):
     """One request to Claude, streamed (the deep answer can take minutes).
     Thinking is left to the model (adaptive): effort sets how hard it works."""
-    client = anthropic.Anthropic(timeout=config.DIAGNOSE_TIMEOUT_SECONDS, max_retries=2)
+    client = _client()
     try:
         with client.beta.messages.stream(
             model=model, max_tokens=max_tokens, system=system,
@@ -299,8 +321,15 @@ def _call(model, effort, max_tokens, system, user):
     except anthropic.APIStatusError as e:
         log.warning("network health diagnosis: API error %s", e.status_code)
         raise DiagnoseError(502, f"Anthropic had an error ({e.status_code}); try again shortly.")
-    except anthropic.APIConnectionError:
-        raise DiagnoseError(504, "Couldn't reach Anthropic (or it took too long); try again.")
+    except anthropic.APITimeoutError:
+        log.warning("network health diagnosis: no answer within %s s", config.DIAGNOSE_TIMEOUT_SECONDS)
+        raise DiagnoseError(504, f"Anthropic didn't answer within {config.DIAGNOSE_TIMEOUT_SECONDS // 60} min;"
+                                 " try again.")
+    except anthropic.APIConnectionError as e:
+        root = _root_cause(e)
+        reason = f"{type(root).__name__}: {str(root)[:160]}".rstrip(": ")
+        log.warning("network health diagnosis: couldn't reach Anthropic: %s", reason, exc_info=True)
+        raise DiagnoseError(504, f"Couldn't reach Anthropic ({reason}); try again.")
 
 
 def cost_usd(model, input_tokens, output_tokens):
