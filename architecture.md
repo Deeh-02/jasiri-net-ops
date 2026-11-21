@@ -2203,8 +2203,8 @@ another go. Work runs on the thread pool, well inside SmartOLT's 15 s.
 
 Detects a slow or dirty uplink before customers complain and texts the owner.
 Owner's scope of 2026-11-16, fed per `docs/network-health-ingest-contract.md`
-(2026-11-20). Not the Network Analysis page, and not part of Finance, though
-it was built on `phase-7-finance` at the owner's call.
+(2026-11-20). Not the Network Analysis page, and not part of Finance: it
+lives on its own branch, `network-health` (from 2026-11-21).
 
 ### Its own domain, in one folder
 

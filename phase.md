@@ -17,10 +17,13 @@ with its own branch from `main` once Phase 6 has been merged.
 
 ---
 
-## ALSO ON THIS BRANCH: Network Health (owner's scope, 2026-11-16)
+## Network Health (branch `network-health`; owner's scope, 2026-11-16)
 
-Not part of Finance: the owner asked for it on `phase-7-finance` ("new scope
-will continue on this branch", 2026-11-16). Detect degraded speed and quality
+Not part of Finance. Built on `phase-7-finance` until 2026-11-21, when the
+owner moved it to its own branch `network-health`, cut from `main` with the
+Network Health commits cherry-picked. Production runs `phase-7-finance`, so
+it is deployed by merging `network-health` into it; it can merge to `main`
+on its own, without Finance. Detect degraded speed and quality
 on the uplink before customers complain, and text the owner. Not the Network
 Analysis / PPPoE page.
 
