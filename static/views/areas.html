@@ -1,0 +1,25 @@
+    <section class="view" id="view-areas" hidden>
+        <!-- Hotspot Areas: how much each hotspot area (a VLAN on the CCR2004) is
+             downloading. Same data Network Health reads (/network/health/areas),
+             so it needs Network Health > View. A pie of each area's share is
+             the next step. Every value is put on the page as text. -->
+        <div class="page-header-row">
+            <h1 class="page-title">Hotspot <span>Areas</span></h1>
+            <div class="nh-updated" id="areas-updated">Loading&hellip;</div>
+        </div>
+
+        <div class="sites-tabs tabs" role="tablist">
+            <button type="button" class="sites-tab tab" role="tab" aria-selected="false" data-tab-route="status">Status</button>
+            <button type="button" class="sites-tab tab" role="tab" aria-selected="false" data-tab-route="trends">Trends</button>
+            <button type="button" class="sites-tab tab is-active" role="tab" aria-selected="true">Areas</button>
+        </div>
+
+        <p class="nh-panel-lead" id="areas-sub"></p>
+        <ul class="nh-device-rules nh-inside-active nh-active-box" id="areas-active" aria-label="Areas that have gone silent" hidden></ul>
+        <div class="table-scroll table-compact">
+            <table class="nh-table nh-areas">
+                <thead><tr><th>Area</th><th>Download</th><th>Upload</th><th>Last 24 h (download)</th><th>Reading</th></tr></thead>
+                <tbody id="areas-rows" data-skeleton="5"></tbody>
+            </table>
+        </div>
+    </section>

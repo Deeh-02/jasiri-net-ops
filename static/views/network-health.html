@@ -2,226 +2,254 @@
         <!-- Network Health: the uplink's speed and quality, read from the
              Frankfurt shipper's feed (docs/network-health-ingest-contract.md).
              Not the Network Analysis page: nothing here is per customer.
-             Every value is put on the page as text. -->
+             Every value is put on the page as text.
+             Three pages under one tab row, like Hotspot Status's:
+               Overview (#/network-health, with its own section tabs: Uplink,
+               Content routes, Inside network, Settings), Access network
+               (#/network-health/access) and Incidents (#/network-health/incidents).
+             The alert texts are on SMS Status; the areas on Hotspot Status. -->
         <div class="page-header-row">
             <h1 class="page-title">Network <span>Health</span></h1>
             <div class="nh-updated" id="nh-updated">Loading&hellip;</div>
         </div>
 
+        <div class="sites-tabs tabs" role="tablist" aria-label="Network Health pages" id="nh-pages">
+            <button type="button" class="sites-tab tab" role="tab" data-nh-page="overview" id="nh-page-tab-overview" aria-selected="true">Overview</button>
+            <button type="button" class="sites-tab tab" role="tab" data-nh-page="access" id="nh-page-tab-access" aria-selected="false">Access network<span class="nh-tab-count" id="nh-count-access" hidden></span></button>
+            <button type="button" class="sites-tab tab" role="tab" data-nh-page="incidents" id="nh-page-tab-incidents" aria-selected="false">Incidents<span class="nh-tab-count" id="nh-count-incidents" hidden></span></button>
+        </div>
+
+        <!-- ===== Overview: how things are now, then one section at a time ===== -->
+        <div id="nh-page-overview">
         <div class="nh-banner" id="nh-banner" role="status" aria-live="polite">Loading&hellip;</div>
 
         <div class="nh-devices" id="nh-devices" aria-label="Devices"></div>
 
-        <div class="nh-section-head">
-            <h2 class="nh-h2">Graphs <span class="nh-h2-sub" id="nh-graphs-sub"></span></h2>
+        <div class="nh-tabbar">
+            <div class="nh-sections" role="tablist" aria-label="Sections">
+                <button type="button" class="nh-section-tab" role="tab" data-nh-tab="uplink" id="nh-tab-uplink" aria-controls="nh-panel-uplink" aria-selected="true">Uplink</button>
+                <button type="button" class="nh-section-tab" role="tab" data-nh-tab="routes" id="nh-tab-routes" aria-controls="nh-panel-routes" aria-selected="false">Content routes</button>
+                <button type="button" class="nh-section-tab" role="tab" data-nh-tab="inside" id="nh-tab-inside" aria-controls="nh-panel-inside" aria-selected="false">Inside network<span class="nh-tab-count" id="nh-count-inside" hidden></span></button>
+                <button type="button" class="nh-section-tab" role="tab" data-nh-tab="settings" id="nh-tab-settings" aria-controls="nh-panel-settings" aria-selected="false" hidden>Settings</button>
+            </div>
+            <!-- The graphs on Uplink and Inside network follow it. -->
             <div class="tabs nh-range" role="tablist" aria-label="Time range">
                 <button type="button" class="tab" role="tab" data-range="24h" aria-selected="true">24 hours</button>
                 <button type="button" class="tab" role="tab" data-range="7d" aria-selected="false">7 days</button>
             </div>
         </div>
-        <div class="nh-graphs" id="nh-graphs">
-            <figure class="nh-graph nh-graph-wide" id="nh-g-uplink"></figure>
-            <figure class="nh-graph" id="nh-g-latency"></figure>
-            <figure class="nh-graph" id="nh-g-latency-far"></figure>
-            <figure class="nh-graph" id="nh-g-loss"></figure>
-            <figure class="nh-graph" id="nh-g-jitter"></figure>
-            <figure class="nh-graph" id="nh-g-dns"></figure>
-            <figure class="nh-graph" id="nh-g-speed"></figure>
-            <figure class="nh-graph" id="nh-g-optic"></figure>
-            <figure class="nh-graph" id="nh-g-ppp"></figure>
-            <figure class="nh-graph" id="nh-g-cpu"></figure>
+
+        <!-- ===== Uplink: the Airtel link and the routers ===== -->
+        <div class="nh-panel" id="nh-panel-uplink" role="tabpanel" aria-labelledby="nh-tab-uplink">
+            <p class="nh-panel-lead">Speed and quality of the way out to the internet · <span id="nh-graphs-sub"></span></p>
+            <div class="nh-graphs" id="nh-graphs">
+                <figure class="nh-graph nh-graph-wide" id="nh-g-uplink"></figure>
+                <figure class="nh-graph" id="nh-g-latency"></figure>
+                <figure class="nh-graph" id="nh-g-latency-far"></figure>
+                <figure class="nh-graph" id="nh-g-loss"></figure>
+                <figure class="nh-graph" id="nh-g-jitter"></figure>
+                <figure class="nh-graph" id="nh-g-dns"></figure>
+                <figure class="nh-graph" id="nh-g-speed"></figure>
+                <figure class="nh-graph" id="nh-g-optic"></figure>
+                <figure class="nh-graph" id="nh-g-ppp"></figure>
+                <figure class="nh-graph" id="nh-g-cpu"></figure>
+            </div>
         </div>
 
-        <!-- Inside network: the OLT (MA5680T) read over SNMP by the CCR2116,
-             and the CRS326's port events. The graph follows the range tabs above. -->
-        <h2 class="nh-h2">Inside network <span class="nh-h2-sub" id="nh-inside-sub"></span></h2>
-        <ul class="nh-device-rules nh-inside-active" id="nh-inside-active" aria-label="Active OLT problems"></ul>
-        <div class="nh-inside">
-            <div class="nh-tile" id="nh-crc-now"></div>
-            <div class="nh-tile" id="nh-snmp"></div>
-            <figure class="nh-graph nh-graph-wide" id="nh-g-crc"></figure>
-        </div>
-        <h3 class="nh-h3">OLT restarts <span class="nh-h2-sub" id="nh-restarts-sub"></span></h3>
-        <div class="table-scroll table-compact">
-            <table class="nh-table">
-                <thead><tr><th>Back up at</th><th>Had been up</th><th>Seen at</th></tr></thead>
-                <tbody id="nh-restarts" data-skeleton="3"></tbody>
-            </table>
-        </div>
-        <h3 class="nh-h3">OLT link events <span class="nh-h2-sub" id="nh-links-sub"></span></h3>
-        <div class="table-scroll table-compact">
-            <table class="nh-table">
-                <thead><tr><th>Port</th><th>Went down</th><th>Came back</th><th>Outage</th><th>Speed</th></tr></thead>
-                <tbody id="nh-link-events" data-skeleton="5"></tbody>
-            </table>
-        </div>
-
-        <h3 class="nh-h3">Areas <span class="nh-h2-sub" id="nh-areas-sub"></span></h3>
-        <div class="table-scroll table-compact">
-            <table class="nh-table nh-areas">
-                <thead><tr><th>Area</th><th>Download</th><th>Upload</th><th>Last 24 h (download)</th><th>Reading</th></tr></thead>
-                <tbody id="nh-areas" data-skeleton="5"></tbody>
-            </table>
-        </div>
-
-        <h3 class="nh-h3">Inside links <span class="nh-h2-sub" id="nh-lanlinks-sub"></span></h3>
-        <div class="table-scroll table-compact">
-            <table class="nh-table nh-lanlinks">
-                <thead><tr><th>Link</th><th>Link downs</th><th>FCS errors</th><th>RX errors</th><th>RX overflow</th><th>TX drops</th></tr></thead>
-                <tbody id="nh-lanlinks" data-skeleton="6"></tbody>
-            </table>
-        </div>
-
-        <h3 class="nh-h3">Probes <span class="nh-h2-sub">the CCR2004's way out is alerted on; pings to the boxes themselves are info only</span></h3>
-        <div class="nh-graphs nh-inside-probes" id="nh-inside-probes">
-            <figure class="nh-graph" id="nh-g-inner-loss"></figure>
-            <figure class="nh-graph" id="nh-g-inner-cpu"></figure>
-            <figure class="nh-graph" id="nh-g-inner-core"></figure>
-            <figure class="nh-graph" id="nh-g-inner-fra"></figure>
-            <figure class="nh-graph" id="nh-g-hop-loss"></figure>
-            <figure class="nh-graph" id="nh-g-hop-rtt"></figure>
-        </div>
-
-        <!-- Access network: the OLT's PON ports and ONTs, read every 5 min,
-             and the PPPoE sessions on the CCR2116 (home customers) and the
-             CCR2004 (sites). Always the last 7 days, whatever the range tabs say. -->
-        <h2 class="nh-h2">Access network <span class="nh-h2-sub" id="nh-access-sub"></span></h2>
-        <ul class="nh-device-rules nh-inside-active" id="nh-access-active" aria-label="Active access network problems"></ul>
-
-        <h3 class="nh-h3">PON ports <span class="nh-h2-sub" id="nh-pons-sub"></span></h3>
-        <div class="table-scroll table-compact">
-            <table class="nh-table nh-pons">
-                <thead><tr><th>PON</th><th>Online</th><th>Offline</th><th>Light</th><th>Weak / bad</th><th>Last event</th></tr></thead>
-                <tbody id="nh-pons" data-skeleton="6"></tbody>
-            </table>
-        </div>
-
-        <div class="nh-section-head">
-            <h3 class="nh-h3">ONTs <span class="nh-h2-sub" id="nh-onts-sub"></span></h3>
-            <label class="nh-filter">PON
-                <select id="nh-ont-pon"><option value="">All PONs</option></select>
-            </label>
-        </div>
-        <div class="table-scroll table-compact">
-            <table class="nh-table nh-onts">
-                <thead><tr><th>ONT</th><th>Status</th><th>ONT receives (dBm)</th><th>OLT receives (dBm)</th><th>Distance</th><th>Last down</th><th>PPPoE</th><th>Light, 7 days</th></tr></thead>
-                <tbody id="nh-onts" data-skeleton="8"></tbody>
-            </table>
-        </div>
-
-        <div class="nh-section-head">
-            <h3 class="nh-h3">Events <span class="nh-h2-sub" id="nh-events-sub"></span></h3>
-            <label class="nh-filter">Show
-                <select id="nh-events-kind">
-                    <option value="">Everything</option>
-                    <option value="ont">ONTs</option>
-                    <option value="ppp">PPPoE</option>
-                    <option value="link">Links</option>
-                </select>
-            </label>
-        </div>
-        <div class="table-scroll table-compact nh-events-scroll">
-            <table class="nh-table nh-events">
-                <thead><tr><th>Time</th><th>Event</th><th>Detail</th></tr></thead>
-                <tbody id="nh-events" data-skeleton="3"></tbody>
-            </table>
-        </div>
-
-        <h3 class="nh-h3">Field jobs <span class="nh-h2-sub">worked out from the light levels and the alerts, most urgent first</span></h3>
-        <ul class="nh-jobs" id="nh-jobs"></ul>
-
-        <h3 class="nh-h3">Stale registrations <span class="nh-h2-sub">on the OLT but never online since first seen · never alerted on</span></h3>
-        <div class="table-scroll table-compact">
-            <table class="nh-table">
-                <thead><tr><th>ONT</th><th>PON</th><th>First seen</th></tr></thead>
-                <tbody id="nh-stale" data-skeleton="3"></tbody>
-            </table>
-        </div>
-
-        <h3 class="nh-h3">PPPoE sessions <span class="nh-h2-sub" id="nh-ppp-sub"></span></h3>
-        <div class="table-scroll table-compact">
-            <table class="nh-table">
-                <thead><tr><th>Router</th><th>Sessions</th><th>Missing now</th><th>Reading</th></tr></thead>
-                <tbody id="nh-ppp" data-skeleton="4"></tbody>
-            </table>
-        </div>
-
-        <!-- Network Health > Admin only (the server checks it too). -->
-        <details class="nh-thresholds" id="nh-matches-box" hidden>
-            <summary>ONT ↔ PPPoE matches set by hand</summary>
-            <p class="nh-note">For ONTs whose name doesn't match their PPPoE session on its own (by JS code, or the site
-                name). "No PPPoE session" stops the "line up, no internet" check for that ONT.</p>
-            <form class="nh-settings nh-match-form" id="nh-match-form">
-                <label class="nh-field"><span>ONT</span><select id="nh-match-ont" required></select></label>
-                <label class="nh-field"><span>PPPoE session</span>
-                    <input type="text" id="nh-match-ppp" list="nh-ppp-names" maxlength="64" autocomplete="off"></label>
-                <datalist id="nh-ppp-names"></datalist>
-                <label class="nh-check"><input type="checkbox" id="nh-match-none"> No PPPoE session</label>
-                <div class="nh-settings-actions">
-                    <button type="submit" class="btn-primary">Save match</button>
-                    <span class="nh-settings-msg" id="nh-match-msg" role="status"></span>
-                </div>
-            </form>
+        <!-- ===== Content routes: traceroutes at 21:00 and 04:00 ===== -->
+        <div class="nh-panel" id="nh-panel-routes" role="tabpanel" aria-labelledby="nh-tab-routes" hidden>
+            <p class="nh-panel-lead" id="nh-routes-sub"></p>
+            <h2 class="nh-h2">Where content is served from</h2>
             <div class="table-scroll table-compact">
-                <table class="nh-table">
-                    <thead><tr><th>ONT</th><th>PPPoE session</th><th></th></tr></thead>
-                    <tbody id="nh-matches"></tbody>
+                <table class="nh-table nh-routes">
+                    <thead><tr><th>Site</th><th>Served from</th><th>Last hop</th><th>Checked</th><th>Since the last check</th></tr></thead>
+                    <tbody id="nh-routes" data-skeleton="5"></tbody>
                 </table>
             </div>
-        </details>
-
-        <h2 class="nh-h2">Where content is served from <span class="nh-h2-sub" id="nh-routes-sub"></span></h2>
-        <div class="table-scroll table-compact">
-            <table class="nh-table nh-routes">
-                <thead><tr><th>Site</th><th>Served from</th><th>Last hop</th><th>Checked</th><th>Since the last check</th></tr></thead>
-                <tbody id="nh-routes" data-skeleton="5"></tbody>
-            </table>
-        </div>
-        <h3 class="nh-h3">International path <span class="nh-h2-sub">watches for transit changes, not where content is served</span></h3>
-        <div class="table-scroll table-compact">
-            <table class="nh-table nh-routes">
-                <thead><tr><th>Target</th><th>Path ends in</th><th>Last hop</th><th>Checked</th><th>Since the last check</th></tr></thead>
-                <tbody id="nh-routes-intl" data-skeleton="5"></tbody>
-            </table>
+            <h2 class="nh-h2">International path <span class="nh-h2-sub">watches for transit changes, not where content is served</span></h2>
+            <div class="table-scroll table-compact">
+                <table class="nh-table nh-routes">
+                    <thead><tr><th>Target</th><th>Path ends in</th><th>Last hop</th><th>Checked</th><th>Since the last check</th></tr></thead>
+                    <tbody id="nh-routes-intl" data-skeleton="5"></tbody>
+                </table>
+            </div>
         </div>
 
-        <h2 class="nh-h2">Incidents <span class="nh-h2-sub">newest first</span></h2>
-        <div class="table-scroll table-compact">
-            <table class="nh-table">
-                <thead><tr><th>Started</th><th>Device</th><th>Problem</th><th>Level</th><th>Lasted</th><th>Worst</th><th>SMS</th></tr></thead>
-                <tbody id="nh-incidents" data-skeleton="7"></tbody>
-            </table>
+        <!-- ===== Inside network: the OLT (MA5680T) read over SNMP by the
+             CCR2116, and the CRS326's port events. Graphs follow the range. ===== -->
+        <div class="nh-panel" id="nh-panel-inside" role="tabpanel" aria-labelledby="nh-tab-inside" hidden>
+            <p class="nh-panel-lead" id="nh-inside-sub"></p>
+            <ul class="nh-device-rules nh-inside-active nh-active-box" id="nh-inside-active" aria-label="Active OLT problems"></ul>
+
+            <h2 class="nh-h2">The OLT uplink</h2>
+            <div class="nh-inside">
+                <div class="nh-tile" id="nh-crc-now"></div>
+                <div class="nh-tile" id="nh-snmp"></div>
+                <figure class="nh-graph nh-graph-wide" id="nh-g-crc"></figure>
+            </div>
+            <h3 class="nh-h3">Link events <span class="nh-h2-sub" id="nh-links-sub"></span></h3>
+            <div class="table-scroll table-compact">
+                <table class="nh-table">
+                    <thead><tr><th>Port</th><th>Went down</th><th>Came back</th><th>Outage</th><th>Speed</th></tr></thead>
+                    <tbody id="nh-link-events" data-skeleton="5"></tbody>
+                </table>
+            </div>
+            <h3 class="nh-h3">OLT restarts <span class="nh-h2-sub" id="nh-restarts-sub"></span></h3>
+            <div class="table-scroll table-compact">
+                <table class="nh-table">
+                    <thead><tr><th>Back up at</th><th>Had been up</th><th>Seen at</th></tr></thead>
+                    <tbody id="nh-restarts" data-skeleton="3"></tbody>
+                </table>
+            </div>
+
+            <h2 class="nh-h2">Inside links</h2>
+            <p class="nh-panel-lead" id="nh-lanlinks-sub"></p>
+            <div class="table-scroll table-compact">
+                <table class="nh-table nh-lanlinks">
+                    <thead><tr><th>Link</th><th>Link downs</th><th>FCS errors</th><th>RX errors</th><th>RX overflow</th><th>TX drops</th></tr></thead>
+                    <tbody id="nh-lanlinks" data-skeleton="6"></tbody>
+                </table>
+            </div>
+
+            <h2 class="nh-h2">Probes <span class="nh-h2-sub">the CCR2004's way out is alerted on; pings to the boxes themselves are info only</span></h2>
+            <div class="nh-graphs nh-inside-probes" id="nh-inside-probes">
+                <figure class="nh-graph" id="nh-g-inner-loss"></figure>
+                <figure class="nh-graph" id="nh-g-inner-cpu"></figure>
+                <figure class="nh-graph" id="nh-g-inner-core"></figure>
+                <figure class="nh-graph" id="nh-g-inner-fra"></figure>
+                <figure class="nh-graph" id="nh-g-hop-loss"></figure>
+                <figure class="nh-graph" id="nh-g-hop-rtt"></figure>
+            </div>
         </div>
 
-        <h2 class="nh-h2">SMS today <span class="nh-h2-sub" id="nh-sms-sub"></span></h2>
-        <div class="table-scroll table-compact">
-            <table class="nh-table">
-                <thead><tr><th>Time</th><th>Message</th><th>Outcome</th></tr></thead>
-                <tbody id="nh-sms" data-skeleton="3"></tbody>
-            </table>
+        <!-- ===== Settings: Network Health > Admin only (the server checks it too). ===== -->
+        <div class="nh-panel" id="nh-panel-settings" role="tabpanel" aria-labelledby="nh-tab-settings" hidden>
+            <div id="nh-admin" hidden>
+                <form class="nh-settings" id="nh-settings-form">
+                    <label class="nh-field"><span>Uplink capacity (Mbps)</span>
+                        <input type="number" id="nh-capacity" min="1" max="100000" step="1" required></label>
+                    <label class="nh-field"><span>Provider switched at (Nairobi time)</span>
+                        <input type="datetime-local" id="nh-switched"></label>
+                    <div class="nh-settings-actions">
+                        <button type="submit" class="btn-primary">Save</button>
+                        <span class="nh-settings-msg" id="nh-settings-msg" role="status"></span>
+                    </div>
+                    <p class="nh-note">History before the switch time is labelled Airtel, after it the new provider; baselines
+                        never reach back past it. Leave it empty until the cutover.</p>
+                </form>
+                <div class="nh-env" id="nh-env"></div>
+                <details class="nh-thresholds">
+                    <summary>Thresholds (network_health/config.py, read only)</summary>
+                    <div class="table-scroll table-compact">
+                        <table class="nh-table"><tbody id="nh-thresholds"></tbody></table>
+                    </div>
+                </details>
+            </div>
         </div>
+        </div><!-- /nh-page-overview -->
 
-        <!-- Network Health > Admin only (the server checks it too). -->
-        <div id="nh-admin" hidden>
-            <h2 class="nh-h2">Settings</h2>
-            <form class="nh-settings" id="nh-settings-form">
-                <label class="nh-field"><span>Uplink capacity (Mbps)</span>
-                    <input type="number" id="nh-capacity" min="1" max="100000" step="1" required></label>
-                <label class="nh-field"><span>Provider switched at (Nairobi time)</span>
-                    <input type="datetime-local" id="nh-switched"></label>
-                <div class="nh-settings-actions">
-                    <button type="submit" class="btn-primary">Save</button>
-                    <span class="nh-settings-msg" id="nh-settings-msg" role="status"></span>
-                </div>
-                <p class="nh-note">History before the switch time is labelled Airtel, after it the new provider; baselines
-                    never reach back past it. Leave it empty until the cutover.</p>
-            </form>
-            <div class="nh-env" id="nh-env"></div>
-            <details class="nh-thresholds">
-                <summary>Thresholds (network_health/config.py, read only)</summary>
+        <!-- ===== Access network: the OLT's PON ports and ONTs, read every
+             5 min, and the PPPoE sessions on the CCR2116 (home customers) and
+             the CCR2004 (sites). Always the last 7 days, whatever the range. ===== -->
+        <div class="nh-panel" id="nh-page-access" hidden>
+            <p class="nh-panel-lead" id="nh-access-sub"></p>
+            <ul class="nh-device-rules nh-inside-active nh-active-box" id="nh-access-active" aria-label="Active access network problems"></ul>
+
+            <h2 class="nh-h2">Field jobs <span class="nh-h2-sub">worked out from the light levels and the alerts, most urgent first</span></h2>
+            <ul class="nh-jobs" id="nh-jobs"></ul>
+
+            <h2 class="nh-h2">PON ports <span class="nh-h2-sub" id="nh-pons-sub"></span></h2>
+            <div class="table-scroll table-compact">
+                <table class="nh-table nh-pons">
+                    <thead><tr><th>PON</th><th>Online</th><th>Offline</th><th>Light</th><th>Weak / bad</th><th>Last event</th></tr></thead>
+                    <tbody id="nh-pons" data-skeleton="6"></tbody>
+                </table>
+            </div>
+
+            <div class="nh-section-head">
+                <h2 class="nh-h2">ONTs <span class="nh-h2-sub" id="nh-onts-sub"></span></h2>
+                <label class="nh-filter">PON
+                    <select id="nh-ont-pon"><option value="">All PONs</option></select>
+                </label>
+            </div>
+            <div class="table-scroll table-compact">
+                <table class="nh-table nh-onts">
+                    <thead><tr><th>ONT</th><th>Status</th><th>ONT receives (dBm)</th><th>OLT receives (dBm)</th><th>Distance</th><th>Last down</th><th>PPPoE</th><th>Light, 7 days</th></tr></thead>
+                    <tbody id="nh-onts" data-skeleton="8"></tbody>
+                </table>
+            </div>
+
+            <div class="nh-section-head">
+                <h2 class="nh-h2">Events <span class="nh-h2-sub" id="nh-events-sub"></span></h2>
+                <label class="nh-filter">Show
+                    <select id="nh-events-kind">
+                        <option value="">Everything</option>
+                        <option value="ont">ONTs</option>
+                        <option value="ppp">PPPoE</option>
+                        <option value="link">Links</option>
+                    </select>
+                </label>
+            </div>
+            <div class="table-scroll table-compact nh-events-scroll">
+                <table class="nh-table nh-events">
+                    <thead><tr><th>Time</th><th>Event</th><th>Detail</th></tr></thead>
+                    <tbody id="nh-events" data-skeleton="3"></tbody>
+                </table>
+            </div>
+
+            <h2 class="nh-h2">PPPoE sessions <span class="nh-h2-sub" id="nh-ppp-sub"></span></h2>
+            <div class="table-scroll table-compact">
+                <table class="nh-table">
+                    <thead><tr><th>Router</th><th>Sessions</th><th>Missing now</th><th>Reading</th></tr></thead>
+                    <tbody id="nh-ppp" data-skeleton="4"></tbody>
+                </table>
+            </div>
+
+            <details class="nh-more">
+                <summary>Stale registrations <span class="nh-h2-sub" id="nh-stale-count"></span></summary>
+                <p class="nh-note">On the OLT but never online since first seen. Never alerted on.</p>
                 <div class="table-scroll table-compact">
-                    <table class="nh-table"><tbody id="nh-thresholds"></tbody></table>
+                    <table class="nh-table">
+                        <thead><tr><th>ONT</th><th>PON</th><th>First seen</th></tr></thead>
+                        <tbody id="nh-stale" data-skeleton="3"></tbody>
+                    </table>
+                </div>
+            </details>
+
+            <!-- Network Health > Admin only (the server checks it too). -->
+            <details class="nh-more" id="nh-matches-box" hidden>
+                <summary>ONT ↔ PPPoE matches set by hand <span class="nh-h2-sub">admin</span></summary>
+                <p class="nh-note">For ONTs whose name doesn't match their PPPoE session on its own (by JS code, or the site
+                    name). "No PPPoE session" stops the "line up, no internet" check for that ONT.</p>
+                <form class="nh-settings nh-match-form" id="nh-match-form">
+                    <label class="nh-field"><span>ONT</span><select id="nh-match-ont" required></select></label>
+                    <label class="nh-field"><span>PPPoE session</span>
+                        <input type="text" id="nh-match-ppp" list="nh-ppp-names" maxlength="64" autocomplete="off"></label>
+                    <datalist id="nh-ppp-names"></datalist>
+                    <label class="nh-check"><input type="checkbox" id="nh-match-none"> No PPPoE session</label>
+                    <div class="nh-settings-actions">
+                        <button type="submit" class="btn-primary">Save match</button>
+                        <span class="nh-settings-msg" id="nh-match-msg" role="status"></span>
+                    </div>
+                </form>
+                <div class="table-scroll table-compact">
+                    <table class="nh-table">
+                        <thead><tr><th>ONT</th><th>PPPoE session</th><th></th></tr></thead>
+                        <tbody id="nh-matches"></tbody>
+                    </table>
                 </div>
             </details>
         </div>
+
+        <!-- ===== Incidents ===== -->
+        <div class="nh-panel" id="nh-page-incidents" hidden>
+            <h2 class="nh-h2 nh-h2-first">Incidents <span class="nh-h2-sub">newest first · open ones are marked on the left · the alert texts are on SMS Status</span></h2>
+            <div class="table-scroll table-compact">
+                <table class="nh-table">
+                    <thead><tr><th>Started</th><th>Device</th><th>Problem</th><th>Level</th><th>Lasted</th><th>Worst</th><th>SMS</th></tr></thead>
+                    <tbody id="nh-incidents" data-skeleton="7"></tbody>
+                </table>
+            </div>
+        </div>
+
     </section>

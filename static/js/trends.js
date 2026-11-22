@@ -428,8 +428,8 @@ async function load() {
 }
 
 export function initTrends() {
-    document.querySelector("#view-trends [data-tab-route]")
-        .addEventListener("click", (e) => navigate(e.currentTarget.dataset.tabRoute));
+    document.querySelectorAll("#view-trends [data-tab-route]")
+        .forEach(b => b.addEventListener("click", () => navigate(b.dataset.tabRoute)));
 
     document.getElementById("fleet-range").addEventListener("click", (e) => {
         const btn = e.target.closest("button[data-mode]");
