@@ -1560,12 +1560,13 @@ async function saveSettings(e) {
 // replaces the URL, so Back still leaves the page.
 
 const PAGES = ["overview", "access", "incidents"];
-const SECTIONS = ["uplink", "routes", "inside", "settings"];
+const SECTIONS = ["uplink", "inside", "settings"];
 const RANGED_SECTIONS = new Set(["uplink", "inside"]);   // the 24 h / 7 d toggle applies to these
 
 function showRoute(first, { updateUrl = false } = {}) {
     let page = "overview", tab = state.tab;
     if (first === "access" || first === "incidents") page = first;
+    else if (first === "routes") tab = "uplink";          // Content routes is part of Uplink now
     else if (SECTIONS.includes(first)) tab = first;
     if (tab === "settings" && $("nh-tab-settings").hidden) tab = "uplink";
     state.page = page;

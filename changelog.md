@@ -15,12 +15,14 @@ Started 2026-11-15 at the owner's request, after Phase 6 was merged to `main`.
   `#/network-health/incidents`). Each shows its open problems as a count
   (▲ amber, ◆ red).
 - **Overview** keeps the banner and the device cards, then one section at a
-  time: **Uplink** (the graphs), **Content routes**, **Inside network** and
-  **Settings** (admins only), e.g. `#/network-health/inside`. The 24 h / 7 d
-  switch shows only on Uplink and Inside network.
-- **Access network** opens with the active problems and the field jobs.
-  Stale registrations and the hand-set ONT ↔ PPPoE matches are folded shut at
-  the bottom.
+  time: **Uplink** (the graphs, then where content is served from),
+  **Inside network** and **Settings** (admins only), e.g.
+  `#/network-health/inside`. The 24 h / 7 d switch shows only on Uplink and
+  Inside network. (`#/network-health/routes` still opens Uplink.)
+- **Field jobs** are at the top of **Incidents**, above the incident list.
+- **Access network** opens with the active problems, then the PON ports, ONTs,
+  events and PPPoE sessions. Stale registrations and the hand-set
+  ONT ↔ PPPoE matches are folded shut at the bottom.
 - **Areas moved to Hotspot Status** as a third tab (Status / Trends / **Areas**,
   `#/areas`), shown to anyone with Network Health > View. New read-only
   `GET /network/health/areas`.
