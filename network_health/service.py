@@ -543,7 +543,6 @@ def overview():
                         "last_seen": last_seen[device], "active": own})
     worst = max(active, key=lambda a: (rules.SEVERITY_RANK[a["severity"]],
                                        -(a["started_at"].timestamp() if a["started_at"] else 0)), default=None)
-    sms = store.alerts_since(store.eat_midnight(store.now_utc()))
     return {
         "banner": None if worst is None else worst,
         # The shipper has never posted: say so instead of "All good".
@@ -551,11 +550,34 @@ def overview():
         "devices": devices,
         "feed": {"source": feed_row["source"], "from_ip": feed_row["from_ip"], "last_sent_at": feed_row["last_sent_at"]},
         "settings": settings,
-        "sms": {"mode": alerts.sms_mode(), "cap": alerts.daily_cap(), "recipients": len(alerts.alert_phones()),
-                "sent_today": sum(1 for a in sms if a["outcome"] in ("sent", "pending") and a["kind"] != "cap"),
-                "log": sms},
+        "sms": sms_card(1),
         "generated_at": store.now_utc(),
     }
+
+
+def sms_card(days=1):
+    """The alert texts Network Health sent (or would have, in log-only mode),
+    the last `days` Nairobi days. Shown on the SMS Status page."""
+    today = store.eat_midnight(store.now_utc())
+    log = store.alerts_since(today - timedelta(days=days - 1))
+    return {"mode": alerts.sms_mode(), "cap": alerts.daily_cap(), "recipients": len(alerts.alert_phones()),
+            "days": days,
+            "sent_today": sum(1 for a in log if a["created_at"] >= today and a["outcome"] in ("sent", "pending")
+                              and a["kind"] != "cap"),
+            "log": log}
+
+
+def areas_card():
+    """The Areas page under Hotspot Status: each CCR2004 VLAN's download and
+    upload now, and its last 24 hours."""
+    now = store.now_utc()
+    with store.transaction() as cur:
+        names = store.area_names(cur)
+        sparks = store.area_series(cur, now - timedelta(hours=24), config.AREA_SPARK_BUCKET_SECONDS)
+        latest_rates = inside.area_rates(store.area_readings(cur, now - timedelta(hours=1), now))
+    return {"areas": area_rows(names, sparks, latest_rates),
+            "active": [describe(a) for a in store.active_rules() if a["rule"] == "AREA_SILENT"],
+            "thresholds": {"area_silent_mbps": config.AREA_SILENT_MBPS}}
 
 
 def routes_card():

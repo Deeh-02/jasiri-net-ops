@@ -6,6 +6,7 @@ import { initMovements } from "./movements.js";
 import { initStatus } from "./status.js";
 import { initSiteDetail } from "./site-detail.js";
 import { initTrends } from "./trends.js";
+import { initAreas } from "./areas.js";
 import { initManageSites } from "./manage-sites.js";
 import { initPackages } from "./packages.js";
 import { initAlerts } from "./alerts.js";
@@ -82,6 +83,7 @@ async function boot() {
     initFinancePerformance();
     initFinanceAssets();
     initNetworkHealth();
+    initAreas();
     initMotion();
 
     bootAuth();

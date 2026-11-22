@@ -9,6 +9,26 @@ and in `phase.md`'s own per-phase writeups.
 
 Started 2026-11-15 at the owner's request, after Phase 6 was merged to `main`.
 
+### Network Health: split into pages (2026-11-22)
+- **One long page became three**, under a tab row like Hotspot Status's:
+  **Overview**, **Access network** and **Incidents** (`#/network-health/access`,
+  `#/network-health/incidents`). Each shows its open problems as a count
+  (▲ amber, ◆ red).
+- **Overview** keeps the banner and the device cards, then one section at a
+  time: **Uplink** (the graphs), **Content routes**, **Inside network** and
+  **Settings** (admins only), e.g. `#/network-health/inside`. The 24 h / 7 d
+  switch shows only on Uplink and Inside network.
+- **Access network** opens with the active problems and the field jobs.
+  Stale registrations and the hand-set ONT ↔ PPPoE matches are folded shut at
+  the bottom.
+- **Areas moved to Hotspot Status** as a third tab (Status / Trends / **Areas**,
+  `#/areas`), shown to anyone with Network Health > View. New read-only
+  `GET /network/health/areas`.
+- **The alert texts moved to SMS Status** as a second tab, **Network Health
+  alerts** (`#/sms-status/network-health`): today, 7 or 30 days. New read-only
+  `GET /network/health/sms?days=`. Nothing about how alerts are sent changed.
+- No migration.
+
 ### Network Health: Access network (2026-11-22)
 - **A new "Access network" section**: the OLT's PON ports, every ONT and
   the PPPoE sessions on both routers, from the shipper's new `pon`, `ont`

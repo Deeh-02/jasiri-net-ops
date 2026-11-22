@@ -147,6 +147,16 @@ def get_inside(range: Literal["24h", "7d"] = "24h", current_user: dict = Depends
     return service.inside_card(range)
 
 
+@router.get("/network/health/areas")
+def get_areas(current_user: dict = Depends(require_view)):
+    return service.areas_card()
+
+
+@router.get("/network/health/sms")
+def get_sms(days: int = Query(1, ge=1, le=30), current_user: dict = Depends(require_view)):
+    return service.sms_card(days)
+
+
 @router.get("/network/health/access")
 def get_access(current_user: dict = Depends(require_view)):
     return service.access_card()

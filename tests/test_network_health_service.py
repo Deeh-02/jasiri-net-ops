@@ -355,5 +355,41 @@ class Overview(unittest.TestCase):
         self.assertEqual([d["status"] for d in result["devices"]], ["GREEN", "GREEN", "NOT_REPORTING"])
 
 
+class SmsCard(unittest.TestCase):
+    """The SMS Status page's Network Health tab: the last N Nairobi days of alert texts."""
+
+    def card(self, log, days):
+        store = mock.Mock(alerts_since=mock.Mock(return_value=log), eat_midnight=mock.Mock(return_value=NOW),
+                          now_utc=mock.Mock(return_value=NOW))
+        with mock.patch.object(service, "store", store):
+            result = service.sms_card(days)
+        return result, store
+
+    def row(self, at, outcome="sent", kind="fire"):
+        return {"id": 1, "created_at": at, "kind": kind, "device": "ccr2116", "rule": "LOSS", "recipients": 1,
+                "outcome": outcome, "reason": None, "message": "m"}
+
+    def test_asks_for_the_first_midnight_of_the_range(self):
+        result, store = self.card([], 7)
+        store.alerts_since.assert_called_once_with(NOW - timedelta(days=6))
+        self.assertEqual(result["days"], 7)
+
+    def test_sent_today_counts_only_today_and_only_real_sends(self):
+        log = [self.row(NOW + timedelta(minutes=1)), self.row(NOW + timedelta(minutes=2), outcome="suppressed"),
+               self.row(NOW + timedelta(minutes=3), outcome="sent", kind="cap"),
+               self.row(NOW - timedelta(days=1))]
+        result, _ = self.card(log, 7)
+        self.assertEqual(result["sent_today"], 1)
+        self.assertEqual(len(result["log"]), 4)
+
+    def test_overview_still_carries_todays_block(self):
+        feed_row = {"last_post_at": NOW, "last_sent_at": None, "source": None, "from_ip": None}
+        store = mock.Mock(page_basics=mock.Mock(return_value=(feed_row, {}, {})), active_rules=mock.Mock(return_value=[]),
+                          alerts_since=mock.Mock(return_value=[]), eat_midnight=mock.Mock(return_value=NOW),
+                          now_utc=mock.Mock(return_value=NOW))
+        with mock.patch.object(service, "store", store):
+            self.assertEqual(service.overview()["sms"]["days"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()

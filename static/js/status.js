@@ -572,8 +572,8 @@ function stopPolling() {
 }
 
 export function initStatus() {
-    document.querySelector("#view-status [data-tab-route]")
-        .addEventListener("click", (e) => navigate(e.currentTarget.dataset.tabRoute));
+    document.querySelectorAll("#view-status [data-tab-route]")
+        .forEach(b => b.addEventListener("click", () => navigate(b.dataset.tabRoute)));
     wireProblemActions();
 
     registerRoute("status", () => {

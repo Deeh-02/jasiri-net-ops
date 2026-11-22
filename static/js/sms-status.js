@@ -1,4 +1,5 @@
-import { authHeaders, showView, registerRoute, formatDate, stateRow, markRefreshing } from "./common.js";
+import { authHeaders, showView, registerRoute, formatDate, stateRow, markRefreshing, can } from "./common.js";
+import { loadNetworkHealthAlerts } from "./sms-status-network.js";
 
 function esc(s) {
     return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -70,6 +71,25 @@ async function loadSmsStatus() {
     `).join("");
 }
 
+// Two tabs: the customer messages, and (with Network Health > View) the
+// Network Health alerts. #/sms-status/network-health opens the second.
+let tab = "customers";
+
+function showSmsTab(name, { updateUrl = false } = {}) {
+    if (name === "network-health" && !can("network_health", "view")) name = "customers";
+    tab = name;
+    document.querySelectorAll("#sms-status-tabs [data-sms-tab]")
+        .forEach(b => b.setAttribute("aria-selected", String(b.dataset.smsTab === name)));
+    document.getElementById("sms-status-customers").hidden = name !== "customers";
+    document.getElementById("sms-status-nh").hidden = name !== "network-health";
+    if (updateUrl) {
+        const hash = name === "customers" ? "#/sms-status" : "#/sms-status/network-health";
+        if (location.hash !== hash) history.replaceState(null, "", hash);
+    }
+    if (name === "network-health") loadNetworkHealthAlerts();
+    else loadSmsStatus();
+}
+
 export function initSmsStatus() {
     const today = new Date();
     document.getElementById("sms-status-end").value = isoDay(today);
@@ -85,8 +105,15 @@ export function initSmsStatus() {
         loadSmsStatus();
     });
 
-    registerRoute("sms-status", () => {
+    document.getElementById("sms-status-tabs").addEventListener("click", (e) => {
+        const b = e.target.closest("[data-sms-tab]");
+        if (b) showSmsTab(b.dataset.smsTab, { updateUrl: true });
+    });
+    document.getElementById("sms-nh-days").addEventListener("change", loadNetworkHealthAlerts);
+
+    registerRoute("sms-status", (params) => {
         showView("view-sms-status");
-        loadSmsStatus();
+        document.getElementById("sms-tab-network-health").hidden = !can("network_health", "view");
+        showSmsTab(params[0] === "network-health" ? "network-health" : "customers");
     });
 }

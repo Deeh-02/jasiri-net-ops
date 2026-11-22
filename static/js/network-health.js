@@ -9,7 +9,7 @@ const REFRESH_MS = 60000;
 const tz = { timeZone: "Africa/Nairobi" };
 const SVG = "http://www.w3.org/2000/svg";
 
-const state = { range: "24h", timer: null, overview: null, charts: null, inside: null, access: null, resizeTimer: null, openRoutes: new Set() };
+const state = { page: "overview", tab: "uplink", range: "24h", timer: null, overview: null, charts: null, inside: null, access: null, resizeTimer: null, openRoutes: new Set() };
 const $ = id => document.getElementById(id);
 
 function el(tag, className, text) {
@@ -189,22 +189,6 @@ function drawIncidents(list) {
                   cell("Problem", problem), cell("Level", badge(i.severity)), cell("Lasted", lasted),
                   cell("Worst", peak), cell("SMS", sms));
         if (!i.ended_at) tr.classList.add("nh-open");
-        return tr;
-    }));
-}
-
-function drawSms(sms) {
-    const mode = sms.mode === "live" ? "sending" : "log-only (nothing is sent)";
-    $("nh-sms-sub").textContent = `${sms.sent_today} of ${sms.cap} sent · ${mode} · ${sms.recipients} recipient${sms.recipients === 1 ? "" : "s"}`;
-    const tbody = $("nh-sms");
-    if (!sms.log.length) return emptyRow(tbody, 3, "No alerts today.");
-    tbody.replaceChildren(...sms.log.map(a => {
-        const tr = el("tr");
-        const outcome = el("span", `nh-outcome nh-outcome-${a.outcome}`, a.outcome);
-        const wrap = el("span");
-        wrap.append(outcome);
-        if (a.reason) wrap.append(el("span", "nh-reason", ` ${a.reason}`));
-        tr.append(cell("Time", hm(a.created_at)), cell("Message", a.message), cell("Outcome", wrap));
         return tr;
     }));
 }
@@ -768,64 +752,6 @@ function drawLinkEvents(d) {
 
 // ---- Areas: per-VLAN traffic on the CCR2004 uplink ----
 
-function mbpsText(v) {
-    if (v == null) return "—";
-    if (v >= 100) return `${Math.round(v)} Mbps`;
-    if (v >= 1) return `${v.toFixed(1)} Mbps`;
-    return `${(+v.toPrecision(2)).toString()} Mbps`;
-}
-
-// A 24 h download sparkline; gaps where there was no reading. The figures
-// are also in the row's text and the title, never only in the line.
-function sparkline(points) {
-    const width = 140, height = 30, pad = 2;
-    const end = Date.now(), start = end - 24 * 3600000;
-    const values = points.filter(p => p.down != null);
-    const box = svg("svg", { width, height, viewBox: `0 0 ${width} ${height}`, class: "nh-spark", role: "img" });
-    if (!values.length) {
-        box.setAttribute("aria-label", "no readings in the last 24 hours");
-        return box;
-    }
-    const hi = Math.max(...values.map(p => p.down), 0.1);
-    const x = t => pad + (t - start) / (end - start) * (width - 2 * pad);
-    const y = v => height - pad - v / hi * (height - 2 * pad);
-    let d = "", prev = null;
-    for (const p of points) {
-        if (p.down == null) { prev = null; continue; }
-        const t = T(p.t);
-        d += `${prev && t - prev <= 1800000 ? "L" : "M"}${x(t).toFixed(1)},${y(p.down).toFixed(1)}`;
-        prev = t;
-    }
-    box.append(svg("line", { x1: pad, x2: width - pad, y1: height - pad, y2: height - pad, class: "nh-grid" }),
-               svg("path", { d, fill: "none", stroke: "var(--nh-c1)", "stroke-width": 1.5, "stroke-linejoin": "round" }));
-    const label = `download over 24 hours: peak ${mbpsText(hi)}`;
-    box.setAttribute("aria-label", label);
-    const title = svg("title");
-    title.textContent = label;
-    box.append(title);
-    return box;
-}
-
-function drawAreas(d) {
-    const tbody = $("nh-areas");
-    $("nh-areas-sub").textContent = `per VLAN on the CCR2004 uplink, every 5 min · alert when an area that's usually busy`
-        + ` falls under ${d.thresholds.area_silent_mbps} Mbps twice in a row (07:00–23:00)`;
-    if (!d.areas.length) return emptyRow(tbody, 5, "No area readings yet.");
-    const silent = new Set(d.active.filter(a => a.rule === "AREA_SILENT").map(a => a.subject));
-    tbody.replaceChildren(...d.areas.map(a => {
-        const tr = el("tr", a.is_total ? "nh-area-total" : null);
-        const name = el("span", "nh-route-name");
-        name.append(el("strong", null, a.name), el("span", "nh-route-host", a.is_total ? `VLAN ${a.vlan}, not an area` : `VLAN ${a.vlan}`));
-        const down = el("span", null, mbpsText(a.down_mbps));
-        if (silent.has(`${a.name} (VLAN ${a.vlan})`)) {
-            down.append(document.createTextNode(" "), el("span", "nh-badge nh-warn", "▼ Silent"));
-        }
-        tr.append(cell("Area", name), cell("Download", down), cell("Upload", mbpsText(a.up_mbps)),
-                  cell("Last 24 h (download)", sparkline(a.spark)), cell("Reading", a.at ? hm(a.at) : "—"));
-        return tr;
-    }));
-}
-
 // ---- Inside links: port counters on the CCR2116, CCR2004 and CRS326 ----
 
 const LANLINK_COLUMNS = [["link_downs", "Link downs"], ["rx_fcs", "FCS errors"], ["rx_err", "RX errors"],
@@ -926,7 +852,7 @@ function drawInside(d) {
         $("nh-inside-sub").textContent = `couldn't load: ${d.error}`;
         return;
     }
-    $("nh-inside-sub").textContent = "the CRS326 → OLT uplink, read by the CCR2116 every 5 min";
+    $("nh-inside-sub").textContent = "The OLT and the links between the boxes · the CRS326 → OLT uplink is read by the CCR2116 every 5 min";
     $("nh-restarts-sub").textContent = `last ${d.lookback_days} days · power switchovers restart it`;
     $("nh-links-sub").textContent = `port up/down on the CRS326, CCR2116 and CCR2004, last ${d.lookback_days} days · the OLT uplink is the CRS326's ${d.olt_interface}, marked ◆`;
     drawInsideActive(d);
@@ -935,7 +861,6 @@ function drawInside(d) {
     drawCrcGraph();
     drawRestarts(d);
     drawLinkEvents(d);
-    drawAreas(d);
     drawLanlinks(d);
     drawInsideProbes();
 }
@@ -1152,6 +1077,7 @@ function drawJobs(d) {
 
 function drawStale(d) {
     const tbody = $("nh-stale");
+    $("nh-stale-count").textContent = d.stale.length ? `${d.stale.length} ONT${d.stale.length === 1 ? "" : "s"}` : "none";
     if (!d.stale.length) return emptyRow(tbody, 3, "None.");
     tbody.replaceChildren(...d.stale.map(o => {
         const tr = el("tr");
@@ -1586,6 +1512,8 @@ function toLocalInput(iso) {
 async function loadSettings() {
     const admin = $("nh-admin");
     admin.hidden = !can("network_health", "admin");
+    $("nh-tab-settings").hidden = admin.hidden;
+    if (admin.hidden && state.tab === "settings") showRoute("uplink", { updateUrl: state.page === "overview" });
     if (admin.hidden) return;
     const data = await api("/network/health/settings");
     $("nh-capacity").value = data.settings.uplink_capacity_mbps;
@@ -1623,6 +1551,61 @@ async function saveSettings(e) {
 
 // ---- Loading ----
 
+// ---- Pages and sections ----
+// Three pages under the page tabs (Overview, Access network, Incidents), like
+// Hotspot Status's Status / Trends. Overview has sections of its own (Uplink,
+// Content routes, Inside network, Settings); its banner and device cards stay
+// above them. The page or section is in the URL (#/network-health/access,
+// #/network-health/inside) so a link or a reload lands on it; switching only
+// replaces the URL, so Back still leaves the page.
+
+const PAGES = ["overview", "access", "incidents"];
+const SECTIONS = ["uplink", "routes", "inside", "settings"];
+const RANGED_SECTIONS = new Set(["uplink", "inside"]);   // the 24 h / 7 d toggle applies to these
+
+function showRoute(first, { updateUrl = false } = {}) {
+    let page = "overview", tab = state.tab;
+    if (first === "access" || first === "incidents") page = first;
+    else if (SECTIONS.includes(first)) tab = first;
+    if (tab === "settings" && $("nh-tab-settings").hidden) tab = "uplink";
+    state.page = page;
+    state.tab = tab;
+    for (const name of PAGES) {
+        $(`nh-page-tab-${name}`).setAttribute("aria-selected", String(name === page));
+        $(`nh-page-${name}`).hidden = name !== page;
+    }
+    for (const name of SECTIONS) {
+        $(`nh-tab-${name}`).setAttribute("aria-selected", String(name === tab));
+        $(`nh-tab-${name}`).tabIndex = name === tab ? 0 : -1;
+        $(`nh-panel-${name}`).hidden = name !== tab;
+    }
+    document.querySelector(".nh-range").hidden = !RANGED_SECTIONS.has(tab);
+    // A graph drawn while its panel was hidden had no width to fit.
+    if (page === "overview") redrawVisibleGraphs();
+    if (updateUrl) {
+        const hash = `#/network-health/${page === "overview" ? tab : page}`;
+        if (location.hash !== hash) history.replaceState(null, "", hash);
+    }
+}
+
+function redrawVisibleGraphs() {
+    if (state.page !== "overview") return;
+    if (state.tab === "uplink") drawGraphs();
+    if (state.tab === "inside" && state.inside && !state.inside.error) { drawCrcGraph(); drawInsideProbes(); }
+}
+
+// The number of open problems on a tab: the worst one's glyph + the count.
+function setTabCount(id, rules) {
+    const badgeEl = $(id);
+    badgeEl.hidden = !rules.length;
+    if (!rules.length) return;
+    const red = rules.some(r => r.severity === "RED");
+    const [glyph, , cls] = red ? STATUS.RED : STATUS.AMBER;
+    badgeEl.className = `nh-tab-count ${cls}`;
+    badgeEl.textContent = `${glyph} ${rules.length}`;
+    badgeEl.title = `${rules.length} open problem${rules.length === 1 ? "" : "s"}`;
+}
+
 async function load() {
     if ($("view-network-health").hidden) return;
     try {
@@ -1644,7 +1627,9 @@ async function load() {
         drawAccess(accessData);
         drawRoutes(routes);
         drawIncidents(incidents);
-        drawSms(overview.sms);
+        setTabCount("nh-count-inside", inside.error ? [] : inside.active);
+        setTabCount("nh-count-access", accessData.error ? [] : accessData.active);
+        setTabCount("nh-count-incidents", incidents.filter(i => !i.ended_at));
         $("nh-updated").textContent = `Updated ${hm(overview.generated_at)}`;
     } catch (err) {
         $("nh-banner").className = "nh-banner nh-unknown";
@@ -1659,6 +1644,23 @@ export function initNetworkHealth() {
         state.range = tab.dataset.range;
         document.querySelectorAll(".nh-range [data-range]").forEach(b => b.setAttribute("aria-selected", String(b === tab)));
         load();
+    });
+    $("nh-pages").addEventListener("click", e => {
+        const tab = e.target.closest("[data-nh-page]");
+        if (tab) showRoute(tab.dataset.nhPage === "overview" ? state.tab : tab.dataset.nhPage, { updateUrl: true });
+    });
+    const sections = document.querySelector(".nh-sections");
+    sections.addEventListener("click", e => {
+        const tab = e.target.closest("[data-nh-tab]");
+        if (tab) showRoute(tab.dataset.nhTab, { updateUrl: true });
+    });
+    sections.addEventListener("keydown", e => {
+        if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+        const shown = [...sections.querySelectorAll("[data-nh-tab]:not([hidden])")];
+        const at = shown.findIndex(b => b.dataset.nhTab === state.tab);
+        const next = shown[(at + (e.key === "ArrowRight" ? 1 : shown.length - 1)) % shown.length];
+        showRoute(next.dataset.nhTab, { updateUrl: true });
+        next.focus();
     });
     $("nh-settings-form").addEventListener("submit", saveSettings);
     $("nh-ont-pon").addEventListener("change", () => state.access && !state.access.error && drawOnts());
@@ -1675,14 +1677,17 @@ export function initNetworkHealth() {
     });
     const observer = new ResizeObserver(() => {
         clearTimeout(state.resizeTimer);
-        state.resizeTimer = setTimeout(() => { drawGraphs(); drawCrcGraph(); drawInsideProbes(); }, 150);
+        state.resizeTimer = setTimeout(redrawVisibleGraphs, 150);
     });
     observer.observe($("nh-graphs"));
     observer.observe($("nh-inside-probes"));
     observer.observe($("nh-g-crc"));
 
-    registerRoute("network-health", () => {
+    registerRoute("network-health", params => {
         showView("view-network-health");
+        // #/network-health/<page or section>; the bare link keeps the section last open.
+        $("nh-tab-settings").hidden = !can("network_health", "admin");
+        showRoute(params[0], { updateUrl: true });
         load();
         loadSettings().catch(err => { $("nh-settings-msg").textContent = err.message; });
         if (!dx.convo || dx.userKey !== dxKey()) { dxLoad(); dx.userKey = dxKey(); }

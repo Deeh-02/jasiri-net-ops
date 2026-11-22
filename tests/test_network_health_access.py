@@ -398,6 +398,7 @@ class Flow(unittest.TestCase):
         fake.active_rules.return_value = actives
         fake.alerts_since.return_value = []
         fake.now_utc.return_value = NOW
+        fake.eat_midnight.return_value = NOW
         with mock.patch.object(service, "store", fake):
             overview = service.overview()
         self.assertEqual(overview["banner"]["rule"], "SITE_PPP_DOWN")

@@ -3,6 +3,15 @@
             <h1 class="page-title">SMS Status</h1>
         </div>
 
+        <!-- Customer messages (the SMS log) and the Network Health alert texts.
+             The second tab shows only to those with Network Health > View. -->
+        <div class="sms-status-tabs tabs" role="tablist" id="sms-status-tabs">
+            <button type="button" class="sms-status-tab tab" role="tab" aria-selected="true" data-sms-tab="customers">Customer messages</button>
+            <button type="button" class="sms-status-tab tab" role="tab" aria-selected="false" data-sms-tab="network-health" id="sms-tab-network-health" hidden>Network Health alerts</button>
+        </div>
+
+        <div id="sms-status-customers">
+
         <div class="toolbar sms-status-filters">
             <label class="toolbar-field"><span>From</span> <input type="date" class="control" id="sms-status-start"></label>
             <label class="toolbar-field"><span>To</span> <input type="date" class="control" id="sms-status-end"></label>
@@ -45,5 +54,27 @@
                 </thead>
                 <tbody id="sms-status-rows" data-skeleton="9"></tbody>
             </table>
+        </div>
+        </div><!-- /sms-status-customers -->
+
+        <!-- Network Health's alert texts (/network/health/sms). Nothing here is a
+             customer message: it is the network alarm going to the team. -->
+        <div id="sms-status-nh" hidden>
+            <div class="toolbar sms-status-filters">
+                <label class="toolbar-field"><span>Show</span>
+                    <select class="control" id="sms-nh-days">
+                        <option value="1">Today</option>
+                        <option value="7">Last 7 days</option>
+                        <option value="30">Last 30 days</option>
+                    </select>
+                </label>
+            </div>
+            <p class="sms-nh-lead" id="sms-nh-sub"></p>
+            <div class="table-scroll table-compact">
+                <table class="table-dense">
+                    <thead><tr><th>Time</th><th>Device</th><th>Message</th><th>Outcome</th></tr></thead>
+                    <tbody id="sms-nh-rows" data-skeleton="4"></tbody>
+                </table>
+            </div>
         </div>
     </section>
