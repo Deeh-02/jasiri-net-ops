@@ -113,14 +113,20 @@ def overall_pct(steps):
     return crc / frames * 100 if frames else None
 
 
-def port_label(interface):
-    return config.CRS_PORT_LABELS.get(interface, interface)
+def port_label(interface, device=None):
+    """The CRS326's ports by what they lead to; a router's port like the
+    inside links ("CCR2116 → CRS326"), else "CCR2116 sfp-sfpplus1"."""
+    device = device or config.CRS_LINK_DEVICE
+    if device == config.CRS_LINK_DEVICE:
+        return config.CRS_PORT_LABELS.get(interface, interface)
+    return config.LANLINK_LABELS.get((device, interface), f"{device.upper()} {interface}")
 
 
 def link_events(records):
     """crs_link records ([{ts, crs_link}], oldest first) -> one row per
     outage, newest first. Each `down` is paired with the next `up` on the
-    same interface:
+    same port of the same device (records without a device are the
+    CRS326's, from before the routers sent theirs):
 
         back      down then up: outage_s is the time between
         down      the latest event on that port is a down (still down)
@@ -131,16 +137,19 @@ def link_events(records):
     for record in records:
         link = record["crs_link"]
         interface = link["interface"]
-        base = {"interface": interface, "label": port_label(interface), "device": link.get("device"),
-                "is_olt": interface == config.OLT_LINK_INTERFACE}
+        device = link.get("device") or config.CRS_LINK_DEVICE
+        port = (device, interface)
+        base = {"interface": interface, "label": port_label(interface, device), "device": device,
+                "device_label": device.upper(),
+                "is_olt": device == config.CRS_LINK_DEVICE and interface == config.OLT_LINK_INTERFACE}
         if link["state"] == "down":
-            if interface in open_downs:
-                open_downs[interface]["status"] = "no_up"
+            if port in open_downs:
+                open_downs[port]["status"] = "no_up"
             row = {**base, "down_at": record["ts"], "up_at": None, "outage_s": None, "speed": None, "status": "down"}
-            open_downs[interface] = row
+            open_downs[port] = row
             rows.append(row)
             continue
-        row = open_downs.pop(interface, None)
+        row = open_downs.pop(port, None)
         if row is None:
             rows.append({**base, "down_at": None, "up_at": record["ts"], "outage_s": None,
                          "speed": link.get("speed"), "status": "up_only"})

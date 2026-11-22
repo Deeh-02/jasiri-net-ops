@@ -41,7 +41,7 @@ Every record has:
 | `key` | Unique id of the log line. **Upsert on it**: the shipper resends a batch whenever it didn't get a 2xx, so the same record can arrive twice (stored once). A key that arrives again with DIFFERENT values replaces the stored ones: that is how a rewind corrects history (the loss-scale fix, below). |
 | `ts` | When the server received the reading, ISO 8601 with offset (`+03:00`). Store as timestamptz. |
 | `from_ip` | Public IP it came from (102.0.27.188 today; changes at the provider switch). |
-| `kind` | `probe`, `inner`, `link`, `linknew`, `speed`, `speednew`, `route`, `dns`, `olt`, `crs_link`, `hop`, `area`, `lanlink` |
+| `kind` | `probe`, `inner`, `link`, `linknew`, `speed`, `speednew`, `route`, `dns`, `olt`, `crs_link`, `hop`, `area`, `lanlink`, `pon`, `ont`, `ppp` |
 | `raw` | The original log line, for audit and re-parsing. |
 
 Plus one of these, by `kind`:
@@ -123,7 +123,7 @@ The OLT's uplink is its port 0/19/0, which receives from the CRS326.)
   `d_crc / (d_rx + d_crc) * 100` (a negative `d_crc` without a restart gets
   +2^32). Never across a restart, never with a null.
 
-**`crs_link`** (when a CRS326 port goes up or down: event-driven)
+**`crs_link`** (when a CRS326, CCR2116 or CCR2004 port goes up or down: event-driven)
 ```json
 "crs_link": {"device": "crs326", "interface": "sfp-sfpplus3", "state": "down", "speed": null}
 "crs_link": {"device": "crs326", "interface": "sfp-sfpplus3", "state": "up", "speed": "10G"}
@@ -131,8 +131,11 @@ The OLT's uplink is its port 0/19/0, which receives from the CRS326.)
 - `state` is `up` or `down` (anything else is skipped). `speed` is null on a down.
 - Ports: `sfp-sfpplus1` = CCR2116, `sfp-sfpplus2` = CCR2004,
   `sfp-sfpplus3` = OLT uplink, `sfp-sfpplus4` = Proxmox.
-- OPS pairs each `down` with the next `up` on the same interface (the outage).
-  Only `sfp-sfpplus3` alerts.
+- `device` is `crs326`, `ccr2116` or `ccr2004` (the routers' physical ports
+  arrive too, from 22 Nov 2026). A record without a device is the CRS326's.
+- OPS pairs each `down` with the next `up` on the same port of the same device
+  (the outage). Only the CRS326's `sfp-sfpplus3` alerts; the routers' ports
+  (they have an `sfp-sfpplus3` too) are shown, labelled with their device.
 
 **`hop`** (CCR2116, every minute: pings to the inside boxes themselves)
 ```json
@@ -166,6 +169,39 @@ The OLT's uplink is its port 0/19/0, which receives from the CRS326.)
 - A counter the port doesn't report is null. Counters only go up; a drop is a
   reset (OPS counts it as 0).
 
+**`pon`** (every 5 minutes, one per OLT PON port that has ONTs)
+```json
+"pon": {"pon": "0/3/5", "online": 4, "offline": 0}
+```
+
+**`ont`** (every 5 minutes, one per ONT, about 62)
+```json
+"ont": {"pon": "0/3/5", "ont_id": 4, "status": "online", "rx_dbm": -32.21, "olt_rx_dbm": -36.99,
+        "distance_m": 4380, "last_down_cause": 13, "last_down_text": "dying-gasp (power)", "desc": "Stima_Hotspot"}
+```
+- An ONT is `pon` + `ont_id`. `desc` is the name set on the OLT: a customer
+  code (JS01..JS46) and/or a site name.
+- `rx_dbm` = light the ONT receives (downstream), `olt_rx_dbm` = light the
+  OLT receives from it (upstream). Either can be null (offline). OPS stores a
+  value outside -60..+10 dBm as null.
+- `status` is `online` or `offline`; anything else is stored but not judged.
+- `last_down_text`: "LOSi/LOBi (light loss)" = a fibre problem, "dying-gasp
+  (power)" = the ONT lost power, resets = a reboot. OPS classifies by these words.
+- A record without `pon` or `ont_id` is skipped. OPS keeps the raw `ont`
+  rows 3 days (about 18,000 a day); their light lives on as hourly averages.
+- One poll's ONT lines may arrive in two posts: OPS judges a poll once the
+  next poll has started arriving, or nothing has come in for 2 minutes.
+
+**`ppp`** (every 5 minutes, one per router)
+```json
+"ppp": {"dev": "ccr2004", "count": 21, "names": ["JS16", "Stima_Hotspot", "..."]}
+```
+- `dev` `ccr2116` = home PPPoE customers (JSxx); `ccr2004` = mostly hotspot
+  SITE routers (`*_Hotspot` / `*_HOTSPOT`) plus a few customers.
+- `names` must be the FULL list of session names: OPS diffs consecutive
+  lists (a name missing = that session dropped). Without `dev` or a `names`
+  list the record is skipped.
+
 ## Response
 
 - Answer **2xx only after the batch is stored**. Anything else makes the
@@ -177,6 +213,6 @@ The OLT's uplink is its port 0/19/0, which receives from the CRS326.)
 ## Volume
 
 About 1,440 `probe` + 1,440 `inner` + 1,440 `hop` + 288 `link` + 288 `dns` + 288 `olt` + 288 per VLAN
-`area` + 288 per port `lanlink` + 2 `speed` + 12 `route` records a day, plus a `crs_link` record
-whenever a CRS326 port changes.
+`area` + 288 per port `lanlink` + 288 per PON `pon` + 288 per ONT `ont` (about 18,000) + 576 `ppp`
++ 2 `speed` + 12 `route` records a day, plus a `crs_link` record whenever a CRS326 or router port changes.
 The first run backfills everything since 20 Nov 2026 17:15 in batches of 500.

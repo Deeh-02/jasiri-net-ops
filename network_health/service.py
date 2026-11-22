@@ -16,9 +16,9 @@ SMS provider never delays or breaks an ingest.
 import logging
 import threading
 import time
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
-from network_health import alerts, config, feed, inside, messages, routes, rules, store
+from network_health import access, alerts, config, feed, inside, messages, routes, rules, store
 
 log = logging.getLogger(__name__)
 
@@ -28,6 +28,9 @@ _tick_lock = threading.Lock()
 _last_tick = 0.0
 _ticking = False
 _last_cleanup = 0.0
+# The last hour the light-degrading check ran for (each worker keeps its
+# own; the rule state's last-checked time stops a second worker repeating it).
+_light_checked_hour = None
 
 
 # ---- Ingest ----
@@ -58,6 +61,7 @@ def evaluate(new_records=()):
         run = Evaluation(cur, now)
         run.judge_readings(new_records)
         run.judge_silence()
+        run.judge_access()
         to_send = run.finish()
     send_in_background(to_send)
 
@@ -73,6 +77,8 @@ class Evaluation:
         self.settings = store.settings(cur)
         self.changed = set()
         self.events = []
+        self._onts = self._sessions = self._overrides = None
+        self.newest_ont_ts = None
 
     def baseline_start(self, moment):
         """Baselines cover the last 7 days, but never reach back past a
@@ -111,6 +117,159 @@ class Evaluation:
             check = rules.check_olt_link(record["crs_link"])
             if check:
                 self.apply(check, record["ts"])
+        if "ont" in by_kind:
+            self.judge_onts(by_kind["ont"])
+        for record in by_kind.get("ppp", []):
+            self.judge_ppp(record)
+
+    # -- the access network (`ont`, `ppp`; `pon` is only shown) --
+
+    def onts(self):
+        """{(pon, ont_id): nh_onts row}, read once per pass."""
+        if self._onts is None:
+            self._onts = store.load_onts(self.cur)
+        return self._onts
+
+    def onts_by_key(self):
+        return {access.ont_key(*key): ont for key, ont in self.onts().items()}
+
+    def sessions(self):
+        if self._sessions is None:
+            self._sessions = store.load_ppp_sessions(self.cur)
+        return self._sessions
+
+    def overrides(self):
+        if self._overrides is None:
+            self._overrides = store.ont_matches(self.cur)
+        return self._overrides
+
+    def judge_onts(self, records):
+        """Each new ONT reading against that ONT's state: down / back events.
+        Whether a down was one ONT or part of a group is judged later, once
+        its whole poll is in (settle_downs)."""
+        onts, changed, events = self.onts(), {}, []
+        for record in records:
+            reading = record["ont"]
+            key = (reading["pon"], reading["ont_id"])
+            new, event = access.apply_ont(onts.get(key), reading, record["ts"])
+            if new is None:
+                continue
+            onts[key] = changed[key] = new
+            if event:
+                events.append(event)
+            self.newest_ont_ts = max(self.newest_ont_ts or record["ts"], record["ts"])
+        store.save_onts(self.cur, list(changed.values()))
+        store.add_access_events(self.cur, events)
+
+    def judge_ppp(self, record):
+        """One router's session list against its last one: dropped / back
+        events, a mass drop, sites gone, lines up with no session. The
+        PPP_MASS_DROP state (checked on every reading) is the router's
+        last-reading time, so a late reading is skipped."""
+        ppp, ts = record["ppp"], record["ts"]
+        dev = ppp["dev"]
+        guard = self.states.get((dev, "PPP_MASS_DROP", ""))
+        last = guard["last_checked_at"] if guard else None
+        if last is not None and ts <= last:
+            return
+        every = self.sessions()
+        sessions, events, before, dropped = access.apply_ppp(every.get(dev, {}), ppp["names"], ts)
+        every[dev] = sessions
+        store.add_access_events(self.cur, [{**event, "dev": dev} for event in events])
+        store.save_ppp_sessions(self.cur, dev, sessions)
+        open_before = None
+        if guard and guard["is_active"] and guard["incident_id"]:
+            open_before = store.incident_facts(self.cur, guard["incident_id"])[0].get("before")
+        gap = None if last is None else (ts - last).total_seconds() / 60
+        self.apply(access.mass_drop_check(dev, before, len(ppp["names"]), dropped, gap, open_before), ts)
+        for check in access.site_checks(dev, sessions, ts):
+            self.apply_tracked(check, ts)
+        onts = self.onts_by_key()
+        for check in access.line_checks(dev, sessions, onts, access.match_onts(onts, every, self.overrides()), ts):
+            self.apply_tracked(check, ts)
+
+    def judge_access(self):
+        """Every pass (ingest and the tick): judge the ONT polls that are
+        complete, close group / light-loss incidents whose ONTs are back,
+        and once an hour the light-degrading check."""
+        self.settle_downs()
+        self.reconcile_access()
+        if self.newest_ont_ts is not None:
+            self.judge_light()
+
+    def settle_downs(self):
+        """ONTs gone down, judged per PON per poll once the poll is complete:
+        the next poll has started arriving, or nothing new has come in for
+        ACCESS_POLL_SETTLE_SECONDS. A group (or the whole PON) is one
+        incident on the PON; a lone light loss is a page warning on the ONT;
+        a lone power loss is only listed."""
+        downs = store.ungrouped_downs(self.cur)
+        if not downs:
+            return
+        newest_ts, newest_received = store.ont_newest(self.cur)
+        quiet = (newest_received is None
+                 or (self.now - newest_received).total_seconds() >= config.ACCESS_POLL_SETTLE_SECONDS)
+        margin = timedelta(seconds=config.ACCESS_POLL_GAP_SECONDS)
+        marks = []
+        for pon, clusters in access.poll_clusters(downs).items():
+            for cluster in clusters:
+                start, end = cluster[0]["at"], cluster[-1]["at"]
+                if not quiet and (newest_ts is None or newest_ts - end < margin):
+                    break           # this poll (and any later one on this PON) may still be arriving
+                online, readings = store.poll_counts(self.cur, pon, start - margin, end + margin)
+                kind = access.classify_group(cluster, online, readings)
+                if kind:
+                    rule = access.GROUP_RULES[kind]
+                    state = self.states.get(("olt", rule, pon))
+                    previous = None
+                    if state and state["is_active"] and state["incident_id"]:
+                        previous = store.incident_facts(self.cur, state["incident_id"])[0]
+                    self.apply(access.group_check(kind, pon, cluster, previous), start, bump=True)
+                else:
+                    for event in cluster:
+                        if event["detail"].get("why") == "light":
+                            self.apply(access.light_loss_check(event), event["at"], bump=True)
+                together = "single" if len(cluster) == 1 else "few"
+                marks += [(event["id"], {"group": kind or together, "cluster": start.isoformat(), "size": len(cluster)})
+                          for event in cluster]
+        store.mark_grouped(self.cur, marks)
+
+    def reconcile_access(self):
+        """Open PON group incidents clear once enough of their ONTs are back;
+        a light-loss warning clears when its ONT is back (or forgotten)."""
+        open_rules = [(key, state) for key, state in self.states.items() if state["is_active"]
+                      and key[1] in (*access.GROUP_RULES.values(), "ONT_LIGHT_LOSS")]
+        if not open_rules:
+            return
+        onts = self.onts_by_key()
+        for (device, rule, subject), state in open_rules:
+            if rule == "ONT_LIGHT_LOSS":
+                ont = onts.get(subject)
+                if ont is None or ont["status"] == access.ONLINE:
+                    check = rules.make_check(device, rule, False, subject=subject,
+                                             facts={"name": access.ont_name(ont) if ont else subject})
+                    self.apply(check, ont["status_since"] if ont else self.now, bump=True)
+                continue
+            if not state["incident_id"]:
+                continue
+            facts, started = store.incident_facts(self.cur, state["incident_id"])
+            still, clear_at = access.group_recovery(facts.get("onts") or [], onts, started or self.now)
+            if clear_at is not None:
+                check = rules.make_check(device, rule, False, severity=access.GROUP_SEVERITY[rule], subject=subject,
+                                         facts={**facts, "still_offline": still})
+                self.apply(check, clear_at, bump=True)
+
+    def judge_light(self):
+        """Once an hour (the first ONT reading of a new hour): each ONT's
+        median light over the last 24 h against the 7 days before."""
+        global _light_checked_hour
+        hour = self.newest_ont_ts.replace(minute=0, second=0, microsecond=0)
+        if _light_checked_hour is not None and hour <= _light_checked_hour:
+            return
+        rows = store.ont_hours(self.cur, hour - timedelta(days=config.BASELINE_DAYS + 1), hour)
+        for check in access.degrade_checks(access.light_drops(rows, hour), self.onts_by_key()):
+            self.apply_tracked(check, hour)
+        _light_checked_hour = hour
 
     def judge_paths(self, record, device, is_judged, rule_prefix):
         """Per reading: each judged probe's loss and outage (i-fra* on the
@@ -206,14 +365,27 @@ class Evaluation:
 
     # -- state and incidents --
 
-    def apply(self, check, at):
+    def apply_tracked(self, check, at):
+        """apply(), but a "fine" check on a rule that has never been bad
+        writes nothing: the per-site / per-ONT rules would otherwise keep a
+        state row for every site and ONT, rewritten every 5 minutes."""
+        state = self.states.get((check["device"], check["rule"], check["subject"]))
+        if check["verdict"] is False and (state is None or (not state["is_active"] and not state["bad_count"])):
+            return
+        self.apply(check, at)
+
+    def apply(self, check, at, bump=False):
         """Feeds one check through its rule's hysteresis and records what
         happened. A reading older than the rule's last check (arriving late)
-        is stored but not judged: the rule has already moved past it."""
+        is stored but not judged: the rule has already moved past it.
+        bump: judged exactly once whatever its time (a settled ONT poll), so
+        it goes just after the last check instead of being skipped."""
         key = (check["device"], check["rule"], check["subject"])
         state = self.states.get(key) or rules.new_state()
         if state["last_checked_at"] is not None and at <= state["last_checked_at"]:
-            return
+            if not bump:
+                return
+            at = state["last_checked_at"] + timedelta(microseconds=1)
         state, transition = rules.step(state, check)
         state["last_checked_at"] = at
         if transition == "fire":
@@ -353,12 +525,15 @@ def describe(active):
 
 def overview():
     feed_row, settings, latest = store.page_basics()
-    active = [describe(a) for a in store.active_rules()]
+    # One customer's line (a lone ONT, a missing session) stays in the Access
+    # network section; access ALERTS (a PON, a site, a mass drop) may top the
+    # banner, but the device cards stay about the devices themselves.
+    active = [describe(a) for a in store.active_rules() if a["rule"] not in rules.ACCESS_WARNINGS]
     feed_is_down = any(a["rule"] == "FEED_SILENT" for a in active)
     last_seen = {"feed": feed_row["last_post_at"], "ccr2116": latest.get("probe"), "ccr2004": latest.get("inner")}
     devices = []
     for device in ("feed", "ccr2116", "ccr2004"):
-        own = [a for a in active if a["device"] == device]
+        own = [a for a in active if a["device"] == device and a["rule"] not in rules.ACCESS_RULES]
         status = rules.device_status([a["severity"] for a in own])
         if device != "feed" and feed_is_down:
             status = "UNKNOWN"          # nothing can be said while the feed is down
@@ -439,6 +614,89 @@ def inside_card(range_name):
         "hop": hop,
         "thresholds": {"path_loss_pct": config.PATH_LOSS_PCT, "area_silent_mbps": config.AREA_SILENT_MBPS,
                        "lanlink_damage_over": config.LANLINK_DAMAGE_OVER, "lanlink_drops_over": config.LANLINK_DROPS_OVER},
+    }
+
+
+ROUTER_ROLES = {"ccr2116": "CCR2116 · home customers", "ccr2004": "CCR2004 · sites"}
+ONT_RULES = ("ONT_LIGHT_LOSS", "ONT_LIGHT_DEGRADING", "LINE_NO_INTERNET")
+
+
+def access_card():
+    """'Access network': PON ports, ONTs (light, PPPoE match, 7-day light
+    sparkline, likely splitter groups), the events, field jobs, stale
+    registrations and the PPPoE sessions."""
+    now = store.now_utc()
+    with store.transaction() as cur:
+        data = store.access_page(cur, now)
+    active = [describe(a) for a in store.active_rules() if a["rule"] in rules.ACCESS_RULES]
+    onts = {access.ont_key(*key): ont for key, ont in data["onts"].items()}
+    views = [access.ont_view(ont) for ont in onts.values()]
+    matches = access.match_onts(onts, data["sessions"], data["matches"])
+    warnings = {}
+    for a in active:
+        if a["rule"] in ONT_RULES:
+            warnings.setdefault(a["subject"], []).append({"rule": a["rule"], "label": a["label"], "text": a["text"]})
+    step = config.LIGHT_SPARK_BUCKET_SECONDS
+    start = int(data["spark_since"].timestamp()) // step * step
+    points = int((now.timestamp() - start) // step) + 1
+    groups = access.splitter_groups(views, access.together_counts(data["downs"]))
+    group_of = {key: i for i, group in enumerate(groups) for key in group["onts"]}
+    every_session = {name: (dev, s) for dev, sessions in data["sessions"].items() for name, s in sessions.items()}
+    for view in views:
+        rx, olt = [None] * points, [None] * points
+        for bucket, rx_value, olt_value in data["light"].get(view["key"], []):
+            i = int((bucket.timestamp() - start) // step)
+            if 0 <= i < points:
+                rx[i] = None if rx_value is None else round(rx_value, 1)
+                olt[i] = None if olt_value is None else round(olt_value, 1)
+        match = matches.get(view["key"])
+        ppp = None
+        if match:
+            dev, session = every_session.get(match["ppp"] or "", (match["dev"], None))
+            ppp = {**match, "dev": dev, "present": None if session is None else session["present"],
+                   "missing_since": None if session is None else session["missing_since"]}
+        view.update(spark={"rx": rx, "olt": olt}, ppp=ppp, group=group_of.get(view["key"]),
+                    warnings=warnings.get(view["key"], []))
+    views.sort(key=lambda v: (access.pon_sort_key(v["pon"]), v["ont_id"]))
+    light_loss = {a["subject"] for a in active if a["rule"] == "ONT_LIGHT_LOSS"}
+    timeline = [{**{k: e[k] for k in ("at", "kind", "pon", "ont_id", "dev", "name")}, **e["detail"]}
+                for e in data["events"]]
+    for link in inside.link_events(data["links"]):
+        base = {"label": link["label"], "device_label": link["device_label"], "interface": link["interface"],
+                "is_olt": link["is_olt"]}
+        if link["down_at"]:
+            timeline.append({**base, "at": link["down_at"], "kind": "link_down"})
+        if link["up_at"]:
+            timeline.append({**base, "at": link["up_at"], "kind": "link_up", "outage_s": link["outage_s"]})
+    timeline.sort(key=lambda e: e["at"], reverse=True)
+    routers = []
+    for dev in sorted(set(data["sessions"]) | set(data["routers"])):
+        sessions = data["sessions"].get(dev, {})
+        missing = sorted(({"name": name, "since": s["missing_since"] or s["last_seen_at"], "site": access.is_site(name)}
+                          for name, s in sessions.items() if not s["present"]), key=lambda m: m["since"], reverse=True)
+        reading = data["routers"].get(dev) or {}
+        routers.append({"dev": dev, "label": ROUTER_ROLES.get(dev, dev.upper()), "count": reading.get("count"),
+                        "at": reading.get("ts"), "sites": sum(1 for name in sessions if access.is_site(name)),
+                        "missing": missing})
+    return {
+        "pons": access.pon_rows(views, data["pons"], data["last_events"]),
+        "onts": views,
+        "spark": {"start": datetime.fromtimestamp(start, timezone.utc), "step_s": step, "points": points},
+        "groups": groups,
+        "events": timeline[:config.ACCESS_EVENTS_LIMIT],
+        "jobs": access.field_jobs(views, light_loss),
+        "stale": [v for v in views if v["stale"]],
+        "routers": routers,
+        "matches": [{"key": key, "name": onts[key]["descr"] if key in onts else None, "ppp_name": name}
+                    for key, name in sorted(data["matches"].items())],
+        "ppp_names": sorted(every_session),
+        "active": active,
+        "lookback_days": config.ACCESS_LOOKBACK_DAYS,
+        "thresholds": {"rx_overload_above": config.ONT_RX_OVERLOAD_ABOVE_DBM, "rx_weak_below": config.ONT_RX_WEAK_BELOW_DBM,
+                       "rx_bad_below": config.ONT_RX_BAD_BELOW_DBM, "olt_weak_below": config.OLT_RX_WEAK_BELOW_DBM,
+                       "olt_bad_below": config.OLT_RX_BAD_BELOW_DBM, "group_min": config.ACCESS_GROUP_MIN_ONTS,
+                       "splitter_m": config.SPLITTER_DISTANCE_M, "splitter_together": config.SPLITTER_TOGETHER_MIN,
+                       "drop_ont_db": config.LIGHT_DROP_ONT_DB, "drop_shared_db": config.LIGHT_DROP_SHARED_DB},
     }
 
 

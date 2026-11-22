@@ -171,7 +171,33 @@ def _area(row, now, starts, detailed):
     return out
 
 
-def summarise(now, overview, charts, inside, routes_card, incidents, active, detailed):
+def _access(card):
+    """The access network, compact: per PON, the ONTs that aren't fine,
+    field jobs, recent events and the PPPoE routers. Names are the ones set
+    on the OLT / routers (customer codes and site names)."""
+    if not card or card.get("error"):
+        return None
+    onts = card.get("onts") or []
+    return {
+        "pons": [{k: p.get(k) for k in ("pon", "online", "offline", "stale", "health", "weak", "bad", "overloaded")}
+                 for p in card.get("pons") or []],
+        "onts_not_fine": [{"name": o["name"], "pon": o["pon"], "status": o["status"], "since": o["status_since"],
+                           "rx_dbm": o["rx_dbm"], "olt_rx_dbm": o["olt_rx_dbm"], "level": o["level"],
+                           "distance_m": o["distance_m"], "last_down": o["last_down_text"],
+                           "ppp": (o.get("ppp") or {}).get("ppp"), "ppp_present": (o.get("ppp") or {}).get("present")}
+                          for o in onts if o["status"] != "online" or o["level"] not in ("good", None)],
+        "onts_fine": sum(1 for o in onts if o["status"] == "online" and o["level"] == "good"),
+        "likely_same_splitter": card.get("groups") or [],
+        "field_jobs": [{k: j.get(k) for k in ("kind", "title", "names", "rx_dbm", "olt_rx_dbm")}
+                       for j in card.get("jobs") or []],
+        "events_recent": (card.get("events") or [])[:40],
+        "ppp_routers": card.get("routers") or [],
+        "stale_registrations": len(card.get("stale") or []),
+        "light_thresholds_dbm": card.get("thresholds"),
+    }
+
+
+def summarise(now, overview, charts, inside, routes_card, incidents, active, detailed, access=None):
     """Everything Claude gets, from the page's own reads. Pure: no I/O."""
     starts = _hour_starts(now)
     capacity = (charts.get("settings") or {}).get("uplink_capacity_mbps")
@@ -224,6 +250,7 @@ def summarise(now, overview, charts, inside, routes_card, incidents, active, det
         "lanlinks": [{k: v for k, v in r.items() if k != "dev"} for r in inside.get("lanlinks") or []],
         "areas": [_area(r, now, starts, detailed) for r in inside.get("areas") or []],
         "routes": [_route(s, detailed) for s in (routes_card or {}).get("sites") or []],
+        "access_network": _access(access),
         "recent_incidents": [_incident(i) for i in incidents],
     }
     if detailed:
@@ -237,9 +264,14 @@ def gather(now):
     charts = service.charts("24h")
     inside = service.inside_card("24h")
     routes_card = service.routes_card()
+    try:
+        access = service.access_card()
+    except Exception:           # a read failing: the rest of the snapshot still goes
+        log.exception("network health diagnose: the access network couldn't be read")
+        access = None
     incidents = store.incidents(30)
     active = [service.describe(a) for a in store.active_rules()]
-    return summarise(now, overview, charts, inside, routes_card, incidents, active, detailed=True)
+    return summarise(now, overview, charts, inside, routes_card, incidents, active, detailed=True, access=access)
 
 
 # ---- Asking Claude ----
@@ -254,6 +286,7 @@ The network:
 - CCR2004: a second router serving customer areas, one VLAN per area ("areas", download Mbps). VLAN 99 "CCR2004 total" is its link to the core, not an area.
 - OLT: Huawei MA5680T, GPON to customers. olt.crc is the % of frames arriving damaged on its uplink port from the CRS326 (green under 0.01 %, red over 1 %). restarts = OLT reboots (power switchovers cause about two a week).
 - lanlinks: port error counters on the inside links (link_downs, rx_fcs, rx_err, rx_overflow, tx_drop): totals, last 5 minutes, last 24 hours.
+- access_network: the OLT's PON ports and ONTs (GPON) and the PPPoE sessions. rx_dbm = light the ONT receives (downstream), olt_rx_dbm = light the OLT receives from it (upstream); levels use light_thresholds_dbm. last_down: "LOSi/LOBi (light loss)" = fibre, "dying-gasp (power)" = the ONT lost power, resets = reboot. Several ONTs on one PON down together with light loss point at shared fibre or a splitter; with dying-gasp, a power cut. Bad in one direction only points at that ONT's optics or connector. ppp_routers: the CCR2116 has the home customers (JSxx), the CCR2004 the hotspot sites. An ONT online with its PPPoE session missing is a line that is up with no internet (RADIUS, router or the customer's equipment).
 
 Probes (10 pings a test; loss in %, rtt in ms; no reply at all = outage):
 - probes_out, from the CCR2116: p-gw (Airtel gateway), p-nbo (Nairobi via KIXP), p-goog (8.8.8.8), p-cf (1.1.1.1), p-za (South Africa, about 72 ms), p-fra (our Frankfurt server, about 200 ms). From the CCR2004: i-core (to the CCR2116) and i-fra (to Frankfurt through the CRS326, CCR2116 and Airtel). "-big" = 1300-byte pings.
