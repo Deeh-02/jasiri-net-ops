@@ -189,6 +189,90 @@ LANLINK_MAX_GAP_MINUTES = 15
 # with the outage time): its link_downs don't text a second time.
 LANLINK_DOWN_SKIP = (("crs326", "sfp-sfpplus3"),)
 
+# Router physical ports in `crs_link` events (they also come from the CCR2116
+# and CCR2004 now, not just the CRS326): named like the inside links;
+# anything else shows as "CCR2116 sfp-sfpplus1". Shown, never judged: only
+# the CRS326's OLT port (OLT_LINK_INTERFACE) alerts.
+CRS_LINK_DEVICE = "crs326"
+
+# ---- Access network (owner, 2026-11-22): PON ports, ONTs, PPPoE sessions ----
+# `pon`, `ont` and `ppp` records every 5 min. Field jobs and colours use the
+# light levels below; the owner may tune them (the PON module's class, B+ or
+# C+, is still to confirm).
+#   ONT side (rx_dbm, downstream: what the ONT receives):
+ONT_RX_OVERLOAD_ABOVE_DBM = -8      # above: overloaded, needs an attenuator
+ONT_RX_WEAK_BELOW_DBM = -25         # -25 down to -27: weak
+ONT_RX_BAD_BELOW_DBM = -27          # under -27: bad
+#   OLT side (olt_rx_dbm, upstream: what the OLT receives from that ONT):
+OLT_RX_WEAK_BELOW_DBM = -28
+OLT_RX_BAD_BELOW_DBM = -30
+# Why an ONT went down, from the OLT's last_down_text (lower-cased, matched
+# by these words): light = a fibre problem, power = the ONT lost power,
+# reboot = it was reset. Anything else is "other".
+DOWN_TEXT_LIGHT = ("losi", "lobi", "light")
+DOWN_TEXT_POWER = ("dying", "power")
+DOWN_TEXT_REBOOT = ("reset", "reboot")
+
+# ONTs going down together on one PON, in one 5-minute poll:
+#   ACCESS_GROUP_MIN_ONTS or more, mostly light loss -> PON_FIBRE_FAULT (texts)
+#   ACCESS_GROUP_MIN_ONTS or more, mostly power      -> PON_POWER_CUT (texts)
+#   every ONT that was online (at least WHOLE_PON_MIN_ONTS) -> PON_DOWN (texts)
+#   fewer, light loss -> ONT_LIGHT_LOSS per ONT (page only); power: listed only
+# One poll = ONT readings within ACCESS_POLL_GAP_SECONDS of each other. A
+# poll is judged once the next poll has arrived, or nothing new has been
+# received for ACCESS_POLL_SETTLE_SECONDS (the router writes a poll over a
+# few seconds, and the shipper may post it in two batches).
+ACCESS_GROUP_MIN_ONTS = 3
+WHOLE_PON_MIN_ONTS = 2
+ACCESS_POLL_GAP_SECONDS = 120
+ACCESS_POLL_SETTLE_SECONDS = 120
+# A group incident clears once at most this share of its ONTs (at least 1)
+# is still offline.
+ACCESS_GROUP_CLEAR_LEFT_FRACTION = 0.25
+
+# Light degrading: per ONT, the median of its hourly average rx over the
+# last 24 h against the 7 days before. Checked once an hour.
+LIGHT_DROP_ONT_DB = 3               # one ONT this much weaker: ONT_LIGHT_DEGRADING (page)
+LIGHT_DROP_SHARED_DB = 2            # this much on PON_SHARED_MIN_ONTS ONTs of one PON:
+PON_SHARED_MIN_ONTS = 2             #   PON_LIGHT_DEGRADING (texts)
+LIGHT_RECENT_MIN_HOURS = 12         # hours with a reading needed in the last 24 h
+LIGHT_USUAL_MIN_HOURS = 72          # and in the 7 days before (3 days)
+
+# PPPoE (`ppp`, one record per router every 5 min, with every session name).
+# ccr2116: home customers (JSxx); ccr2004: mostly hotspot SITE routers.
+SITE_NAME_WORD = "hotspot"          # a session whose name has this is a site
+SITE_PPP_MISSING_IN_A_ROW = 2       # SITE_PPP_DOWN: missing in 2 readings in a row (5 min)
+PPP_MASS_DROP_FRACTION = 0.3        # this share of a router's sessions gone in one reading
+PPP_MASS_DROP_MIN_SESSIONS = 5      # ...of at least this many: PPP_MASS_DROP
+PPP_MAX_GAP_MINUTES = 15            # readings further apart than this aren't "within 5 min"
+LINE_NO_INTERNET_IN_A_ROW = 4       # ONT online, its PPPoE missing 4 readings in a row (15 min): page
+# Matching an ONT to its PPPoE session: the JS code in its name (JS26 = JS26),
+# else the site name with case, spaces, underscores and these words removed.
+# The page's manual matches (nh_ont_ppp_matches) win over both.
+SITE_NAME_NOISE = ("hotspot", "cyber")
+
+# Field jobs: a PON with at least PON_JOB_MIN_ONLINE ONTs online, half or
+# more of them (and at least PON_JOB_MIN_POOR) weak or bad, is one job (the
+# shared fibre or splitter).
+PON_JOB_WEAK_FRACTION = 0.5
+PON_JOB_MIN_ONLINE = 2
+PON_JOB_MIN_POOR = 2                # (ONTs bad in one direction only don't count: that's the ONT)
+# "Likely same splitter": ONTs on one PON within this distance of each
+# other, or that went down in the same poll at least this many times.
+SPLITTER_DISTANCE_M = 60
+SPLITTER_TOGETHER_MIN = 2
+ACCESS_LOOKBACK_DAYS = 30           # down-together history, the events list
+ACCESS_EVENTS_LIMIT = 200
+LIGHT_SPARK_BUCKET_SECONDS = 3 * 3600   # the 7-day light sparklines: one point per 3 h
+LIGHT_SPARK_DAYS = 7
+# Raw `ont` readings are 18,000 a day: kept KEEP_ONT_DAYS (the light history
+# lives on in nh_ont_hourly, KEEP_ONT_HOURLY_DAYS). Events KEEP_ACCESS_EVENTS_DAYS.
+# An ONT or PPPoE session not seen for FORGET_DAYS is forgotten.
+KEEP_ONT_DAYS = 3
+KEEP_ONT_HOURLY_DAYS = 30
+KEEP_ACCESS_EVENTS_DAYS = 90
+ACCESS_FORGET_DAYS = 30
+
 # A window must hold at least this many readings to be judged at all;
 # otherwise the rule keeps its current state (no data is not "fine").
 MIN_READINGS_IN_WINDOW = 3
@@ -204,7 +288,8 @@ CLEAR_AFTER = 3
 SMS_RULES = ("SPEED_LOW", "UPLINK_CONGESTED", "LATENCY_HIGH", "LINK_DOWN", "FEED_SILENT", "ROUTER_SILENT",
              "OLT_CRC", "OLT_RESTART", "OLT_LINK_DOWN", "OLT_SNMP_SILENT",
              "INNER_PATH_LOSS", "INNER_PATH_DOWN", "CUSTOMER_PATH_LOSS", "CUSTOMER_PATH_DOWN", "AREA_SILENT",
-             "LANLINK_DOWN", "LANLINK_DAMAGE")
+             "LANLINK_DOWN", "LANLINK_DAMAGE",
+             "PON_DOWN", "PON_FIBRE_FAULT", "PON_POWER_CUT", "PON_LIGHT_DEGRADING", "SITE_PPP_DOWN", "PPP_MASS_DROP")
 # A restart is over by the time it is seen: its fire SMS says so, and there
 # is no "back to normal" SMS after it.
 NO_CLEAR_SMS = ("OLT_RESTART",)

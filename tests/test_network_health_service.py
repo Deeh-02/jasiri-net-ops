@@ -22,6 +22,9 @@ class FakeStore:
         self.last_post_at = last_post_at
         self.last_received = last_received or {"probe": NOW}
         self.now = NOW
+        # The access network (nh_onts, nh_ppp_sessions, nh_access_events, ...).
+        self.onts, self.sessions, self.access_events, self.matches = {}, {}, [], {}
+        self.ont_received = NOW - timedelta(minutes=10)
 
     @contextmanager
     def transaction(self):
@@ -61,6 +64,48 @@ class FakeStore:
         return [{"ts": r["ts"], "lanlink": r["lanlink"]} for r in self.rows
                 if r["kind"] == "lanlink" and since < r["ts"] <= until]
 
+    def load_onts(self, cur): return {k: dict(v) for k, v in self.onts.items()}
+
+    def save_onts(self, cur, onts):
+        for ont in onts:
+            self.onts[(ont["pon"], ont["ont_id"])] = dict(ont)
+
+    def load_ppp_sessions(self, cur):
+        return {dev: {name: dict(s) for name, s in sessions.items()} for dev, sessions in self.sessions.items()}
+
+    def save_ppp_sessions(self, cur, dev, sessions):
+        self.sessions[dev] = {name: dict(s) for name, s in sessions.items()}
+
+    def add_access_events(self, cur, events):
+        for event in events:
+            self.access_events.append({**event, "id": len(self.access_events) + 1,
+                                       "detail": dict(event.get("detail") or {}), "grouped": event["kind"] != "ont_down"})
+
+    def ungrouped_downs(self, cur):
+        return sorted((dict(e) for e in self.access_events if e["kind"] == "ont_down" and not e["grouped"]),
+                      key=lambda e: e["at"])
+
+    def mark_grouped(self, cur, marks):
+        for event_id, extra in marks:
+            event = self.access_events[event_id - 1]
+            event["grouped"] = True
+            event["detail"].update(extra)
+
+    def ont_newest(self, cur):
+        times = [r["ts"] for r in self.rows if r["kind"] == "ont"]
+        return (max(times), self.ont_received) if times else (None, None)
+
+    def poll_counts(self, cur, pon, since, until):
+        polled = [r for r in self.rows if r["kind"] == "ont" and r["ont"]["pon"] == pon and since <= r["ts"] <= until]
+        return sum(1 for r in polled if r["ont"]["status"] == "online"), len(polled)
+
+    def incident_facts(self, cur, incident_id):
+        incident = self.incidents[incident_id]
+        return dict(incident.get("facts") or {}), incident["started_at"]
+
+    def ont_hours(self, cur, since, until): return []
+    def ont_matches(self, cur): return dict(self.matches)
+
     def cleared_since(self, cur, key, since):
         return any(i["key"] == key and i["ended_at"] and i["ended_at"] >= since for i in self.incidents.values())
 
@@ -68,10 +113,11 @@ class FakeStore:
         incident_id = len(self.incidents) + 1
         self.incidents[incident_id] = {"key": (check["device"], check["rule"], check["subject"]),
                                        "severity": check["severity"], "started_at": at, "ended_at": None,
-                                       "is_flapping": is_flapping, "fire_sms_sent": False}
+                                       "is_flapping": is_flapping, "fire_sms_sent": False, "facts": check["facts"]}
         return incident_id
 
-    def update_incident(self, cur, incident_id, check, is_lower_worse): pass
+    def update_incident(self, cur, incident_id, check, is_lower_worse):
+        self.incidents[incident_id]["facts"] = check["facts"]
 
     def raise_incident_severity(self, cur, incident_id, severity):
         self.incidents[incident_id]["severity"] = severity

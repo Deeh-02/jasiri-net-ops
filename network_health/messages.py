@@ -85,6 +85,30 @@ def link_label_of(subject):
     return gsm_label(config.LANLINK_LABELS.get((dev, port), subject))
 
 
+def gsm_name(text, limit=24):
+    """A name set by people (an ONT's description, a PPPoE session): any
+    character outside GSM-7 becomes '?', cut to limit."""
+    return "".join(c if c in GSM7_BASIC else "?" for c in str(text or "?"))[:limit]
+
+
+def names_text(names, budget):
+    """'JS12, JS14, Stima_Hotspot +2' in at most `budget` characters: as
+    many names as fit, then how many more."""
+    names = [gsm_name(n) for n in names or []]
+    shown = []
+    for i, name in enumerate(names):
+        rest = len(names) - i - 1
+        candidate = ", ".join(shown + [name]) + (f" +{rest}" if rest else "")
+        if len(candidate) > budget:
+            break
+        shown.append(name)
+    more = len(names) - len(shown)
+    text = ", ".join(shown)
+    if more:
+        text = f"{text} +{more}" if shown else f"{more} ONTs"
+    return text[:budget]
+
+
 def probe_label(name):
     return PROBE_LABELS.get(name, name)
 
@@ -149,6 +173,28 @@ def problem_text(rule, facts):
         return f"Link {gsm_label(facts.get('label'))} is damaging frames ({number(facts.get('count'))} errors in 5min)"
     if rule == "LANLINK_DROPS":
         return f"Link {gsm_label(facts.get('label'))} dropping frames ({number(facts.get('count'))} in 5min)"
+    pon = gsm_name(facts.get("pon"), 12)
+    if rule == "PON_DOWN":
+        if facts.get("power", 0) > facts.get("light", 0):
+            return f"Whole PON {pon} down ({number(facts.get('count'))} ONTs, dying-gasp): power cut in the area likely"
+        return f"Whole PON {pon} down ({number(facts.get('count'))} ONTs): feeder/OLT port/main splitter"
+    if rule == "PON_FIBRE_FAULT":
+        return f"Fibre/splitter fault likely on PON {pon}: {names_text(facts.get('names'), 60)}"
+    if rule == "PON_POWER_CUT":
+        return f"Power cut affecting PON {pon}: {names_text(facts.get('names'), 66)}"
+    if rule == "PON_LIGHT_DEGRADING":
+        return f"Shared fibre/splitter degrading on PON {pon}: {names_text(facts.get('names'), 45)} weaker by 2dB+"
+    if rule == "ONT_LIGHT_LOSS":
+        return f"Light loss at {gsm_name(facts.get('name'))}"
+    if rule == "ONT_LIGHT_DEGRADING":
+        return f"Light degrading at {gsm_name(facts.get('name'))}, {number(facts.get('drop'))}dB weaker than usual"
+    if rule == "SITE_PPP_DOWN":
+        return f"Site {gsm_name(facts.get('name'), 40)} offline (PPPoE)"
+    if rule == "PPP_MASS_DROP":
+        return (f"Mass PPPoE drop, {number(facts.get('dropped'))} of {number(facts.get('before'))} sessions gone "
+                f"(RADIUS/router?)")
+    if rule == "LINE_NO_INTERNET":
+        return f"Line up, no internet: {gsm_name(facts.get('name'))} (PPPoE {gsm_name(facts.get('ppp'), 20)} missing)"
     return rule
 
 
@@ -178,13 +224,22 @@ def recovered_text(rule, subject):
         "LANLINK_DOWN": f"link {link_label_of(subject)}",
         "LANLINK_DAMAGE": f"link {link_label_of(subject)} frames",
         "LANLINK_DROPS": f"link {link_label_of(subject)} drops",
+        "PON_DOWN": f"PON {gsm_name(subject, 12)}",
+        "PON_FIBRE_FAULT": f"fibre on PON {gsm_name(subject, 12)}",
+        "PON_POWER_CUT": f"power on PON {gsm_name(subject, 12)}",
+        "PON_LIGHT_DEGRADING": f"light on PON {gsm_name(subject, 12)}",
+        "ONT_LIGHT_LOSS": f"ONT {gsm_name(subject, 20)}",
+        "ONT_LIGHT_DEGRADING": f"light at ONT {gsm_name(subject, 20)}",
+        "SITE_PPP_DOWN": f"site {gsm_name(subject, 40)} PPPoE",
+        "PPP_MASS_DROP": "PPPoE sessions",
+        "LINE_NO_INTERNET": f"internet at ONT {gsm_name(subject, 20)}",
     }.get(rule, rule)
 
 
 def fire_message(device, rule, facts, since):
     # A silence rule fires 10 minutes INTO the silence; "Since" should say
     # when the data stopped, not when OPS noticed.
-    if rule in ("FEED_SILENT", "ROUTER_SILENT", "OLT_SNMP_SILENT") and facts.get("minutes") is not None:
+    if rule in ("FEED_SILENT", "ROUTER_SILENT", "OLT_SNMP_SILENT", "SITE_PPP_DOWN") and facts.get("minutes") is not None:
         since = since - timedelta(minutes=facts["minutes"])
     if rule == "OLT_RESTART":
         # Seen at the first reading after it; the uptime says when it came back.

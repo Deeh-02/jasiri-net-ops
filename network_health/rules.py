@@ -47,23 +47,41 @@ RULE_LABELS = {
     "LANLINK_DOWN": "Inside link went down",
     "LANLINK_DAMAGE": "Inside link damaging frames",
     "LANLINK_DROPS": "Inside link dropping frames",
+    "PON_DOWN": "Whole PON down",
+    "PON_FIBRE_FAULT": "Fibre/splitter fault likely",
+    "PON_POWER_CUT": "Power cut on a PON",
+    "PON_LIGHT_DEGRADING": "Shared fibre/splitter degrading",
+    "ONT_LIGHT_LOSS": "Light loss at an ONT",
+    "ONT_LIGHT_DEGRADING": "Light degrading at an ONT",
+    "SITE_PPP_DOWN": "Site offline (PPPoE)",
+    "PPP_MASS_DROP": "Mass PPPoE drop",
+    "LINE_NO_INTERNET": "Line up, no internet",
 }
 # The rules the "Inside network" section lists as its active problems.
 INSIDE_RULES = ("OLT_CRC", "OLT_RESTART", "OLT_LINK_DOWN", "OLT_SNMP_SILENT", "INNER_PATH_LOSS", "INNER_PATH_DOWN",
                 "CUSTOMER_PATH_LOSS", "CUSTOMER_PATH_DOWN", "AREA_SILENT", "LANLINK_DOWN", "LANLINK_DAMAGE",
                 "LANLINK_DROPS")
+# The rules the "Access network" section lists. The page-only ones
+# (ACCESS_WARNINGS) are about one customer's line: they stay in that section
+# and stay out of the banner and the device cards above.
+ACCESS_RULES = ("PON_DOWN", "PON_FIBRE_FAULT", "PON_POWER_CUT", "PON_LIGHT_DEGRADING", "ONT_LIGHT_LOSS",
+                "ONT_LIGHT_DEGRADING", "SITE_PPP_DOWN", "PPP_MASS_DROP", "LINE_NO_INTERNET")
+ACCESS_WARNINGS = ("ONT_LIGHT_LOSS", "ONT_LIGHT_DEGRADING", "LINE_NO_INTERNET")
 # Checks needed in a row before firing / clearing, where it isn't the default.
 FIRE_AFTER = {"OPTIC_DEGRADING": 2, "LINK_ERRORS": config.LINK_ERRORS_FIRE_AFTER, "DNS_ROUTER": config.DNS_FIRE_AFTER,
               "OLT_CRC": config.OLT_CRC_FIRE_AFTER,
               "INNER_PATH_LOSS": config.PATH_LOSS_IN_A_ROW, "INNER_PATH_DOWN": config.PATH_DOWN_IN_A_ROW,
               "CUSTOMER_PATH_LOSS": config.PATH_LOSS_IN_A_ROW, "CUSTOMER_PATH_DOWN": config.PATH_DOWN_IN_A_ROW,
-              "AREA_SILENT": config.AREA_SILENT_IN_A_ROW}
+              "AREA_SILENT": config.AREA_SILENT_IN_A_ROW,
+              "SITE_PPP_DOWN": config.SITE_PPP_MISSING_IN_A_ROW, "LINE_NO_INTERNET": config.LINE_NO_INTERNET_IN_A_ROW}
 # LINK_DOWN clears on the next 5-minute reading with no new drop, OLT_RESTART
 # on the next reading with no new restart, OLT_LINK_DOWN on the port's `up`.
 CLEAR_AFTER = {"FEED_SILENT": 1, "ROUTER_SILENT": 1, "SPEED_LOW": 1, "OPTIC_DEGRADING": 2, "LINK_DOWN": 1,
                "LINK_ERRORS": config.LINK_ERRORS_FIRE_AFTER, "DNS_ROUTER": config.DNS_CLEAR_AFTER,
                "OLT_CRC": config.OLT_CRC_CLEAR_AFTER, "OLT_RESTART": 1, "OLT_LINK_DOWN": 1, "OLT_SNMP_SILENT": 1,
-               "INNER_PATH_DOWN": 1, "CUSTOMER_PATH_DOWN": 1, "AREA_SILENT": 1, "LANLINK_DOWN": 1}
+               "INNER_PATH_DOWN": 1, "CUSTOMER_PATH_DOWN": 1, "AREA_SILENT": 1, "LANLINK_DOWN": 1,
+               "PON_DOWN": 1, "PON_FIBRE_FAULT": 1, "PON_POWER_CUT": 1, "ONT_LIGHT_LOSS": 1, "SITE_PPP_DOWN": 1,
+               "PPP_MASS_DROP": 1, "LINE_NO_INTERNET": 1}
 # For these a LOWER value is worse (an incident's "peak" is its lowest value).
 LOWER_IS_WORSE = ("SPEED_LOW", "OPTIC_DEGRADING")
 
@@ -275,8 +293,10 @@ def check_olt_restart(step):
 
 def check_olt_link(link):
     """A CRS326 port event on the OLT uplink (sfp-sfpplus3): down fires at
-    once, the next up clears it. Other ports are shown, never judged."""
-    if link.get("interface") != config.OLT_LINK_INTERFACE:
+    once, the next up clears it. Other ports, and the routers' own ports
+    (device ccr2116 / ccr2004, which have an sfp-sfpplus3 too), are shown,
+    never judged. Records from before the device was sent are the CRS326's."""
+    if link.get("interface") != config.OLT_LINK_INTERFACE or (link.get("device") or config.CRS_LINK_DEVICE) != config.CRS_LINK_DEVICE:
         return None
     return make_check("olt", "OLT_LINK_DOWN", link["state"] == "down", subject=link["interface"],
                       facts={"interface": link["interface"]}, immediate=True)

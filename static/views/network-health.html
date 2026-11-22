@@ -82,6 +82,94 @@
             <figure class="nh-graph" id="nh-g-hop-rtt"></figure>
         </div>
 
+        <!-- Access network: the OLT's PON ports and ONTs, read every 5 min,
+             and the PPPoE sessions on the CCR2116 (home customers) and the
+             CCR2004 (sites). Always the last 7 days, whatever the range tabs say. -->
+        <h2 class="nh-h2">Access network <span class="nh-h2-sub" id="nh-access-sub"></span></h2>
+        <ul class="nh-device-rules nh-inside-active" id="nh-access-active" aria-label="Active access network problems"></ul>
+
+        <h3 class="nh-h3">PON ports <span class="nh-h2-sub" id="nh-pons-sub"></span></h3>
+        <div class="table-scroll table-compact">
+            <table class="nh-table nh-pons">
+                <thead><tr><th>PON</th><th>Online</th><th>Offline</th><th>Light</th><th>Weak / bad</th><th>Last event</th></tr></thead>
+                <tbody id="nh-pons" data-skeleton="6"></tbody>
+            </table>
+        </div>
+
+        <div class="nh-section-head">
+            <h3 class="nh-h3">ONTs <span class="nh-h2-sub" id="nh-onts-sub"></span></h3>
+            <label class="nh-filter">PON
+                <select id="nh-ont-pon"><option value="">All PONs</option></select>
+            </label>
+        </div>
+        <div class="table-scroll table-compact">
+            <table class="nh-table nh-onts">
+                <thead><tr><th>ONT</th><th>Status</th><th>ONT receives (dBm)</th><th>OLT receives (dBm)</th><th>Distance</th><th>Last down</th><th>PPPoE</th><th>Light, 7 days</th></tr></thead>
+                <tbody id="nh-onts" data-skeleton="8"></tbody>
+            </table>
+        </div>
+
+        <div class="nh-section-head">
+            <h3 class="nh-h3">Events <span class="nh-h2-sub" id="nh-events-sub"></span></h3>
+            <label class="nh-filter">Show
+                <select id="nh-events-kind">
+                    <option value="">Everything</option>
+                    <option value="ont">ONTs</option>
+                    <option value="ppp">PPPoE</option>
+                    <option value="link">Links</option>
+                </select>
+            </label>
+        </div>
+        <div class="table-scroll table-compact nh-events-scroll">
+            <table class="nh-table nh-events">
+                <thead><tr><th>Time</th><th>Event</th><th>Detail</th></tr></thead>
+                <tbody id="nh-events" data-skeleton="3"></tbody>
+            </table>
+        </div>
+
+        <h3 class="nh-h3">Field jobs <span class="nh-h2-sub">worked out from the light levels and the alerts, most urgent first</span></h3>
+        <ul class="nh-jobs" id="nh-jobs"></ul>
+
+        <h3 class="nh-h3">Stale registrations <span class="nh-h2-sub">on the OLT but never online since first seen · never alerted on</span></h3>
+        <div class="table-scroll table-compact">
+            <table class="nh-table">
+                <thead><tr><th>ONT</th><th>PON</th><th>First seen</th></tr></thead>
+                <tbody id="nh-stale" data-skeleton="3"></tbody>
+            </table>
+        </div>
+
+        <h3 class="nh-h3">PPPoE sessions <span class="nh-h2-sub" id="nh-ppp-sub"></span></h3>
+        <div class="table-scroll table-compact">
+            <table class="nh-table">
+                <thead><tr><th>Router</th><th>Sessions</th><th>Missing now</th><th>Reading</th></tr></thead>
+                <tbody id="nh-ppp" data-skeleton="4"></tbody>
+            </table>
+        </div>
+
+        <!-- Network Health > Admin only (the server checks it too). -->
+        <details class="nh-thresholds" id="nh-matches-box" hidden>
+            <summary>ONT ↔ PPPoE matches set by hand</summary>
+            <p class="nh-note">For ONTs whose name doesn't match their PPPoE session on its own (by JS code, or the site
+                name). "No PPPoE session" stops the "line up, no internet" check for that ONT.</p>
+            <form class="nh-settings nh-match-form" id="nh-match-form">
+                <label class="nh-field"><span>ONT</span><select id="nh-match-ont" required></select></label>
+                <label class="nh-field"><span>PPPoE session</span>
+                    <input type="text" id="nh-match-ppp" list="nh-ppp-names" maxlength="64" autocomplete="off"></label>
+                <datalist id="nh-ppp-names"></datalist>
+                <label class="nh-check"><input type="checkbox" id="nh-match-none"> No PPPoE session</label>
+                <div class="nh-settings-actions">
+                    <button type="submit" class="btn-primary">Save match</button>
+                    <span class="nh-settings-msg" id="nh-match-msg" role="status"></span>
+                </div>
+            </form>
+            <div class="table-scroll table-compact">
+                <table class="nh-table">
+                    <thead><tr><th>ONT</th><th>PPPoE session</th><th></th></tr></thead>
+                    <tbody id="nh-matches"></tbody>
+                </table>
+            </div>
+        </details>
+
         <h2 class="nh-h2">Where content is served from <span class="nh-h2-sub" id="nh-routes-sub"></span></h2>
         <div class="table-scroll table-compact">
             <table class="nh-table nh-routes">

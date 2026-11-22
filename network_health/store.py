@@ -41,7 +41,7 @@ def eat_midnight(now):
 # ---- Storing a batch ----
 
 READING_COLUMNS = ("ts", "kind", "from_ip", "raw", "load", "probes", "link", "speed", "route", "dns", "olt",
-                   "crs_link", "area", "lanlink")
+                   "crs_link", "area", "lanlink", "pon", "ont", "ppp")
 _SET = ", ".join(f"{c} = EXCLUDED.{c}" for c in READING_COLUMNS)
 _OURS = ", ".join(f"nh_readings.{c}" for c in READING_COLUMNS)
 _THEIRS = ", ".join(f"EXCLUDED.{c}" for c in READING_COLUMNS)
@@ -63,7 +63,8 @@ def save_batch(source, sent_at, records):
         if records:
             rows = [(r["key"], r["ts"], r["kind"], r["from_ip"], r["raw"], _json(r["load"]), _json(r["probes"]),
                      _json(r["link"]), _json(r["speed"]), _json(r.get("route")), _json(r.get("dns")),
-                     _json(r.get("olt")), _json(r.get("crs_link")), _json(r.get("area")), _json(r.get("lanlink")))
+                     _json(r.get("olt")), _json(r.get("crs_link")), _json(r.get("area")), _json(r.get("lanlink")),
+                     _json(r.get("pon")), _json(r.get("ont")), _json(r.get("ppp")))
                     for r in records]
             stored = execute_values(
                 cur,
@@ -74,6 +75,7 @@ def save_batch(source, sent_at, records):
                 rows, page_size=500, fetch=True)
             stored_keys = {key for key, inserted in stored if inserted}
             replaced = sum(1 for _, inserted in stored if not inserted)
+            add_ont_hours(cur, [r for r in records if r["kind"] == "ont" and r["key"] in stored_keys])
         from_ip = next((r["from_ip"] for r in reversed(records) if r["from_ip"]), None)
         cur.execute(
             """UPDATE nh_feed SET last_post_at = now(), last_sent_at = %s, last_source = %s,
@@ -86,18 +88,59 @@ def _json(value):
     return None if value is None else Json(value)
 
 
+def add_ont_hours(cur, records):
+    """Adds new `ont` readings to nh_ont_hourly (per ONT per hour: the sums
+    and counts of rx_dbm and olt_rx_dbm), the light history the sparklines
+    and the degradation check read. Only NEW readings: a resent one is
+    never counted twice."""
+    hours = {}
+    for record in records:
+        ont = record["ont"]
+        hour = record["ts"].replace(minute=0, second=0, microsecond=0)
+        sums = hours.setdefault((ont["pon"], ont["ont_id"], hour), [0.0, 0, 0.0, 0])
+        if ont["rx_dbm"] is not None:
+            sums[0] += ont["rx_dbm"]
+            sums[1] += 1
+        if ont["olt_rx_dbm"] is not None:
+            sums[2] += ont["olt_rx_dbm"]
+            sums[3] += 1
+    rows = [(*key, *sums) for key, sums in hours.items() if sums[1] or sums[3]]
+    if rows:
+        execute_values(
+            cur,
+            """INSERT INTO nh_ont_hourly (pon, ont_id, hour, rx_sum, rx_n, olt_rx_sum, olt_rx_n) VALUES %s
+               ON CONFLICT (pon, ont_id, hour) DO UPDATE SET
+                   rx_sum = nh_ont_hourly.rx_sum + EXCLUDED.rx_sum, rx_n = nh_ont_hourly.rx_n + EXCLUDED.rx_n,
+                   olt_rx_sum = nh_ont_hourly.olt_rx_sum + EXCLUDED.olt_rx_sum,
+                   olt_rx_n = nh_ont_hourly.olt_rx_n + EXCLUDED.olt_rx_n""",
+            rows)
+
+
 def delete_old_readings():
     """Raw readings older than KEEP_READINGS_DAYS go. `route` rows (the
     before/after of the provider switch) and `crs_link` rows (a few a week)
     are kept; `olt` rows go after KEEP_OLT_DAYS (the DAC swap's before/after
-    and the restart list)."""
+    and the restart list), `ont` rows after KEEP_ONT_DAYS (18,000 a day; the
+    light history stays in nh_ont_hourly). The access network's own tables
+    are trimmed too."""
     with transaction() as cur:
         cur.execute(
             """DELETE FROM nh_readings
-               WHERE (kind NOT IN ('route', 'crs_link', 'olt') AND ts < now() - %s * interval '1 day')
-                  OR (kind = 'olt' AND ts < now() - %s * interval '1 day')""",
-            (config.KEEP_READINGS_DAYS, config.KEEP_OLT_DAYS))
-        return cur.rowcount
+               WHERE (kind NOT IN ('route', 'crs_link', 'olt', 'ont') AND ts < now() - %s * interval '1 day')
+                  OR (kind = 'olt' AND ts < now() - %s * interval '1 day')
+                  OR (kind = 'ont' AND ts < now() - %s * interval '1 day')""",
+            (config.KEEP_READINGS_DAYS, config.KEEP_OLT_DAYS, config.KEEP_ONT_DAYS))
+        deleted = cur.rowcount
+        forget = (config.ACCESS_FORGET_DAYS,)
+        for statement, days in (
+                ("DELETE FROM nh_ont_hourly WHERE hour < now() - %s * interval '1 day'", (config.KEEP_ONT_HOURLY_DAYS,)),
+                ("DELETE FROM nh_access_events WHERE at < now() - %s * interval '1 day'",
+                 (config.KEEP_ACCESS_EVENTS_DAYS,)),
+                ("DELETE FROM nh_onts WHERE last_seen_at < now() - %s * interval '1 day'", forget),
+                ("DELETE FROM nh_ppp_sessions WHERE last_seen_at < now() - %s * interval '1 day'", forget)):
+            cur.execute(statement, days)
+            deleted += cur.rowcount
+        return deleted
 
 
 # ---- Reading readings ----
@@ -278,6 +321,161 @@ def hop_series(cur, since, bucket_seconds):
             WHERE r.kind = 'hop' AND r.ts >= %(since)s GROUP BY b, 2 ORDER BY b""",
         {"since": since, "bucket": bucket_seconds})
     return [{"t": r[0], "name": r[1], "rtt": r[2], "loss": r[3], "n": r[4]} for r in cur.fetchall()]
+
+
+# ---- Access network (`pon`, `ont`, `ppp`; nh_onts, nh_ppp_sessions, nh_access_events) ----
+
+ONT_COLUMNS = ("pon", "ont_id", "descr", "status", "rx_dbm", "olt_rx_dbm", "distance_m", "last_down_cause",
+               "last_down_text", "first_seen_at", "last_seen_at", "status_since", "ever_online", "last_online_at")
+
+
+def load_onts(cur):
+    """{(pon, ont_id): row} for every ONT OPS knows."""
+    cur.execute(f"SELECT {', '.join(ONT_COLUMNS)} FROM nh_onts")
+    return {(row[0], row[1]): dict(zip(ONT_COLUMNS, row)) for row in cur.fetchall()}
+
+
+def save_onts(cur, onts):
+    if not onts:
+        return
+    updates = ", ".join(f"{c} = EXCLUDED.{c}" for c in ONT_COLUMNS[2:])
+    execute_values(cur, f"""INSERT INTO nh_onts ({', '.join(ONT_COLUMNS)}) VALUES %s
+                            ON CONFLICT (pon, ont_id) DO UPDATE SET {updates}""",
+                   [tuple(ont[c] for c in ONT_COLUMNS) for ont in onts])
+
+
+PPP_COLUMNS = ("present", "first_seen_at", "last_seen_at", "missing_since")
+
+
+def load_ppp_sessions(cur):
+    """{dev: {name: row}} for every PPPoE session OPS knows."""
+    cur.execute(f"SELECT dev, name, {', '.join(PPP_COLUMNS)} FROM nh_ppp_sessions")
+    sessions = {}
+    for row in cur.fetchall():
+        sessions.setdefault(row[0], {})[row[1]] = dict(zip(PPP_COLUMNS, row[2:]))
+    return sessions
+
+
+def save_ppp_sessions(cur, dev, sessions):
+    if not sessions:
+        return
+    execute_values(cur, f"""INSERT INTO nh_ppp_sessions (dev, name, {', '.join(PPP_COLUMNS)}) VALUES %s
+                            ON CONFLICT (dev, name) DO UPDATE SET present = EXCLUDED.present,
+                                last_seen_at = EXCLUDED.last_seen_at, missing_since = EXCLUDED.missing_since""",
+                   [(dev, name, *(s[c] for c in PPP_COLUMNS)) for name, s in sessions.items()])
+
+
+def add_access_events(cur, events):
+    """Stores ONT / PPPoE events. An ONT going down waits (grouped = false)
+    until its poll is judged with the others on its PON."""
+    if events:
+        execute_values(
+            cur,
+            "INSERT INTO nh_access_events (at, kind, pon, ont_id, dev, name, detail, grouped) VALUES %s",
+            [(e["at"], e["kind"], e.get("pon"), e.get("ont_id"), e.get("dev"), e.get("name"), Json(e.get("detail") or {}),
+              e["kind"] != "ont_down") for e in events])
+
+
+def ungrouped_downs(cur):
+    """ONTs gone down whose poll hasn't been judged yet, oldest first."""
+    cur.execute("""SELECT id, at, pon, ont_id, name, detail FROM nh_access_events
+                   WHERE kind = 'ont_down' AND NOT grouped ORDER BY at""")
+    return [{"id": r[0], "at": r[1], "pon": r[2], "ont_id": r[3], "name": r[4], "detail": r[5] or {}}
+            for r in cur.fetchall()]
+
+
+def mark_grouped(cur, marks):
+    """marks: [(event id, what to add to its detail)]."""
+    for event_id, extra in marks:
+        cur.execute("UPDATE nh_access_events SET grouped = true, detail = detail || %s WHERE id = %s",
+                    (Json(extra), event_id))
+
+
+def ont_newest(cur):
+    """(ts of the newest `ont` reading, when OPS received it)."""
+    cur.execute("SELECT ts, received_at FROM nh_readings WHERE kind = 'ont' ORDER BY ts DESC LIMIT 1")
+    row = cur.fetchone()
+    return (row[0], row[1]) if row else (None, None)
+
+
+def poll_counts(cur, pon, since, until):
+    """In one poll on one PON: (ONTs online, ONT readings)."""
+    cur.execute("""SELECT count(*) FILTER (WHERE ont->>'status' = 'online'), count(*) FROM nh_readings
+                   WHERE kind = 'ont' AND ts >= %s AND ts <= %s AND ont->>'pon' = %s""", (since, until, pon))
+    online, total = cur.fetchone()
+    return online, total
+
+
+def incident_facts(cur, incident_id):
+    cur.execute("SELECT facts, started_at FROM nh_incidents WHERE id = %s", (incident_id,))
+    row = cur.fetchone()
+    return (row[0] or {}, row[1]) if row else ({}, None)
+
+
+def ont_hours(cur, since, until):
+    """Hourly average rx_dbm per ONT over [since, until): [{pon, ont_id, hour, rx}]."""
+    cur.execute("""SELECT pon, ont_id, hour, rx_sum / rx_n FROM nh_ont_hourly
+                   WHERE hour >= %s AND hour < %s AND rx_n > 0""", (since, until))
+    return [{"pon": r[0], "ont_id": r[1], "hour": r[2], "rx": r[3]} for r in cur.fetchall()]
+
+
+def ont_matches(cur):
+    """The page's manual ONT <-> PPPoE matches: {ont key: ppp name or None}."""
+    cur.execute("SELECT pon, ont_id, ppp_name FROM nh_ont_ppp_matches")
+    return {f"{pon}:{ont_id}": name for pon, ont_id, name in cur.fetchall()}
+
+
+def save_ont_match(pon, ont_id, ppp_name, user_id):
+    with transaction() as cur:
+        cur.execute("""INSERT INTO nh_ont_ppp_matches (pon, ont_id, ppp_name, updated_at, updated_by)
+                       VALUES (%s, %s, %s, now(), %s)
+                       ON CONFLICT (pon, ont_id) DO UPDATE SET ppp_name = EXCLUDED.ppp_name, updated_at = now(),
+                           updated_by = EXCLUDED.updated_by""", (pon, ont_id, ppp_name, user_id))
+
+
+def delete_ont_match(pon, ont_id):
+    with transaction() as cur:
+        cur.execute("DELETE FROM nh_ont_ppp_matches WHERE pon = %s AND ont_id = %s", (pon, ont_id))
+        return cur.rowcount
+
+
+def access_page(cur, now):
+    """What the Access network section reads, in one go."""
+    spark_since = now - timedelta(days=config.LIGHT_SPARK_DAYS)
+    lookback = now - timedelta(days=config.ACCESS_LOOKBACK_DAYS)
+    onts = load_onts(cur)
+    sessions = load_ppp_sessions(cur)
+    matches = ont_matches(cur)
+    cur.execute("""SELECT DISTINCT ON (pon->>'pon') pon->>'pon', ts, (pon->>'online')::int, (pon->>'offline')::int
+                   FROM nh_readings WHERE kind = 'pon' AND pon IS NOT NULL AND ts > %s
+                   ORDER BY pon->>'pon', ts DESC""", (now - timedelta(minutes=30),))
+    pons = {r[0]: {"ts": r[1], "online": r[2], "offline": r[3]} for r in cur.fetchall()}
+    cur.execute("""SELECT DISTINCT ON (ppp->>'dev') ppp->>'dev', ts, (ppp->>'count')::int,
+                          jsonb_array_length(ppp->'names')
+                   FROM nh_readings WHERE kind = 'ppp' AND ppp IS NOT NULL AND ts > %s
+                   ORDER BY ppp->>'dev', ts DESC""", (now - timedelta(days=1),))
+    routers = {r[0]: {"ts": r[1], "count": r[2] if r[2] is not None else r[3]} for r in cur.fetchall()}
+    cur.execute("""SELECT pon, ont_id, to_timestamp(floor(extract(epoch FROM hour) / %(step)s) * %(step)s),
+                          sum(rx_sum) / nullif(sum(rx_n), 0), sum(olt_rx_sum) / nullif(sum(olt_rx_n), 0)
+                   FROM nh_ont_hourly WHERE hour >= %(since)s GROUP BY 1, 2, 3 ORDER BY 1, 2, 3""",
+                {"step": config.LIGHT_SPARK_BUCKET_SECONDS, "since": spark_since})
+    light = {}
+    for pon, ont_id, bucket, rx, olt in cur.fetchall():
+        light.setdefault(f"{pon}:{ont_id}", []).append((bucket, rx, olt))
+    cur.execute("""SELECT at, kind, pon, ont_id, dev, name, detail FROM nh_access_events
+                   WHERE at >= %s ORDER BY at DESC, id DESC LIMIT %s""", (lookback, config.ACCESS_EVENTS_LIMIT))
+    events = [{"at": r[0], "kind": r[1], "pon": r[2], "ont_id": r[3], "dev": r[4], "name": r[5], "detail": r[6] or {}}
+              for r in cur.fetchall()]
+    cur.execute("""SELECT DISTINCT ON (pon) pon, at, kind, name, detail FROM nh_access_events
+                   WHERE pon IS NOT NULL AND at >= %s ORDER BY pon, at DESC""", (lookback,))
+    last_events = {r[0]: {"at": r[1], "kind": r[2], "name": r[3], "detail": r[4] or {}} for r in cur.fetchall()}
+    cur.execute("""SELECT pon, ont_id, detail->>'cluster' FROM nh_access_events
+                   WHERE kind = 'ont_down' AND at >= %s AND detail ? 'cluster'""", (lookback,))
+    downs = [{"pon": r[0], "ont_id": r[1], "cluster": r[2]} for r in cur.fetchall()]
+    links = crs_link_records(cur, now - timedelta(days=config.LIGHT_SPARK_DAYS))
+    return {"onts": onts, "sessions": sessions, "matches": matches, "pons": pons, "routers": routers,
+            "light": light, "spark_since": spark_since, "events": events, "last_events": last_events,
+            "downs": downs, "links": links}
 
 
 # ---- Baselines (the "usual" a reading is compared with) ----

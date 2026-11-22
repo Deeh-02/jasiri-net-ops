@@ -11,7 +11,7 @@ starts with it again). Skips are counted and logged by the caller.
 from datetime import datetime, timezone
 
 KNOWN_KINDS = ("probe", "inner", "link", "linknew", "speed", "speednew", "route", "dns", "olt", "crs_link", "hop", "area",
-               "lanlink")
+               "lanlink", "pon", "ont", "ppp")
 MAX_KEY_LENGTH = 200
 MAX_RAW_LENGTH = 4000
 MAX_NAME_LENGTH = 40
@@ -192,7 +192,7 @@ def _crs_link(value):
     if state not in ("up", "down"):
         raise SkipRecord("crs_link record's state is not up or down")
     device, speed = value.get("device"), value.get("speed")
-    return {"device": device.strip()[:MAX_NAME_LENGTH] if isinstance(device, str) and device.strip() else None,
+    return {"device": device.strip().lower()[:MAX_NAME_LENGTH] if isinstance(device, str) and device.strip() else None,
             "interface": interface.strip()[:MAX_NAME_LENGTH], "state": state,
             "speed": speed.strip()[:MAX_NAME_LENGTH] if isinstance(speed, str) and speed.strip() else None}
 
@@ -224,9 +224,76 @@ def _lanlink(value):
             **{field: _counter(value.get(field)) for field in LANLINK_FIELDS}}
 
 
+# ---- Access network (`pon`, `ont`, `ppp`) ----
+
+MAX_PON_LENGTH = 20
+MAX_DESC_LENGTH = 64
+MAX_PPP_NAMES = 3000
+ONT_STATUSES = ("online", "offline")
+
+
+def _text(value, limit):
+    """A trimmed string, or None (empty, or not a string)."""
+    return value.strip()[:limit] if isinstance(value, str) and value.strip() else None
+
+
+def _dbm(value):
+    """Optical power. Anything outside -60..+10 dBm is a misread: None."""
+    dbm = number_or_none(value)
+    return dbm if dbm is not None and -60 <= dbm <= 10 else None
+
+
+def _pon(value):
+    """One PON port's ONT counts. Without the port it can't be placed: skipped."""
+    if not isinstance(value, dict):
+        return None
+    pon = _text(value.get("pon"), MAX_PON_LENGTH)
+    if pon is None:
+        raise SkipRecord("pon record has no pon")
+    return {"pon": pon, "online": _counter(value.get("online")), "offline": _counter(value.get("offline"))}
+
+
+def _ont(value):
+    """One ONT. Its identity is pon + ont_id: without both, skipped. rx_dbm
+    (the light the ONT receives) and olt_rx_dbm (what the OLT receives from
+    it) are null while it is offline. A status other than online/offline is
+    kept as "unknown" and never judged."""
+    if not isinstance(value, dict):
+        return None
+    pon = _text(value.get("pon"), MAX_PON_LENGTH)
+    ont_id = _counter(value.get("ont_id"))
+    if pon is None or ont_id is None:
+        raise SkipRecord("ont record has no pon or ont_id")
+    status = value.get("status")
+    distance = number_or_none(value.get("distance_m"))
+    cause = _counter(value.get("last_down_cause"))
+    return {"pon": pon, "ont_id": ont_id, "status": status if status in ONT_STATUSES else "unknown",
+            "rx_dbm": _dbm(value.get("rx_dbm")), "olt_rx_dbm": _dbm(value.get("olt_rx_dbm")),
+            "distance_m": distance if distance is not None and 0 <= distance <= 100_000 else None,
+            "last_down_cause": cause, "last_down_text": _text(value.get("last_down_text"), MAX_DESC_LENGTH),
+            "desc": _text(value.get("desc"), MAX_DESC_LENGTH)}
+
+
+def _ppp(value):
+    """One router's PPPoE sessions: every session name (diffed reading to
+    reading). Without the router or the names list: skipped."""
+    if not isinstance(value, dict):
+        return None
+    dev = _text(value.get("dev"), MAX_NAME_LENGTH)
+    names = value.get("names")
+    if dev is None or not isinstance(names, list):
+        raise SkipRecord("ppp record has no dev or names list")
+    unique = []
+    for name in names[:MAX_PPP_NAMES]:
+        name = _text(name, MAX_DESC_LENGTH)
+        if name is not None and name not in unique:
+            unique.append(name)
+    return {"dev": dev.lower(), "count": _counter(value.get("count")), "names": unique}
+
+
 def parse_record(record):
     """One record -> {key, ts, kind, from_ip, raw, load, probes, link, speed, route, dns, olt, crs_link,
-    area, lanlink},
+    area, lanlink, pon, ont, ppp},
     or None for a kind this version doesn't know (ignored, as the contract
     asks). Raises SkipRecord for a record that can't be stored."""
     if not isinstance(record, dict):
@@ -246,7 +313,7 @@ def parse_record(record):
         "from_ip": from_ip[:64] if isinstance(from_ip, str) else None,
         "raw": raw[:MAX_RAW_LENGTH] if isinstance(raw, str) else None,
         "load": None, "probes": None, "link": None, "speed": None, "route": None, "dns": None,
-        "olt": None, "crs_link": None, "area": None, "lanlink": None,
+        "olt": None, "crs_link": None, "area": None, "lanlink": None, "pon": None, "ont": None, "ppp": None,
     }
     if kind in ("probe", "inner"):
         parsed["load"] = _pick_numbers(record.get("load"), LOAD_FIELDS)
@@ -257,6 +324,10 @@ def parse_record(record):
         parsed["area"] = _area(record.get("area"))
         if parsed["area"] is None:
             raise SkipRecord("area record has no area object")
+    elif kind in ("pon", "ont", "ppp"):
+        parsed[kind] = {"pon": _pon, "ont": _ont, "ppp": _ppp}[kind](record.get(kind))
+        if parsed[kind] is None:
+            raise SkipRecord(f"{kind} record has no {kind} object")
     elif kind == "lanlink":
         parsed["lanlink"] = _lanlink(record.get("lanlink"))
         if parsed["lanlink"] is None:

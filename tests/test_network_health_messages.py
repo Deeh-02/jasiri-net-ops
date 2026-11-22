@@ -9,6 +9,8 @@ from network_health import messages, rules
 
 SINCE = datetime(2026, 11, 20, 20, 40, tzinfo=timezone.utc)
 LONGEST_DEVICE = max(rules.DEVICE_LABELS, key=lambda d: len(rules.DEVICE_LABELS[d]))
+# ONT and site names are set by people: long, and not always GSM-7.
+LONG_NAMES = ["Kwa Mlima Cyber Hotspot Escarpment", "Café Ñandú"] + [f"JS{i:02d}" for i in range(40)]
 # The worst values each rule's facts can realistically carry.
 LONG_FACTS = {
     "UPLINK_CONGESTED": [{"pct": 999.9, "minutes": 5}],
@@ -36,6 +38,17 @@ LONG_FACTS = {
     "LANLINK_DOWN": [{"label": "x" * 80, "count": 99999}],
     "LANLINK_DAMAGE": [{"label": "x" * 80, "count": 9_999_999}],
     "LANLINK_DROPS": [{"label": "x" * 80, "count": 9_999_999}],
+    "PON_DOWN": [{"pon": "0/19/15" * 5, "count": 999, "light": 9, "power": 1},
+                 {"pon": "0/19/15" * 5, "count": 999, "light": 1, "power": 9}],
+    "PON_FIBRE_FAULT": [{"pon": "0/19/15" * 5, "names": LONG_NAMES}, {"pon": "0/3/5", "names": ["x" * 200]},
+                        {"pon": "0/3/5", "names": []}],
+    "PON_POWER_CUT": [{"pon": "0/19/15" * 5, "names": LONG_NAMES}],
+    "PON_LIGHT_DEGRADING": [{"pon": "0/19/15" * 5, "names": LONG_NAMES}],
+    "ONT_LIGHT_LOSS": [{"name": "x" * 200}],
+    "ONT_LIGHT_DEGRADING": [{"name": "x" * 200, "drop": 99.99}],
+    "SITE_PPP_DOWN": [{"name": "x" * 200, "minutes": 99999}],
+    "PPP_MASS_DROP": [{"before": 99999, "dropped": 99999}],
+    "LINE_NO_INTERNET": [{"name": "x" * 200, "ppp": "y" * 200}],
 }
 
 

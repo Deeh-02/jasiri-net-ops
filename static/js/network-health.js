@@ -9,7 +9,7 @@ const REFRESH_MS = 60000;
 const tz = { timeZone: "Africa/Nairobi" };
 const SVG = "http://www.w3.org/2000/svg";
 
-const state = { range: "24h", timer: null, overview: null, charts: null, inside: null, resizeTimer: null, openRoutes: new Set() };
+const state = { range: "24h", timer: null, overview: null, charts: null, inside: null, access: null, resizeTimer: null, openRoutes: new Set() };
 const $ = id => document.getElementById(id);
 
 function el(tag, className, text) {
@@ -137,12 +137,18 @@ const RULE_LABELS = {
     CUSTOMER_PATH_LOSS: "Customer path losing packets", CUSTOMER_PATH_DOWN: "Customer path down",
     AREA_SILENT: "Area gone silent", LANLINK_DOWN: "Inside link went down", LANLINK_DAMAGE: "Inside link damaging frames",
     LANLINK_DROPS: "Inside link dropping frames",
+    PON_DOWN: "Whole PON down", PON_FIBRE_FAULT: "Fibre/splitter fault likely", PON_POWER_CUT: "Power cut on a PON",
+    PON_LIGHT_DEGRADING: "Shared fibre/splitter degrading", ONT_LIGHT_LOSS: "Light loss at an ONT",
+    ONT_LIGHT_DEGRADING: "Light degrading at an ONT", SITE_PPP_DOWN: "Site offline (PPPoE)", PPP_MASS_DROP: "Mass PPPoE drop",
+    LINE_NO_INTERNET: "Line up, no internet",
 };
 const DEVICE_LABELS = { ccr2116: "CCR2116", ccr2004: "CCR2004", feed: "Frankfurt feed", olt: "OLT", crs326: "CRS326" };
 const PEAK_UNITS = { UPLINK_CONGESTED: "%", LATENCY_HIGH: " ms", LOSS: "%", JITTER_HIGH: " ms", CPU_HIGH: "%",
                      OPTIC_DEGRADING: " dBm", SPEED_LOW: " Mbps", ROUTER_SILENT: " min", FEED_SILENT: " min",
                      OLT_CRC: "%", OLT_SNMP_SILENT: " min", INNER_PATH_LOSS: "%", CUSTOMER_PATH_LOSS: "%",
-                     AREA_SILENT: " Mbps" };
+                     AREA_SILENT: " Mbps", PON_DOWN: " ONTs", PON_FIBRE_FAULT: " ONTs", PON_POWER_CUT: " ONTs",
+                     PON_LIGHT_DEGRADING: " dB", ONT_LIGHT_DEGRADING: " dB", SITE_PPP_DOWN: " min", PPP_MASS_DROP: " sessions",
+                     LINE_NO_INTERNET: " min" };
 // CRS326 ports (the incident subject of OLT_LINK_DOWN, the link events table).
 const PORT_NAMES = { "sfp-sfpplus1": "CCR2116", "sfp-sfpplus2": "CCR2004", "sfp-sfpplus3": "OLT uplink", "sfp-sfpplus4": "Proxmox" };
 // Inside links (lanlink): "dev port" subjects.
@@ -173,7 +179,8 @@ function drawIncidents(list) {
     tbody.replaceChildren(...list.map(i => {
         const tr = el("tr");
         const lasted = i.ended_at ? minutesText((new Date(i.ended_at) - new Date(i.started_at)) / 60000) : "ongoing";
-        const problem = `${RULE_LABELS[i.rule] || i.rule}${i.subject ? ` (${subjectName(i.subject)})` : ""}`;
+        const subject = i.facts?.label || (i.subject ? subjectName(i.subject) : "");
+        const problem = `${RULE_LABELS[i.rule] || i.rule}${subject ? ` (${subject})` : ""}`;
         const sms = i.is_flapping ? "flapping, not sent" : (i.fire_sms_sent ? "sent" : "—");
         const peak = i.rule === "SPEED_LOW" && i.facts && i.facts.failed ? "test failed"
             : i.rule === "OLT_RESTART" ? (i.facts?.previous_uptime_s == null ? "—" : `had been up ${minutesText(i.facts.previous_uptime_s / 60)}`)
@@ -742,11 +749,12 @@ function drawRestarts(d) {
 
 function drawLinkEvents(d) {
     const tbody = $("nh-link-events");
-    if (!d.link_events.length) return emptyRow(tbody, 5, `No CRS326 port went down in the last ${d.lookback_days} days.`);
+    if (!d.link_events.length) return emptyRow(tbody, 5, `No port went down in the last ${d.lookback_days} days.`);
     tbody.replaceChildren(...d.link_events.map(e => {
         const tr = el("tr", e.is_olt ? "nh-olt-row" : null);
         const port = el("span", "nh-route-name");
-        port.append(el("strong", null, `${e.is_olt ? "◆ " : ""}${e.label}`), el("span", "nh-route-host", e.interface));
+        port.append(el("strong", null, `${e.is_olt ? "◆ " : ""}${e.label}`),
+                    el("span", "nh-route-host", `${e.device_label || "CRS326"} ${e.interface}`));
         let outage;
         if (e.status === "back") outage = secondsText(e.outage_s);
         else if (e.status === "down") outage = el("span", "nh-badge nh-bad", `▼ Still down, ${secondsText((Date.now() - new Date(e.down_at)) / 1000)} so far`);
@@ -920,7 +928,7 @@ function drawInside(d) {
     }
     $("nh-inside-sub").textContent = "the CRS326 → OLT uplink, read by the CCR2116 every 5 min";
     $("nh-restarts-sub").textContent = `last ${d.lookback_days} days · power switchovers restart it`;
-    $("nh-links-sub").textContent = `CRS326 port up/down, last ${d.lookback_days} days · the OLT uplink is ${d.olt_interface}, marked ◆`;
+    $("nh-links-sub").textContent = `port up/down on the CRS326, CCR2116 and CCR2004, last ${d.lookback_days} days · the OLT uplink is the CRS326's ${d.olt_interface}, marked ◆`;
     drawInsideActive(d);
     drawCrcNow(d);
     drawSnmp(d);
@@ -930,6 +938,333 @@ function drawInside(d) {
     drawAreas(d);
     drawLanlinks(d);
     drawInsideProbes();
+}
+
+// ---- Access network: PON ports, ONTs and PPPoE sessions ----
+
+// Glyph + word, never colour alone. "good" shows the glyph only.
+const LIGHT = { good: ["●", "", "nh-ok"], weak: ["▲", "weak", "nh-warn"], overloaded: ["▲", "overloaded", "nh-warn"],
+                bad: ["◆", "bad", "nh-bad"] };
+const LIGHT_BADGE = { good: "● Good", weak: "▲ Weak", overloaded: "▲ Overloaded", bad: "◆ Bad" };
+const ROUTER_NAMES = { ccr2116: "CCR2116", ccr2004: "CCR2004" };
+
+function lightCell(dbm, level) {
+    if (dbm == null) return el("span", "nh-route-note", "—");
+    const [glyph, word, cls] = LIGHT[level] || LIGHT.good;
+    const wrap = el("span", `nh-light ${cls}`, `${glyph} ${dbm.toFixed(1)}`);
+    if (word) wrap.append(el("span", "nh-light-word", word));
+    return wrap;
+}
+
+function metres(m) {
+    if (m == null) return "—";
+    return m >= 1000 ? `${(m / 1000).toFixed(2)} km` : `${Math.round(m)} m`;
+}
+
+function moreNames(names, count = 4) {
+    if (!names.length) return "";
+    return names.slice(0, count).join(", ") + (names.length > count ? ` +${names.length - count}` : "");
+}
+
+// The 7-day light: what the ONT receives (solid) and what the OLT receives
+// from it (dashed), on one fixed dBm scale so rows compare. The figures are
+// in the row's cells and the title too, never only in the lines.
+function lightSpark(spark, meta, t) {
+    const width = 140, height = 30, pad = 2, top = -5, bottom = -35;
+    const box = svg("svg", { width, height, viewBox: `0 0 ${width} ${height}`, class: "nh-spark", role: "img" });
+    const x = i => pad + i / Math.max(meta.points - 1, 1) * (width - 2 * pad);
+    const y = v => pad + (top - Math.max(Math.min(v, top), bottom)) / (top - bottom) * (height - 2 * pad);
+    box.append(svg("line", { x1: pad, x2: width - pad, y1: y(t.rx_weak_below), y2: y(t.rx_weak_below), class: "nh-ref" }));
+    const parts = [];
+    for (const [values, colour, dash, label] of [[spark.olt, "--nh-c5", "3 2", "OLT receives"], [spark.rx, "--nh-c1", null, "ONT receives"]]) {
+        let d = "", prev = false;
+        values.forEach((v, i) => {
+            if (v == null) { prev = false; return; }
+            d += `${prev ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`;
+            prev = true;
+        });
+        const present = values.filter(v => v != null);
+        if (!d) continue;
+        box.append(svg("path", { d, fill: "none", stroke: `var(${colour})`, "stroke-width": 1.5, "stroke-linejoin": "round",
+                                 ...(dash ? { "stroke-dasharray": dash } : {}) }));
+        parts.push(`${label} ${Math.min(...present).toFixed(1)} to ${Math.max(...present).toFixed(1)} dBm`);
+    }
+    const label = parts.length ? `light over 7 days: ${parts.join("; ")}` : "no light readings in the last 7 days";
+    box.setAttribute("aria-label", label);
+    const title = svg("title");
+    title.textContent = label;
+    box.append(title);
+    return box;
+}
+
+function drawActiveList(list, active, emptyText) {
+    if (!active.length) {
+        list.replaceChildren(el("li", "nh-none", emptyText));
+        return;
+    }
+    list.replaceChildren(...active.map(rule => {
+        const item = el("li");
+        const [glyph, , cls] = STATUS[rule.severity] || STATUS.AMBER;
+        item.append(el("span", `nh-rule-glyph ${cls}`, glyph), el("strong", null, ` ${rule.label}`),
+                    el("span", "nh-rule-text", ` ${rule.text}. Since ${hm(rule.started_at)}`));
+        if (rule.is_flapping) item.append(el("span", "nh-tag", "flapping"));
+        return item;
+    }));
+}
+
+function eventText(e) {
+    const dev = ROUTER_NAMES[e.dev] || e.dev;
+    switch (e.kind) {
+        case "ont_down": {
+            const group = { whole: "the whole PON went down", fibre: `${e.size} ONTs together (fibre/splitter?)`,
+                            power: `${e.size} ONTs together (power cut?)`, few: `with ${e.size - 1} other` }[e.group];
+            return ["▼ ONT down", "nh-bad", `${e.name} · PON ${e.pon} · ${e.text || "no reason given"}${group ? ` · ${group}` : ""}`];
+        }
+        case "ont_back":
+            return ["● ONT back", "nh-ok", `${e.name} · PON ${e.pon} · ${e.first_time ? "online for the first time" : `after ${secondsText(e.outage_s)}`}`];
+        case "ppp_dropped":
+            return ["▼ PPPoE dropped", "nh-warn", `${e.site ? "◆ site " : ""}${e.name} on ${dev}`];
+        case "ppp_back":
+            return ["● PPPoE back", "nh-ok", `${e.site ? "◆ site " : ""}${e.name} on ${dev} · after ${secondsText(e.after_s)}`];
+        case "link_down":
+            return ["▼ Link down", "nh-bad", `${e.label} (${e.device_label} ${e.interface})`];
+        case "link_up":
+            return ["● Link up", "nh-ok", `${e.label} (${e.device_label} ${e.interface})${e.outage_s != null ? ` · after ${secondsText(e.outage_s)}` : ""}`];
+        default:
+            return [e.kind, "nh-unknown", e.name || ""];
+    }
+}
+
+function drawPons(d) {
+    const tbody = $("nh-pons");
+    $("nh-pons-sub").textContent = "light = the worst ONT on the port · counts from the OLT every 5 min";
+    if (!d.pons.length) return emptyRow(tbody, 6, "No PON readings yet.");
+    tbody.replaceChildren(...d.pons.map(p => {
+        const tr = el("tr");
+        const name = el("span", "nh-route-name");
+        name.append(el("strong", null, `PON ${p.pon}`), el("span", "nh-route-host", moreNames(p.names)));
+        const light = p.health ? el("span", `nh-badge ${LIGHT[p.health][2]}`, LIGHT_BADGE[p.health]) : el("span", "nh-route-note", "no ONT online");
+        const poor = [p.weak && `${p.weak} weak`, p.bad && `${p.bad} bad`, p.overloaded && `${p.overloaded} overloaded`].filter(Boolean);
+        let last = "—";
+        if (p.last_event) {
+            const [word] = eventText({ ...p.last_event, ...p.last_event.detail, pon: p.pon });
+            last = `${word}: ${p.last_event.name || ""} · ${when(p.last_event.at)}`;
+        }
+        tr.append(cell("PON", name), cell("Online", String(p.online ?? "—")),
+                  cell("Offline", `${p.offline ?? "—"}${p.stale ? ` (${p.stale} stale)` : ""}`),
+                  cell("Light", light), cell("Weak / bad", poor.length ? poor.join(" · ") : "none"), cell("Last event", last));
+        return tr;
+    }));
+}
+
+// The OLT's last down reason, short (the full text is the cell's title).
+const DOWN_WHY = { light: "light loss", power: "power", reboot: "reboot" };
+
+function pppCell(o) {
+    const p = o.ppp;
+    if (!p) return el("span", "nh-route-note", "no match");
+    if (p.how === "manual_none") return el("span", "nh-route-note", "none (set by hand)");
+    const wrap = el("span", "nh-route-name");
+    let state;
+    if (p.present == null) state = el("span", "nh-route-note", `${p.ppp} · not seen`);
+    else if (p.present) state = el("span", "nh-light nh-ok", `● ${p.ppp}`);
+    else state = el("span", "nh-light nh-warn", `▼ ${p.ppp} missing ${minutesText((Date.now() - new Date(p.missing_since)) / 60000)}`);
+    wrap.append(state);
+    if (p.how === "manual") wrap.append(el("span", "nh-route-host", "set by hand"));
+    return wrap;
+}
+
+function ontRow(o) {
+    const tr = el("tr", o.status === "online" ? null : "nh-offline");
+    if (o.group != null) tr.classList.add("nh-in-group");
+    const name = el("span", "nh-route-name");
+    name.append(el("strong", null, o.name), el("span", "nh-route-host", `ONT ${o.ont_id}`));
+    const why = el("span", null, DOWN_WHY[o.last_down_why] || o.last_down_text || "—");
+    if (o.last_down_text) why.title = o.last_down_text;
+    const status = el("span", "nh-route-name");
+    status.append(o.status === "online" ? el("span", "nh-light nh-ok", "● Online")
+        : el("span", "nh-light nh-bad", `▼ Offline ${minutesText((Date.now() - new Date(o.status_since)) / 60000)}`));
+    for (const w of o.warnings) status.append(el("span", "nh-ont-warn", `▲ ${w.label}`));
+    tr.append(cell("ONT", name), cell("Status", status), cell("ONT receives", lightCell(o.rx_dbm, o.rx_level)),
+              cell("OLT receives", lightCell(o.olt_rx_dbm, o.olt_rx_level)), cell("Distance", metres(o.distance_m)),
+              cell("Last down", why), cell("PPPoE", pppCell(o)),
+              cell("Light, 7 days", lightSpark(o.spark, state.access.spark, state.access.thresholds)));
+    return tr;
+}
+
+function drawOnts() {
+    const d = state.access;
+    const tbody = $("nh-onts");
+    const pon = $("nh-ont-pon").value;
+    const shown = d.onts.filter(o => !pon || o.pon === pon);
+    if (!shown.length) return emptyRow(tbody, 8, d.onts.length ? "No ONTs on this PON." : "No ONT readings yet.");
+    const rows = [];
+    const byPon = new Map();
+    for (const o of shown) byPon.set(o.pon, [...(byPon.get(o.pon) || []), o]);
+    for (const [ponName, onts] of byPon) {
+        d.groups.forEach((g, i) => {
+            if (g.pon !== ponName) return;
+            const members = onts.filter(o => o.group === i);
+            if (!members.length) return;
+            const why = [g.by_distance && g.min_m != null && `${metres(g.min_m)} to ${metres(g.max_m)} out`,
+                         g.by_together && `went down together ${g.together}×`].filter(Boolean).join(" · ");
+            const head = el("tr", "nh-group-row");
+            const td = el("td", null, `Likely same splitter (PON ${ponName}): ${members.length} ONTs · ${why}`);
+            td.colSpan = 8;
+            head.append(td);
+            rows.push(head, ...members.map(ontRow));
+        });
+        rows.push(...onts.filter(o => o.group == null).map(ontRow));
+    }
+    tbody.replaceChildren(...rows);
+}
+
+function drawEvents() {
+    const d = state.access;
+    const tbody = $("nh-events");
+    const kind = $("nh-events-kind").value;
+    const shown = d.events.filter(e => !kind || e.kind.startsWith(kind));
+    if (!shown.length) return emptyRow(tbody, 3, "No events yet.");
+    tbody.replaceChildren(...shown.map(e => {
+        const tr = el("tr");
+        const [word, cls, text] = eventText(e);
+        tr.append(cell("Time", when(e.at)), cell("Event", el("span", `nh-light ${cls}`, word)), cell("Detail", text));
+        return tr;
+    }));
+}
+
+const JOB_TONES = { pon_light: "nh-bad", light_loss: "nh-bad", ont_bad: "nh-bad", one_way: "nh-warn", attenuator: "nh-warn" };
+
+function drawJobs(d) {
+    const list = $("nh-jobs");
+    if (!d.jobs.length) return list.replaceChildren(el("li", "nh-none", "No field jobs: the light is fine everywhere."));
+    list.replaceChildren(...d.jobs.map(job => {
+        const item = el("li", JOB_TONES[job.kind]);
+        item.append(el("strong", null, job.title), el("span", "nh-job-detail", job.detail));
+        const facts = [];
+        if (job.names) facts.push(moreNames(job.names, 8));
+        if (job.rx_dbm != null || job.olt_rx_dbm != null) facts.push(`ONT receives ${num(job.rx_dbm)} dBm · OLT receives ${num(job.olt_rx_dbm)} dBm`);
+        if (job.since) facts.push(`offline since ${when(job.since)}`);
+        if (facts.length) item.append(el("span", "nh-job-names", facts.join(" · ")));
+        return item;
+    }));
+}
+
+function drawStale(d) {
+    const tbody = $("nh-stale");
+    if (!d.stale.length) return emptyRow(tbody, 3, "None.");
+    tbody.replaceChildren(...d.stale.map(o => {
+        const tr = el("tr");
+        tr.append(cell("ONT", `${o.name} (ONT ${o.ont_id})`), cell("PON", o.pon), cell("First seen", when(o.first_seen_at)));
+        return tr;
+    }));
+}
+
+function drawPpp(d) {
+    const tbody = $("nh-ppp");
+    $("nh-ppp-sub").textContent = "every 5 min · a missing site (◆) texts after 5 min; 30 % of a router's sessions gone at once texts";
+    if (!d.routers.length) return emptyRow(tbody, 4, "No PPPoE readings yet.");
+    tbody.replaceChildren(...d.routers.map(r => {
+        const tr = el("tr");
+        const missing = el("span", "nh-route-name");
+        if (!r.missing.length) missing.append(el("span", "nh-route-note", "none"));
+        for (const m of r.missing.slice(0, 12)) {
+            missing.append(el("span", m.site ? "nh-light nh-warn" : null, `${m.site ? "◆ " : ""}${m.name} · since ${when(m.since)}`));
+        }
+        if (r.missing.length > 12) missing.append(el("span", "nh-route-note", `+${r.missing.length - 12} more`));
+        tr.append(cell("Router", r.label), cell("Sessions", `${r.count ?? "—"}${r.sites ? ` · ${r.sites} sites known` : ""}`),
+                  cell("Missing now", missing), cell("Reading", r.at ? hm(r.at) : "—"));
+        return tr;
+    }));
+}
+
+function drawMatches(d) {
+    const box = $("nh-matches-box");
+    box.hidden = !can("network_health", "admin");
+    if (box.hidden) return;
+    const select = $("nh-match-ont");
+    const chosen = select.value;
+    select.replaceChildren(...d.onts.map(o => {
+        const option = el("option", null, `${o.name} · ${o.key}`);
+        option.value = o.key;
+        return option;
+    }));
+    if (chosen) select.value = chosen;
+    $("nh-ppp-names").replaceChildren(...d.ppp_names.map(n => { const o = el("option"); o.value = n; return o; }));
+    const tbody = $("nh-matches");
+    if (!d.matches.length) return emptyRow(tbody, 3, "None set: every match is worked out from the names.");
+    tbody.replaceChildren(...d.matches.map(m => {
+        const tr = el("tr");
+        const remove = el("button", "nh-link-btn", "Remove");
+        remove.type = "button";
+        remove.dataset.key = m.key;
+        tr.append(cell("ONT", `${m.name || "unknown ONT"} · ${m.key}`), cell("PPPoE session", m.ppp_name || "none"), cell("", remove));
+        return tr;
+    }));
+}
+
+function splitKey(key) {
+    const at = key.lastIndexOf(":");
+    return { pon: key.slice(0, at), ont_id: Number(key.slice(at + 1)) };
+}
+
+async function saveMatch(e) {
+    e.preventDefault();
+    const msg = $("nh-match-msg");
+    const none = $("nh-match-none").checked;
+    try {
+        await api("/network/health/access/matches", {
+            method: "PUT", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ...splitKey($("nh-match-ont").value), ppp_name: none ? null : $("nh-match-ppp").value.trim() || null,
+                                   no_session: none }),
+        });
+        msg.textContent = "Saved.";
+        $("nh-match-ppp").value = "";
+        $("nh-match-none").checked = false;
+        load();
+    } catch (err) {
+        msg.textContent = err.message;
+    }
+}
+
+async function removeMatch(e) {
+    const button = e.target.closest("button[data-key]");
+    if (!button) return;
+    const { pon, ont_id } = splitKey(button.dataset.key);
+    try {
+        await api(`/network/health/access/matches?pon=${encodeURIComponent(pon)}&ont_id=${ont_id}`, { method: "DELETE" });
+        load();
+    } catch (err) {
+        $("nh-match-msg").textContent = err.message;
+    }
+}
+
+function drawAccess(d) {
+    state.access = d;
+    if (d.error) {
+        $("nh-access-sub").textContent = `couldn't load: ${d.error}`;
+        return;
+    }
+    const t = d.thresholds;
+    $("nh-access-sub").textContent = `${d.onts.length} ONTs on ${d.pons.length} PONs, read every 5 min · ONT receives: weak under ${t.rx_weak_below},`
+        + ` bad under ${t.rx_bad_below}, overloaded over ${t.rx_overload_above} dBm · OLT receives: weak under ${t.olt_weak_below}, bad under ${t.olt_bad_below} dBm`;
+    $("nh-onts-sub").textContent = `light sparkline: solid = ONT receives, dashed = OLT receives, line at ${t.rx_weak_below} dBm`
+        + ` · "likely same splitter": within ${t.splitter_m} m, or down together ${t.splitter_together}× or more`;
+    $("nh-events-sub").textContent = `ONTs, PPPoE sessions and port up/down, newest first · last ${d.lookback_days} days`;
+    drawActiveList($("nh-access-active"), d.active, "No active problems in the access network");
+    drawPons(d);
+    const select = $("nh-ont-pon");
+    const chosen = select.value;
+    const all = el("option", null, "All PONs");
+    all.value = "";
+    select.replaceChildren(all, ...d.pons.map(p => { const o = el("option", null, `PON ${p.pon}`); o.value = p.pon; return o; }));
+    select.value = d.pons.some(p => p.pon === chosen) ? chosen : "";
+    drawOnts();
+    drawEvents();
+    drawJobs(d);
+    drawStale(d);
+    drawPpp(d);
+    drawMatches(d);
 }
 
 // ---- Diagnose: a chat with Claude, in the corner where "Ask" usually is ----
@@ -1291,13 +1626,14 @@ async function saveSettings(e) {
 async function load() {
     if ($("view-network-health").hidden) return;
     try {
-        const [overview, charts, incidents, routes, inside] = await Promise.all([
+        const [overview, charts, incidents, routes, inside, accessData] = await Promise.all([
             api("/network/health/overview"),
             api(`/network/health/charts?range=${state.range}`),
             api("/network/health/incidents?limit=100"),
             api("/network/health/routes"),
             // Its own failure doesn't take the rest of the page down.
             api(`/network/health/inside?range=${state.range}`).catch(err => ({ error: err.message })),
+            api("/network/health/access").catch(err => ({ error: err.message })),
         ]);
         state.overview = overview;
         state.charts = charts;
@@ -1305,6 +1641,7 @@ async function load() {
         drawDevices(overview);
         drawGraphs();
         drawInside(inside);
+        drawAccess(accessData);
         drawRoutes(routes);
         drawIncidents(incidents);
         drawSms(overview.sms);
@@ -1324,6 +1661,10 @@ export function initNetworkHealth() {
         load();
     });
     $("nh-settings-form").addEventListener("submit", saveSettings);
+    $("nh-ont-pon").addEventListener("change", () => state.access && !state.access.error && drawOnts());
+    $("nh-events-kind").addEventListener("change", () => state.access && !state.access.error && drawEvents());
+    $("nh-match-form").addEventListener("submit", saveMatch);
+    $("nh-matches").addEventListener("click", removeMatch);
     dx.els = buildDx();
     registerLogoutHandler(() => {
         try { sessionStorage.removeItem(dxKey()); } catch { /* nothing stored */ }

@@ -9,6 +9,35 @@ and in `phase.md`'s own per-phase writeups.
 
 Started 2026-11-15 at the owner's request, after Phase 6 was merged to `main`.
 
+### Network Health: Access network (2026-11-22)
+- **A new "Access network" section**: the OLT's PON ports, every ONT and
+  the PPPoE sessions on both routers, from the shipper's new `pon`, `ont`
+  and `ppp` readings (every 5 min).
+- **PON ports**: online / offline (and stale) counts, the worst light on the
+  port, how many ONTs are weak or bad, the last event.
+- **ONTs** (filter by PON): status, the light each way (colour plus a
+  glyph and a word), distance, last down reason, the matching PPPoE session,
+  and a 7-day light sparkline. ONTs within about 60 m of each other, or that
+  went down together twice or more, are grouped as "likely same splitter".
+- **Events**: ONTs down and back (with the outage), PPPoE sessions dropped
+  and back, and port up/down, newest first.
+- **Field jobs**, worked out automatically: a PON where half its online ONTs
+  are weak or bad (PON 0/3/5, Stima), ONTs with light loss, bad ONTs, ONTs
+  bad in one direction only (suspect the ONT's own optics), overloaded ONTs
+  (fit an attenuator). **Stale registrations** are listed apart.
+- **Alerts** (SMS, still log-only): 3 or more ONTs on one PON down together
+  (fibre/splitter fault, or a power cut, by the down reason), a whole PON
+  down, two or more ONTs on a PON losing 2 dB+ of light the same day, a site
+  router's PPPoE session missing 5 min, 30 % of a router's sessions gone at
+  once. **Warnings on the page only**: one ONT with light loss, one ONT 3 dB
+  weaker than its week, an ONT online with its PPPoE session missing 15 min.
+- The light limits are in one place (`network_health/config.py`) for tuning.
+- **Router ports**: port up/down events now come from the CCR2116 and
+  CCR2004 too; the link events table names the device. Only the CRS326's
+  OLT port alerts, as before.
+- Admins can match an ONT to its PPPoE session by hand when the names don't
+  match on their own.
+
 ### Network Health: Diagnose is now a chat (2026-11-21)
 - **On Network Health, the "Ask" button becomes "Diagnose"**: the same kind
   of panel, but you talk to Claude about the network, with this page's data

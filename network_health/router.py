@@ -10,8 +10,8 @@ line can never block the feed.
 STATUS is for an outside uptime checker: ?key=<NH_STATUS_KEY>, 200 when
 nothing is RED or OFFLINE, 503 otherwise. Calling it runs the silence checks.
 
-READS need Network Health > View on the role; Settings needs Network Health
-> Admin (admins always pass both).
+READS need Network Health > View on the role; Settings and the manual
+ONT <-> PPPoE matches need Network Health > Admin (admins always pass both).
 
 DIAGNOSE is a chat with Claude about the network (diagnose.py). Sonnet needs
 View; Opus (costs more) needs Admin.
@@ -145,6 +145,38 @@ def get_routes(current_user: dict = Depends(require_view)):
 @router.get("/network/health/inside")
 def get_inside(range: Literal["24h", "7d"] = "24h", current_user: dict = Depends(require_view)):
     return service.inside_card(range)
+
+
+@router.get("/network/health/access")
+def get_access(current_user: dict = Depends(require_view)):
+    return service.access_card()
+
+
+class OntMatch(BaseModel):
+    """A manual ONT <-> PPPoE match. no_session: this ONT has no PPPoE
+    session of its own (it is never cross-checked)."""
+    model_config = ConfigDict(extra="forbid")
+    pon: str = Field(min_length=1, max_length=20)
+    ont_id: int = Field(ge=0, le=100000)
+    ppp_name: Optional[str] = Field(None, max_length=64)
+    no_session: bool = False
+
+
+@router.put("/network/health/access/matches")
+def put_access_match(body: OntMatch, current_user: dict = Depends(require_health_admin)):
+    name = (body.ppp_name or "").strip() or None
+    if not body.no_session and name is None:
+        raise HTTPException(status_code=422, detail="Give the PPPoE session name, or mark it as having none")
+    store.save_ont_match(body.pon.strip(), body.ont_id, None if body.no_session else name, current_user.get("id") or None)
+    return {"ok": True}
+
+
+@router.delete("/network/health/access/matches")
+def delete_access_match(pon: str = Query(..., min_length=1, max_length=20), ont_id: int = Query(..., ge=0),
+                        current_user: dict = Depends(require_health_admin)):
+    if not store.delete_ont_match(pon, ont_id):
+        raise HTTPException(status_code=404, detail="No manual match for that ONT")
+    return {"ok": True}
 
 
 @router.get("/network/health/incidents")
