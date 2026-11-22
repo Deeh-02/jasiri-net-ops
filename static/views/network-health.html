@@ -28,7 +28,6 @@
         <div class="nh-tabbar">
             <div class="nh-sections" role="tablist" aria-label="Sections">
                 <button type="button" class="nh-section-tab" role="tab" data-nh-tab="uplink" id="nh-tab-uplink" aria-controls="nh-panel-uplink" aria-selected="true">Uplink</button>
-                <button type="button" class="nh-section-tab" role="tab" data-nh-tab="routes" id="nh-tab-routes" aria-controls="nh-panel-routes" aria-selected="false">Content routes</button>
                 <button type="button" class="nh-section-tab" role="tab" data-nh-tab="inside" id="nh-tab-inside" aria-controls="nh-panel-inside" aria-selected="false">Inside network<span class="nh-tab-count" id="nh-count-inside" hidden></span></button>
                 <button type="button" class="nh-section-tab" role="tab" data-nh-tab="settings" id="nh-tab-settings" aria-controls="nh-panel-settings" aria-selected="false" hidden>Settings</button>
             </div>
@@ -39,7 +38,8 @@
             </div>
         </div>
 
-        <!-- ===== Uplink: the Airtel link and the routers ===== -->
+        <!-- ===== Uplink: the Airtel link and the routers, then where content is served from
+             (traceroutes at 21:00 and 04:00) ===== -->
         <div class="nh-panel" id="nh-panel-uplink" role="tabpanel" aria-labelledby="nh-tab-uplink">
             <p class="nh-panel-lead">Speed and quality of the way out to the internet · <span id="nh-graphs-sub"></span></p>
             <div class="nh-graphs" id="nh-graphs">
@@ -54,12 +54,9 @@
                 <figure class="nh-graph" id="nh-g-ppp"></figure>
                 <figure class="nh-graph" id="nh-g-cpu"></figure>
             </div>
-        </div>
 
-        <!-- ===== Content routes: traceroutes at 21:00 and 04:00 ===== -->
-        <div class="nh-panel" id="nh-panel-routes" role="tabpanel" aria-labelledby="nh-tab-routes" hidden>
-            <p class="nh-panel-lead" id="nh-routes-sub"></p>
             <h2 class="nh-h2">Where content is served from</h2>
+            <p class="nh-panel-lead" id="nh-routes-sub"></p>
             <div class="table-scroll table-compact">
                 <table class="nh-table nh-routes">
                     <thead><tr><th>Site</th><th>Served from</th><th>Last hop</th><th>Checked</th><th>Since the last check</th></tr></thead>
@@ -155,9 +152,6 @@
             <p class="nh-panel-lead" id="nh-access-sub"></p>
             <ul class="nh-device-rules nh-inside-active nh-active-box" id="nh-access-active" aria-label="Active access network problems"></ul>
 
-            <h2 class="nh-h2">Field jobs <span class="nh-h2-sub">worked out from the light levels and the alerts, most urgent first</span></h2>
-            <ul class="nh-jobs" id="nh-jobs"></ul>
-
             <h2 class="nh-h2">PON ports <span class="nh-h2-sub" id="nh-pons-sub"></span></h2>
             <div class="table-scroll table-compact">
                 <table class="nh-table nh-pons">
@@ -243,7 +237,10 @@
 
         <!-- ===== Incidents ===== -->
         <div class="nh-panel" id="nh-page-incidents" hidden>
-            <h2 class="nh-h2 nh-h2-first">Incidents <span class="nh-h2-sub">newest first · open ones are marked on the left · the alert texts are on SMS Status</span></h2>
+            <h2 class="nh-h2 nh-h2-first">Field jobs <span class="nh-h2-sub">worked out from the light levels and the alerts, most urgent first</span></h2>
+            <ul class="nh-jobs" id="nh-jobs"></ul>
+
+            <h2 class="nh-h2">Incidents <span class="nh-h2-sub">newest first · open ones are marked on the left · the alert texts are on SMS Status</span></h2>
             <div class="table-scroll table-compact">
                 <table class="nh-table">
                     <thead><tr><th>Started</th><th>Device</th><th>Problem</th><th>Level</th><th>Lasted</th><th>Worst</th><th>SMS</th></tr></thead>
