@@ -214,6 +214,15 @@ class Matching(unittest.TestCase):
         self.assertEqual(matches["a:6"]["how"], "manual_none")
         self.assertEqual(matches["a:7"], {"ppp": "Mama_Hotspot", "dev": "ccr2116", "how": "manual"})
 
+    def test_name_and_description_joined_by_the_olt(self):
+        sessions = {"ccr2004": {"Njeri_House": {}, "Ndambaki": {}}, "ccr2116": {"JS01": {}}}
+        onts = {"a:1": {"descr": "Njeri House _CYBER_descr_Njeri House Cyber"},
+                "a:2": {"descr": "Ndambaki_CYBER_descr_Ndambaki Cyber"},
+                "a:3": {"descr": "JS01_descr_Charles", "pon": "a", "ont_id": 3}}
+        matches = access.match_onts(onts, sessions, {})
+        self.assertEqual([matches[k]["ppp"] for k in ("a:1", "a:2", "a:3")], ["Njeri_House", "Ndambaki", "JS01"])
+        self.assertEqual(access.ont_name(onts["a:3"]), "JS01 - Charles")
+
     def test_line_up_no_internet(self):
         onts = {"a:1": state("a", 1, descr="JS16"), "a:2": state("a", 2, "offline", descr="JS17")}
         matches = {"a:1": {"ppp": "JS16", "dev": "ccr2116"}, "a:2": {"ppp": "JS17", "dev": "ccr2116"}}

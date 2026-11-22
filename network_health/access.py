@@ -62,9 +62,15 @@ def ont_key(pon, ont_id):
     return f"{pon}:{ont_id}"
 
 
+# The OLT's name field often holds "<name>_descr_<description>" (both of the
+# ONT's OLT fields joined): matched part by part, shown as "name - description".
+DESCR_JOIN = "_descr_"
+
+
 def ont_name(ont):
     """The name set on the OLT (a JS code and/or a site), else its place."""
-    return ont.get("descr") or f"ONT {ont['pon']}:{ont['ont_id']}"
+    descr = (ont.get("descr") or "").replace(DESCR_JOIN, " - ").strip()
+    return descr or f"ONT {ont['pon']}:{ont['ont_id']}"
 
 
 def down_kind(text):
@@ -310,11 +316,16 @@ def match_onts(onts, sessions_by_dev, overrides):
             matches[key] = {"ppp": name, "dev": dev_of.get(name), "how": "manual" if name else "manual_none"}
             continue
         descr = ont.get("descr") or ""
-        code = js_code(descr)
-        found = by_code.get(code, []) if code else []
-        how = "code"
-        if len(found) != 1:
-            found, how = by_site.get(site_key(descr), []), "name"
+        parts = [descr, *descr.split(DESCR_JOIN)] if DESCR_JOIN in descr else [descr]
+        found = []
+        for lookup, how in ((lambda text: by_code.get(js_code(text), []), "code"),
+                            (lambda text: by_site.get(site_key(text), []), "name")):
+            for part in parts:
+                found = lookup(part)
+                if len(found) == 1:
+                    break
+            if len(found) == 1:
+                break
         if len(found) == 1:
             dev, name = found[0]
             matches[key] = {"ppp": name, "dev": dev, "how": how}
