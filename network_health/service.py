@@ -762,7 +762,12 @@ def access_card():
                        "rx_bad_below": config.ONT_RX_BAD_BELOW_DBM, "olt_weak_below": config.OLT_RX_WEAK_BELOW_DBM,
                        "olt_bad_below": config.OLT_RX_BAD_BELOW_DBM, "group_min": config.ACCESS_GROUP_MIN_ONTS,
                        "splitter_m": config.SPLITTER_DISTANCE_M, "splitter_together": config.SPLITTER_TOGETHER_MIN,
-                       "drop_ont_db": config.LIGHT_DROP_ONT_DB, "drop_shared_db": config.LIGHT_DROP_SHARED_DB},
+                       "drop_ont_db": config.LIGHT_DROP_ONT_DB, "drop_shared_db": config.LIGHT_DROP_SHARED_DB,
+                       # For the page's "What's on the OLT" panel, so it never quotes a stale number.
+                       "whole_pon_min": config.WHOLE_PON_MIN_ONTS, "shared_min": config.PON_SHARED_MIN_ONTS,
+                       "site_polls": config.SITE_PPP_MISSING_IN_A_ROW, "line_polls": config.LINE_NO_INTERNET_IN_A_ROW,
+                       "mass_drop_pct": round(config.PPP_MASS_DROP_FRACTION * 100),
+                       "mass_drop_min": config.PPP_MASS_DROP_MIN_SESSIONS},
     }
 
 
