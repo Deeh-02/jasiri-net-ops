@@ -157,6 +157,39 @@ def get_sms(days: int = Query(1, ge=1, le=30), current_user: dict = Depends(requ
     return service.sms_card(days)
 
 
+@router.get("/network/health/box")
+def get_box(dev: Optional[str] = Query(None, max_length=40), current_user: dict = Depends(require_view)):
+    return service.box_card(dev)
+
+
+class BoxMarker(BaseModel):
+    """A manual marker on the Customer line charts (e.g. "CRS-OLT DAC swapped")."""
+    model_config = ConfigDict(extra="forbid")
+    at: datetime
+    label: str = Field(min_length=1, max_length=config.BOX_MARKER_LABEL_MAX)
+
+
+@router.post("/network/health/box/markers")
+def post_box_marker(body: BoxMarker, current_user: dict = Depends(require_health_admin)):
+    label = " ".join(body.label.split())
+    if not label:
+        raise HTTPException(status_code=422, detail="Give the marker a label")
+    if body.at.tzinfo is None:
+        raise HTTPException(status_code=422, detail="The marker's time needs a time zone (e.g. +03:00)")
+    marker_id = store.save_box_marker(body.at, label, current_user.get("id") or None)
+    if marker_id is None:
+        raise HTTPException(status_code=409, detail="Too many markers: delete an old one first")
+    return {"ok": True, "id": marker_id}
+
+
+@router.delete("/network/health/box/markers")
+def delete_box_marker(id: str = Query(..., min_length=1, max_length=40, pattern=r"^[0-9a-f]+$"),
+                      current_user: dict = Depends(require_health_admin)):
+    if not store.delete_box_marker(id):
+        raise HTTPException(status_code=404, detail="No such marker")
+    return {"ok": True}
+
+
 @router.get("/network/health/access")
 def get_access(current_user: dict = Depends(require_view)):
     return service.access_card()

@@ -9,7 +9,7 @@ const REFRESH_MS = 60000;
 const tz = { timeZone: "Africa/Nairobi" };
 const SVG = "http://www.w3.org/2000/svg";
 
-const state = { page: "overview", tab: "uplink", range: "24h", timer: null, overview: null, charts: null, inside: null, access: null, resizeTimer: null, openRoutes: new Set() };
+const state = { page: "overview", tab: "uplink", range: "24h", timer: null, overview: null, charts: null, inside: null, access: null, box: null, resizeTimer: null, openRoutes: new Set() };
 const $ = id => document.getElementById(id);
 
 function el(tag, className, text) {
@@ -141,14 +141,15 @@ const RULE_LABELS = {
     PON_LIGHT_DEGRADING: "Shared fibre/splitter degrading", ONT_LIGHT_LOSS: "Light loss at an ONT",
     ONT_LIGHT_DEGRADING: "Light degrading at an ONT", SITE_PPP_DOWN: "Site offline (PPPoE)", PPP_MASS_DROP: "Mass PPPoE drop",
     LINE_NO_INTERNET: "Line up, no internet",
+    BOX_BIG_LOSS: "Customer path losing big packets (CRS-OLT link?)", BOX_SLOW: "Customer line slow",
 };
-const DEVICE_LABELS = { ccr2116: "CCR2116", ccr2004: "CCR2004", feed: "Frankfurt feed", olt: "OLT", crs326: "CRS326" };
+const DEVICE_LABELS = { ccr2116: "CCR2116", ccr2004: "CCR2004", feed: "Frankfurt feed", olt: "OLT", crs326: "CRS326", box: "Customer line" };
 const PEAK_UNITS = { UPLINK_CONGESTED: "%", LATENCY_HIGH: " ms", LOSS: "%", JITTER_HIGH: " ms", CPU_HIGH: "%",
                      OPTIC_DEGRADING: " dBm", SPEED_LOW: " Mbps", ROUTER_SILENT: " min", FEED_SILENT: " min",
                      OLT_CRC: "%", OLT_SNMP_SILENT: " min", INNER_PATH_LOSS: "%", CUSTOMER_PATH_LOSS: "%",
                      AREA_SILENT: " Mbps", PON_DOWN: " ONTs", PON_FIBRE_FAULT: " ONTs", PON_POWER_CUT: " ONTs",
                      PON_LIGHT_DEGRADING: " dB", ONT_LIGHT_DEGRADING: " dB", SITE_PPP_DOWN: " min", PPP_MASS_DROP: " sessions",
-                     LINE_NO_INTERNET: " min" };
+                     LINE_NO_INTERNET: " min", BOX_BIG_LOSS: "%", BOX_SLOW: " Mbps" };
 // CRS326 ports (the incident subject of OLT_LINK_DOWN, the link events table).
 const PORT_NAMES = { "sfp-sfpplus1": "CCR2116", "sfp-sfpplus2": "CCR2004", "sfp-sfpplus3": "OLT uplink", "sfp-sfpplus4": "Proxmox" };
 // Inside links (lanlink): "dev port" subjects.
@@ -322,9 +323,11 @@ function niceTicks(min, max, count = 4) {
     return ticks;
 }
 
-function timeTicks(start, end) {
+const rangeHours = () => (state.range === "24h" ? 24 : 168);
+
+function timeTicks(start, end, hours) {
     const hourMs = 3600000;
-    const step = state.range === "24h" ? 4 * hourMs : 24 * hourMs;
+    const step = hours <= 24 ? 4 * hourMs : 24 * hourMs;
     // Ticks fall on Nairobi hours / midnights (UTC+3, no DST).
     const offset = 3 * hourMs;
     const ticks = [];
@@ -332,15 +335,18 @@ function timeTicks(start, end) {
     return ticks;
 }
 
-function tickLabel(t) {
+function tickLabel(t, hours) {
     const d = new Date(t);
-    return state.range === "24h" ? d.toLocaleTimeString("en-GB", { ...tz, hour: "2-digit", minute: "2-digit" })
+    return hours <= 24 ? d.toLocaleTimeString("en-GB", { ...tz, hour: "2-digit", minute: "2-digit" })
         : d.toLocaleDateString("en-GB", { ...tz, weekday: "short", day: "numeric" });
 }
 
 /* One graph. spec: {title, sub, unit, series: [{name, colour, dash, dots, values: [{t, v, note}]}],
    refs: [{v, label}], marks: [{t, label}] (red ticks on the baseline: outages), yFloor0,
-   fmt (optional: the y-axis number format, default num)}. */
+   fmt (optional: the y-axis number format, default num),
+   hours (the window; default the page's range), bucketSeconds (the points' spacing; default the charts'),
+   yMax (the y-axis reaches at least this: panels that must compare),
+   events: [{t, label}] (dashed vertical lines with their label: the owner's markers)}. */
 function drawGraph(fig, spec) {
     fig.replaceChildren();
     const head = el("figcaption", "nh-graph-head");
@@ -355,9 +361,11 @@ function drawGraph(fig, spec) {
     const width = Math.max(fig.clientWidth - 2, 260), height = 168;
     // Reference lines are labelled in a right margin, clear of the data.
     const pad = { l: 44, r: spec.refs?.length ? 64 : 10, t: 8, b: 22 };
-    const end = Date.now(), start = end - (state.range === "24h" ? 24 : 168) * 3600000;
+    const hours = spec.hours ?? rangeHours();
+    const bucketSeconds = spec.bucketSeconds ?? state.charts?.bucket_seconds ?? 300;
+    const end = Date.now(), start = end - hours * 3600000;
     const refValues = (spec.refs || []).map(r => r.v);
-    let lo = Math.min(...values, ...refValues), hi = Math.max(...values, ...refValues);
+    let lo = Math.min(...values, ...refValues), hi = Math.max(...values, ...refValues, spec.yMax ?? -Infinity);
     if (spec.yFloor0) lo = Math.min(0, lo);
     if (hi === lo) hi = lo + 1;
     const margin = (hi - lo) * 0.08;
@@ -367,7 +375,7 @@ function drawGraph(fig, spec) {
     const y = v => pad.t + (hi - v) / (hi - lo) * (height - pad.t - pad.b);
 
     const root = svg("svg", { width, height, viewBox: `0 0 ${width} ${height}`, role: "img",
-                              "aria-label": `${spec.title} over the last ${state.range === "24h" ? "24 hours" : "7 days"}` });
+                              "aria-label": `${spec.title} over the last ${hours <= 24 ? `${hours} hours` : `${hours / 24} days`}` });
     for (const v of niceTicks(lo, hi)) {
         root.append(svg("line", { x1: pad.l, x2: width - pad.r, y1: y(v), y2: y(v), class: "nh-grid" }));
         const label = svg("text", { x: pad.l - 6, y: y(v) + 3, class: "nh-axis", "text-anchor": "end" });
@@ -375,11 +383,11 @@ function drawGraph(fig, spec) {
         root.append(label);
     }
     // Every other time label when they'd sit closer than 56 px (phones).
-    let times = timeTicks(start, end);
+    let times = timeTicks(start, end, hours);
     while (times.length > 1 && (width - pad.l - pad.r) / times.length < 56) times = times.filter((_, i) => i % 2 === 0);
     for (const t of times) {
         const label = svg("text", { x: x(t), y: height - 6, class: "nh-axis", "text-anchor": "middle" });
-        label.textContent = tickLabel(t);
+        label.textContent = tickLabel(t, hours);
         root.append(label);
     }
     for (const ref of spec.refs || []) {
@@ -396,7 +404,18 @@ function drawGraph(fig, spec) {
         label.textContent = "provider switch";
         root.append(label);
     }
-    const gapMs = (state.charts?.bucket_seconds || 300) * 2500;
+    for (const event of (spec.events || []).filter(e => e.t >= start && e.t <= end)) {
+        const ex = x(event.t);
+        const line = svg("line", { x1: ex, x2: ex, y1: pad.t, y2: height - pad.b, class: "nh-event" });
+        const tip = svg("title");
+        tip.textContent = `${when(new Date(event.t).toISOString())}: ${event.label}`;
+        line.append(tip);
+        root.append(line);
+        const text = svg("text", { x: ex + 4, y: pad.t + 2, class: "nh-axis nh-event-label", transform: `rotate(90 ${ex + 4} ${pad.t + 2})` });
+        text.textContent = event.label.length > 26 ? `${event.label.slice(0, 25)}…` : event.label;
+        root.append(text);
+    }
+    const gapMs = bucketSeconds * 2500;
     for (const s of spec.series) {
         const colour = `var(${s.colour})`;
         if (s.dots) {
@@ -422,7 +441,7 @@ function drawGraph(fig, spec) {
     }
     const box = el("div", "nh-graph-box");
     box.append(root);
-    addHover(box, root, spec, { x, start, end, width, height, pad });
+    addHover(box, root, spec, { x, start, end, width, height, pad, bucketSeconds });
     fig.append(box);
     if (spec.series.length >= 2) {
         const legend = el("div", "nh-legend");
@@ -461,7 +480,7 @@ function addHover(box, root, spec, g) {
         const px = e.clientX - rect.left;
         if (px < g.pad.l || px > g.width - g.pad.r) { line.setAttribute("visibility", "hidden"); tip.hidden = true; return; }
         const t = g.start + (px - g.pad.l) / (g.width - g.pad.l - g.pad.r) * (g.end - g.start);
-        const reach = spec.series.some(s => s.dots) ? 6 * 3600000 : (state.charts?.bucket_seconds || 300) * 1500;
+        const reach = spec.series.some(s => s.dots) ? 6 * 3600000 : g.bucketSeconds * 1500;
         const rows = [];
         let at = null;
         for (const s of spec.series) {
@@ -863,6 +882,154 @@ function drawInside(d) {
     drawLinkEvents(d);
     drawLanlinks(d);
     drawInsideProbes();
+}
+
+// ---- Customer line (probe): a probe machine on a real customer line ----
+// `box` (pings every 5 min, each with a 1400-byte "-big" twin) and `boxspeed`
+// (6-second downloads every 30 min). Always the last 7 days.
+
+const BOX_HOURS = 168;
+const BOX_TARGET_NAMES = { gw: "First router past the OLT (CCR2004)", core: "CCR2116", airtel: "Airtel gateway", fra: "Frankfurt" };
+const BOX_SIZES = [["", "Small packets", "--nh-c1"], ["-big", "Big packets (1400 bytes)", "--nh-c2"]];
+
+function drawBox(d) {
+    state.box = d;
+    const lead = $("nh-box-lead"), box = $("nh-box");
+    if (d.error) {
+        lead.textContent = `couldn't load: ${d.error}`;
+        box.hidden = true;
+        return;
+    }
+    $("nh-box-sub").textContent = d.label ? `${d.label}` : "";
+    box.hidden = !d.dev;
+    lead.textContent = d.dev
+        ? `A probe machine on a real customer line (${d.label}), last ${d.days} days, Nairobi time · small packets against 1400-byte ones, and real downloads against the plan`
+        : "No readings yet. They start once the shipper sends the probe machine's box and boxspeed records.";
+    if (d.dev) {
+        drawBoxTiles(d);
+        drawBoxGraphs();
+    }
+    drawBoxMarkers(d);
+}
+
+function drawBoxTiles(d) {
+    const t = d.thresholds;
+    const speed = d.speed_now;
+    const speedBox = $("nh-box-speed-now");
+    if (!speed) {
+        speedBox.replaceChildren(el("div", "nh-tile-label", "Speed now"), el("p", "nh-tile-line", "No speed runs yet. One every 30 min."));
+    } else {
+        const head = el("div", "nh-tile-head");
+        head.append(el("span", "nh-tile-value", speed.pct_of_plan == null ? "—" : `${num(speed.pct_of_plan, 0)} % of plan`));
+        if (speed.pct_of_plan != null) {
+            head.append(speed.pct_of_plan < t.slow_pct ? el("span", "nh-badge nh-warn", "▲ Slow") : el("span", "nh-badge nh-ok", "● OK"));
+        }
+        const old = (Date.now() - new Date(speed.at)) / 60000 > 90;
+        speedBox.replaceChildren(
+            el("div", "nh-tile-label", "Speed now (6-second downloads)"), head,
+            el("p", "nh-tile-line", `Cloudflare (South Africa) ${speed.cf_mbps == null ? "—" : `${num(speed.cf_mbps, 1)} Mbps`}`
+                + ` · Frankfurt ${speed.fra_mbps == null ? "—" : `${num(speed.fra_mbps, 2)} Mbps`}`
+                + ` · plan ${speed.plan_mbps == null ? "—" : `${num(speed.plan_mbps, 0)} Mbps`}`),
+            el("p", "nh-tile-sub", `run at ${hm(speed.at)}${old ? " (old)" : ""} · alert: Cloudflare under ${t.slow_pct} % of plan, ${t.slow_in_a_row} runs in a row`));
+    }
+    const lossBox = $("nh-box-loss-now");
+    const latest = d.latest;
+    if (!latest) {
+        lossBox.replaceChildren(el("div", "nh-tile-label", "Big-packet loss now"), el("p", "nh-tile-line", "No ping readings yet. One every 5 min."));
+        return;
+    }
+    const big = latest.probes["gw-big"]?.loss;
+    const head = el("div", "nh-tile-head");
+    head.append(el("span", "nh-tile-value", big == null ? "—" : `${num(big, 0)} %`));
+    if (big != null) head.append(big >= t.big_loss_pct ? el("span", "nh-badge nh-warn", "▲ Losing big packets") : el("span", "nh-badge nh-ok", "● Clean"));
+    const pair = target => {
+        const small = latest.probes[target]?.loss, large = latest.probes[`${target}-big`]?.loss;
+        return small == null && large == null ? null : `${target} ${small == null ? "—" : num(small, 0)} / ${large == null ? "—" : num(large, 0)} %`;
+    };
+    const old = (Date.now() - new Date(latest.at)) / 60000 > 20;
+    lossBox.replaceChildren(
+        el("div", "nh-tile-label", "1400-byte pings lost, first router (gw-big)"), head,
+        el("p", "nh-tile-line", `Small / big loss now: ${d.targets.map(pair).filter(Boolean).join(" · ") || "—"}`),
+        el("p", "nh-tile-sub", `reading at ${hm(latest.at)}${old ? " (old)" : ""} · alert: gw-big ${t.big_loss_pct} % or more, ${t.big_loss_in_a_row} readings in a row`));
+}
+
+function drawBoxGraphs() {
+    const d = state.box;
+    if (!d || d.error || !d.dev) return;
+    const events = d.markers.map(m => ({ t: T(m.at), label: m.label }));
+    const common = { hours: BOX_HOURS, bucketSeconds: d.bucket_seconds, events };
+    const value = (row, field) => ({ t: T(row.t), v: row[field] });
+    drawGraph($("nh-g-box-speed"), {
+        ...common, title: "Speed against the plan", unit: " Mbps", yFloor0: true,
+        sub: "one 6-second download every 30 min",
+        series: [
+            { name: "Cloudflare (South Africa)", colour: "--nh-c1", values: d.speed.map(r => value(r, "cf_mbps")) },
+            { name: "Frankfurt", colour: "--nh-c2", values: d.speed.map(r => value(r, "fra_mbps")) },
+            { name: "Plan", colour: "--nh-other", dash: "6 4", values: d.speed.map(r => value(r, "plan_mbps")) },
+        ],
+    });
+    // The four panels share one scale, so the gap between small and big reads the same on each.
+    const top = Math.max(d.thresholds.big_loss_pct * 1.5, ...d.loss.map(r => r.loss ?? 0));
+    for (const target of d.targets) {
+        drawGraph($(`nh-g-box-loss-${target}`), {
+            ...common, title: `Packet loss to ${BOX_TARGET_NAMES[target] || target}`, unit: " %", yFloor0: true, yMax: top,
+            sub: `${target} · average per ${d.bucket_seconds / 60} min`,
+            refs: target === "gw" ? [{ v: d.thresholds.big_loss_pct, label: `alert ${d.thresholds.big_loss_pct}%` }] : [],
+            series: BOX_SIZES.map(([suffix, name, colour]) => ({
+                name, colour, values: d.loss.filter(r => r.name === `${target}${suffix}`).map(r => value(r, "loss")),
+            })),
+        });
+    }
+}
+
+function drawBoxMarkers(d) {
+    const admin = can("network_health", "admin");
+    $("nh-marker-form").hidden = !admin;
+    const list = $("nh-box-markers");
+    if (!d.markers.length) {
+        list.replaceChildren(el("li", "nh-none", admin ? "None yet. Add one when something changes on the line (a cable swapped, a port moved)."
+            : "None yet."));
+        return;
+    }
+    list.replaceChildren(...[...d.markers].reverse().map(m => {
+        const item = el("li");
+        item.append(el("span", "nh-marker-at", when(m.at)), el("span", null, m.label));
+        if (admin) {
+            const remove = el("button", "nh-link-btn", "Remove");
+            remove.type = "button";
+            remove.dataset.marker = m.id;
+            remove.setAttribute("aria-label", `Remove the marker ${m.label}`);
+            item.append(remove);
+        }
+        return item;
+    }));
+}
+
+async function saveMarker(e) {
+    e.preventDefault();
+    const msg = $("nh-marker-msg");
+    try {
+        await api("/network/health/box/markers", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ at: `${$("nh-marker-at").value}:00+03:00`, label: $("nh-marker-label").value.trim() }),
+        });
+        msg.textContent = "Added.";
+        $("nh-marker-label").value = "";
+        load();
+    } catch (err) {
+        msg.textContent = err.message;
+    }
+}
+
+async function removeMarker(e) {
+    const button = e.target.closest("button[data-marker]");
+    if (!button) return;
+    try {
+        await api(`/network/health/box/markers?id=${encodeURIComponent(button.dataset.marker)}`, { method: "DELETE" });
+        load();
+    } catch (err) {
+        $("nh-marker-msg").textContent = err.message;
+    }
 }
 
 // ---- Access network: PON ports, ONTs and PPPoE sessions ----
@@ -1593,6 +1760,7 @@ function redrawVisibleGraphs() {
     if (state.page !== "overview") return;
     if (state.tab === "uplink") drawGraphs();
     if (state.tab === "inside" && state.inside && !state.inside.error) { drawCrcGraph(); drawInsideProbes(); }
+    if (state.tab === "inside") drawBoxGraphs();
 }
 
 // The number of open problems on a tab: the worst one's glyph + the count.
@@ -1610,7 +1778,7 @@ function setTabCount(id, rules) {
 async function load() {
     if ($("view-network-health").hidden) return;
     try {
-        const [overview, charts, incidents, routes, inside, accessData] = await Promise.all([
+        const [overview, charts, incidents, routes, inside, accessData, boxData] = await Promise.all([
             api("/network/health/overview"),
             api(`/network/health/charts?range=${state.range}`),
             api("/network/health/incidents?limit=100"),
@@ -1618,6 +1786,7 @@ async function load() {
             // Its own failure doesn't take the rest of the page down.
             api(`/network/health/inside?range=${state.range}`).catch(err => ({ error: err.message })),
             api("/network/health/access").catch(err => ({ error: err.message })),
+            api("/network/health/box").catch(err => ({ error: err.message })),
         ]);
         state.overview = overview;
         state.charts = charts;
@@ -1625,6 +1794,7 @@ async function load() {
         drawDevices(overview);
         drawGraphs();
         drawInside(inside);
+        drawBox(boxData);
         drawAccess(accessData);
         drawRoutes(routes);
         drawIncidents(incidents);
@@ -1667,6 +1837,8 @@ export function initNetworkHealth() {
     $("nh-ont-pon").addEventListener("change", () => state.access && !state.access.error && drawOnts());
     $("nh-events-kind").addEventListener("change", () => state.access && !state.access.error && drawEvents());
     $("nh-match-form").addEventListener("submit", saveMatch);
+    $("nh-marker-form").addEventListener("submit", saveMarker);
+    $("nh-box-markers").addEventListener("click", removeMarker);
     $("nh-matches").addEventListener("click", removeMatch);
     dx.els = buildDx();
     registerLogoutHandler(() => {
@@ -1683,6 +1855,7 @@ export function initNetworkHealth() {
     observer.observe($("nh-graphs"));
     observer.observe($("nh-inside-probes"));
     observer.observe($("nh-g-crc"));
+    observer.observe($("nh-box-graphs"));
 
     registerRoute("network-health", params => {
         showView("view-network-health");

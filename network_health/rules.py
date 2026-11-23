@@ -20,7 +20,7 @@ AMBER, RED, OFFLINE = "AMBER", "RED", "OFFLINE"
 SEVERITY_RANK = {None: 0, AMBER: 1, RED: 2, OFFLINE: 3}
 
 DEVICE_LABELS = {"ccr2116": "CCR2116", "ccr2004": "CCR2004", "feed": "Frankfurt feed", "olt": "OLT",
-                 "crs326": "CRS326"}
+                 "crs326": "CRS326", "box": "Customer line"}
 # What each rule is called on the page.
 RULE_LABELS = {
     "FEED_SILENT": "No data from Frankfurt",
@@ -56,9 +56,13 @@ RULE_LABELS = {
     "SITE_PPP_DOWN": "Site offline (PPPoE)",
     "PPP_MASS_DROP": "Mass PPPoE drop",
     "LINE_NO_INTERNET": "Line up, no internet",
+    "BOX_BIG_LOSS": "Customer path losing big packets (CRS-OLT link?)",
+    "BOX_SLOW": "Customer line slow",
 }
+# The probe machine on a customer line (`box`, `boxspeed`).
+BOX_RULES = ("BOX_BIG_LOSS", "BOX_SLOW")
 # The rules the "Inside network" section lists as its active problems.
-INSIDE_RULES = ("OLT_CRC", "OLT_RESTART", "OLT_LINK_DOWN", "OLT_SNMP_SILENT", "INNER_PATH_LOSS", "INNER_PATH_DOWN",
+INSIDE_RULES = ("BOX_BIG_LOSS", "BOX_SLOW", "OLT_CRC", "OLT_RESTART", "OLT_LINK_DOWN", "OLT_SNMP_SILENT", "INNER_PATH_LOSS", "INNER_PATH_DOWN",
                 "CUSTOMER_PATH_LOSS", "CUSTOMER_PATH_DOWN", "AREA_SILENT", "LANLINK_DOWN", "LANLINK_DAMAGE",
                 "LANLINK_DROPS")
 # The rules the "Access network" section lists. The page-only ones
@@ -73,7 +77,8 @@ FIRE_AFTER = {"OPTIC_DEGRADING": 2, "LINK_ERRORS": config.LINK_ERRORS_FIRE_AFTER
               "INNER_PATH_LOSS": config.PATH_LOSS_IN_A_ROW, "INNER_PATH_DOWN": config.PATH_DOWN_IN_A_ROW,
               "CUSTOMER_PATH_LOSS": config.PATH_LOSS_IN_A_ROW, "CUSTOMER_PATH_DOWN": config.PATH_DOWN_IN_A_ROW,
               "AREA_SILENT": config.AREA_SILENT_IN_A_ROW,
-              "SITE_PPP_DOWN": config.SITE_PPP_MISSING_IN_A_ROW, "LINE_NO_INTERNET": config.LINE_NO_INTERNET_IN_A_ROW}
+              "SITE_PPP_DOWN": config.SITE_PPP_MISSING_IN_A_ROW, "LINE_NO_INTERNET": config.LINE_NO_INTERNET_IN_A_ROW,
+              "BOX_BIG_LOSS": config.BOX_BIG_LOSS_IN_A_ROW, "BOX_SLOW": config.BOX_SLOW_IN_A_ROW}
 # LINK_DOWN clears on the next 5-minute reading with no new drop, OLT_RESTART
 # on the next reading with no new restart, OLT_LINK_DOWN on the port's `up`.
 CLEAR_AFTER = {"FEED_SILENT": 1, "ROUTER_SILENT": 1, "SPEED_LOW": 1, "OPTIC_DEGRADING": 2, "LINK_DOWN": 1,
@@ -83,7 +88,7 @@ CLEAR_AFTER = {"FEED_SILENT": 1, "ROUTER_SILENT": 1, "SPEED_LOW": 1, "OPTIC_DEGR
                "PON_DOWN": 1, "PON_FIBRE_FAULT": 1, "PON_POWER_CUT": 1, "ONT_LIGHT_LOSS": 1, "SITE_PPP_DOWN": 1,
                "PPP_MASS_DROP": 1, "LINE_NO_INTERNET": 1}
 # For these a LOWER value is worse (an incident's "peak" is its lowest value).
-LOWER_IS_WORSE = ("SPEED_LOW", "OPTIC_DEGRADING")
+LOWER_IS_WORSE = ("SPEED_LOW", "OPTIC_DEGRADING", "BOX_SLOW")
 
 
 def make_check(device, rule, verdict, severity=AMBER, value=None, subject="", facts=None, immediate=False):
@@ -331,6 +336,43 @@ def check_path(probe, device, loss_rule, down_rule):
     return (make_check(device, loss_rule, None if is_down else loss >= config.PATH_LOSS_PCT, value=loss,
                        subject=name, facts=facts),
             make_check(device, down_rule, is_down, value=loss, subject=name, facts=facts))
+
+
+# ---- The probe machine on a customer line (`box`, `boxspeed`) ----
+
+def check_box_big_loss(probes):
+    """One `box` reading's 1400-byte ping to the first router past the OLT.
+    Bad at BOX_BIG_LOSS_PCT or more; fires after BOX_BIG_LOSS_IN_A_ROW
+    readings in a row. Says nothing when the probe isn't there, and when even
+    the small ping to the same router got no reply (the whole line is down:
+    that is not "losing big packets")."""
+    dev = next((p.get("dev") for p in probes or [] if p.get("dev")), None)
+    if dev is None:
+        return None
+    by_name = {p["name"]: p for p in probes}
+    big = by_name.get(config.BOX_ALERT_PROBE)
+    small = by_name.get(config.BOX_ALERT_PROBE.removesuffix("-big"))
+    subject = dev
+    loss = None if big is None else big.get("loss_pct")
+    small_is_down = small is not None and (small.get("loss_pct") or 0) >= 100
+    if loss is None or small_is_down:
+        return make_check("box", "BOX_BIG_LOSS", None, subject=subject)
+    return make_check("box", "BOX_BIG_LOSS", loss >= config.BOX_BIG_LOSS_PCT, value=loss, subject=subject,
+                      facts={"dev": dev, "label": config.BOX_NAMES.get(dev, dev), "loss": loss,
+                             "probe": config.BOX_ALERT_PROBE})
+
+
+def check_box_slow(speed):
+    """One `boxspeed` reading: the Cloudflare download under BOX_SLOW_FRACTION
+    of the line's plan. Fires after BOX_SLOW_IN_A_ROW readings in a row. A
+    test with no Cloudflare number, or a line with no plan, says nothing."""
+    dev = (speed or {}).get("dev")
+    cf, plan = (speed or {}).get("cf_mbps"), (speed or {}).get("plan_mbps")
+    if dev is None or cf is None or not plan or plan <= 0:
+        return None if dev is None else make_check("box", "BOX_SLOW", None, subject=dev)
+    return make_check("box", "BOX_SLOW", cf < plan * config.BOX_SLOW_FRACTION, value=cf, subject=dev,
+                      facts={"dev": dev, "label": config.BOX_NAMES.get(dev, dev), "mbps": cf, "plan": plan,
+                             "fra": speed.get("fra_mbps")})
 
 
 def check_area_silent(vlan, name, step, usual_mbps, first_seen):

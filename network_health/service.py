@@ -99,6 +99,14 @@ class Evaluation:
             self.judge_inner([r["ts"] for r in by_kind["inner"]])
         for record in by_kind.get("inner", []):
             self.judge_paths(record, "ccr2004", lambda n: n in config.INNER_PATH_PROBES, "INNER_PATH")
+        for record in by_kind.get("box", []):
+            check = rules.check_box_big_loss(record["probes"])
+            if check:
+                self.apply(check, record["ts"])
+        for record in by_kind.get("boxspeed", []):
+            check = rules.check_box_slow(record["speed"])
+            if check:
+                self.apply(check, record["ts"])
         for record in by_kind.get("hop", []):
             self.judge_paths(record, "olt", lambda n: n.startswith(config.CUSTOMER_PATH_PREFIX), "CUSTOMER_PATH")
         if "area" in by_kind:
@@ -578,6 +586,42 @@ def areas_card():
     return {"areas": area_rows(names, sparks, latest_rates),
             "active": [describe(a) for a in store.active_rules() if a["rule"] == "AREA_SILENT"],
             "thresholds": {"area_silent_mbps": config.AREA_SILENT_MBPS}}
+
+
+def box_card(dev=None):
+    """'Customer line (probe)': the probe machine on a real customer line.
+    Its speed (Cloudflare and Frankfurt downloads against the plan) and its
+    ping loss, small against 1400-byte packets, over BOX_CHART_DAYS, with the
+    owner's manual markers (its alerts are listed with the Inside network's). `dev`: which machine (the newest reporter by default)."""
+    now = store.now_utc()
+    since = now - timedelta(days=config.BOX_CHART_DAYS)
+    with store.transaction() as cur:
+        devs = store.box_devs(cur, since)
+        dev = dev if dev in devs else (devs[0] if devs else None)
+        markers = store.box_markers(cur)
+        card = {"dev": dev, "label": config.BOX_NAMES.get(dev, dev) if dev else None,
+                "devs": [{"dev": d, "label": config.BOX_NAMES.get(d, d)} for d in devs],
+                "days": config.BOX_CHART_DAYS, "bucket_seconds": config.BOX_CHART_BUCKET_SECONDS,
+                "since": since, "now": now, "targets": list(config.BOX_TARGETS),
+                "loss": [], "speed": [], "latest": None, "speed_now": None,
+                "markers": [{"id": m["id"], "at": m["at"], "label": m["label"]} for m in markers],
+                "thresholds": {"big_loss_pct": config.BOX_BIG_LOSS_PCT, "big_loss_in_a_row": config.BOX_BIG_LOSS_IN_A_ROW,
+                               "slow_pct": round(config.BOX_SLOW_FRACTION * 100),
+                               "slow_in_a_row": config.BOX_SLOW_IN_A_ROW}}
+        if dev is None:
+            return card
+        card["loss"] = store.box_loss_series(cur, dev, since, config.BOX_CHART_BUCKET_SECONDS)
+        card["speed"] = store.box_speeds(cur, dev, since)
+        at, probes = store.box_latest(cur, dev)
+    if at is not None:
+        card["latest"] = {"at": at, "probes": {p["name"]: {"loss": p.get("loss_pct"), "rtt": p.get("rtt_ms")}
+                                               for p in probes}}
+    if card["speed"]:
+        last = card["speed"][-1]
+        pct = None if last["cf_mbps"] is None or not last["plan_mbps"] else last["cf_mbps"] / last["plan_mbps"] * 100
+        card["speed_now"] = {"at": last["t"], "cf_mbps": last["cf_mbps"], "fra_mbps": last["fra_mbps"],
+                             "plan_mbps": last["plan_mbps"], "pct_of_plan": pct}
+    return card
 
 
 def routes_card():

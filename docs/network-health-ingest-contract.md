@@ -41,7 +41,7 @@ Every record has:
 | `key` | Unique id of the log line. **Upsert on it**: the shipper resends a batch whenever it didn't get a 2xx, so the same record can arrive twice (stored once). A key that arrives again with DIFFERENT values replaces the stored ones: that is how a rewind corrects history (the loss-scale fix, below). |
 | `ts` | When the server received the reading, ISO 8601 with offset (`+03:00`). Store as timestamptz. |
 | `from_ip` | Public IP it came from (102.0.27.188 today; changes at the provider switch). |
-| `kind` | `probe`, `inner`, `link`, `linknew`, `speed`, `speednew`, `route`, `dns`, `olt`, `crs_link`, `hop`, `area`, `lanlink`, `pon`, `ont`, `ppp` |
+| `kind` | `probe`, `inner`, `link`, `linknew`, `speed`, `speednew`, `route`, `dns`, `olt`, `crs_link`, `hop`, `area`, `lanlink`, `pon`, `ont`, `ppp`, `box`, `boxspeed` |
 | `raw` | The original log line, for audit and re-parsing. |
 
 Plus one of these, by `kind`:
@@ -202,6 +202,38 @@ The OLT's uplink is its port 0/19/0, which receives from the CRS326.)
   lists (a name missing = that session dropped). Without `dev` or a `names`
   list the record is skipped.
 
+**`box`** (every 5 minutes: a probe machine on a real customer line. Dev `home-kwamlima` =
+Kwa Mlima, ONT on PON 0/3/4, 15 Mbps plan.) Same envelope, with the readings under `box`:
+```json
+"box": {"dev": "home-kwamlima",
+        "probes": [{"name": "gw", "rtt_ms": 2.35, "jitter_ms": null, "loss_pct": 0.0},
+                   {"name": "gw-big", "rtt_ms": 2.71, "loss_pct": 15.0}, ...]}
+```
+- Targets: `gw` (the first router past the OLT, the CCR2004), `core` (CCR2116),
+  `airtel` (the Airtel gateway), `fra` (Frankfurt). `-big` = the 1400-byte twin.
+- Same probe rules as `probe`: `loss_pct` is a real percentage (0-100), `rtt_ms: null`
+  with `loss_pct: 100` is no reply at all, stored as null.
+- A record without `dev`, or with no usable probe, is skipped. Probe names are not
+  hard-coded: a new target is stored, and drawn once OPS gives it a panel.
+- **`fra` / `fra-big` before 23 Nov 2026 03:30 EAT read 100 % loss (a probe bug).** OPS
+  drops those two probes from any `box` record older than that: they are never stored
+  or judged, so a rewind that resends them changes nothing.
+- OPS alerts on `gw-big`: loss of 10 % or more in 3 readings in a row ("Customer path
+  losing big packets (CRS-OLT link?)"). It says nothing when the small `gw` ping got no
+  reply either (the whole line is down: that is not "losing big packets").
+
+**`boxspeed`** (every 30 minutes: the same machine's 6-second downloads)
+```json
+"boxspeed": {"dev": "home-kwamlima", "plan_mbps": 15, "cf_mbps": 7.21, "fra_mbps": 0.13}
+```
+- `cf_mbps` = Cloudflare (South Africa), `fra_mbps` = Frankfurt, `plan_mbps` = what the
+  customer pays for. A number can be null (the download failed); a negative one is stored
+  as null.
+- OPS alerts when `cf_mbps` is under 30 % of `plan_mbps` in 3 readings in a row
+  ("Customer line slow"). A null `cf_mbps`, or a missing plan, says nothing.
+- Both kinds feed the page's "Customer line (probe)" card (Network Health > Inside
+  network): the last 7 days, with the owner's manual markers. Raw readings are kept 10 days.
+
 ## Response
 
 - Answer **2xx only after the batch is stored**. Anything else makes the
@@ -214,5 +246,5 @@ The OLT's uplink is its port 0/19/0, which receives from the CRS326.)
 
 About 1,440 `probe` + 1,440 `inner` + 1,440 `hop` + 288 `link` + 288 `dns` + 288 `olt` + 288 per VLAN
 `area` + 288 per port `lanlink` + 288 per PON `pon` + 288 per ONT `ont` (about 18,000) + 576 `ppp`
-+ 2 `speed` + 12 `route` records a day, plus a `crs_link` record whenever a CRS326 or router port changes.
++ 288 `box` + 48 `boxspeed` (per probe machine) + 2 `speed` + 12 `route` records a day, plus a `crs_link` record whenever a CRS326 or router port changes.
 The first run backfills everything since 20 Nov 2026 17:15 in batches of 500.

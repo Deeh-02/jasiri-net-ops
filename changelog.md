@@ -9,6 +9,29 @@ and in `phase.md`'s own per-phase writeups.
 
 Started 2026-11-15 at the owner's request, after Phase 6 was merged to `main`.
 
+### Network Health: "Customer line (probe)" card (2026-11-23)
+- **A probe machine on a real customer line** (Kwa Mlima, `home-kwamlima`, 15 Mbps
+  plan) now reports to Network Health: two new shipper kinds, `box` (pings every
+  5 min: the first router past the OLT, the CCR2116, the Airtel gateway and
+  Frankfurt, each with a 1400-byte twin) and `boxspeed` (6-second Cloudflare and
+  Frankfurt downloads every 30 min). Contract updated in
+  `docs/network-health-ingest-contract.md`.
+- **New card on Inside network**, always the last 7 days: a speed chart
+  (Cloudflare and Frankfurt against the plan line, with "% of plan" now) and a
+  packet-loss chart per target, small against big packets on one shared scale so
+  the big-packet gap shows.
+- **Markers**: an admin adds a labelled, timed marker ("CRS-OLT DAC swapped") that
+  draws as a dashed line on every chart of the card, for before and after
+  comparisons; each can be removed. Stored in `nh_settings` (no migration).
+- **Two alerts** (SMS, respecting `NH_SMS_MODE`): **Customer path losing big
+  packets (CRS-OLT link?)** when `gw-big` loses 10 % or more in 3 readings in a
+  row, and **Customer line slow** when Cloudflare is under 30 % of the plan in 3
+  runs in a row. They show with the other Inside network problems.
+- Probe `fra` / `fra-big` readings from before 23 Nov 2026 03:30 EAT (a probe
+  bug, 100 % loss) are dropped on arrival, never stored or judged.
+- New endpoints: `GET /network/health/box`, `POST` / `DELETE
+  /network/health/box/markers` (Network Health > Admin).
+
 ### Network Health: split into pages (2026-11-22)
 - **One long page became three**, under a tab row like Hotspot Status's:
   **Overview**, **Access network** and **Incidents** (`#/network-health/access`,

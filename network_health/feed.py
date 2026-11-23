@@ -10,8 +10,10 @@ starts with it again). Skips are counted and logged by the caller.
 """
 from datetime import datetime, timezone
 
+from network_health import config
+
 KNOWN_KINDS = ("probe", "inner", "link", "linknew", "speed", "speednew", "route", "dns", "olt", "crs_link", "hop", "area",
-               "lanlink", "pon", "ont", "ppp")
+               "lanlink", "pon", "ont", "ppp", "box", "boxspeed")
 MAX_KEY_LENGTH = 200
 MAX_RAW_LENGTH = 4000
 MAX_NAME_LENGTH = 40
@@ -291,6 +293,40 @@ def _ppp(value):
     return {"dev": dev.lower(), "count": _counter(value.get("count")), "names": unique}
 
 
+# ---- Customer line (probe) (`box`, `boxspeed`) ----
+
+BOXSPEED_FIELDS = ("plan_mbps", "cf_mbps", "fra_mbps")
+
+
+def _box(value, ts):
+    """One probe machine's pings. Stored in the `probes` column like every
+    other probe list, with the machine's name (`dev`) inside each entry.
+    "fra" / "fra-big" from before the probe bug was fixed read 100 % loss:
+    dropped. Without a dev, or with nothing left, skipped."""
+    if not isinstance(value, dict):
+        return None
+    dev = _text(value.get("dev"), MAX_NAME_LENGTH)
+    if dev is None:
+        raise SkipRecord("box record has no dev")
+    probes = [{**probe, "dev": dev.lower()} for probe in _probes(value.get("probes"))
+              if not (probe["name"] in config.BOX_FRA_PROBES and ts < config.BOX_FRA_VALID_FROM)]
+    if not probes:
+        raise SkipRecord("box record has no usable probes")
+    return probes
+
+
+def _boxspeed(value):
+    """One speed run on the probe machine (6-second downloads). A speed
+    can't be negative: None. Stored in the `speed` column."""
+    if not isinstance(value, dict):
+        return None
+    dev = _text(value.get("dev"), MAX_NAME_LENGTH)
+    if dev is None:
+        raise SkipRecord("boxspeed record has no dev")
+    speeds = {field: number_or_none(value.get(field)) for field in BOXSPEED_FIELDS}
+    return {"dev": dev.lower(), **{field: None if v is not None and v < 0 else v for field, v in speeds.items()}}
+
+
 def parse_record(record):
     """One record -> {key, ts, kind, from_ip, raw, load, probes, link, speed, route, dns, olt, crs_link,
     area, lanlink, pon, ont, ppp},
@@ -320,6 +356,14 @@ def parse_record(record):
         parsed["probes"] = _probes(record.get("probes"))
     elif kind == "hop":
         parsed["probes"] = _probes(record.get("probes"))
+    elif kind == "box":
+        parsed["probes"] = _box(record.get("box"), parsed["ts"])
+        if parsed["probes"] is None:
+            raise SkipRecord("box record has no box object")
+    elif kind == "boxspeed":
+        parsed["speed"] = _boxspeed(record.get("boxspeed"))
+        if parsed["speed"] is None:
+            raise SkipRecord("boxspeed record has no boxspeed object")
     elif kind == "area":
         parsed["area"] = _area(record.get("area"))
         if parsed["area"] is None:

@@ -34,6 +34,8 @@ LONG_FACTS = {
     "INNER_PATH_DOWN": [{"loss": 100, "probe": "x" * 40}],
     "CUSTOMER_PATH_LOSS": [{"loss": 100, "probe": "x" * 40}],
     "CUSTOMER_PATH_DOWN": [{"loss": 100, "probe": "x" * 40}],
+    "BOX_BIG_LOSS": [{"dev": "x" * 40, "label": "x" * 80, "loss": 100, "probe": "gw-big"}],
+    "BOX_SLOW": [{"dev": "x" * 40, "label": "x" * 80, "mbps": 99999, "plan": 99999}],
     "AREA_SILENT": [{"area": "x" * 80, "vlan": 9999, "mbps": 0, "usual": 99999}],
     "LANLINK_DOWN": [{"label": "x" * 80, "count": 99999}],
     "LANLINK_DAMAGE": [{"label": "x" * 80, "count": 9_999_999}],
@@ -116,6 +118,18 @@ class OneSegment(unittest.TestCase):
                          "JNET ALERT CRS326: Link CRS326 to CCR2116 went down. Since 23:40")
         self.assertEqual(messages.clear_message("crs326", "LANLINK_DOWN", "crs326 sfp-sfpplus1", 5),
                          "JNET OK CRS326: link CRS326 to CCR2116 back to normal. Lasted 5min")
+
+    def test_customer_line_texts(self):
+        facts = {"dev": "home-kwamlima", "label": "Kwa Mlima", "loss": 15.0, "probe": "gw-big"}
+        self.assertEqual(messages.fire_message("box", "BOX_BIG_LOSS", facts, SINCE),
+                         "JNET ALERT Customer line: Customer path losing big packets (CRS-OLT link?): 15% of "
+                         "1400-byte pings lost at Kwa Mlima. Since 23:40")
+        slow = {"dev": "home-kwamlima", "label": "Kwa Mlima", "mbps": 1.9, "plan": 15}
+        self.assertEqual(messages.fire_message("box", "BOX_SLOW", slow, SINCE),
+                         "JNET ALERT Customer line: Customer line slow: 1.9Mbps of 15Mbps plan at Kwa Mlima. "
+                         "Since 23:40")
+        self.assertEqual(messages.clear_message("box", "BOX_SLOW", "home-kwamlima", 90),
+                         "JNET OK Customer line: customer line speed (Kwa Mlima) back to normal. Lasted 1h30min")
 
     def test_every_clear_message_with_a_long_subject(self):
         for rule in LONG_FACTS:

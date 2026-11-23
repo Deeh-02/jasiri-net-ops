@@ -6,6 +6,8 @@ Functions that take `cur` run inside the caller's transaction (service.py
 evaluates a whole batch in one connection: Supabase's pooler is capped at
 15 connections, see db/connection.py). The others open their own.
 """
+import json
+import uuid
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 
@@ -321,6 +323,77 @@ def hop_series(cur, since, bucket_seconds):
             WHERE r.kind = 'hop' AND r.ts >= %(since)s GROUP BY b, 2 ORDER BY b""",
         {"since": since, "bucket": bucket_seconds})
     return [{"t": r[0], "name": r[1], "rtt": r[2], "loss": r[3], "n": r[4]} for r in cur.fetchall()]
+
+
+# ---- Customer line (probe) (`box`, `boxspeed`) ----
+
+def box_devs(cur, since):
+    """The probe machines that reported since a moment, the newest reporter first."""
+    cur.execute("""SELECT probes->0->>'dev', max(ts) FROM nh_readings
+                   WHERE kind = 'box' AND ts >= %s AND probes->0->>'dev' IS NOT NULL
+                   GROUP BY 1 ORDER BY 2 DESC""", (since,))
+    return [row[0] for row in cur.fetchall()]
+
+
+def box_loss_series(cur, dev, since, bucket_seconds):
+    """One machine's pings, averaged per bucket: [{t, name, loss, rtt, n}]."""
+    cur.execute(
+        f"""SELECT {BUCKET} AS b, p->>'name', avg((p->>'loss_pct')::float8), avg((p->>'rtt_ms')::float8), count(*)
+            FROM nh_readings r CROSS JOIN LATERAL jsonb_array_elements(r.probes) p
+            WHERE r.kind = 'box' AND p->>'dev' = %(dev)s AND r.ts >= %(since)s GROUP BY b, 2 ORDER BY b""",
+        {"dev": dev, "since": since, "bucket": bucket_seconds})
+    return [{"t": r[0], "name": r[1], "loss": r[2], "rtt": r[3], "n": r[4]} for r in cur.fetchall()]
+
+
+def box_latest(cur, dev):
+    """The machine's newest ping reading: (ts, [probe, ...]) or (None, [])."""
+    cur.execute("""SELECT ts, probes FROM nh_readings WHERE kind = 'box' AND probes->0->>'dev' = %s
+                   ORDER BY ts DESC LIMIT 1""", (dev,))
+    row = cur.fetchone()
+    return (None, []) if row is None else (row[0], row[1] or [])
+
+
+def box_speeds(cur, dev, since):
+    """The machine's speed runs since a moment, oldest first."""
+    cur.execute("""SELECT ts, speed FROM nh_readings WHERE kind = 'boxspeed' AND speed->>'dev' = %s AND ts >= %s
+                   ORDER BY ts""", (dev, since))
+    return [{"t": r[0], **{k: (r[1] or {}).get(k) for k in ("plan_mbps", "cf_mbps", "fra_mbps")}}
+            for r in cur.fetchall()]
+
+
+def box_markers(cur):
+    """The manual markers on the two charts, oldest first: [{id, at, label}]."""
+    cur.execute("SELECT key, value FROM nh_settings WHERE left(key, %s) = %s",
+                (len(config.BOX_MARKER_PREFIX), config.BOX_MARKER_PREFIX))
+    markers = []
+    for key, value in cur.fetchall():
+        try:
+            data = json.loads(value or "")
+            markers.append({"id": key[len(config.BOX_MARKER_PREFIX):], "at": datetime.fromisoformat(data["at"]),
+                            "label": str(data["label"])})
+        except (ValueError, KeyError, TypeError):
+            continue          # a damaged row is skipped, never shown half-read
+    return sorted(markers, key=lambda m: m["at"])
+
+
+def save_box_marker(at, label, user_id):
+    """Adds a marker. Returns its id, or None when there are already BOX_MARKERS_MAX."""
+    with transaction() as cur:
+        cur.execute("SELECT count(*) FROM nh_settings WHERE left(key, %s) = %s",
+                    (len(config.BOX_MARKER_PREFIX), config.BOX_MARKER_PREFIX))
+        if cur.fetchone()[0] >= config.BOX_MARKERS_MAX:
+            return None
+        marker_id = uuid.uuid4().hex[:12]
+        cur.execute("""INSERT INTO nh_settings (key, value, updated_at, updated_by) VALUES (%s, %s, now(), %s)""",
+                    (config.BOX_MARKER_PREFIX + marker_id,
+                     json.dumps({"at": at.astimezone(timezone.utc).isoformat(), "label": label}), user_id))
+        return marker_id
+
+
+def delete_box_marker(marker_id):
+    with transaction() as cur:
+        cur.execute("DELETE FROM nh_settings WHERE key = %s", (config.BOX_MARKER_PREFIX + marker_id,))
+        return cur.rowcount > 0
 
 
 # ---- Access network (`pon`, `ont`, `ppp`; nh_onts, nh_ppp_sessions, nh_access_events) ----
