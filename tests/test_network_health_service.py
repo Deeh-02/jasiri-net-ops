@@ -391,5 +391,14 @@ class SmsCard(unittest.TestCase):
             self.assertEqual(service.overview()["sms"]["days"], 1)
 
 
+class AccessThresholds(unittest.TestCase):
+    def test_the_guide_panel_gets_every_number_it_shows(self):
+        keys = set(service.access_thresholds())
+        for key in ("rx_weak_below", "rx_bad_below", "rx_overload_above", "olt_weak_below", "olt_bad_below", "group_min",
+                    "whole_pon_min", "drop_ont_db", "drop_shared_db", "shared_min", "site_polls", "line_polls",
+                    "mass_drop_pct", "mass_drop_min", "splitter_m", "splitter_together"):
+            self.assertIn(key, keys)
+
+
 if __name__ == "__main__":
     unittest.main()

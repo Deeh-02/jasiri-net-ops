@@ -190,6 +190,11 @@ def delete_box_marker(id: str = Query(..., min_length=1, max_length=40, pattern=
     return {"ok": True}
 
 
+@router.get("/network/health/access/thresholds")
+def get_access_thresholds(current_user: dict = Depends(require_view)):
+    return service.access_thresholds()
+
+
 @router.get("/network/health/access")
 def get_access(current_user: dict = Depends(require_view)):
     return service.access_card()
