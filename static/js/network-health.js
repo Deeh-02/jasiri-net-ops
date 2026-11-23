@@ -1,4 +1,4 @@
-import { authHeaders, showView, registerRoute, can, getCurrentUser, registerLogoutHandler } from "./common.js";
+import { authHeaders, showView, registerRoute, registerRouteResetter, can, getCurrentUser, registerLogoutHandler } from "./common.js";
 
 // Network Health (#/network-health): is the uplink fast and clean right now,
 // and what happened lately. Reads only /network/health/* (its own domain) and
@@ -882,6 +882,7 @@ function drawInside(d) {
     drawLinkEvents(d);
     drawLanlinks(d);
     drawInsideProbes();
+    fillGuide();
 }
 
 // ---- Customer line (probe): a probe machine on a real customer line ----
@@ -1358,6 +1359,7 @@ function drawAccess(d) {
     drawStale(d);
     drawPpp(d);
     drawMatches(d);
+    fillGuide();
 }
 
 // ---- Diagnose: a chat with Claude, in the corner where "Ask" usually is ----
@@ -1718,6 +1720,41 @@ async function saveSettings(e) {
 
 // ---- Loading ----
 
+// ---- "What's on the OLT": the side panel ----
+// Plain text in the page; the numbers in it are filled in from the same
+// thresholds the page and the alerts use, so it can't quote a stale one.
+
+function fillGuide() {
+    const a = state.access && !state.access.error ? state.access.thresholds : null;
+    const inside = state.inside && !state.inside.error ? state.inside : null;
+    const values = {};
+    if (a) {
+        Object.assign(values, { rx_weak: a.rx_weak_below, rx_bad: a.rx_bad_below, rx_over: a.rx_overload_above,
+            olt_weak: a.olt_weak_below, olt_bad: a.olt_bad_below, group_min: a.group_min, whole_pon_min: a.whole_pon_min,
+            drop_ont_db: a.drop_ont_db, drop_shared_db: a.drop_shared_db, shared_min: a.shared_min,
+            site_polls: a.site_polls, line_polls: a.line_polls, mass_drop_pct: a.mass_drop_pct, mass_drop_min: a.mass_drop_min,
+            splitter_m: a.splitter_m, splitter_together: a.splitter_together });
+    }
+    if (inside) {
+        Object.assign(values, { crc_red: inside.crc.red_over_pct, snmp_silent: inside.snmp.stale_after_minutes,
+                                olt_port: inside.olt_interface });
+    }
+    document.querySelectorAll("#nh-guide [data-g]").forEach(node => {
+        const v = values[node.dataset.g];
+        if (v != null) node.textContent = String(v);
+        else if (node.dataset.g !== "olt_port") node.textContent = "—";
+    });
+}
+
+function openGuide(isOpen) {
+    const bar = document.getElementById("global-topbar");
+    if (bar) $("nh-guide").style.setProperty("--nh-guide-top", `${Math.round(bar.getBoundingClientRect().bottom)}px`);
+    $("nh-guide").hidden = !isOpen;
+    $("nh-guide-open").setAttribute("aria-expanded", String(isOpen));
+    document.body.classList.toggle("nh-guide-is-open", isOpen);   // the Diagnose button steps aside (css)
+    if (isOpen) $("nh-guide-close").focus();
+}
+
 // ---- Pages and sections ----
 // Three pages under the page tabs (Overview, Access network, Incidents), like
 // Hotspot Status's Status / Trends. Overview has sections of its own (Uplink,
@@ -1816,6 +1853,12 @@ export function initNetworkHealth() {
         document.querySelectorAll(".nh-range [data-range]").forEach(b => b.setAttribute("aria-selected", String(b === tab)));
         load();
     });
+    $("nh-guide-open").addEventListener("click", () => openGuide($("nh-guide").hidden));
+    $("nh-guide-close").addEventListener("click", () => { openGuide(false); $("nh-guide-open").focus(); });
+    document.addEventListener("keydown", e => {
+        if (e.key === "Escape" && !$("nh-guide").hidden) { openGuide(false); $("nh-guide-open").focus(); }
+    });
+    registerRouteResetter(() => openGuide(false));   // leaving the page closes it
     $("nh-pages").addEventListener("click", e => {
         const tab = e.target.closest("[data-nh-page]");
         if (tab) showRoute(tab.dataset.nhPage === "overview" ? state.tab : tab.dataset.nhPage, { updateUrl: true });

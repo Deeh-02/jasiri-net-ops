@@ -33,6 +33,13 @@ Its own branch from `main` (owner's call, 2026-11-21); deployed by merging into
 - New endpoints: `GET /network/health/box`, `POST` / `DELETE
   /network/health/box/markers` (Network Health > Admin).
 
+### Network Health: "What's on the OLT" panel (2026-11-23)
+- A **What's on the OLT** button by the page title opens a side panel: what the OLT,
+  PON ports, splitters and ONTs are, what is read from them, how to read the light,
+  why an ONT goes down, and every thing Network Health looks for (and which of them
+  text). The numbers in it come from the same thresholds the alerts use, so it
+  can't drift. Esc or × closes it.
+
 ### Network Health: split into pages (2026-11-22)
 - **One long page became three**, under a tab row like Hotspot Status's:
   **Overview**, **Access network** and **Incidents** (`#/network-health/access`,

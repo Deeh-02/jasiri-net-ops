@@ -10,7 +10,13 @@
              The alert texts are on SMS Status; the areas on Hotspot Status. -->
         <div class="page-header-row">
             <h1 class="page-title">Network <span>Health</span></h1>
-            <div class="nh-updated" id="nh-updated">Loading&hellip;</div>
+            <div class="nh-header-side">
+                <button type="button" class="nh-guide-btn" id="nh-guide-open" aria-controls="nh-guide" aria-expanded="false">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6.2"/><path d="M8 7.2v4"/><circle cx="8" cy="4.9" r=".5" fill="currentColor"/></svg>
+                    What's on the OLT
+                </button>
+                <div class="nh-updated" id="nh-updated">Loading&hellip;</div>
+            </div>
         </div>
 
         <div class="sites-tabs tabs" role="tablist" aria-label="Network Health pages" id="nh-pages">
@@ -279,4 +285,90 @@
             </div>
         </div>
 
+
+        <!-- Side panel: what the OLT is and what Network Health looks for on it.
+             The numbers are filled in from the page's own thresholds (config.py),
+             never typed here. -->
+        <aside class="nh-guide" id="nh-guide" aria-label="What's on the OLT" hidden>
+            <div class="nh-guide-head">
+                <h2 class="nh-guide-title">What's on the OLT</h2>
+                <button type="button" class="nh-guide-close" id="nh-guide-close" aria-label="Close this panel">&times;</button>
+            </div>
+            <div class="nh-guide-body">
+                <section>
+                    <h3>What it is</h3>
+                    <p>The <strong>OLT</strong> (Huawei MA5680T) is the fibre head-end. Our fibre customers hang off its
+                        <strong>PON ports</strong>: each port feeds one fibre that passive <strong>splitters</strong> share
+                        between many <strong>ONTs</strong>, the little boxes in customers' homes and at hotspot sites.
+                        Names on the OLT are the customer's JS code or the site name.</p>
+                    <p class="nh-guide-chain">ONT → splitter → PON port → <strong>OLT</strong> → CRS326 (<span data-g="olt_port">sfp-sfpplus3</span>) → the routers → internet</p>
+                    <p>The CCR2116 reads the OLT over SNMP every 5 minutes; the CCR2116 and CCR2004 also report their PPPoE
+                        sessions (home customers on the CCR2116, hotspot sites on the CCR2004).</p>
+                </section>
+
+                <section>
+                    <h3>What we read</h3>
+                    <ul>
+                        <li><strong>The OLT's uplink:</strong> frames arriving damaged (CRC %) from the CRS326, restarts, and whether the OLT still answers.</li>
+                        <li><strong>Each PON:</strong> how many ONTs are online and offline.</li>
+                        <li><strong>Each ONT:</strong> online or offline, the light each way, distance in metres, and why it last went down.</li>
+                        <li><strong>PPPoE:</strong> which sessions are up on each router, matched to the ONTs by JS code or site name.</li>
+                    </ul>
+                </section>
+
+                <section>
+                    <h3>Reading the light</h3>
+                    <p>Two numbers per ONT, in dBm (closer to zero is stronger):</p>
+                    <ul>
+                        <li><strong>ONT receives</strong> (downstream): weak under <span data-g="rx_weak"></span>,
+                            bad under <span data-g="rx_bad"></span>, <strong>overloaded</strong> over <span data-g="rx_over"></span>.</li>
+                        <li><strong>OLT receives</strong> (upstream): weak under <span data-g="olt_weak"></span>,
+                            bad under <span data-g="olt_bad"></span>.</li>
+                    </ul>
+                    <ul class="nh-guide-tips">
+                        <li>Both weak, on several ONTs of one PON: shared fibre or a splitter.</li>
+                        <li>Downstream fine, upstream bad: that ONT's transmitter or connector.</li>
+                        <li>Overloaded: too much light, fit an attenuator.</li>
+                    </ul>
+                </section>
+
+                <section>
+                    <h3>Why an ONT went down</h3>
+                    <ul>
+                        <li><strong>LOSi / LOBi:</strong> it lost light. A cut or dirty fibre, or a bad connector.</li>
+                        <li><strong>Dying gasp:</strong> it lost power and said so. A power cut at the customer.</li>
+                        <li><strong>Reset:</strong> it rebooted.</li>
+                    </ul>
+                </section>
+
+                <section>
+                    <h3>What we look for</h3>
+                    <ul>
+                        <li><strong>A fibre fault:</strong> <span data-g="group_min"></span> or more ONTs on one PON down together, mostly with light loss. Serious, texted.</li>
+                        <li><strong>A power cut:</strong> the same, mostly dying gasp. Warning, texted.</li>
+                        <li><strong>A whole PON down:</strong> every online ONT on it (at least <span data-g="whole_pon_min"></span>) gone at once. Serious, texted.</li>
+                        <li><strong>One ONT with light loss:</strong> a warning on the page. One dying gasp is only listed.</li>
+                        <li><strong>Light getting worse:</strong> an ONT's last 24 h against its usual week, <span data-g="drop_ont_db"></span> dB weaker: a warning.
+                            <span data-g="shared_min"></span> or more ONTs of one PON <span data-g="drop_shared_db"></span> dB weaker: texted.</li>
+                        <li><strong>A hotspot site's PPPoE session missing</strong> for <span data-g="site_polls"></span> readings in a row: texted.
+                            <span data-g="mass_drop_pct"></span>% of a router's sessions gone at once (of at least <span data-g="mass_drop_min"></span>): texted.</li>
+                        <li><strong>Line up, no internet:</strong> an ONT online but its PPPoE session missing for <span data-g="line_polls"></span> readings in a row: a warning.</li>
+                        <li><strong>The OLT uplink:</strong> damaged frames over <span data-g="crc_red"></span>% twice in a row, the port going down, a restart, or no SNMP answer for <span data-g="snmp_silent"></span> min.</li>
+                        <li><strong>Likely same splitter:</strong> ONTs within <span data-g="splitter_m"></span> m of each other, or that went down together <span data-g="splitter_together"></span> times or more.</li>
+                        <li><strong>Stale registrations:</strong> on the OLT but never online since first seen. Listed, never alerted.</li>
+                    </ul>
+                    <p class="nh-guide-note">"Texted" means an SMS to the alert numbers, which only goes out when SMS is switched to live
+                        (log-only until then). Everything else is on the page.</p>
+                </section>
+
+                <section>
+                    <h3>Where to look</h3>
+                    <ul>
+                        <li><strong>Access network:</strong> PON ports, every ONT with its light, events, PPPoE.</li>
+                        <li><strong>Incidents:</strong> field jobs, worked out from the light and the alerts, then every incident.</li>
+                        <li><strong>Overview &gt; Inside network:</strong> the OLT's uplink and restarts.</li>
+                    </ul>
+                </section>
+            </div>
+        </aside>
     </section>
