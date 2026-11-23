@@ -14,7 +14,7 @@ below), so a reading sitting right on a threshold doesn't flap.
 """
 from datetime import timedelta
 
-from network_health import config
+from network_health import boxline, config
 
 AMBER, RED, OFFLINE = "AMBER", "RED", "OFFLINE"
 SEVERITY_RANK = {None: 0, AMBER: 1, RED: 2, OFFLINE: 3}
@@ -78,7 +78,7 @@ FIRE_AFTER = {"OPTIC_DEGRADING": 2, "LINK_ERRORS": config.LINK_ERRORS_FIRE_AFTER
               "CUSTOMER_PATH_LOSS": config.PATH_LOSS_IN_A_ROW, "CUSTOMER_PATH_DOWN": config.PATH_DOWN_IN_A_ROW,
               "AREA_SILENT": config.AREA_SILENT_IN_A_ROW,
               "SITE_PPP_DOWN": config.SITE_PPP_MISSING_IN_A_ROW, "LINE_NO_INTERNET": config.LINE_NO_INTERNET_IN_A_ROW,
-              "BOX_BIG_LOSS": config.BOX_BIG_LOSS_IN_A_ROW, "BOX_SLOW": config.BOX_SLOW_IN_A_ROW}
+              "BOX_BIG_LOSS": 1, "BOX_SLOW": config.BOX_SLOW_IN_A_ROW}
 # LINK_DOWN clears on the next 5-minute reading with no new drop, OLT_RESTART
 # on the next reading with no new restart, OLT_LINK_DOWN on the port's `up`.
 CLEAR_AFTER = {"FEED_SILENT": 1, "ROUTER_SILENT": 1, "SPEED_LOW": 1, "OPTIC_DEGRADING": 2, "LINK_DOWN": 1,
@@ -86,7 +86,7 @@ CLEAR_AFTER = {"FEED_SILENT": 1, "ROUTER_SILENT": 1, "SPEED_LOW": 1, "OPTIC_DEGR
                "OLT_CRC": config.OLT_CRC_CLEAR_AFTER, "OLT_RESTART": 1, "OLT_LINK_DOWN": 1, "OLT_SNMP_SILENT": 1,
                "INNER_PATH_DOWN": 1, "CUSTOMER_PATH_DOWN": 1, "AREA_SILENT": 1, "LANLINK_DOWN": 1,
                "PON_DOWN": 1, "PON_FIBRE_FAULT": 1, "PON_POWER_CUT": 1, "ONT_LIGHT_LOSS": 1, "SITE_PPP_DOWN": 1,
-               "PPP_MASS_DROP": 1, "LINE_NO_INTERNET": 1}
+               "PPP_MASS_DROP": 1, "LINE_NO_INTERNET": 1, "BOX_BIG_LOSS": 1}
 # For these a LOWER value is worse (an incident's "peak" is its lowest value).
 LOWER_IS_WORSE = ("SPEED_LOW", "OPTIC_DEGRADING", "BOX_SLOW")
 
@@ -340,26 +340,45 @@ def check_path(probe, device, loss_rule, down_rule):
 
 # ---- The probe machine on a customer line (`box`, `boxspeed`) ----
 
-def check_box_big_loss(probes):
-    """One `box` reading's 1400-byte ping to the first router past the OLT.
-    Bad at BOX_BIG_LOSS_PCT or more; fires after BOX_BIG_LOSS_IN_A_ROW
-    readings in a row. Says nothing when the probe isn't there, and when even
-    the small ping to the same router got no reply (the whole line is down:
-    that is not "losing big packets")."""
-    dev = next((p.get("dev") for p in probes or [] if p.get("dev")), None)
+def check_box_big_loss(window):
+    """The customer line's big-packet loss, judged on the rolling average of
+    the probe's `box` readings over BOX_LOSS_WINDOW_MINUTES (`window`: this
+    dev's readings [{ts, probes}] in that window, the one being judged last).
+
+    Bad: Frankfurt's 1400-byte ping (fra-big) averages BOX_FRA_BIG_LOSS_PCT or
+    more, OR the first router's (gw-big) BOX_GW_BIG_LOSS_PCT or more. Fine:
+    both known averages under BOX_LOSS_CLEAR_FRACTION of those lines. In
+    between it says nothing (the rule holds as it was), so it doesn't flap.
+    A path whose small pings are almost all lost is down, not "losing big
+    packets": its average is left out, and while one is down nothing counts
+    as fine. Too few readings in the window says nothing either."""
+    dev = next((p.get("dev") for reading in reversed(window or []) for p in reading["probes"] if p.get("dev")), None)
     if dev is None:
         return None
-    by_name = {p["name"]: p for p in probes}
-    big = by_name.get(config.BOX_ALERT_PROBE)
-    small = by_name.get(config.BOX_ALERT_PROBE.removesuffix("-big"))
-    subject = dev
-    loss = None if big is None else big.get("loss_pct")
-    small_is_down = small is not None and (small.get("loss_pct") or 0) >= 100
-    if loss is None or small_is_down:
-        return make_check("box", "BOX_BIG_LOSS", None, subject=subject)
-    return make_check("box", "BOX_BIG_LOSS", loss >= config.BOX_BIG_LOSS_PCT, value=loss, subject=subject,
-                      facts={"dev": dev, "label": config.BOX_NAMES.get(dev, dev), "loss": loss,
-                             "probe": config.BOX_ALERT_PROBE})
+    if not boxline.is_window_full(window):
+        return make_check("box", "BOX_BIG_LOSS", None, subject=dev)
+    arms, dead = [], False        # arms: (big probe, line, average)
+    for big, line in ((config.BOX_FRA_BIG_PROBE, config.BOX_FRA_BIG_LOSS_PCT),
+                      (config.BOX_GW_BIG_PROBE, config.BOX_GW_BIG_LOSS_PCT)):
+        average = boxline.window_average(window, big)
+        small = boxline.window_average(window, big.removesuffix("-big"))
+        if average is None:
+            continue                      # that probe isn't reporting: judged on the other
+        if small is not None and small >= config.BOX_DEAD_SMALL_LOSS_PCT:
+            dead = True                   # the path is down: not big-packet loss, and not "fine" either
+            continue
+        arms.append((big, line, average))
+    if not arms:
+        return make_check("box", "BOX_BIG_LOSS", None, subject=dev)
+    over = [(big, line, avg) for big, line, avg in arms if avg >= line]
+    clear = not dead and all(avg < line * config.BOX_LOSS_CLEAR_FRACTION for _, line, avg in arms)
+    verdict = True if over else (False if clear else None)
+    shown = max(over or arms, key=lambda arm: arm[2] / arm[1])     # the arm furthest over its line
+    averages = {big: avg for big, _, avg in arms}
+    return make_check("box", "BOX_BIG_LOSS", verdict, value=shown[2], subject=dev,
+                      facts={"dev": dev, "label": config.BOX_NAMES.get(dev, dev), "loss": shown[2], "probe": shown[0],
+                             "minutes": config.BOX_LOSS_WINDOW_MINUTES, "fra_big": averages.get(config.BOX_FRA_BIG_PROBE),
+                             "gw_big": averages.get(config.BOX_GW_BIG_PROBE)})
 
 
 def check_box_slow(speed):

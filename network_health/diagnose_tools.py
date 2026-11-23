@@ -124,7 +124,9 @@ def customer_line_history(data, now):
         "probes": {name: _series(rows, ("loss", "rtt")) for name, rows in sorted(probes.items())},
         "speed_runs": _series(speeds, ("cf_mbps", "fra_mbps", "plan_mbps")),
         "markers": [{"at": m["at"], "label": m["label"]} for m in markers],
-        "alerts": {"big_loss_pct": config.BOX_BIG_LOSS_PCT, "big_loss_in_a_row": config.BOX_BIG_LOSS_IN_A_ROW,
+        "alerts": {"big_loss_fra_big_pct": config.BOX_FRA_BIG_LOSS_PCT, "big_loss_gw_big_pct": config.BOX_GW_BIG_LOSS_PCT,
+                   "over_minutes": config.BOX_LOSS_WINDOW_MINUTES,
+                   "clears_below_pct_of_those": round(config.BOX_LOSS_CLEAR_FRACTION * 100),
                    "slow_under_pct_of_plan": round(config.BOX_SLOW_FRACTION * 100),
                    "slow_in_a_row": config.BOX_SLOW_IN_A_ROW}}
 

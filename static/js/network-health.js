@@ -346,14 +346,16 @@ function tickLabel(t, hours) {
    fmt (optional: the y-axis number format, default num),
    hours (the window; default the page's range), bucketSeconds (the points' spacing; default the charts'),
    yMax (the y-axis reaches at least this: panels that must compare),
-   events: [{t, label}] (dashed vertical lines with their label: the owner's markers)}. */
+   events: [{t, label}] (dashed vertical lines with their label: the owner's markers);
+   a point may carry `raw` (the reading behind a rolling average: a faint dot)}. */
 function drawGraph(fig, spec) {
     fig.replaceChildren();
     const head = el("figcaption", "nh-graph-head");
     head.append(el("span", "nh-graph-title", spec.title));
     if (spec.sub) head.append(el("span", "nh-graph-sub", spec.sub));
     fig.append(head);
-    const values = spec.series.flatMap(s => s.values.filter(p => p.v != null).map(p => p.v));
+    // A point may carry `raw`: the reading behind a rolling average, drawn as a faint dot.
+    const values = spec.series.flatMap(s => s.values.flatMap(p => [p.v, p.raw]).filter(v => v != null));
     if (!values.length) {
         fig.append(el("div", "nh-graph-empty", "No readings in this range yet."));
         return;
@@ -425,6 +427,8 @@ function drawGraph(fig, spec) {
             }
             continue;
         }
+        const dots = s.values.filter(p => p.raw != null).map(p => `M${x(p.t).toFixed(1)},${y(p.raw).toFixed(1)}h0`).join("");
+        if (dots) root.append(svg("path", { d: dots, fill: "none", stroke: colour, "stroke-width": 3.2, "stroke-linecap": "round", opacity: 0.28, class: "nh-raw" }));
         let d = "", prev = null;
         for (const p of s.values) {
             if (p.v == null) { prev = null; continue; }
@@ -487,7 +491,8 @@ function addHover(box, root, spec, g) {
             const p = nearest(s.values, t);
             if (!p || Math.abs(p.t - t) > reach) continue;
             at = at ?? p.t;
-            rows.push(`${s.name}: ${p.note || (p.v == null ? "no reply" : `${num(p.v)}${spec.unit}`)}`);
+            const reading = p.raw != null && p.v != null && p.raw !== p.v ? ` (reading ${num(p.raw)}${spec.unit})` : "";
+            rows.push(`${s.name}: ${p.note || (p.v == null ? "no reply" : `${num(p.v)}${spec.unit}${reading}`)}`);
         }
         if (!rows.length) { line.setAttribute("visibility", "hidden"); tip.hidden = true; return; }
         line.setAttribute("x1", g.x(at)); line.setAttribute("x2", g.x(at)); line.setAttribute("visibility", "visible");
@@ -890,8 +895,9 @@ function drawInside(d) {
 // (6-second downloads every 30 min). Always the last 7 days.
 
 const BOX_HOURS = 168;
-const BOX_TARGET_NAMES = { gw: "First router past the OLT (CCR2004)", core: "CCR2116", airtel: "Airtel gateway", fra: "Frankfurt" };
+const BOX_TARGET_NAMES = { fra: "Frankfurt", gw: "the first router past the OLT (gw, CCR2004)", core: "the CCR2116 (core)", airtel: "the Airtel gateway" };
 const BOX_SIZES = [["", "Small packets", "--nh-c1"], ["-big", "Big packets (1400 bytes)", "--nh-c2"]];
+const pctOrDash = (v, digits = 0) => (v == null ? "—" : `${num(v, digits)} %`);
 
 function drawBox(d) {
     state.box = d;
@@ -904,7 +910,7 @@ function drawBox(d) {
     $("nh-box-sub").textContent = d.label ? `${d.label}` : "";
     box.hidden = !d.dev;
     lead.textContent = d.dev
-        ? `A probe machine on a real customer line (${d.label}), last ${d.days} days, Nairobi time · small packets against 1400-byte ones, and real downloads against the plan`
+        ? `A probe machine on a real customer line (${d.label}), last ${d.days} days, Nairobi time · Frankfurt is the main measure of loss; the lines are ${d.window_hours}-hour rolling averages, the faint dots the 5-minute readings`
         : "No readings yet. They start once the shipper sends the probe machine's box and boxspeed records.";
     if (d.dev) {
         drawBoxTiles(d);
@@ -915,43 +921,42 @@ function drawBox(d) {
 
 function drawBoxTiles(d) {
     const t = d.thresholds;
+    // The headline: Frankfurt's big packets over the last hour.
+    const lossBox = $("nh-box-loss-now");
+    const h = d.headline;
+    if (!h || h.fra_big == null) {
+        lossBox.replaceChildren(el("div", "nh-tile-label", "Big-packet loss to Frankfurt, last hour"),
+            el("p", "nh-tile-line", "No Frankfurt readings in the last hour. One every 5 min."));
+    } else {
+        const head = el("div", "nh-tile-head");
+        head.append(el("span", "nh-tile-value", pctOrDash(h.fra_big, 1)));
+        head.append(h.fra_big >= t.fra_big_pct ? el("span", "nh-badge nh-warn", "▲ Losing big packets") : el("span", "nh-badge nh-ok", "● Clean"));
+        const hops = d.hops.map(hop => `${hop} ${pctOrDash(h.hops_big[hop])}`).join(" · ");
+        const old = d.latest && (Date.now() - new Date(d.latest.at)) / 60000 > 20;
+        lossBox.replaceChildren(
+            el("div", "nh-tile-label", "Big-packet loss to Frankfurt, last hour"), head,
+            el("p", "nh-tile-line", `Small packets to Frankfurt ${pctOrDash(h.fra, 1)} · router hops, big packets: ${hops}`),
+            el("p", "nh-tile-sub", `${h.readings} reading${h.readings === 1 ? "" : "s"}${d.latest ? ` · latest ${hm(d.latest.at)}${old ? " (old)" : ""}` : ""}`
+                + ` · alert: ${t.window_minutes}-minute average of Frankfurt's big packets ${t.fra_big_pct} % or more, or the first router's ${t.gw_big_pct} %; clears under half of those`));
+    }
     const speed = d.speed_now;
     const speedBox = $("nh-box-speed-now");
     if (!speed) {
         speedBox.replaceChildren(el("div", "nh-tile-label", "Speed now"), el("p", "nh-tile-line", "No speed runs yet. One every 30 min."));
-    } else {
-        const head = el("div", "nh-tile-head");
-        head.append(el("span", "nh-tile-value", speed.pct_of_plan == null ? "—" : `${num(speed.pct_of_plan, 0)} % of plan`));
-        if (speed.pct_of_plan != null) {
-            head.append(speed.pct_of_plan < t.slow_pct ? el("span", "nh-badge nh-warn", "▲ Slow") : el("span", "nh-badge nh-ok", "● OK"));
-        }
-        const old = (Date.now() - new Date(speed.at)) / 60000 > 90;
-        speedBox.replaceChildren(
-            el("div", "nh-tile-label", "Speed now (6-second downloads)"), head,
-            el("p", "nh-tile-line", `Cloudflare (South Africa) ${speed.cf_mbps == null ? "—" : `${num(speed.cf_mbps, 1)} Mbps`}`
-                + ` · Frankfurt ${speed.fra_mbps == null ? "—" : `${num(speed.fra_mbps, 2)} Mbps`}`
-                + ` · plan ${speed.plan_mbps == null ? "—" : `${num(speed.plan_mbps, 0)} Mbps`}`),
-            el("p", "nh-tile-sub", `run at ${hm(speed.at)}${old ? " (old)" : ""} · alert: Cloudflare under ${t.slow_pct} % of plan, ${t.slow_in_a_row} runs in a row`));
-    }
-    const lossBox = $("nh-box-loss-now");
-    const latest = d.latest;
-    if (!latest) {
-        lossBox.replaceChildren(el("div", "nh-tile-label", "Big-packet loss now"), el("p", "nh-tile-line", "No ping readings yet. One every 5 min."));
         return;
     }
-    const big = latest.probes["gw-big"]?.loss;
     const head = el("div", "nh-tile-head");
-    head.append(el("span", "nh-tile-value", big == null ? "—" : `${num(big, 0)} %`));
-    if (big != null) head.append(big >= t.big_loss_pct ? el("span", "nh-badge nh-warn", "▲ Losing big packets") : el("span", "nh-badge nh-ok", "● Clean"));
-    const pair = target => {
-        const small = latest.probes[target]?.loss, large = latest.probes[`${target}-big`]?.loss;
-        return small == null && large == null ? null : `${target} ${small == null ? "—" : num(small, 0)} / ${large == null ? "—" : num(large, 0)} %`;
-    };
-    const old = (Date.now() - new Date(latest.at)) / 60000 > 20;
-    lossBox.replaceChildren(
-        el("div", "nh-tile-label", "1400-byte pings lost, first router (gw-big)"), head,
-        el("p", "nh-tile-line", `Small / big loss now: ${d.targets.map(pair).filter(Boolean).join(" · ") || "—"}`),
-        el("p", "nh-tile-sub", `reading at ${hm(latest.at)}${old ? " (old)" : ""} · alert: gw-big ${t.big_loss_pct} % or more, ${t.big_loss_in_a_row} readings in a row`));
+    head.append(el("span", "nh-tile-value nh-tile-value-sm", speed.pct_of_plan == null ? "—" : `${num(speed.pct_of_plan, 0)} % of plan`));
+    if (speed.pct_of_plan != null) {
+        head.append(speed.pct_of_plan < t.slow_pct ? el("span", "nh-badge nh-warn", "▲ Slow") : el("span", "nh-badge nh-ok", "● OK"));
+    }
+    const old = (Date.now() - new Date(speed.at)) / 60000 > 90;
+    speedBox.replaceChildren(
+        el("div", "nh-tile-label", "Speed now (6-second downloads)"), head,
+        el("p", "nh-tile-line", `Cloudflare (South Africa) ${speed.cf_mbps == null ? "—" : `${num(speed.cf_mbps, 1)} Mbps`}`
+            + ` · Frankfurt ${speed.fra_mbps == null ? "—" : `${num(speed.fra_mbps, 2)} Mbps`}`
+            + ` · plan ${speed.plan_mbps == null ? "—" : `${num(speed.plan_mbps, 0)} Mbps`}`),
+        el("p", "nh-tile-sub", `run at ${hm(speed.at)}${old ? " (old)" : ""} · alert: Cloudflare under ${t.slow_pct} % of plan, ${t.slow_in_a_row} runs in a row`));
 }
 
 function drawBoxGraphs() {
@@ -959,26 +964,33 @@ function drawBoxGraphs() {
     if (!d || d.error || !d.dev) return;
     const events = d.markers.map(m => ({ t: T(m.at), label: m.label }));
     const common = { hours: BOX_HOURS, bucketSeconds: d.bucket_seconds, events };
-    const value = (row, field) => ({ t: T(row.t), v: row[field] });
+    // A line per series: its rolling average, each point carrying the reading behind it.
+    const line = (times, probe) => times.map((t, i) => ({ t: t * 1000, v: probe.avg[i], raw: probe.raw[i] }));
+    const speed = d.speed;
     drawGraph($("nh-g-box-speed"), {
-        ...common, title: "Speed against the plan", unit: " Mbps", yFloor0: true,
-        sub: "one 6-second download every 30 min",
+        ...common, bucketSeconds: 1800, title: "Speed against the plan", unit: " Mbps", yFloor0: true,
+        sub: `${d.window_hours}-hour rolling average · dots: the 6-second downloads, one every 30 min`,
         series: [
-            { name: "Cloudflare (South Africa)", colour: "--nh-c1", values: d.speed.map(r => value(r, "cf_mbps")) },
-            { name: "Frankfurt", colour: "--nh-c2", values: d.speed.map(r => value(r, "fra_mbps")) },
-            { name: "Plan", colour: "--nh-other", dash: "6 4", values: d.speed.map(r => value(r, "plan_mbps")) },
+            { name: "Cloudflare (South Africa)", colour: "--nh-c1", values: line(speed.t, speed.cf) },
+            { name: "Frankfurt", colour: "--nh-c2", values: line(speed.t, speed.fra) },
+            { name: "Plan", colour: "--nh-other", dash: "6 4", values: speed.t.map((t, i) => ({ t: t * 1000, v: speed.plan[i] })) },
         ],
     });
-    // The four panels share one scale, so the gap between small and big reads the same on each.
-    const top = Math.max(d.thresholds.big_loss_pct * 1.5, ...d.loss.map(r => r.loss ?? 0));
-    for (const target of d.targets) {
+    // Every loss panel shares one scale, so the gap between small and big reads the same on each.
+    const peak = Math.max(...Object.values(d.loss.probes).flatMap(p => p.raw.filter(v => v != null)), 0);
+    const top = Math.max(d.thresholds.fra_big_pct * 1.5, d.thresholds.gw_big_pct * 1.2, peak);
+    const refs = { fra: d.thresholds.fra_big_pct, gw: d.thresholds.gw_big_pct };
+    for (const target of [d.primary, ...d.hops]) {
+        const primary = target === d.primary;
         drawGraph($(`nh-g-box-loss-${target}`), {
             ...common, title: `Packet loss to ${BOX_TARGET_NAMES[target] || target}`, unit: " %", yFloor0: true, yMax: top,
-            sub: `${target} · average per ${d.bucket_seconds / 60} min`,
-            refs: target === "gw" ? [{ v: d.thresholds.big_loss_pct, label: `alert ${d.thresholds.big_loss_pct}%` }] : [],
-            series: BOX_SIZES.map(([suffix, name, colour]) => ({
-                name, colour, values: d.loss.filter(r => r.name === `${target}${suffix}`).map(r => value(r, "loss")),
-            })),
+            sub: primary ? `${target} · the main measure: a real end-to-end server · ${d.window_hours}-hour rolling average over the 5-minute readings`
+                : `${target} · ${d.window_hours}-hour rolling average`,
+            refs: refs[target] != null ? [{ v: refs[target], label: `alert ${refs[target]}%` }] : [],
+            series: BOX_SIZES.map(([suffix, name, colour]) => {
+                const probe = d.loss.probes[`${target}${suffix}`];
+                return { name, colour, values: probe ? line(d.loss.t, probe) : [] };
+            }),
         });
     }
 }

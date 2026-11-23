@@ -10,6 +10,22 @@ and in `phase.md`'s own per-phase writeups.
 Its own branch from `main` (owner's call, 2026-11-21); deployed by merging into
 `phase-7-finance`, which production runs.
 
+### Network Health: Customer line card, rolling averages and a Frankfurt headline (2026-11-23)
+- **Charts**: the main line is now a **rolling 1-hour average** per series, with the raw
+  5-minute readings (or the 30-minute speed runs) as faint dots behind it; the hover shows
+  both.
+- **Frankfurt is the primary loss measure.** It has its own wide chart first; gw, core and
+  airtel are grouped under **Router hops**, with the note that routers answer pings at low
+  priority, so small-packet loss there can be the router, not the line.
+- **Headline**: "Big-packet loss to Frankfurt, last hour" is the card's main figure, with
+  the small-packet loss and the three hops' big-packet loss under it.
+- **Alert rule changed**: "Customer path losing big packets (CRS-OLT link?)" now judges the
+  rolling **30-minute average**: Frankfurt's big packets 8 % or more, OR the first router's
+  10 % or more. It clears when both are under half of those (the band between holds it),
+  and needs 5 of the 6 readings in the window. A dead path (small pings all lost) isn't
+  "losing big packets". The text says which path it was and the 30-minute average.
+- Diagnose is told the same (Frankfurt primary, hops caveat, the new rule).
+
 ### Network Health: Diagnose can look things up (2026-11-23)
 - **Diagnose now sees the customer line probe**: Kwa Mlima's small and 1400-byte
   pings to every target (15 min / 1 h / 24 h and hour by hour), its speed runs

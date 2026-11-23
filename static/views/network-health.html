@@ -111,15 +111,21 @@
             <p class="nh-panel-lead" id="nh-box-lead"></p>
             <div class="nh-box" id="nh-box" hidden>
                 <div class="nh-inside">
+                    <div class="nh-tile nh-tile-main" id="nh-box-loss-now"></div>
                     <div class="nh-tile" id="nh-box-speed-now"></div>
-                    <div class="nh-tile" id="nh-box-loss-now"></div>
                 </div>
                 <div class="nh-graphs nh-box-graphs" id="nh-box-graphs">
+                    <figure class="nh-graph nh-graph-wide" id="nh-g-box-loss-fra"></figure>
                     <figure class="nh-graph nh-graph-wide" id="nh-g-box-speed"></figure>
-                    <figure class="nh-graph" id="nh-g-box-loss-gw"></figure>
-                    <figure class="nh-graph" id="nh-g-box-loss-core"></figure>
-                    <figure class="nh-graph" id="nh-g-box-loss-airtel"></figure>
-                    <figure class="nh-graph" id="nh-g-box-loss-fra"></figure>
+                    <div class="nh-box-hops-head">
+                        <h3 class="nh-h3">Router hops</h3>
+                        <p class="nh-note">Routers answer pings at low priority, so small-packet loss here can be the router, not the line.</p>
+                    </div>
+                    <div class="nh-box-hops">
+                        <figure class="nh-graph" id="nh-g-box-loss-gw"></figure>
+                        <figure class="nh-graph" id="nh-g-box-loss-core"></figure>
+                        <figure class="nh-graph" id="nh-g-box-loss-airtel"></figure>
+                    </div>
                 </div>
             </div>
             <h3 class="nh-h3">Markers <span class="nh-h2-sub">a line on both charts, for before and after comparisons</span></h3>

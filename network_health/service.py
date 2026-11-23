@@ -18,7 +18,7 @@ import threading
 import time
 from datetime import datetime, timedelta, timezone
 
-from network_health import access, alerts, config, feed, inside, messages, routes, rules, store
+from network_health import access, alerts, boxline, config, feed, inside, messages, routes, rules, store
 
 log = logging.getLogger(__name__)
 
@@ -99,10 +99,8 @@ class Evaluation:
             self.judge_inner([r["ts"] for r in by_kind["inner"]])
         for record in by_kind.get("inner", []):
             self.judge_paths(record, "ccr2004", lambda n: n in config.INNER_PATH_PROBES, "INNER_PATH")
-        for record in by_kind.get("box", []):
-            check = rules.check_box_big_loss(record["probes"])
-            if check:
-                self.apply(check, record["ts"])
+        if "box" in by_kind:
+            self.judge_box(by_kind["box"])
         for record in by_kind.get("boxspeed", []):
             check = rules.check_box_slow(record["speed"])
             if check:
@@ -129,6 +127,20 @@ class Evaluation:
             self.judge_onts(by_kind["ont"])
         for record in by_kind.get("ppp", []):
             self.judge_ppp(record)
+
+    def judge_box(self, records):
+        """Each new `box` reading, judged on its dev's readings of the last
+        BOX_LOSS_WINDOW_MINUTES (the rolling average the owner asked for)."""
+        window = timedelta(minutes=config.BOX_LOSS_WINDOW_MINUTES)
+        stored = store.readings(self.cur, ["box"], records[0]["ts"] - window, records[-1]["ts"])
+        for record in records:
+            dev = record["probes"][0].get("dev")
+            recent = {r["ts"]: r for r in stored if record["ts"] - window < r["ts"] <= record["ts"]
+                      and r["probes"] and r["probes"][0].get("dev") == dev}
+            recent[record["ts"]] = record
+            check = rules.check_box_big_loss([recent[ts] for ts in sorted(recent)])
+            if check:
+                self.apply(check, record["ts"])
 
     # -- the access network (`ont`, `ppp`; `pon` is only shown) --
 
@@ -590,34 +602,49 @@ def areas_card():
 
 def box_card(dev=None):
     """'Customer line (probe)': the probe machine on a real customer line.
-    Its speed (Cloudflare and Frankfurt downloads against the plan) and its
-    ping loss, small against 1400-byte packets, over BOX_CHART_DAYS, with the
-    owner's manual markers (its alerts are listed with the Inside network's). `dev`: which machine (the newest reporter by default)."""
+    Frankfurt (a real end-to-end server) is the primary loss measure; gw,
+    core and airtel are router hops, which answer pings at low priority. Each
+    chart's main line is a rolling BOX_ROLLING_HOURS-hour average over the raw
+    readings (the dots behind it), over BOX_CHART_DAYS, with the owner's
+    manual markers. `dev`: which machine (the newest reporter by default)."""
     now = store.now_utc()
     since = now - timedelta(days=config.BOX_CHART_DAYS)
+    warm = since - timedelta(hours=config.BOX_ROLLING_HOURS)        # readings that only warm the average up
     with store.transaction() as cur:
         devs = store.box_devs(cur, since)
         dev = dev if dev in devs else (devs[0] if devs else None)
         markers = store.box_markers(cur)
         card = {"dev": dev, "label": config.BOX_NAMES.get(dev, dev) if dev else None,
                 "devs": [{"dev": d, "label": config.BOX_NAMES.get(d, d)} for d in devs],
-                "days": config.BOX_CHART_DAYS, "bucket_seconds": config.BOX_CHART_BUCKET_SECONDS,
-                "since": since, "now": now, "targets": list(config.BOX_TARGETS),
-                "loss": [], "speed": [], "latest": None, "speed_now": None,
+                "days": config.BOX_CHART_DAYS, "window_hours": config.BOX_ROLLING_HOURS,
+                "bucket_seconds": config.BOX_READING_SECONDS, "since": since, "now": now,
+                "primary": config.BOX_PRIMARY, "hops": list(config.BOX_HOPS),
+                "loss": {"t": [], "probes": {}}, "speed": boxline.speed_series([], since, config.BOX_ROLLING_HOURS),
+                "latest": None, "speed_now": None, "headline": None,
                 "markers": [{"id": m["id"], "at": m["at"], "label": m["label"]} for m in markers],
-                "thresholds": {"big_loss_pct": config.BOX_BIG_LOSS_PCT, "big_loss_in_a_row": config.BOX_BIG_LOSS_IN_A_ROW,
+                "thresholds": {"fra_big_pct": config.BOX_FRA_BIG_LOSS_PCT, "gw_big_pct": config.BOX_GW_BIG_LOSS_PCT,
+                               "clear_pct": round(config.BOX_LOSS_CLEAR_FRACTION * 100),
+                               "window_minutes": config.BOX_LOSS_WINDOW_MINUTES,
                                "slow_pct": round(config.BOX_SLOW_FRACTION * 100),
                                "slow_in_a_row": config.BOX_SLOW_IN_A_ROW}}
         if dev is None:
             return card
-        card["loss"] = store.box_loss_series(cur, dev, since, config.BOX_CHART_BUCKET_SECONDS)
-        card["speed"] = store.box_speeds(cur, dev, since)
+        rows = store.box_loss_series(cur, dev, warm, config.BOX_READING_SECONDS)
+        runs = store.box_speeds(cur, dev, warm)
         at, probes = store.box_latest(cur, dev)
+    card["loss"] = boxline.line_series(rows, since, config.BOX_ROLLING_HOURS)
+    card["speed"] = boxline.speed_series(runs, since, config.BOX_ROLLING_HOURS)
     if at is not None:
         card["latest"] = {"at": at, "probes": {p["name"]: {"loss": p.get("loss_pct"), "rtt": p.get("rtt_ms")}
                                                for p in probes}}
-    if card["speed"]:
-        last = card["speed"][-1]
+    # The headline: the last hour of readings, Frankfurt first.
+    fra_big, readings = boxline.hour_average(rows, f"{config.BOX_PRIMARY}-big", now)
+    card["headline"] = {
+        "hours": 1, "readings": readings, "fra_big": fra_big, "fra": boxline.hour_average(rows, config.BOX_PRIMARY, now)[0],
+        "hops_big": {hop: boxline.hour_average(rows, f"{hop}-big", now)[0] for hop in config.BOX_HOPS},
+        "hops": {hop: boxline.hour_average(rows, hop, now)[0] for hop in config.BOX_HOPS}}
+    if runs:
+        last = runs[-1]
         pct = None if last["cf_mbps"] is None or not last["plan_mbps"] else last["cf_mbps"] / last["plan_mbps"] * 100
         card["speed_now"] = {"at": last["t"], "cf_mbps": last["cf_mbps"], "fra_mbps": last["fra_mbps"],
                              "plan_mbps": last["plan_mbps"], "pct_of_plan": pct}
