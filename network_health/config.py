@@ -12,6 +12,7 @@ test), so one bad minute must not decide on its own. A rule fires after
 FIRE_AFTER bad checks in a row and clears after CLEAR_AFTER good ones, so
 it doesn't flap on a reading that sits right at the line.
 """
+from datetime import datetime, timezone
 
 # ---- The feed ----
 
@@ -155,6 +156,34 @@ PATH_LOSS_PCT = 20
 PATH_LOSS_IN_A_ROW = 3
 PATH_DOWN_IN_A_ROW = 2
 
+# ---- Customer line (probe) (owner, 2026-11-23) ----
+# A probe machine on a real customer line (`box` every 5 min: pings to gw /
+# core / airtel / fra, each with a 1400-byte "-big" twin; `boxspeed` every
+# 30 min: 6-second downloads from Cloudflare and Frankfurt). Nothing else
+# reads these; both kinds are stored in nh_readings' existing probes / speed
+# columns, the probe's `dev` inside each entry.
+BOX_TARGETS = ("gw", "core", "airtel", "fra")           # the loss chart's panels, in this order
+BOX_NAMES = {"home-kwamlima": "Kwa Mlima"}              # a dev's name on the page and in the SMS
+BOX_CHART_DAYS = 7
+BOX_CHART_BUCKET_SECONDS = 1800
+# Alerts. BIG_LOSS: gw-big (the 1400-byte ping to the first router past the
+# OLT) loses this much or more, in this many readings in a row. SLOW: the
+# Cloudflare download is under this fraction of the line's plan, in a row.
+BOX_ALERT_PROBE = "gw-big"
+BOX_BIG_LOSS_PCT = 10
+BOX_BIG_LOSS_IN_A_ROW = 3
+BOX_SLOW_FRACTION = 0.30
+BOX_SLOW_IN_A_ROW = 3
+# The probe's "fra" / "fra-big" read 100 % loss before this moment (a probe
+# bug, fixed 23 Nov 2026 03:30 EAT). Those values are dropped, never stored.
+BOX_FRA_PROBES = ("fra", "fra-big")
+BOX_FRA_VALID_FROM = datetime(2026, 11, 23, 0, 30, tzinfo=timezone.utc)
+# Manual markers on the two charts ("CRS-OLT DAC swapped"): nh_settings rows
+# "box_marker:<id>", one per marker.
+BOX_MARKER_PREFIX = "box_marker:"
+BOX_MARKER_LABEL_MAX = 80
+BOX_MARKERS_MAX = 200
+
 # Areas (`area`, one record per VLAN on the CCR2004 uplink every 5 min).
 # Names come from OPS's own VLAN list (monitored_sites + locations); VLAN 99
 # is the CCR2004's own link to the core, shown as its total, never judged.
@@ -288,7 +317,7 @@ CLEAR_AFTER = 3
 SMS_RULES = ("SPEED_LOW", "UPLINK_CONGESTED", "LATENCY_HIGH", "LINK_DOWN", "FEED_SILENT", "ROUTER_SILENT",
              "OLT_CRC", "OLT_RESTART", "OLT_LINK_DOWN", "OLT_SNMP_SILENT",
              "INNER_PATH_LOSS", "INNER_PATH_DOWN", "CUSTOMER_PATH_LOSS", "CUSTOMER_PATH_DOWN", "AREA_SILENT",
-             "LANLINK_DOWN", "LANLINK_DAMAGE",
+             "LANLINK_DOWN", "LANLINK_DAMAGE", "BOX_BIG_LOSS", "BOX_SLOW",
              "PON_DOWN", "PON_FIBRE_FAULT", "PON_POWER_CUT", "PON_LIGHT_DEGRADING", "SITE_PPP_DOWN", "PPP_MASS_DROP")
 # A restart is over by the time it is seen: its fire SMS says so, and there
 # is no "back to normal" SMS after it.

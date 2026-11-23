@@ -94,6 +94,8 @@
 .nh-grid { stroke: var(--rule-soft, var(--border)); stroke-width: 1; }
 .nh-ref { stroke: var(--text-faint); stroke-width: 1; stroke-dasharray: 4 4; }
 .nh-switch { stroke: var(--text-dim); stroke-width: 1.5; stroke-dasharray: 2 3; }
+.nh-event { stroke: var(--text-soft); stroke-width: 1.5; stroke-dasharray: 5 3; }
+.nh-event-label { fill: var(--text-soft); }
 .nh-cross { stroke: var(--text-dim); stroke-width: 1; }
 .nh-axis { fill: var(--text-faint); font-size: 10.5px; font-family: 'Inter', sans-serif; }
 .nh-outage { fill: var(--danger); }
@@ -348,3 +350,14 @@ body:not(:has(#view-network-health:not([hidden]))) .nh-ask-launcher > span { tra
 /* SMS Status > Network Health alerts */
 .sms-nh-lead { margin: 4px 0 12px; font-size: 13px; color: var(--text-dim); }
 #sms-status-nh[hidden], #sms-status-customers[hidden] { display: none; }
+
+/* ---- Customer line (probe) ---- */
+.nh-box { margin-top: 4px; }
+.nh-box .nh-inside { margin-bottom: 14px; }
+.nh-box-graphs { margin-top: 0; }
+.nh-marker-form { margin-bottom: 10px; }
+.nh-marker-form .nh-field input[type="text"] { min-width: min(20rem, 70vw); }
+.nh-markers { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 13px; color: var(--text-soft); }
+.nh-markers li { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.nh-markers .nh-marker-at { color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.nh-markers .nh-none { color: var(--text-dim); }

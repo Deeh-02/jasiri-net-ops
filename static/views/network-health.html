@@ -99,6 +99,36 @@
                 </table>
             </div>
 
+            <!-- ===== Customer line (probe): a probe machine on a real customer line (`box` every 5 min,
+                 `boxspeed` every 30 min). Always 7 days, whatever the range toggle says. ===== -->
+            <h2 class="nh-h2">Customer line (probe) <span class="nh-h2-sub" id="nh-box-sub"></span></h2>
+            <p class="nh-panel-lead" id="nh-box-lead"></p>
+            <div class="nh-box" id="nh-box" hidden>
+                <div class="nh-inside">
+                    <div class="nh-tile" id="nh-box-speed-now"></div>
+                    <div class="nh-tile" id="nh-box-loss-now"></div>
+                </div>
+                <div class="nh-graphs nh-box-graphs" id="nh-box-graphs">
+                    <figure class="nh-graph nh-graph-wide" id="nh-g-box-speed"></figure>
+                    <figure class="nh-graph" id="nh-g-box-loss-gw"></figure>
+                    <figure class="nh-graph" id="nh-g-box-loss-core"></figure>
+                    <figure class="nh-graph" id="nh-g-box-loss-airtel"></figure>
+                    <figure class="nh-graph" id="nh-g-box-loss-fra"></figure>
+                </div>
+            </div>
+            <h3 class="nh-h3">Markers <span class="nh-h2-sub">a line on both charts, for before and after comparisons</span></h3>
+            <form class="nh-settings nh-marker-form" id="nh-marker-form" hidden>
+                <label class="nh-field"><span>What happened</span>
+                    <input type="text" id="nh-marker-label" maxlength="80" required placeholder="CRS-OLT DAC swapped" autocomplete="off"></label>
+                <label class="nh-field"><span>When (Nairobi time)</span>
+                    <input type="datetime-local" id="nh-marker-at" required></label>
+                <div class="nh-settings-actions">
+                    <button type="submit" class="btn-primary">Add marker</button>
+                    <span class="nh-settings-msg" id="nh-marker-msg" role="status"></span>
+                </div>
+            </form>
+            <ul class="nh-markers" id="nh-box-markers"></ul>
+
             <h2 class="nh-h2">Inside links</h2>
             <p class="nh-panel-lead" id="nh-lanlinks-sub"></p>
             <div class="table-scroll table-compact">

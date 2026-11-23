@@ -165,6 +165,12 @@ def problem_text(rule, facts):
         return f"customer path via OLT losing packets, {number(facts.get('loss'))}% loss on {short(facts.get('probe'))}"
     if rule == "CUSTOMER_PATH_DOWN":
         return f"customer path via OLT DOWN, no reply on {short(facts.get('probe'))}"
+    if rule == "BOX_BIG_LOSS":
+        return (f"Customer path losing big packets (CRS-OLT link?): {number(facts.get('loss'))}% of 1400-byte pings "
+                f"lost at {gsm_name(facts.get('label') or facts.get('dev'), 20)}")
+    if rule == "BOX_SLOW":
+        return (f"Customer line slow: {number(facts.get('mbps'))}Mbps of {number(facts.get('plan'))}Mbps plan "
+                f"at {gsm_name(facts.get('label') or facts.get('dev'), 20)}")
     if rule == "AREA_SILENT":
         return f"Area {short(facts.get('area'), 30)} has gone silent: possible power or fibre cut at the site"
     if rule == "LANLINK_DOWN":
@@ -220,6 +226,8 @@ def recovered_text(rule, subject):
         "INNER_PATH_DOWN": f"CCR2004 path out ({short(subject)})",
         "CUSTOMER_PATH_LOSS": f"customer path ({short(subject)})",
         "CUSTOMER_PATH_DOWN": f"customer path ({short(subject)})",
+        "BOX_BIG_LOSS": f"customer path big packets ({gsm_name(config.BOX_NAMES.get(subject, subject), 20)})",
+        "BOX_SLOW": f"customer line speed ({gsm_name(config.BOX_NAMES.get(subject, subject), 20)})",
         "AREA_SILENT": f"area {short(subject, 44)}",
         "LANLINK_DOWN": f"link {link_label_of(subject)}",
         "LANLINK_DAMAGE": f"link {link_label_of(subject)} frames",
