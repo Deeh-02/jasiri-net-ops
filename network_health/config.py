@@ -230,6 +230,21 @@ LANLINK_LABELS = {
     ("crs326", "sfp-sfpplus3"): "CRS326 → OLT",
     ("crs326", "sfp-sfpplus4"): "CRS326 → Proxmox",
 }
+# The physical cables, one row each, both ends. A port counts errors only on
+# frames it RECEIVES, so damage on the way A -> B shows at B and damage B -> A
+# at A. An end is a `lanlink` port, the OLT's uplink (`olt` readings:
+# received CRC errors) or a box we don't read (the Proxmox server).
+LANLINK_CABLES = (
+    {"name": "CCR2116 ↔ CRS326", "a": {"label": "CCR2116", "dev": "ccr2116", "port": "sfp-sfpplus4"},
+     "b": {"label": "CRS326", "dev": "crs326", "port": "sfp-sfpplus1"}},
+    {"name": "CCR2004 ↔ CRS326", "a": {"label": "CCR2004", "dev": "ccr2004", "port": "sfp-sfpplus1"},
+     "b": {"label": "CRS326", "dev": "crs326", "port": "sfp-sfpplus2"}},
+    {"name": "CRS326 ↔ OLT", "a": {"label": "CRS326", "dev": "crs326", "port": "sfp-sfpplus3"},
+     "b": {"label": "OLT", "olt": True, "port": "0/19/0"}},
+    {"name": "CRS326 ↔ Proxmox", "a": {"label": "CRS326", "dev": "crs326", "port": "sfp-sfpplus4"},
+     "b": {"label": "Proxmox", "port": None}},
+)
+LANLINK_RED_PCT = 1                 # a direction is red when over this share of frames is damaged
 LANLINK_COUNTERS = ("link_downs", "rx_fcs", "rx_err", "rx_overflow", "tx_drop")
 LANLINK_DAMAGE_OVER = 100           # rx_fcs or rx_err up by more than this in one reading
 LANLINK_DROPS_OVER = 1000           # tx_drop up by more than this: page only

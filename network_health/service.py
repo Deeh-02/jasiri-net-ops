@@ -671,7 +671,8 @@ def inside_card(range_name):
     lookback = now - timedelta(days=config.INSIDE_LOOKBACK_DAYS)
     with store.transaction() as cur:
         # One reading before the range, so its first 5 minutes have a pair.
-        steps = inside.walk_olt(store.olt_readings(cur, since - timedelta(minutes=15), now))
+        olt_rows = store.olt_readings(cur, since - timedelta(minutes=15), now)
+        steps = inside.walk_olt(olt_rows)
         restarts = store.olt_restarts(cur, lookback)
         links = store.crs_link_records(cur, lookback)
         last_poll, last_success = store.olt_last_reads(cur)
@@ -679,8 +680,10 @@ def inside_card(range_name):
         day_ago = now - timedelta(hours=24)
         sparks = store.area_series(cur, day_ago, config.AREA_SPARK_BUCKET_SECONDS)
         latest_rates = inside.area_rates(store.area_readings(cur, now - timedelta(hours=1), now))
-        lanlinks = inside.lanlink_rows(store.lanlink_readings(cur, day_ago - timedelta(minutes=15), now), day_ago)
+        lanlink_readings = store.lanlink_readings(cur, day_ago - timedelta(minutes=15), now)
+        lanlinks = inside.lanlink_rows(lanlink_readings, day_ago)
         hop = store.hop_series(cur, since, bucket)
+    cables = inside.cable_rows(lanlink_readings, steps, olt_rows, now, day_ago)
     steps = [s for s in steps if s["ts"] > since]
     latest = next((s["interval"] for s in reversed(steps)
                    if s["interval"] and s["interval"]["crc_pct"] is not None), None)
@@ -704,6 +707,7 @@ def inside_card(range_name):
         "active": active,
         "areas": area_rows(names, sparks, latest_rates),
         "lanlinks": lanlinks,
+        "cables": cables,
         "hop": hop,
         "thresholds": {"path_loss_pct": config.PATH_LOSS_PCT, "area_silent_mbps": config.AREA_SILENT_MBPS,
                        "lanlink_damage_over": config.LANLINK_DAMAGE_OVER, "lanlink_drops_over": config.LANLINK_DROPS_OVER},

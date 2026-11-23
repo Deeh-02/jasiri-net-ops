@@ -54,6 +54,14 @@ def inputs():
         "thresholds": {"path_loss_pct": 20},
         "hop": probe_rows("h-olt-big", [(5, 1.7, 12.5), (20, 2.0, 8.0)]),
         "lanlinks": [{"dev": "crs326", "port": "sfp-sfpplus3", "label": "CRS326 → OLT", "day": {"rx_err": 14}}],
+        "cables": [{"name": "CRS326 ↔ OLT",
+                    "ends": [{"label": "CRS326", "port": "sfp-sfpplus3", "reported": True, "link_downs": {"day": 0, "total": 19},
+                              "tx_drop": {"day": 0, "total": 0}}, {"label": "OLT", "port": "0/19/0", "reported": True,
+                                                                  "link_downs": None, "tx_drop": None}],
+                    "a_to_b": {"from": "CRS326", "to": "OLT", "level": "red",
+                               "received": {"last": 130, "last_pct": 13.0, "day": 4000, "day_pct": 12.0, "total": 9000}},
+                    "b_to_a": {"from": "OLT", "to": "CRS326", "level": "green",
+                               "received": {"last": 0, "last_pct": None, "day": 0, "day_pct": None, "total": 0}}}],
         "areas": [{"vlan": 5, "name": "Njeri House", "is_total": False, "down_mbps": 4.0, "up_mbps": 1.0, "at": at(3),
                    "spark": [{"t": at(m), "down": d, "up": 0.5} for m, d in ((15, 4.0), (30, 6.0), (300, 20.0))]}],
     }
@@ -89,6 +97,13 @@ class Summary(unittest.TestCase):
         self.assertEqual(s["dns"]["g8"]["fails_24h"], 1)
         self.assertEqual(s["optics"]["link"]["rx_24h_min"], -6.9)
         self.assertEqual(s["areas"][0]["down_24h_median"], 6.0)
+
+    def test_cables_say_which_way_the_damage_goes(self):
+        cable = summary()["cables"][0]
+        self.assertEqual(cable["cable"], "CRS326 ↔ OLT")
+        self.assertEqual([(d["way"], d["level"]) for d in cable["damage"]], [("CRS326 -> OLT", "red"), ("OLT -> CRS326", "green")])
+        self.assertEqual(cable["damage"][0]["errors_5min_pct"], 13.0)
+        self.assertEqual([e["end"] for e in cable["ends"]], ["CRS326", "OLT"])
 
     def test_times_are_nairobi_text(self):
         s = summary()

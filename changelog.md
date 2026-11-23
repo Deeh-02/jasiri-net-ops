@@ -10,6 +10,21 @@ and in `phase.md`'s own per-phase writeups.
 Its own branch from `main` (owner's call, 2026-11-21); deployed by merging into
 `phase-7-finance`, which production runs.
 
+### Network Health: Inside links by cable, both ends (2026-11-23)
+- The **Inside links** table is now **one row per physical cable** with both ends, because a
+  port can only count errors on frames it *receives*: damage on the way A → B shows only at B.
+  Rows: CCR2116 ↔ CRS326, CCR2004 ↔ CRS326, CRS326 ↔ OLT, CRS326 ↔ Proxmox (server end not monitored).
+- **Damage A → B / B → A**: errors received at the far end (FCS + RX errors), as +5 min and +24 h,
+  with the share of damaged frames where it is known. The CRS326 → OLT direction is the OLT's own
+  CRC counter (the same figure as the OLT card), so it shows about 13 % and red while the DAC is
+  bad; OLT → CRS326 is the CRS326 port's own errors and stays green.
+- **Colours use increases, never totals**: red if errors rose in the last 5 minutes (or over 1 %
+  of frames were damaged), amber if any in the last 24 hours, green otherwise. Lifetime totals are
+  small grey text. A reading over 15 minutes old no longer counts as "the last 5 minutes".
+- **Link-downs and TX drops**: +24 h at each end, lifetime in small text.
+- Diagnose gets the same cables, with the direction of each figure spelled out. Alerts and the
+  shipper's `lanlink` / `olt` records are unchanged; no migration.
+
 ### Network Health: Customer line card, rolling averages and a Frankfurt headline (2026-11-23)
 - **Charts**: the main line is now a **rolling 1-hour average** per series, with the raw
   5-minute readings (or the 30-minute speed runs) as faint dots behind it; the hover shows
