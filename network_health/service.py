@@ -785,17 +785,22 @@ def access_card():
         "ppp_names": sorted(every_session),
         "active": active,
         "lookback_days": config.ACCESS_LOOKBACK_DAYS,
-        "thresholds": {"rx_overload_above": config.ONT_RX_OVERLOAD_ABOVE_DBM, "rx_weak_below": config.ONT_RX_WEAK_BELOW_DBM,
-                       "rx_bad_below": config.ONT_RX_BAD_BELOW_DBM, "olt_weak_below": config.OLT_RX_WEAK_BELOW_DBM,
-                       "olt_bad_below": config.OLT_RX_BAD_BELOW_DBM, "group_min": config.ACCESS_GROUP_MIN_ONTS,
-                       "splitter_m": config.SPLITTER_DISTANCE_M, "splitter_together": config.SPLITTER_TOGETHER_MIN,
-                       "drop_ont_db": config.LIGHT_DROP_ONT_DB, "drop_shared_db": config.LIGHT_DROP_SHARED_DB,
-                       # For the page's "What's on the OLT" panel, so it never quotes a stale number.
-                       "whole_pon_min": config.WHOLE_PON_MIN_ONTS, "shared_min": config.PON_SHARED_MIN_ONTS,
-                       "site_polls": config.SITE_PPP_MISSING_IN_A_ROW, "line_polls": config.LINE_NO_INTERNET_IN_A_ROW,
-                       "mass_drop_pct": round(config.PPP_MASS_DROP_FRACTION * 100),
-                       "mass_drop_min": config.PPP_MASS_DROP_MIN_SESSIONS},
+        "thresholds": access_thresholds(),
     }
+
+
+def access_thresholds():
+    """The access network rules' limits (config.py), for the "What's on the OLT"
+    panel, so it never quotes a stale number."""
+    return {"rx_overload_above": config.ONT_RX_OVERLOAD_ABOVE_DBM, "rx_weak_below": config.ONT_RX_WEAK_BELOW_DBM,
+            "rx_bad_below": config.ONT_RX_BAD_BELOW_DBM, "olt_weak_below": config.OLT_RX_WEAK_BELOW_DBM,
+            "olt_bad_below": config.OLT_RX_BAD_BELOW_DBM, "group_min": config.ACCESS_GROUP_MIN_ONTS,
+            "splitter_m": config.SPLITTER_DISTANCE_M, "splitter_together": config.SPLITTER_TOGETHER_MIN,
+            "drop_ont_db": config.LIGHT_DROP_ONT_DB, "drop_shared_db": config.LIGHT_DROP_SHARED_DB,
+            "whole_pon_min": config.WHOLE_PON_MIN_ONTS, "shared_min": config.PON_SHARED_MIN_ONTS,
+            "site_polls": config.SITE_PPP_MISSING_IN_A_ROW, "line_polls": config.LINE_NO_INTERNET_IN_A_ROW,
+            "mass_drop_pct": round(config.PPP_MASS_DROP_FRACTION * 100),
+            "mass_drop_min": config.PPP_MASS_DROP_MIN_SESSIONS}
 
 
 def area_rows(names, sparks, latest_rates):

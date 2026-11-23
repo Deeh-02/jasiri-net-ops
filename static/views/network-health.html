@@ -3,10 +3,10 @@
              Frankfurt shipper's feed (docs/network-health-ingest-contract.md).
              Not the Network Analysis page: nothing here is per customer.
              Every value is put on the page as text.
-             Three pages under one tab row, like Hotspot Status's:
-               Overview (#/network-health, with its own section tabs: Uplink,
-               Content routes, Inside network, Settings), Access network
-               (#/network-health/access) and Incidents (#/network-health/incidents).
+             One tab row, like Hotspot Status's: Uplink (#/network-health, with the
+               banner and the device cards), Inside network, Incidents (site visits
+               worked out from what SmartOLT reports, then every incident) and
+               Settings (admins). The ONUs and PON ports are on the OLT page.
              The alert texts are on SMS Status; the areas on Hotspot Status. -->
         <div class="page-header-row">
             <h1 class="page-title">Network <span>Health</span></h1>
@@ -19,25 +19,14 @@
             </div>
         </div>
 
-        <div class="sites-tabs tabs" role="tablist" aria-label="Network Health pages" id="nh-pages">
-            <button type="button" class="sites-tab tab" role="tab" data-nh-page="overview" id="nh-page-tab-overview" aria-selected="true">Overview</button>
-            <button type="button" class="sites-tab tab" role="tab" data-nh-page="access" id="nh-page-tab-access" aria-selected="false">Access network<span class="nh-tab-count" id="nh-count-access" hidden></span></button>
-            <button type="button" class="sites-tab tab" role="tab" data-nh-page="incidents" id="nh-page-tab-incidents" aria-selected="false">Incidents<span class="nh-tab-count" id="nh-count-incidents" hidden></span></button>
+        <div class="sites-tabs tabs" role="tablist" aria-label="Network Health" id="nh-tabs">
+            <button type="button" class="sites-tab tab" role="tab" data-nh-tab="uplink" id="nh-tab-uplink" aria-controls="nh-panel-uplink" aria-selected="true">Uplink</button>
+            <button type="button" class="sites-tab tab" role="tab" data-nh-tab="inside" id="nh-tab-inside" aria-controls="nh-panel-inside" aria-selected="false">Inside network<span class="nh-tab-count" id="nh-count-inside" hidden></span></button>
+            <button type="button" class="sites-tab tab" role="tab" data-nh-tab="incidents" id="nh-tab-incidents" aria-controls="nh-panel-incidents" aria-selected="false">Incidents<span class="nh-tab-count" id="nh-count-incidents" hidden></span></button>
+            <button type="button" class="sites-tab tab" role="tab" data-nh-tab="settings" id="nh-tab-settings" aria-controls="nh-panel-settings" aria-selected="false" hidden>Settings</button>
         </div>
-
-        <!-- ===== Overview: how things are now, then one section at a time ===== -->
-        <div id="nh-page-overview">
-        <div class="nh-banner" id="nh-banner" role="status" aria-live="polite">Loading&hellip;</div>
-
-        <div class="nh-devices" id="nh-devices" aria-label="Devices"></div>
-
-        <div class="nh-tabbar">
-            <div class="nh-sections" role="tablist" aria-label="Sections">
-                <button type="button" class="nh-section-tab" role="tab" data-nh-tab="uplink" id="nh-tab-uplink" aria-controls="nh-panel-uplink" aria-selected="true">Uplink</button>
-                <button type="button" class="nh-section-tab" role="tab" data-nh-tab="inside" id="nh-tab-inside" aria-controls="nh-panel-inside" aria-selected="false">Inside network<span class="nh-tab-count" id="nh-count-inside" hidden></span></button>
-                <button type="button" class="nh-section-tab" role="tab" data-nh-tab="settings" id="nh-tab-settings" aria-controls="nh-panel-settings" aria-selected="false" hidden>Settings</button>
-            </div>
-            <!-- The graphs on Uplink and Inside network follow it. -->
+        <!-- The graphs on Uplink and Inside network follow it. -->
+        <div class="nh-tabbar nh-rangebar">
             <div class="tabs nh-range" role="tablist" aria-label="Time range">
                 <button type="button" class="tab" role="tab" data-range="24h" aria-selected="true">24 hours</button>
                 <button type="button" class="tab" role="tab" data-range="7d" aria-selected="false">7 days</button>
@@ -47,6 +36,10 @@
         <!-- ===== Uplink: the Airtel link and the routers, then where content is served from
              (traceroutes at 21:00 and 04:00) ===== -->
         <div class="nh-panel" id="nh-panel-uplink" role="tabpanel" aria-labelledby="nh-tab-uplink">
+            <div class="nh-banner" id="nh-banner" role="status" aria-live="polite">Loading&hellip;</div>
+
+            <div class="nh-devices" id="nh-devices" aria-label="Devices"></div>
+
             <p class="nh-panel-lead">Speed and quality of the way out to the internet · <span id="nh-graphs-sub"></span></p>
             <div class="nh-graphs" id="nh-graphs">
                 <figure class="nh-graph nh-graph-wide" id="nh-g-uplink"></figure>
@@ -185,102 +178,11 @@
                 </details>
             </div>
         </div>
-        </div><!-- /nh-page-overview -->
 
-        <!-- ===== Access network: the OLT's PON ports and ONTs, read every
-             5 min, and the PPPoE sessions on the CCR2116 (home customers) and
-             the CCR2004 (sites). Always the last 7 days, whatever the range. ===== -->
-        <div class="nh-panel" id="nh-page-access" hidden>
-            <p class="nh-panel-lead" id="nh-access-sub"></p>
-            <ul class="nh-device-rules nh-inside-active nh-active-box" id="nh-access-active" aria-label="Active access network problems"></ul>
-
-            <h2 class="nh-h2">PON ports <span class="nh-h2-sub" id="nh-pons-sub"></span></h2>
-            <div class="table-scroll table-compact">
-                <table class="nh-table nh-pons">
-                    <thead><tr><th>PON</th><th>Online</th><th>Offline</th><th>Light</th><th>Weak / bad</th><th>Last event</th></tr></thead>
-                    <tbody id="nh-pons" data-skeleton="6"></tbody>
-                </table>
-            </div>
-
-            <div class="nh-section-head">
-                <h2 class="nh-h2">ONTs <span class="nh-h2-sub" id="nh-onts-sub"></span></h2>
-                <label class="nh-filter">PON
-                    <select id="nh-ont-pon"><option value="">All PONs</option></select>
-                </label>
-            </div>
-            <div class="table-scroll table-compact">
-                <table class="nh-table nh-onts">
-                    <thead><tr><th>ONT</th><th>Status</th><th>ONT receives (dBm)</th><th>OLT receives (dBm)</th><th>Distance</th><th>Last down</th><th>PPPoE</th><th>Light, 7 days</th></tr></thead>
-                    <tbody id="nh-onts" data-skeleton="8"></tbody>
-                </table>
-            </div>
-
-            <div class="nh-section-head">
-                <h2 class="nh-h2">Events <span class="nh-h2-sub" id="nh-events-sub"></span></h2>
-                <label class="nh-filter">Show
-                    <select id="nh-events-kind">
-                        <option value="">Everything</option>
-                        <option value="ont">ONTs</option>
-                        <option value="ppp">PPPoE</option>
-                        <option value="link">Links</option>
-                    </select>
-                </label>
-            </div>
-            <div class="table-scroll table-compact nh-events-scroll">
-                <table class="nh-table nh-events">
-                    <thead><tr><th>Time</th><th>Event</th><th>Detail</th></tr></thead>
-                    <tbody id="nh-events" data-skeleton="3"></tbody>
-                </table>
-            </div>
-
-            <h2 class="nh-h2">PPPoE sessions <span class="nh-h2-sub" id="nh-ppp-sub"></span></h2>
-            <div class="table-scroll table-compact">
-                <table class="nh-table">
-                    <thead><tr><th>Router</th><th>Sessions</th><th>Missing now</th><th>Reading</th></tr></thead>
-                    <tbody id="nh-ppp" data-skeleton="4"></tbody>
-                </table>
-            </div>
-
-            <details class="nh-more">
-                <summary>Stale registrations <span class="nh-h2-sub" id="nh-stale-count"></span></summary>
-                <p class="nh-note">On the OLT but never online since first seen. Never alerted on.</p>
-                <div class="table-scroll table-compact">
-                    <table class="nh-table">
-                        <thead><tr><th>ONT</th><th>PON</th><th>First seen</th></tr></thead>
-                        <tbody id="nh-stale" data-skeleton="3"></tbody>
-                    </table>
-                </div>
-            </details>
-
-            <!-- Network Health > Admin only (the server checks it too). -->
-            <details class="nh-more" id="nh-matches-box" hidden>
-                <summary>ONT ↔ PPPoE matches set by hand <span class="nh-h2-sub">admin</span></summary>
-                <p class="nh-note">For ONTs whose name doesn't match their PPPoE session on its own (by JS code, or the site
-                    name). "No PPPoE session" stops the "line up, no internet" check for that ONT.</p>
-                <form class="nh-settings nh-match-form" id="nh-match-form">
-                    <label class="nh-field"><span>ONT</span><select id="nh-match-ont" required></select></label>
-                    <label class="nh-field"><span>PPPoE session</span>
-                        <input type="text" id="nh-match-ppp" list="nh-ppp-names" maxlength="64" autocomplete="off"></label>
-                    <datalist id="nh-ppp-names"></datalist>
-                    <label class="nh-check"><input type="checkbox" id="nh-match-none"> No PPPoE session</label>
-                    <div class="nh-settings-actions">
-                        <button type="submit" class="btn-primary">Save match</button>
-                        <span class="nh-settings-msg" id="nh-match-msg" role="status"></span>
-                    </div>
-                </form>
-                <div class="table-scroll table-compact">
-                    <table class="nh-table">
-                        <thead><tr><th>ONT</th><th>PPPoE session</th><th></th></tr></thead>
-                        <tbody id="nh-matches"></tbody>
-                    </table>
-                </div>
-            </details>
-        </div>
-
-        <!-- ===== Incidents ===== -->
-        <div class="nh-panel" id="nh-page-incidents" hidden>
-            <h2 class="nh-h2 nh-h2-first">Field jobs <span class="nh-h2-sub">worked out from the light levels and the alerts, most urgent first</span></h2>
-            <ul class="nh-jobs" id="nh-jobs"></ul>
+        <!-- ===== Incidents: site visits (what SmartOLT reports), then every incident ===== -->
+        <div class="nh-panel" id="nh-panel-incidents" role="tabpanel" aria-labelledby="nh-tab-incidents" hidden>
+            <h2 class="nh-h2 nh-h2-first">Site visits <span class="nh-h2-sub" id="nh-visits-sub">what SmartOLT reports: lost light and weak signal, most urgent first</span></h2>
+            <ul class="nh-jobs" id="nh-visits"></ul>
 
             <h2 class="nh-h2">Incidents <span class="nh-h2-sub">newest first · open ones are marked on the left · the alert texts are on SMS Status</span></h2>
             <div class="table-scroll table-compact">
@@ -290,7 +192,6 @@
                 </table>
             </div>
         </div>
-
 
         <!-- Side panel: what the OLT is and what Network Health looks for on it.
              The numbers are filled in from the page's own thresholds (config.py),
@@ -370,9 +271,9 @@
                 <section>
                     <h3>Where to look</h3>
                     <ul>
-                        <li><strong>Access network:</strong> PON ports, every ONT with its light, events, PPPoE.</li>
-                        <li><strong>Incidents:</strong> field jobs, worked out from the light and the alerts, then every incident.</li>
-                        <li><strong>Overview &gt; Inside network:</strong> the OLT's uplink and restarts.</li>
+                        <li><strong>OLT &gt; PON:</strong> every PON port with its ONUs and SmartOLT's own signal grades; a row opens its ONUs.</li>
+                        <li><strong>Incidents:</strong> site visits, from what SmartOLT reports, then every incident.</li>
+                        <li><strong>Inside network:</strong> the OLT's uplink and restarts.</li>
                     </ul>
                 </section>
             </div>

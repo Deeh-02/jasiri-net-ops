@@ -13,6 +13,7 @@
             <div class="olt-tabs tabs" role="tablist">
                 <button type="button" class="olt-tab tab" role="tab" data-tab="configured" aria-selected="true">Configured <span class="olt-tab-count" id="olt-count-configured"></span></button>
                 <button type="button" class="olt-tab tab" role="tab" data-tab="unconfigured" aria-selected="false">Unconfigured <span class="olt-tab-count" id="olt-count-unconfigured"></span></button>
+                <button type="button" class="olt-tab tab" role="tab" data-tab="pon" aria-selected="false">PON <span class="olt-tab-count" id="olt-count-pon"></span></button>
                 <button type="button" class="olt-tab tab" role="tab" data-tab="customers" aria-selected="false">Links <span class="olt-tab-count" id="olt-count-links"></span></button>
             </div>
 
@@ -76,6 +77,18 @@
                     </table>
                 </div>
             </div>
+
+        <!-- PON: every PON port on the OLT, from what SmartOLT reports (its
+             statuses and its own signal grades). A row opens Configured with
+             that port selected. -->
+        <div id="olt-pon-panel" hidden>
+            <div class="toolbar">
+                <p class="olt-hint">Each PON port on the OLT, with SmartOLT's own statuses and signal grades. Open one to see its ONUs.</p>
+                <div class="toolbar-end"><span class="toolbar-count" id="olt-pon-shown"></span></div>
+            </div>
+            <div class="net-stale" id="olt-pon-stale" hidden></div>
+            <ul class="olt-pons" id="olt-pons" aria-label="PON ports"></ul>
+        </div>
 
         <!-- Customers (6B): which customer each ONU belongs to. OPS only
              suggests; an admin confirms every link. -->

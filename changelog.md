@@ -25,6 +25,28 @@ Started 2026-11-15 at the owner's request, after Phase 6 was merged to `main`.
   "losing big packets". The text says which path it was and the 30-minute average.
 - Diagnose is told the same (Frankfurt primary, hops caveat, the new rule).
 
+### Network Health: Access network moves to the OLT page (2026-11-23)
+- **The OLT page has a PON tab**: Configured | Unconfigured | **PON** | Links. One row per PON
+  port ("PON 0/1/1"), with how many ONUs it has and how many are online, LOS, on power
+  fail or offline. The light verdict is **SmartOLT's own**: its signal grades (Very good,
+  Warning, Critical) and its LOS status, counted on the server (`db/olt_pons.py`), never
+  OPS's own dBm limits. A row opens **Configured** with that PON port selected
+  (`#/olt/port/1/1`).
+- **Network Health's Access network page is gone** (the ONT table, PON ports, events, PPPoE
+  sessions, stale registrations and the hand-set ONT ↔ PPPoE matches). The old link
+  `#/network-health/access` opens the OLT page's PON tab. The page is now one tab row,
+  like Hotspot Status's: **Uplink** (with the banner and the device cards), **Inside
+  network**, **Incidents**, **Settings** (admins). No Overview.
+- **Field jobs became Site visits**, at the top of Incidents, and follow what SmartOLT
+  says: several ONUs of one PON with LOS, most graded ONUs of one PON Warning or
+  Critical, one ONU with LOS, Critical or Warning. A power cut at the customer and ONUs
+  disabled in SmartOLT are not visits. Each opens the PON or the ONU on the OLT page.
+  New read-only `GET /olt/visits` (Sites > Network, like the OLT page), and
+  `GET /network/health/access/thresholds` for the "What's on the OLT" panel's numbers.
+- **Not changed**: the shipper's `ont` / `ppp` readings are still stored and the access
+  alert rules (a whole PON down, a site's PPPoE gone, a mass PPPoE drop, light
+  degrading) still run, show in Incidents and text as before.
+
 ### Network Health: Diagnose can look things up (2026-11-23)
 - **Diagnose now sees the customer line probe**: Kwa Mlima's small and 1400-byte
   pings to every target (15 min / 1 h / 24 h and hour by hour), its speed runs

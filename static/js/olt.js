@@ -17,6 +17,7 @@ const state = {
     search: "",
     zone: "",
     port: "",
+    wantPort: null,       // a PON port ("1/1") to select when the list arrives
     unconfigured: null,
     canAuthorize: false,
     writesEnabled: true,
@@ -193,15 +194,66 @@ async function loadList() {
         fillSelect($("olt-zone"), [...new Set(state.list.onus.map(o => o.zone).filter(Boolean))].sort(), "All zones");
         fillSelect($("olt-port"), [...new Set(state.list.onus.filter(o => o.board != null).map(o => `${o.board}/${o.port}`))]
             .sort((a, b) => a.localeCompare(b, undefined, { numeric: true })), "All ports");
+        // A PON row asked for this port: select it once the list knows it.
+        if (state.wantPort != null) { $("olt-port").value = state.wantPort; state.wantPort = null; }
         state.zone = $("olt-zone").value;
         state.port = $("olt-port").value;
         renderChips();
         renderFreshness();
         renderList();
+        renderPons();
     } catch (e) {
         if (!state.list) $("olt-onus").innerHTML = stateRow(12, "error", e.message);
         else { $("olt-stale").hidden = false; $("olt-stale").textContent = `Couldn't refresh: ${e.message}`; }
     }
+}
+
+// ---- PON ----
+// SmartOLT's own verdict on each port's light: its signal grades and its LOS
+// status, counted on the server (db/olt_pons.py). Nothing here judges dBm.
+
+const PON_LEVEL = { good: ["●", "Good signal", "olt-online"], warn: ["▲", "Warning", "olt-warn-text"],
+                    bad: ["▼", "Critical", "olt-down"], unknown: ["○", "No signal reading", "olt-unknown"] };
+
+function ponCount(p) {
+    const parts = [`${p.total} ONU${p.total === 1 ? "" : "s"}`, `${p.online} online`];
+    if (p.los) parts.push(`${p.los} LOS`);
+    if (p.power_fail) parts.push(`${p.power_fail} power fail`);
+    if (p.offline) parts.push(`${p.offline} offline`);
+    if (p.critical) parts.push(`${p.critical} critical`);
+    if (p.warning) parts.push(`${p.warning} warning`);
+    return parts.join(" · ");
+}
+
+function renderPons() {
+    const p = state.list;
+    if (!p) return;
+    const pons = p.pons || [];
+    $("olt-count-pon").textContent = pons.length ? String(pons.length) : "";
+    $("olt-pon-shown").textContent = pons.length ? `${pons.length} PON ports` : "";
+    $("olt-pon-stale").hidden = !p.signal_stale || !p.signal_polled_at;
+    $("olt-pon-stale").textContent = p.signal_polled_at ? `Signal grades last updated ${when(p.signal_polled_at)}, not current.` : "";
+    if (!pons.length) {
+        $("olt-pons").replaceChildren(el("li", "olt-hint", p.total ? "No ONU has a PON port yet." : "No ONUs from SmartOLT yet."));
+        return;
+    }
+    $("olt-pons").replaceChildren(...pons.map(pon => {
+        const item = el("li");
+        const row = el("button", "olt-pon");
+        row.type = "button";
+        row.dataset.port = pon.key;
+        const [glyph, level, cls] = PON_LEVEL[pon.level] || PON_LEVEL.unknown;
+        // Bad from LOS alone is SmartOLT's status, not a signal grade: say which.
+        const word = pon.level === "bad" && !pon.critical ? "Lost light (LOS)" : level;
+        const main = el("span", "olt-pon-main");
+        main.append(el("span", "olt-pon-name", `PON ${pon.label}`), el("span", "olt-pon-count", ponCount(pon)));
+        const side = el("span", "olt-pon-side");
+        side.append(el("span", `olt-badge ${cls}`, `${glyph} ${word}`), el("span", "olt-pon-more", "›"));
+        row.append(main, side);
+        row.setAttribute("aria-label", `PON ${pon.label}: ${ponCount(pon)}. ${word}. Show its ONUs`);
+        item.append(row);
+        return item;
+    }));
 }
 
 // ---- Unconfigured ----
@@ -1598,6 +1650,7 @@ function showTab(tab) {
     $("olt-configured-panel").hidden = tab !== "configured";
     $("olt-unconfigured-panel").hidden = tab !== "unconfigured";
     $("olt-links-panel").hidden = tab !== "customers";
+    $("olt-pon-panel").hidden = tab !== "pon";
     // Every tab's data loads either way, so each tab's count is right.
     loadList();
     loadLos();
@@ -1637,6 +1690,10 @@ export function initOlt() {
     $("olt-search").addEventListener("input", e => { state.search = e.target.value; renderList(); });
     $("olt-zone").addEventListener("change", e => { state.zone = e.target.value; renderList(); });
     $("olt-port").addEventListener("change", e => { state.port = e.target.value; renderList(); });
+    $("olt-pons").addEventListener("click", e => {
+        const row = e.target.closest("button[data-port]");
+        if (row) navigate(`olt/port/${row.dataset.port}`);       // 1/1 -> #/olt/port/1/1
+    });
     $("olt-onus").addEventListener("click", e => {
         const row = e.target.closest("tr.olt-row");
         if (row) navigate(`olt/onu/${encodeURIComponent(row.dataset.id)}`);
@@ -1708,7 +1765,17 @@ export function initOlt() {
             openOnu(decodeURIComponent(params[1]));
             return;
         }
-        showTab(["unconfigured", "customers"].includes(params[0]) ? params[0] : "configured");
+        // #/olt/port/<board>/<port>: Configured, with that PON port selected.
+        const port = params[0] === "port" && params[1] != null && params[2] != null ? `${params[1]}/${params[2]}` : null;
+        if (port) {
+            state.wantPort = port;
+            state.filter = "";
+            state.search = "";
+            $("olt-search").value = "";
+            if (state.list) { $("olt-port").value = port; state.port = $("olt-port").value; state.wantPort = null; }
+        }
+        showTab(["unconfigured", "customers", "pon"].includes(params[0]) ? params[0] : "configured");
+        if (port && state.list) renderList();
         startPolling();
     });
 }

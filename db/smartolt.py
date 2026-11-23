@@ -49,6 +49,7 @@ from decimal import Decimal, InvalidOperation
 
 import requests
 
+from db import olt_pons
 from db.connection import EAT, db_cursor
 
 log = logging.getLogger(__name__)
@@ -438,6 +439,7 @@ def build_list(rows, now):
             "administrative_status": d.get("administrative_status"),
         }
 
+    onus = sorted((onu(r) for r in rows), key=lambda o: o["authorization_date"] or "", reverse=True)
     return {
         "configured": configured(),
         "writes_enabled": writes_enabled(),
@@ -452,8 +454,20 @@ def build_list(rows, now):
         "details_stale": details_at is None or now - details_at > DETAILS_STALE,
         "webhook_at": _iso(webhook_state["last_at"]),
         # Newest authorization first, like SmartOLT's own list.
-        "onus": sorted((onu(r) for r in rows), key=lambda o: o["authorization_date"] or "", reverse=True),
+        "onus": onus,
+        # The PON tab: per port, SmartOLT's own statuses and signal grades.
+        "pons": olt_pons.pon_rows(onus),
     }
+
+
+def site_visits(now=None):
+    """The jobs someone has to go out for, from what SmartOLT reports (see
+    olt_pons.site_visits), and how fresh that is."""
+    listing = configured_list(now)
+    return {"configured": listing["configured"], "visits": olt_pons.site_visits(listing["onus"]),
+            "total": listing["total"], "status_polled_at": listing["status_polled_at"],
+            "signal_polled_at": listing["signal_polled_at"], "status_stale": listing["status_stale"],
+            "signal_stale": listing["signal_stale"]}
 
 
 # ---- Live reads, through a short cache ----

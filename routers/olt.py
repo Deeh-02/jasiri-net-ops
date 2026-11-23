@@ -67,6 +67,17 @@ def configured_onus(current_user: dict = Depends(require_network_view)):
     return {**data, "can_authorize": can_olt(current_user, "authorize")}
 
 
+@router.get("/olt/visits")
+def site_visits(current_user: dict = Depends(require_network_view)):
+    """Jobs someone has to go out for, from what SmartOLT reports (status and
+    signal grade). Shown on Network Health > Incidents."""
+    smartolt.poll_if_due()
+    try:
+        return smartolt.site_visits()
+    except (pg_errors.UndefinedColumn, pg_errors.UndefinedTable):
+        raise HTTPException(status_code=503, detail="The OLT tables aren't set up yet.")
+
+
 @router.get("/olt/onus/{onu_id}")
 def onu_details(onu_id: str, current_user: dict = Depends(require_network_view)):
     try:
