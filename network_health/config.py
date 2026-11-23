@@ -357,3 +357,5 @@ DIAGNOSE_MAX_TURNS = 20             # messages sent back per question (the page 
 DIAGNOSE_QUESTION_MAX = 4000        # characters in one question
 DIAGNOSE_ANSWER_MAX = 20000         # characters in one earlier answer sent back
 DIAGNOSE_TIMEOUT_SECONDS = 600
+# Rounds of lookups (diagnose_tools) Claude may make for one answer.
+DIAGNOSE_MAX_LOOKUPS = 6
