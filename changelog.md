@@ -9,6 +9,18 @@ and in `phase.md`'s own per-phase writeups.
 
 Started 2026-11-15 at the owner's request, after Phase 6 was merged to `main`.
 
+### Network Health: Diagnose can look things up (2026-11-23)
+- **Diagnose now sees the customer line probe**: Kwa Mlima's small and 1400-byte
+  pings to every target (15 min / 1 h / 24 h and hour by hour), its speed runs
+  against the plan, and the markers. Before, it only saw the alert's text.
+- **It can look more up itself** when the snapshot isn't enough, up to 6 rounds
+  an answer, read-only: the customer line's history, any probe by name, the OLT's
+  damaged frames, the uplink load (each up to 7 days, at the bucket it picks),
+  one ONT's light and events, and past incidents. The answer's footer says what
+  it looked up; the cost shown covers every request.
+- Its instructions now say what the customer line is and that an alert's text
+  quotes the latest reading, not one true since it started.
+
 ### Network Health: "Customer line (probe)" card (2026-11-23)
 - **A probe machine on a real customer line** (Kwa Mlima, `home-kwamlima`, 15 Mbps
   plan) now reports to Network Health: two new shipper kinds, `box` (pings every

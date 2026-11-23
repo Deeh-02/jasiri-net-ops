@@ -361,6 +361,19 @@ def box_speeds(cur, dev, since):
             for r in cur.fetchall()]
 
 
+def probe_series(cur, names, since, bucket_seconds):
+    """Named probes from any probe list (probe, inner, hop, box), averaged
+    per bucket: [{t, name, loss, rtt, jitter, n}]. For Diagnose's lookups."""
+    cur.execute(
+        f"""SELECT {BUCKET} AS b, p->>'name', avg((p->>'loss_pct')::float8), avg((p->>'rtt_ms')::float8),
+                   avg((p->>'jitter_ms')::float8), count(*)
+            FROM nh_readings r CROSS JOIN LATERAL jsonb_array_elements(r.probes) p
+            WHERE r.kind IN ('probe', 'inner', 'hop', 'box') AND r.ts >= %(since)s AND p->>'name' = ANY(%(names)s)
+            GROUP BY b, 2 ORDER BY b""",
+        {"since": since, "bucket": bucket_seconds, "names": list(names)})
+    return [{"t": r[0], "name": r[1], "loss": r[2], "rtt": r[3], "jitter": r[4], "n": r[5]} for r in cur.fetchall()]
+
+
 def box_markers(cur):
     """The manual markers on the two charts, oldest first: [{id, at, label}]."""
     cur.execute("SELECT key, value FROM nh_settings WHERE left(key, %s) = %s",

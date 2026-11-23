@@ -1561,6 +1561,7 @@ function drawDxControls() {
 
 function metaLine(meta) {
     const bits = [meta.model_label, `${meta.effort} effort`];
+    if (meta.lookups?.length) bits.push(`looked up: ${meta.lookups.join(", ")}`);
     if (meta.cost_usd != null) bits.push(usd(meta.cost_usd));
     if (meta.truncated) bits.push("cut short: hit the length limit");
     return bits.join(" · ");
@@ -1649,7 +1650,7 @@ async function askDx(question) {
                                    messages: dxMessages() }),
         });
         dx.convo.turns.push({ role: "assistant", content: a.text,
-                              meta: { model_label: a.model_label, effort: a.effort, cost_usd: a.cost_usd, truncated: a.truncated } });
+                              meta: { model_label: a.model_label, effort: a.effort, cost_usd: a.cost_usd, truncated: a.truncated, lookups: a.lookups || [] } });
         dxSave();
         typing.remove();
         feed.append(dxBubble(dx.convo.turns.at(-1)));
