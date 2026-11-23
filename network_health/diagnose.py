@@ -161,6 +161,25 @@ def _route(site, detailed):
     return row
 
 
+def _cable_direction(direction):
+    """One way along a cable: the errors the FAR end received."""
+    received = direction.get("received")
+    out = {"way": f"{direction['from']} -> {direction['to']}", "level": direction.get("level")}
+    if not received:
+        out["note"] = "receiving end not monitored"
+        return out
+    out.update(errors_5min=received["last"], errors_5min_pct=received["last_pct"], errors_24h=received["day"],
+               errors_24h_pct=received["day_pct"], lifetime=received["total"])
+    return out
+
+
+def _cable(cable):
+    ends = [{"end": e["label"], "link_downs_24h": (e.get("link_downs") or {}).get("day"),
+             "tx_drops_24h": (e.get("tx_drop") or {}).get("day")} for e in cable["ends"] if e.get("reported")]
+    return {"cable": cable["name"], "damage": [_cable_direction(cable["a_to_b"]), _cable_direction(cable["b_to_a"])],
+            "ends": ends}
+
+
 def _area(row, now, starts, detailed):
     spark = row.get("spark") or []
     downs = [p.get("down") for p in spark if p.get("down") is not None]
@@ -271,6 +290,7 @@ def summarise(now, overview, charts, inside, routes_card, incidents, active, det
         "dns": dns,
         "olt": olt,
         "lanlinks": [{k: v for k, v in r.items() if k != "dev"} for r in inside.get("lanlinks") or []],
+        "cables": [_cable(c) for c in inside.get("cables") or []],
         "areas": [_area(r, now, starts, detailed) for r in inside.get("areas") or []],
         "routes": [_route(s, detailed) for s in (routes_card or {}).get("sites") or []],
         "access_network": _access(access),
@@ -329,6 +349,7 @@ The network:
 - CCR2004: a second router serving customer areas, one VLAN per area ("areas", download Mbps). VLAN 99 "CCR2004 total" is its link to the core, not an area.
 - OLT: Huawei MA5680T, GPON to customers. olt.crc is the % of frames arriving damaged on its uplink port from the CRS326 (green under 0.01 %, red over 1 %). restarts = OLT reboots (power switchovers cause about two a week).
 - lanlinks: port error counters on the inside links (link_downs, rx_fcs, rx_err, rx_overflow, tx_drop): totals, last 5 minutes, last 24 hours.
+- cables: one entry per physical cable with both ends. A port only counts errors on frames it RECEIVES, so damage on the way A -> B is counted at B. "damage" has both ways ("CRS326 -> OLT" is counted by the OLT's CRC counter, which is also olt.crc). level red = errors rose in the last 5 minutes or over 1 % of frames; amber = some in 24 h; green = none. Lifetime totals are history, never a current problem.
 - access_network: the OLT's PON ports and ONTs (GPON) and the PPPoE sessions. rx_dbm = light the ONT receives (downstream), olt_rx_dbm = light the OLT receives from it (upstream); levels use light_thresholds_dbm. last_down: "LOSi/LOBi (light loss)" = fibre, "dying-gasp (power)" = the ONT lost power, resets = reboot. Several ONTs on one PON down together with light loss point at shared fibre or a splitter; with dying-gasp, a power cut. Bad in one direction only points at that ONT's optics or connector. ppp_routers: the CCR2116 has the home customers (JSxx), the CCR2004 the hotspot sites. An ONT online with its PPPoE session missing is a line that is up with no internet (RADIUS, router or the customer's equipment).
 
 Probes (10 pings a test; loss in %, rtt in ms; no reply at all = outage):

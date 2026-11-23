@@ -778,31 +778,71 @@ function drawLinkEvents(d) {
 
 // ---- Inside links: port counters on the CCR2116, CCR2004 and CRS326 ----
 
-const LANLINK_COLUMNS = [["link_downs", "Link downs"], ["rx_fcs", "FCS errors"], ["rx_err", "RX errors"],
-                         ["rx_overflow", "RX overflow"], ["tx_drop", "TX drops"]];
+const fmtCount = v => (v == null ? "—" : Math.round(v).toLocaleString("en-GB"));
+const fmtPct = v => (v == null ? "" : ` (${v >= 10 ? Math.round(v) : +v.toFixed(2)} %)`);
+const DAMAGE_LEVEL = {
+    red: ["◆", "Damaged now", "nh-bad"],
+    amber: ["▲", "Damaged in the last 24 h", "nh-warn"],
+    green: ["●", "None", "nh-ok"],
+};
 
-function counterCell(row, counter) {
-    const total = row.totals?.[counter];
-    if (total == null) return el("span", "nh-route-note", "not reported");
-    const wrap = el("span", "nh-counter");
-    wrap.append(el("span", null, Math.round(total).toLocaleString("en-GB")));
-    const last = row.last?.[counter], day = row.day?.[counter];
-    const change = el("span", "nh-counter-change", `+${last == null ? "—" : last.toLocaleString("en-GB")} in 5 min · +${day == null ? "—" : day.toLocaleString("en-GB")} in 24 h`);
-    if (last) change.classList.add("is-rising");
-    wrap.append(change);
+// Damage one way: the errors the FAR end received. Red if they went up in the
+// last 5 min (or over 1 % of the frames), amber if any in 24 h. Lifetime is small grey.
+function damageCell(dir, cable) {
+    const wrap = el("div", "nh-damage");
+    wrap.append(el("span", "nh-damage-dir", `${dir.from} → ${dir.to}`));
+    if (!dir.received) {
+        wrap.append(el("span", "nh-route-note", `not monitored (${dir.to} end not read)`));
+        return wrap;
+    }
+    const [glyph, word, cls] = DAMAGE_LEVEL[dir.level] || ["○", "No reading", "nh-unknown"];
+    const head = el("div", "nh-damage-head");
+    head.append(el("span", `nh-badge ${cls}`, `${glyph} ${word}`));
+    wrap.append(head);
+    const r = dir.received;
+    const viaOlt = dir.to === "OLT";
+    const now = el("span", `nh-damage-now${r.last ? " is-rising" : ""}`,
+        `+${fmtCount(r.last)}${fmtPct(r.last_pct)} in 5 min · +${fmtCount(r.day)}${fmtPct(r.day_pct)} in 24 h`);
+    wrap.append(now);
+    const end = cable.ends.find(e => e.label === dir.to);
+    const grey = [`counted at ${dir.to}${viaOlt ? " (OLT counter)" : ""}`, `lifetime ${fmtCount(r.total)}`];
+    if (end?.stale) grey.push("reading is old");
+    wrap.append(el("span", "nh-counter-change", grey.join(" · ")));
+    return wrap;
+}
+
+// One counter per end: "+n in 24 h" with the lifetime total in small grey.
+function endsCell(cable, key) {
+    const wrap = el("div", "nh-ends");
+    for (const end of cable.ends) {
+        const line = el("div", "nh-end");
+        const counter = end[key];
+        line.append(el("span", "nh-end-name", end.label));
+        if (!end.reported) line.append(el("span", "nh-route-note", end.port === null ? "not monitored" : "not reported"));
+        else if (!counter) line.append(el("span", "nh-route-note", "not reported"));
+        else {
+            const up = el("span", counter.day ? "is-rising" : null, `+${fmtCount(counter.day)}`);
+            line.append(up, el("span", "nh-counter-change", `lifetime ${fmtCount(counter.total)}`));
+        }
+        wrap.append(line);
+    }
     return wrap;
 }
 
 function drawLanlinks(d) {
     const tbody = $("nh-lanlinks");
-    $("nh-lanlinks-sub").textContent = `port counters every 5 min · alerts: a link down, over ${d.thresholds.lanlink_damage_over}`
-        + ` damaged frames in 5 min; over ${d.thresholds.lanlink_drops_over} TX drops is a warning on the page`;
-    if (!d.lanlinks.length) return emptyRow(tbody, 6, "No inside link readings yet.");
-    tbody.replaceChildren(...d.lanlinks.map(row => {
-        const tr = el("tr", row.dev === "crs326" && row.port === d.olt_interface ? "nh-olt-row" : null);
+    $("nh-lanlinks-sub").textContent = "one row per cable, both ends: a port counts errors only on frames it receives, "
+        + "so damage on the way A → B shows at B · red = errors rose in the last 5 min (or over 1 % of frames), amber = any in 24 h"
+        + ` · alerts: a link down, over ${d.thresholds.lanlink_damage_over} damaged frames in 5 min`;
+    if (!d.cables?.length) return emptyRow(tbody, 5, "No inside link readings yet.");
+    tbody.replaceChildren(...d.cables.map(cable => {
+        const tr = el("tr", cable.ends.some(e => e.label === "OLT") ? "nh-olt-row" : null);
         const name = el("span", "nh-route-name");
-        name.append(el("strong", null, row.label), el("span", "nh-route-host", `${row.dev} ${row.port} · ${row.at ? hm(row.at) : "—"}`));
-        tr.append(cell("Link", name), ...LANLINK_COLUMNS.map(([key, label]) => cell(label, counterCell(row, key))));
+        name.append(el("strong", null, cable.name),
+                    ...cable.ends.map(e => el("span", "nh-route-host", e.port ? `${e.label} ${e.port}` : e.label)));
+        tr.append(cell("Cable", name), cell("Damage A → B", damageCell(cable.a_to_b, cable)),
+                  cell("Damage B → A", damageCell(cable.b_to_a, cable)),
+                  cell("Link-downs, 24 h", endsCell(cable, "link_downs")), cell("TX drops, 24 h", endsCell(cable, "tx_drop")));
         return tr;
     }));
 }

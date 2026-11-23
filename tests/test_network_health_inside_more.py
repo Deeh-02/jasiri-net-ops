@@ -120,6 +120,107 @@ class LanLinks(unittest.TestCase):
         self.assertEqual(olt["day"]["rx_err"], 12 + 0 + 4)       # the reset (20 -> 3) counts 0
 
 
+def olt_reading(minutes, rx, crc, uptime=100_000):
+    return {"ts": T0 + timedelta(minutes=minutes), "olt": {"uptime_s": uptime + minutes * 60, "up_rx": rx, "up_crc": crc}}
+
+
+class Cables(unittest.TestCase):
+    """One row per physical cable, both ends: a port counts errors only on
+    frames it RECEIVES, so damage A -> B shows at B."""
+    NOW = T0 + timedelta(minutes=15)
+
+    def cables(self, lanlinks, olts):
+        steps = inside.walk_olt(olts)
+        rows = inside.cable_rows(lanlinks, steps, olts, self.NOW, T0 - timedelta(hours=9))
+        return {c["name"]: c for c in rows}
+
+    def olt_cable(self, crs_errors=0):
+        lans = [lan(m, "crs326", "sfp-sfpplus3", link_downs=19, rx_fcs=0, rx_err=e, tx_drop=0)
+                for m, e in ((0, 0), (5, crs_errors), (10, crs_errors), (15, crs_errors))]
+        # 13 % of the frames damaged in each 5 minutes; 1,000 + 150 more frames, then the same again.
+        olts = [olt_reading(0, 0, 0), olt_reading(5, 870, 130), olt_reading(10, 1740, 260), olt_reading(15, 2610, 390)]
+        return self.cables(lans, olts)["CRS326 ↔ OLT"]
+
+    def test_the_four_cables_in_order(self):
+        names = list(self.cables([], []))
+        self.assertEqual(names, ["CCR2116 ↔ CRS326", "CCR2004 ↔ CRS326", "CRS326 ↔ OLT", "CRS326 ↔ Proxmox"])
+
+    def test_crs_to_olt_is_the_olts_crc_counter_and_red(self):
+        cable = self.olt_cable()
+        way = cable["a_to_b"]                      # errors RECEIVED at the OLT
+        self.assertEqual((way["from"], way["to"], way["read_at"], way["level"]), ("CRS326", "OLT", "OLT", "red"))
+        self.assertEqual(way["received"]["last"], 130)
+        self.assertAlmostEqual(way["received"]["last_pct"], 13.0)
+        self.assertEqual(way["received"]["day"], 390)
+        self.assertAlmostEqual(way["received"]["day_pct"], 13.0)
+        self.assertEqual(way["received"]["total"], 390)
+
+    def test_olt_to_crs_is_the_crs_ports_own_errors_and_green_at_zero(self):
+        way = self.olt_cable()["b_to_a"]
+        self.assertEqual((way["from"], way["to"], way["level"]), ("OLT", "CRS326", "green"))
+        self.assertEqual((way["received"]["last"], way["received"]["day"]), (0, 0))
+
+    def test_fcs_and_rx_errors_are_added_and_a_rise_in_5_min_is_red(self):
+        lans = [lan(10, "ccr2116", "sfp-sfpplus4", rx_fcs=0, rx_err=0), lan(15, "ccr2116", "sfp-sfpplus4", rx_fcs=3, rx_err=4)]
+        cable = self.cables(lans, [])["CCR2116 ↔ CRS326"]
+        # CCR2116 is end A: B -> A (CRS326 -> CCR2116) is what the CCR2116 received.
+        self.assertEqual(cable["b_to_a"]["received"]["last"], 7)
+        self.assertEqual(cable["b_to_a"]["level"], "red")
+        # The CRS326's end isn't reported here, so A -> B isn't read.
+        self.assertIsNone(cable["a_to_b"]["received"])
+        self.assertIsNone(cable["a_to_b"]["level"])
+
+    def test_errors_earlier_in_the_day_but_none_now_is_amber(self):
+        lans = [lan(m, "crs326", "sfp-sfpplus2", link_downs=0, rx_fcs=f, rx_err=0, tx_drop=0)
+                for m, f in ((0, 0), (5, 30), (10, 30), (15, 30))]
+        way = self.cables(lans, [])["CCR2004 ↔ CRS326"]["a_to_b"]
+        self.assertEqual((way["received"]["last"], way["received"]["day"], way["level"]), (0, 30, "amber"))
+
+    def test_lifetime_totals_alone_never_colour_a_direction(self):
+        lans = [lan(m, "crs326", "sfp-sfpplus2", rx_fcs=5000, rx_err=0) for m in (0, 5, 10, 15)]
+        way = self.cables(lans, [])["CCR2004 ↔ CRS326"]["a_to_b"]
+        self.assertEqual((way["level"], way["received"]["total"], way["received"]["day"]), ("green", 5000, 0))
+
+    def test_link_downs_and_tx_drops_are_per_end(self):
+        lans = [lan(m, "crs326", "sfp-sfpplus2", link_downs=d, tx_drop=t) for m, d, t in ((0, 4, 0), (5, 5, 20), (10, 5, 20), (15, 5, 20))]
+        lans += [lan(m, "ccr2004", "sfp-sfpplus1", link_downs=2, tx_drop=7) for m in (0, 5, 10, 15)]
+        ends = {e["label"]: e for e in self.cables(lans, [])["CCR2004 ↔ CRS326"]["ends"]}
+        self.assertEqual((ends["CRS326"]["link_downs"], ends["CRS326"]["tx_drop"]),
+                         ({"day": 1, "total": 5}, {"day": 20, "total": 20}))
+        self.assertEqual((ends["CCR2004"]["link_downs"]["day"], ends["CCR2004"]["tx_drop"]["total"]), (0, 7))
+
+    def test_the_olt_end_has_no_link_down_or_tx_counters(self):
+        ends = {e["label"]: e for e in self.olt_cable()["ends"]}
+        self.assertTrue(ends["OLT"]["reported"])
+        self.assertIsNone(ends["OLT"]["link_downs"])
+        self.assertEqual(ends["CRS326"]["link_downs"]["total"], 19)
+
+    def test_the_proxmox_end_is_not_monitored(self):
+        lans = [lan(m, "crs326", "sfp-sfpplus4", rx_fcs=0, rx_err=0) for m in (10, 15)]
+        cable = self.cables(lans, [])["CRS326 ↔ Proxmox"]
+        self.assertFalse(cable["ends"][1]["reported"])
+        self.assertIsNone(cable["a_to_b"]["received"])            # what Proxmox receives: unknown
+        self.assertEqual(cable["b_to_a"]["level"], "green")        # what the CRS326 receives from it
+
+    def test_an_old_reading_is_not_a_5_minute_figure(self):
+        lans = [lan(-60, "crs326", "sfp-sfpplus2", rx_fcs=0), lan(-55, "crs326", "sfp-sfpplus2", rx_fcs=50)]
+        end = self.cables(lans, [])["CCR2004 ↔ CRS326"]["ends"][1]
+        self.assertTrue(end["stale"])
+        self.assertIsNone(end["received"]["last"])
+        self.assertEqual(end["received"]["day"], 50)
+
+    def test_a_restart_or_failed_olt_read_leaves_the_olt_direction_unread(self):
+        failed = [olt_reading(0, 100, 0), {"ts": T0 + timedelta(minutes=15), "olt": {"uptime_s": None, "up_rx": None, "up_crc": None}}]
+        way = self.cables([], failed)["CRS326 ↔ OLT"]["a_to_b"]
+        self.assertIsNone(way["received"]["last"])
+        self.assertIsNone(way["level"])
+
+    def test_an_unlisted_port_shows_as_its_own_row(self):
+        lans = [lan(10, "ccr2004", "sfp-sfpplus3", rx_fcs=0), lan(15, "ccr2004", "sfp-sfpplus3", rx_fcs=0)]
+        names = list(self.cables(lans, []))
+        self.assertEqual(names[-1], "CCR2004 sfp-sfpplus3")
+
+
 class Paths(unittest.TestCase):
     def checks(self, loss, rtt=5.0, name="i-fra"):
         return rules.check_path({"name": name, "loss_pct": loss, "rtt_ms": rtt}, "ccr2004", "INNER_PATH_LOSS",

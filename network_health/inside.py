@@ -245,3 +245,100 @@ def lanlink_rows(readings, since):
     order = list(config.LANLINK_LABELS)
     return sorted(by_link.values(), key=lambda r: (order.index((r["dev"], r["port"]))
                                                    if (r["dev"], r["port"]) in order else len(order), r["label"]))
+
+
+# ---- Cables: both ends of each physical link (the Inside links table) ----
+
+def _sum_known(*values):
+    """The sum of the numbers that are there, or None when none is."""
+    known = [v for v in values if v is not None]
+    return sum(known) if known else None
+
+
+def _port_end(spec, rows, at_least):
+    """One lanlink end -> {label, port, reported, at, stale, received (errors
+    received here: FCS + RX errors, last 5 min / 24 h / lifetime), link_downs
+    and tx_drop ({day, total})}. An end we don't read is just its label."""
+    end = {"label": spec["label"], "port": spec.get("port"), "reported": False}
+    row = rows.get((spec.get("dev"), spec.get("port")))
+    if row is None:
+        return end
+    stale = row["at"] < at_least
+    last, day, total = row.get("last") or {}, row["day"], row["totals"]
+    end.update(
+        reported=True, at=row["at"], stale=stale,
+        received={"last": None if stale or not last else _sum_known(last.get("rx_fcs"), last.get("rx_err")),
+                  "day": _sum_known(day.get("rx_fcs"), day.get("rx_err")),
+                  "total": _sum_known(total.get("rx_fcs"), total.get("rx_err")),
+                  "last_pct": None, "day_pct": None},
+        link_downs={"day": day.get("link_downs"), "total": total.get("link_downs")},
+        tx_drop={"day": day.get("tx_drop"), "total": total.get("tx_drop")})
+    return end
+
+
+def _olt_end(spec, steps, readings, day_ago, at_least):
+    """The OLT's uplink end, from the `olt` readings: errored frames received
+    there (its CRC counter) and what share of the frames they are. The OLT
+    gives us no link-down or TX counters."""
+    end = {"label": spec["label"], "port": spec.get("port"), "reported": False}
+    if not steps:
+        return end
+    last_step = steps[-1]
+    stale = last_step["ts"] < at_least
+    interval = None if stale else last_step["interval"]
+    day = [s["interval"] for s in steps if s["ts"] > day_ago and s["interval"] and s["interval"]["crc_pct"] is not None]
+    day_crc = sum(i["d_crc"] for i in day)
+    day_frames = sum(i["d_rx"] + i["d_crc"] for i in day)
+    total = next((r["olt"]["up_crc"] for r in reversed(readings) if (r.get("olt") or {}).get("up_crc") is not None), None)
+    end.update(
+        reported=True, at=last_step["ts"], stale=stale,
+        received={"last": None if interval is None or interval["crc_pct"] is None else interval["d_crc"],
+                  "day": day_crc if day else None, "total": total,
+                  "last_pct": None if interval is None else interval["crc_pct"],
+                  "day_pct": day_crc / day_frames * 100 if day_frames else None},
+        link_downs=None, tx_drop=None)
+    return end
+
+
+def direction_level(received):
+    """Red when errors went up in the last 5 min (or over LANLINK_RED_PCT of
+    the frames were damaged), amber when any in the last 24 h, else green;
+    None when the receiving end isn't read."""
+    if received is None:
+        return None
+    last, day, pct = received["last"], received["day"], received["last_pct"]
+    if (last or 0) > 0 or (pct or 0) >= config.LANLINK_RED_PCT:
+        return RED
+    if (day or 0) > 0:
+        return AMBER
+    return GREEN if day is not None or last is not None else None
+
+
+def cable_rows(lanlink_readings, olt_steps, olt_readings, now, day_ago):
+    """One row per physical cable with both ends: damage each way (errors
+    received at the far end), link-downs and TX drops per end. Any other
+    `lanlink` port that reports shows as a cable with one end read."""
+    at_least = now - timedelta(minutes=config.LANLINK_MAX_GAP_MINUTES)
+    rows = {(r["dev"], r["port"]): r for r in lanlink_rows(lanlink_readings, day_ago)}
+    specs = [dict(c) for c in config.LANLINK_CABLES]
+    named = {(c[end].get("dev"), c[end].get("port")) for c in specs for end in ("a", "b")}
+    for (dev, port), row in rows.items():
+        if (dev, port) not in named:
+            specs.append({"name": row["label"], "a": {"label": dev.upper(), "dev": dev, "port": port},
+                          "b": {"label": "other end", "port": None}})
+
+    def build(spec):
+        return (_olt_end(spec, olt_steps, olt_readings, day_ago, at_least) if spec.get("olt")
+                else _port_end(spec, rows, at_least))
+
+    cables = []
+    for spec in specs:
+        a, b = build(spec["a"]), build(spec["b"])
+        # Errors received at B are damage on the way A -> B, and the reverse.
+        cables.append({
+            "name": spec["name"], "ends": [a, b],
+            "a_to_b": {"from": a["label"], "to": b["label"], "read_at": b["label"] if b["reported"] else None,
+                       "received": b.get("received"), "level": direction_level(b.get("received"))},
+            "b_to_a": {"from": b["label"], "to": a["label"], "read_at": a["label"] if a["reported"] else None,
+                       "received": a.get("received"), "level": direction_level(a.get("received"))}})
+    return cables
