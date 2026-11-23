@@ -778,12 +778,20 @@ function drawLinkEvents(d) {
 
 // ---- Inside links: port counters on the CCR2116, CCR2004 and CRS326 ----
 
-const fmtCount = v => (v == null ? "—" : Math.round(v).toLocaleString("en-GB"));
-const fmtPct = v => (v == null ? "" : ` (${v >= 10 ? Math.round(v) : +v.toFixed(2)} %)`);
+// Counts: in full under 10,000, then short (118.2K, 207.7M); the full number is on hover.
+const COMPACT = new Intl.NumberFormat("en-GB", { notation: "compact", maximumFractionDigits: 1 });
+const fmtCount = v => (v == null ? "—" : Math.abs(v) < 10000 ? Math.round(v).toLocaleString("en-GB") : COMPACT.format(v));
+const fullCount = v => (v == null ? "" : Math.round(v).toLocaleString("en-GB"));
+const fmtShare = v => (v == null ? null : `${v >= 10 ? Math.round(v) : +v.toFixed(2)} %`);
 const DAMAGE_LEVEL = {
     red: ["◆", "Damaged now", "nh-bad"],
-    amber: ["▲", "Damaged in the last 24 h", "nh-warn"],
+    amber: ["▲", "In last 24 h", "nh-warn"],
     green: ["●", "None", "nh-ok"],
+};
+const nowrap = (text, title) => {
+    const span = el("span", "nh-nowrap", text);
+    if (title) span.title = title;
+    return span;
 };
 
 // Damage one way: the errors the FAR end received. Red if they went up in the
@@ -792,57 +800,65 @@ function damageCell(dir, cable) {
     const wrap = el("div", "nh-damage");
     wrap.append(el("span", "nh-damage-dir", `${dir.from} → ${dir.to}`));
     if (!dir.received) {
-        wrap.append(el("span", "nh-route-note", `not monitored (${dir.to} end not read)`));
+        wrap.append(el("span", "nh-route-note", `not monitored (${dir.to} end isn't read)`));
         return wrap;
     }
+    const r = dir.received;
     const [glyph, word, cls] = DAMAGE_LEVEL[dir.level] || ["○", "No reading", "nh-unknown"];
     const head = el("div", "nh-damage-head");
     head.append(el("span", `nh-badge ${cls}`, `${glyph} ${word}`));
+    const share = fmtShare(r.last_pct ?? r.day_pct);
+    if (share) head.append(el("strong", "nh-damage-pct", `${share} damaged`));
     wrap.append(head);
-    const r = dir.received;
-    const viaOlt = dir.to === "OLT";
-    const now = el("span", `nh-damage-now${r.last ? " is-rising" : ""}`,
-        `+${fmtCount(r.last)}${fmtPct(r.last_pct)} in 5 min · +${fmtCount(r.day)}${fmtPct(r.day_pct)} in 24 h`);
-    wrap.append(now);
+    const counts = el("span", `nh-damage-now${r.last ? " is-rising" : ""}`);
+    counts.append(nowrap(`+${fmtCount(r.last)} in 5 min`, fullCount(r.last)), " · ",
+                  nowrap(`+${fmtCount(r.day)} in 24 h`, fullCount(r.day)));
+    wrap.append(counts);
     const end = cable.ends.find(e => e.label === dir.to);
-    const grey = [`counted at ${dir.to}${viaOlt ? " (OLT counter)" : ""}`, `lifetime ${fmtCount(r.total)}`];
+    const grey = [dir.to === "OLT" ? "the OLT's CRC counter" : `counted at ${dir.to}`, `lifetime ${fmtCount(r.total)}`];
     if (end?.stale) grey.push("reading is old");
-    wrap.append(el("span", "nh-counter-change", grey.join(" · ")));
+    const note = el("span", "nh-damage-note", grey.join(" · "));
+    note.title = `lifetime ${fullCount(r.total)}`;
+    wrap.append(note);
     return wrap;
 }
 
-// One counter per end: "+n in 24 h" with the lifetime total in small grey.
-function endsCell(cable, key) {
-    const wrap = el("div", "nh-ends");
+// Each end's link-downs and TX drops: +24 h, lifetime in small grey.
+function endsCell(cable) {
+    const grid = el("div", "nh-ends");
+    grid.append(el("span"), el("span", "nh-ends-head", "Link-downs"), el("span", "nh-ends-head", "TX drops"));
     for (const end of cable.ends) {
-        const line = el("div", "nh-end");
-        const counter = end[key];
-        line.append(el("span", "nh-end-name", end.label));
-        if (!end.reported) line.append(el("span", "nh-route-note", end.port === null ? "not monitored" : "not reported"));
-        else if (!counter) line.append(el("span", "nh-route-note", "not reported"));
-        else {
-            const up = el("span", counter.day ? "is-rising" : null, `+${fmtCount(counter.day)}`);
-            line.append(up, el("span", "nh-counter-change", `lifetime ${fmtCount(counter.total)}`));
+        grid.append(el("span", "nh-end-name", end.label));
+        if (!end.reported || !end.link_downs) {
+            const why = !end.reported && end.port === null ? "not monitored" : "not reported";
+            const note = el("span", "nh-route-note nh-ends-span", why);
+            grid.append(note);
+            continue;
         }
-        wrap.append(line);
+        for (const counter of [end.link_downs, end.tx_drop]) {
+            const value = el("span", "nh-end-value");
+            value.append(el("span", counter.day ? "is-rising" : null, `+${fmtCount(counter.day)}`),
+                         el("small", null, ` (${fmtCount(counter.total)})`));
+            value.title = `+${fullCount(counter.day)} in 24 h · lifetime ${fullCount(counter.total)}`;
+            grid.append(value);
+        }
     }
-    return wrap;
+    return grid;
 }
 
 function drawLanlinks(d) {
     const tbody = $("nh-lanlinks");
-    $("nh-lanlinks-sub").textContent = "one row per cable, both ends: a port counts errors only on frames it receives, "
-        + "so damage on the way A → B shows at B · red = errors rose in the last 5 min (or over 1 % of frames), amber = any in 24 h"
-        + ` · alerts: a link down, over ${d.thresholds.lanlink_damage_over} damaged frames in 5 min`;
-    if (!d.cables?.length) return emptyRow(tbody, 5, "No inside link readings yet.");
+    $("nh-lanlinks-sub").textContent = "One row per cable. A port only counts errors on frames it receives, "
+        + "so damage on the way A → B shows at B. Red = errors rose in the last 5 min (or over 1 % of frames), amber = some in 24 h. "
+        + `Alerts: a link down, or over ${d.thresholds.lanlink_damage_over} damaged frames in 5 min.`;
+    if (!d.cables?.length) return emptyRow(tbody, 4, "No inside link readings yet.");
     tbody.replaceChildren(...d.cables.map(cable => {
         const tr = el("tr", cable.ends.some(e => e.label === "OLT") ? "nh-olt-row" : null);
-        const name = el("span", "nh-route-name");
+        const name = el("span", "nh-route-name nh-cable-name");
         name.append(el("strong", null, cable.name),
                     ...cable.ends.map(e => el("span", "nh-route-host", e.port ? `${e.label} ${e.port}` : e.label)));
         tr.append(cell("Cable", name), cell("Damage A → B", damageCell(cable.a_to_b, cable)),
-                  cell("Damage B → A", damageCell(cable.b_to_a, cable)),
-                  cell("Link-downs, 24 h", endsCell(cable, "link_downs")), cell("TX drops, 24 h", endsCell(cable, "tx_drop")));
+                  cell("Damage B → A", damageCell(cable.b_to_a, cable)), cell("Each end, 24 h", endsCell(cable)));
         return tr;
     }));
 }

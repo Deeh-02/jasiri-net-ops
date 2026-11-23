@@ -174,12 +174,25 @@
 .nh-counter { display: grid; gap: 1px; font-variant-numeric: tabular-nums; }
 .nh-counter-change { font-size: 11.5px; color: var(--text-dim); white-space: nowrap; }
 .nh-counter-change.is-rising { color: var(--text); font-weight: 600; }
-.nh-damage, .nh-ends { display: grid; gap: 3px; font-variant-numeric: tabular-nums; min-width: 12rem; }
-.nh-damage-dir { font-size: 11.5px; color: var(--text-dim); }
+.nh-lanlinks td { vertical-align: top; }
+.nh-cable-name strong, .nh-cable-name .nh-route-host { white-space: nowrap; }
+.nh-nowrap { white-space: nowrap; }
+.nh-th-sub { text-transform: none; letter-spacing: 0; font-weight: 400; }
+.nh-damage { display: grid; gap: 4px; font-variant-numeric: tabular-nums; }
+.nh-damage-dir { font-size: 11.5px; color: var(--text-dim); white-space: nowrap; }
+.nh-damage-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.nh-damage-pct { font-size: 14px; color: var(--text); }
 .nh-damage-now { font-size: 12.5px; color: var(--text); }
-.nh-damage-now.is-rising, .nh-end .is-rising { font-weight: 600; }
-.nh-end { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
-.nh-end-name { font-size: 11.5px; color: var(--text-dim); min-width: 4.5rem; }
+.nh-damage-now.is-rising { font-weight: 600; }
+.nh-damage-note { font-size: 11.5px; color: var(--text-dim); }
+.nh-ends { display: grid; grid-template-columns: 4.5rem 5.5rem 5.5rem; gap: 3px 14px; align-items: baseline;
+           font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.nh-ends-head { font-size: 11px; color: var(--text-dim); white-space: nowrap; }
+.nh-ends-span { grid-column: span 2; }
+.nh-end-name { font-size: 12px; color: var(--text-dim); white-space: nowrap; }
+.nh-end-value { white-space: nowrap; color: var(--text); }
+.nh-end-value .is-rising { font-weight: 600; }
+.nh-end-value small { font-size: 11px; color: var(--text-dim); }
 .nh-inside-probes { margin-top: 4px; }
 
 /* ---- Access network (PON ports, ONTs, PPPoE) ---- */
