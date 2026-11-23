@@ -162,18 +162,38 @@ PATH_DOWN_IN_A_ROW = 2
 # 30 min: 6-second downloads from Cloudflare and Frankfurt). Nothing else
 # reads these; both kinds are stored in nh_readings' existing probes / speed
 # columns, the probe's `dev` inside each entry.
-BOX_TARGETS = ("gw", "core", "airtel", "fra")           # the loss chart's panels, in this order
+# Frankfurt is a real end-to-end server: the primary loss measure. The others are
+# router hops; a router answers pings at low priority, so small-packet loss
+# there can be the router, not the line.
+BOX_PRIMARY = "fra"
+BOX_HOPS = ("gw", "core", "airtel")
+BOX_TARGETS = (BOX_PRIMARY, *BOX_HOPS)                 # the loss chart's panels, in this order
 BOX_NAMES = {"home-kwamlima": "Kwa Mlima"}              # a dev's name on the page and in the SMS
 BOX_CHART_DAYS = 7
-BOX_CHART_BUCKET_SECONDS = 1800
-# Alerts. BIG_LOSS: gw-big (the 1400-byte ping to the first router past the
-# OLT) loses this much or more, in this many readings in a row. SLOW: the
-# Cloudflare download is under this fraction of the line's plan, in a row.
-BOX_ALERT_PROBE = "gw-big"
-BOX_BIG_LOSS_PCT = 10
-BOX_BIG_LOSS_IN_A_ROW = 3
+BOX_READING_SECONDS = 300            # the probe machine pings every 5 minutes
+# Alerts. BIG_LOSS (owner, 2026-11-23): the rolling BOX_LOSS_WINDOW_MINUTES average
+# of Frankfurt's 1400-byte ping (fra-big, a real end-to-end server) is
+# BOX_FRA_BIG_LOSS_PCT or more, OR the first router's (gw-big) is
+# BOX_GW_BIG_LOSS_PCT or more. It clears when both averages are under
+# BOX_LOSS_CLEAR_FRACTION of those lines (the band between is a hold, so it
+# doesn't flap). Needs BOX_MIN_READINGS_IN_WINDOW readings in the window.
+# SLOW: the Cloudflare download is under this fraction of the line's plan,
+# BOX_SLOW_IN_A_ROW runs in a row.
+BOX_FRA_BIG_PROBE = "fra-big"
+BOX_GW_BIG_PROBE = "gw-big"
+BOX_FRA_BIG_LOSS_PCT = 8
+BOX_GW_BIG_LOSS_PCT = 10
+BOX_LOSS_CLEAR_FRACTION = 0.5
+BOX_LOSS_WINDOW_MINUTES = 30
+BOX_MIN_READINGS_IN_WINDOW = 5       # of the 6 in 30 minutes: one may be missing
+# Both averages of a path whose SMALL pings are all lost are left out: the
+# path is down, not "losing big packets".
+BOX_DEAD_SMALL_LOSS_PCT = 90
 BOX_SLOW_FRACTION = 0.30
 BOX_SLOW_IN_A_ROW = 3
+# The charts' main line is a rolling average of this many hours; the raw
+# readings are the dots behind it.
+BOX_ROLLING_HOURS = 1
 # The probe's "fra" / "fra-big" read 100 % loss before this moment (a probe
 # bug, fixed 23 Nov 2026 03:30 EAT). Those values are dropped, never stored.
 BOX_FRA_PROBES = ("fra", "fra-big")

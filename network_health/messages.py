@@ -166,8 +166,9 @@ def problem_text(rule, facts):
     if rule == "CUSTOMER_PATH_DOWN":
         return f"customer path via OLT DOWN, no reply on {short(facts.get('probe'))}"
     if rule == "BOX_BIG_LOSS":
-        return (f"Customer path losing big packets (CRS-OLT link?): {number(facts.get('loss'))}% of 1400-byte pings "
-                f"lost at {gsm_name(facts.get('label') or facts.get('dev'), 20)}")
+        to = "Frankfurt" if facts.get("probe") == config.BOX_FRA_BIG_PROBE else "first router"
+        return (f"Customer path losing big packets (CRS-OLT link?): {number(facts.get('loss'))}% big-ping loss to {to} "
+                f"({number(facts.get('minutes'))}min avg), {gsm_name(facts.get('label') or facts.get('dev'), 20)}")
     if rule == "BOX_SLOW":
         return (f"Customer line slow: {number(facts.get('mbps'))}Mbps of {number(facts.get('plan'))}Mbps plan "
                 f"at {gsm_name(facts.get('label') or facts.get('dev'), 20)}")

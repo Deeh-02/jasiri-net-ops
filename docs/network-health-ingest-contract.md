@@ -218,9 +218,15 @@ Kwa Mlima, ONT on PON 0/3/4, 15 Mbps plan.) Same envelope, with the readings und
 - **`fra` / `fra-big` before 23 Nov 2026 03:30 EAT read 100 % loss (a probe bug).** OPS
   drops those two probes from any `box` record older than that: they are never stored
   or judged, so a rewind that resends them changes nothing.
-- OPS alerts on `gw-big`: loss of 10 % or more in 3 readings in a row ("Customer path
-  losing big packets (CRS-OLT link?)"). It says nothing when the small `gw` ping got no
-  reply either (the whole line is down: that is not "losing big packets").
+- `fra` / `fra-big` (Frankfurt, a real end-to-end server) are the primary measure of
+  the customer's loss; `gw`, `core` and `airtel` are router hops, and a router answers
+  pings at low priority, so small-packet loss there can be the router, not the line.
+- OPS alerts ("Customer path losing big packets (CRS-OLT link?)") on the rolling
+  30-minute average of the readings, not on single ones: `fra-big` 8 % or more, OR
+  `gw-big` 10 % or more. It needs 5 of the 6 readings in the window, and clears when
+  both averages are under half those lines (the band between holds the alert as it
+  was). A path whose small pings are almost all lost is down, not "losing big
+  packets": it is left out, and nothing counts as clear while it is.
 
 **`boxspeed`** (every 30 minutes: the same machine's 6-second downloads)
 ```json

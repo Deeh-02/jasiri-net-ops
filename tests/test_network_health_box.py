@@ -4,10 +4,11 @@ Run: venv/bin/python -m unittest tests.test_network_health_box -v
 """
 import os
 import unittest
+from contextlib import nullcontext
 from datetime import datetime, timedelta, timezone
 from unittest import mock
 
-from network_health import config, feed, rules, service
+from network_health import boxline, config, feed, rules, service
 
 from tests.test_network_health_service import NOW, FakeStore
 
@@ -62,6 +63,20 @@ class Parse(unittest.TestCase):
                 feed.parse_record(bad)
 
 
+def reading(minutes_ago, fra_big=0.0, gw_big=0.0, fra=0.0, gw=0.0, dev=DEV, fra_probes=True):
+    """One `box` reading as the rule sees it: {ts, probes}."""
+    probes = [{"name": "gw", "loss_pct": gw, "rtt_ms": 2.0, "dev": dev}, {"name": "gw-big", "loss_pct": gw_big, "rtt_ms": 2.5, "dev": dev},
+              {"name": "core", "loss_pct": 0.0, "rtt_ms": 3.0, "dev": dev}]
+    if fra_probes:
+        probes += [{"name": "fra", "loss_pct": fra, "rtt_ms": 200.0, "dev": dev}, {"name": "fra-big", "loss_pct": fra_big, "rtt_ms": 201.0, "dev": dev}]
+    return {"ts": NOW - timedelta(minutes=minutes_ago), "probes": probes}
+
+
+def window(**kw):
+    """Six readings (5 minutes apart: 30 minutes), every one with the same losses."""
+    return [reading(m, **kw) for m in (25, 20, 15, 10, 5, 0)]
+
+
 def box_probes(big_loss, small_loss=0.0):
     return feed.parse_record(record("box", box_body(big_loss=big_loss, small_loss=small_loss)))["probes"]
 
@@ -71,34 +86,69 @@ def run(checks):
     for check in checks:
         state, transition = rules.step(state, check)
         seen.append(transition)
-    return seen
+    return state, seen
 
 
 class Rules(unittest.TestCase):
-    def test_big_packet_loss_of_10_three_readings_in_a_row_fires(self):
-        checks = [rules.check_box_big_loss(box_probes(loss)) for loss in (10.0, 15.0, 10.0)]
-        self.assertEqual(run(checks), [None, None, "fire"])
-        self.assertEqual(checks[0]["device"], "box")
-        self.assertEqual(checks[0]["subject"], DEV)
+    def verdict(self, readings):
+        return rules.check_box_big_loss(readings)["verdict"]
 
-    def test_under_10_is_fine_and_a_good_reading_resets_the_count(self):
-        self.assertFalse(rules.check_box_big_loss(box_probes(9.9))["verdict"])
-        checks = [rules.check_box_big_loss(box_probes(loss)) for loss in (15.0, 15.0, 0.0, 15.0, 15.0)]
-        self.assertNotIn("fire", run(checks))
+    def test_frankfurt_big_packets_at_8_pct_over_30_minutes_is_bad(self):
+        self.assertTrue(self.verdict(window(fra_big=8.0)))
+        self.assertIsNone(self.verdict(window(fra_big=7.9)))             # in the hold band, not fine yet
+        check = rules.check_box_big_loss(window(fra_big=12.0))
+        self.assertEqual((check["device"], check["subject"], check["value"]), ("box", DEV, 12.0))
+        self.assertEqual((check["facts"]["probe"], check["facts"]["minutes"], check["facts"]["fra_big"]), ("fra-big", 30, 12.0))
 
-    def test_a_dead_line_is_not_big_packet_loss(self):
-        self.assertIsNone(rules.check_box_big_loss(box_probes(100.0, small_loss=100.0))["verdict"])
+    def test_the_first_router_at_10_pct_is_bad_on_its_own(self):
+        self.assertTrue(self.verdict(window(gw_big=10.0)))
+        self.assertIsNone(self.verdict(window(gw_big=9.9)))
+        self.assertEqual(rules.check_box_big_loss(window(gw_big=15.0))["facts"]["probe"], "gw-big")
 
-    def test_no_gw_big_probe_says_nothing(self):
-        probes = [p for p in box_probes(50.0) if p["name"] != "gw-big"]
-        self.assertIsNone(rules.check_box_big_loss(probes)["verdict"])
+    def test_it_is_the_average_not_one_reading(self):
+        # One 45 % reading among six averages 7.5 %: under 8. Two make 15 %.
+        one = window()
+        one[5]["probes"][4]["loss_pct"] = 45.0
+        self.assertIsNone(self.verdict(one))
+        two = window()
+        two[4]["probes"][4]["loss_pct"] = two[5]["probes"][4]["loss_pct"] = 45.0
+        self.assertTrue(self.verdict(two))
+
+    def test_it_clears_only_below_half_of_both_lines(self):
+        self.assertFalse(self.verdict(window(fra_big=3.9, gw_big=4.9)))
+        self.assertIsNone(self.verdict(window(fra_big=4.0, gw_big=0.0)))     # exactly half is still the hold band
+        self.assertIsNone(self.verdict(window(fra_big=0.0, gw_big=5.0)))
+        self.assertFalse(self.verdict(window()))
+
+    def test_hysteresis_fires_holds_in_the_band_and_clears(self):
+        steps = [window(fra_big=10.0), window(fra_big=6.0), window(fra_big=5.0), window(fra_big=3.0)]
+        state, seen = run([rules.check_box_big_loss(w) for w in steps])
+        self.assertEqual(seen, ["fire", None, None, "clear"])         # the band between the lines changes nothing
+        self.assertFalse(state["is_active"])
+
+    def test_a_quiet_band_never_fires(self):
+        _, seen = run([rules.check_box_big_loss(window(fra_big=6.0)) for _ in range(4)])
+        self.assertEqual(seen, [None] * 4)
+
+    def test_too_few_readings_say_nothing(self):
+        self.assertIsNone(self.verdict(window(fra_big=50.0)[:4]))
+        self.assertTrue(self.verdict(window(fra_big=50.0)[1:]))               # five of the six is enough
+
+    def test_a_dead_path_is_not_big_packet_loss(self):
+        self.assertIsNone(self.verdict(window(fra_big=100.0, fra=100.0, gw_big=0.0)))        # fra dead, gw fine: nothing known to be bad
+        self.assertTrue(self.verdict(window(fra_big=100.0, fra=100.0, gw_big=12.0)))         # gw still judged
+        self.assertIsNone(self.verdict(window(gw_big=100.0, gw=100.0, fra_probes=False)))     # everything dead
+
+    def test_no_frankfurt_probe_judges_the_router_alone(self):
+        self.assertTrue(self.verdict(window(gw_big=12.0, fra_probes=False)))
+        self.assertFalse(self.verdict(window(fra_probes=False)))
         self.assertIsNone(rules.check_box_big_loss([]))
 
     def speed(self, cf, plan=15.0, dev=DEV):
         return {"dev": dev, "plan_mbps": plan, "cf_mbps": cf, "fra_mbps": 0.1}
 
     def test_slow_is_under_30_pct_of_plan_three_readings_in_a_row(self):
-        self.assertEqual(run([rules.check_box_slow(self.speed(4.0)) for _ in range(3)]), [None, None, "fire"])
+        self.assertEqual(run([rules.check_box_slow(self.speed(4.0)) for _ in range(3)])[1], [None, None, "fire"])
         self.assertFalse(rules.check_box_slow(self.speed(4.5))["verdict"])        # exactly 30 % is fine
         self.assertTrue(rules.check_box_slow(self.speed(4.49))["verdict"])
 
@@ -117,8 +167,8 @@ class Rules(unittest.TestCase):
         self.assertEqual(rules.RULE_LABELS["BOX_SLOW"], "Customer line slow")
 
 
-def box_row(minutes_ago, big_loss=0.0):
-    return {"ts": NOW - timedelta(minutes=minutes_ago), "kind": "box", "probes": box_probes(big_loss)}
+def box_row(minutes_ago, **losses):
+    return {"ts": NOW - timedelta(minutes=minutes_ago), "kind": "box", "probes": reading(minutes_ago, **losses)["probes"]}
 
 
 def speed_row(minutes_ago, cf, plan=15.0):
@@ -133,22 +183,50 @@ class Flow(unittest.TestCase):
             service.evaluate(new)
         return send.call_args.args[0] if send.called else []
 
-    def test_big_packet_loss_texts_once_when_it_fires_and_again_when_it_clears(self):
-        rows = [box_row(m, big_loss=15.0) for m in (10, 5, 0)]
+    BAD = (20, 15, 10, 5, 0)
+
+    @staticmethod
+    def advance(fake, minutes):
+        """Time passes with the feed and the CCR2116 still reporting (so no silence alert)."""
+        fake.now = NOW + timedelta(minutes=minutes)
+        fake.last_post_at = fake.now
+        fake.last_received = {"probe": fake.now}
+
+    def test_it_texts_once_when_the_30_minute_average_crosses_and_again_when_it_clears(self):
+        rows = [box_row(m, fra_big=12.0) for m in self.BAD]
         fake = FakeStore(rows)
         sent = self.evaluate(fake, rows)
+        # Five readings of the six are enough to judge: it fires at the fifth, now.
         self.assertEqual([m for _, m in sent],
-                         ["JNET ALERT Customer line: Customer path losing big packets (CRS-OLT link?): 15% of "
-                          "1400-byte pings lost at Kwa Mlima. Since 21:30"])
-        fake.now = NOW + timedelta(minutes=15)
-        good = [{**box_row(-m), "probes": box_probes(0.0)} for m in (5, 10, 15)]
+                         ["JNET ALERT Customer line: Customer path losing big packets (CRS-OLT link?): 12% big-ping "
+                          "loss to Frankfurt (30min avg), Kwa Mlima. Since 21:30"])
+        self.assertEqual(len(fake.incidents), 1)
+        self.advance(fake, 26)
+        good = [box_row(-m) for m in (5, 10, 15, 20, 25)]
         fake.rows += good
         sent = self.evaluate(fake, good)
         self.assertTrue(any("back to normal" in m for _, m in sent), sent)
+        self.assertIsNotNone(next(iter(fake.incidents.values()))["ended_at"])
 
-    def test_two_readings_are_not_enough(self):
-        rows = [box_row(m, big_loss=20.0) for m in (5, 0)]
+    def test_the_first_router_alone_can_fire_it(self):
+        rows = [box_row(m, gw_big=15.0) for m in self.BAD]
+        sent = self.evaluate(FakeStore(rows), rows)
+        self.assertIn("to first router", sent[0][1])
+        self.assertIn("15%", sent[0][1])
+
+    def test_one_bad_reading_in_the_window_does_not_text(self):
+        rows = [box_row(m) for m in (25, 20, 15, 10, 5)] + [box_row(0, fra_big=45.0)]   # 45 over six readings is 7.5 %
         self.assertEqual(self.evaluate(FakeStore(rows), rows), [])
+
+    def test_the_band_between_the_lines_holds_the_incident_open(self):
+        rows = [box_row(m, fra_big=12.0) for m in self.BAD]
+        fake = FakeStore(rows)
+        self.evaluate(fake, rows)
+        self.advance(fake, 31)
+        middling = [box_row(-m, fra_big=5.0) for m in (5, 10, 15, 20, 25, 30)]      # 5 % is over half of 8, under 8
+        fake.rows += middling
+        self.assertEqual(self.evaluate(fake, middling), [])
+        self.assertIsNone(next(iter(fake.incidents.values()))["ended_at"])
 
     def test_a_slow_line_texts_after_three_runs(self):
         rows = [speed_row(m, cf=1.9) for m in (60, 30, 0)]
@@ -158,12 +236,12 @@ class Flow(unittest.TestCase):
                           "Since 21:30"])
 
     def test_log_only_mode_never_sends_and_a_backfill_never_texts(self):
-        rows = [box_row(m, big_loss=15.0) for m in (310, 305, 300)]
+        rows = [box_row(m, fra_big=12.0) for m in (320, 315, 310, 305, 300)]
         fake = FakeStore(rows)
         self.assertEqual(self.evaluate(fake, rows), [])
         self.assertEqual(fake.alerts[0]["reason"], "old reading (backfill)")
         with mock.patch.dict(os.environ, {"NH_SMS_MODE": "log_only"}):
-            fresh = [box_row(m, big_loss=15.0) for m in (10, 5, 0)]
+            fresh = [box_row(m, fra_big=12.0) for m in self.BAD]
             fake = FakeStore(fresh)
             self.assertEqual(self.evaluate(fake, fresh), [])
             self.assertEqual(fake.alerts[0]["reason"], "log-only mode")
@@ -172,21 +250,24 @@ class Flow(unittest.TestCase):
 class FakeBoxStore:
     """store, for service.box_card: just the card's reads."""
 
-    def __init__(self, devs=(DEV,), speed=(), markers=()):
+    def __init__(self, devs=(DEV,), speed=(), markers=(), loss=None):
         self.devs, self.speeds, self.markers = list(devs), list(speed), list(markers)
+        self.loss = loss if loss is not None else [
+            {"t": NOW - timedelta(minutes=m), "name": name, "loss": value, "rtt": 2.0, "n": 1}
+            for m in (50, 35, 20, 5) for name, value in (("fra-big", 10.0), ("fra", 0.0), ("gw-big", 20.0), ("gw", 0.0),
+                                                         ("core-big", 5.0), ("core", 0.0), ("airtel-big", 0.0), ("airtel", 0.0))]
         self.asked = []
 
     def now_utc(self): return NOW
 
     def transaction(self):
-        from contextlib import nullcontext
         return nullcontext(None)
 
     def box_devs(self, cur, since): return self.devs
     def box_markers(self, cur): return self.markers
     def box_loss_series(self, cur, dev, since, bucket):
         self.asked.append((dev, since, bucket))
-        return [{"t": NOW, "name": "gw-big", "loss": 15.0, "rtt": 2.7, "n": 6}]
+        return self.loss
     def box_speeds(self, cur, dev, since): return self.speeds
     def box_latest(self, cur, dev): return NOW, [{"name": "gw", "loss_pct": 0.0, "rtt_ms": 2.3}]
 
@@ -197,23 +278,54 @@ class Card(unittest.TestCase):
         with mock.patch.object(service, "store", store):
             return service.box_card(), store
 
+    def run_at(self, minutes_ago, cf, fra=0.1, plan=15.0):
+        return {"t": NOW - timedelta(minutes=minutes_ago), "plan_mbps": plan, "cf_mbps": cf, "fra_mbps": fra}
+
     def test_the_card_covers_seven_days_and_names_the_line(self):
-        result, store = self.card(speed=[{"t": NOW, "plan_mbps": 15.0, "cf_mbps": 7.5, "fra_mbps": 0.1}])
+        result, store = self.card(speed=[self.run_at(0, 7.5)])
         self.assertEqual((result["dev"], result["label"]), (DEV, "Kwa Mlima"))
-        self.assertEqual(store.asked[0], (DEV, NOW - timedelta(days=7), 1800))
+        # One extra hour is read back, so the first points already have a rolling average.
+        self.assertEqual(store.asked[0], (DEV, NOW - timedelta(days=7, hours=1), 300))
         self.assertEqual(result["speed_now"]["pct_of_plan"], 50.0)
         self.assertEqual(result["latest"]["probes"]["gw"], {"loss": 0.0, "rtt": 2.3})
-        self.assertEqual(result["thresholds"], {"big_loss_pct": 10, "big_loss_in_a_row": 3, "slow_pct": 30,
-                                                "slow_in_a_row": 3})
+        self.assertEqual((result["primary"], result["hops"]), ("fra", ["gw", "core", "airtel"]))
+        self.assertEqual(result["thresholds"], {"fra_big_pct": 8, "gw_big_pct": 10, "clear_pct": 50, "window_minutes": 30,
+                                                "slow_pct": 30, "slow_in_a_row": 3})
+
+    def test_each_probe_has_its_raw_readings_and_a_rolling_hour_average(self):
+        result, _ = self.card(loss=[{"t": NOW - timedelta(minutes=m), "name": "fra-big", "loss": v, "rtt": 1.0, "n": 1}
+                                    for m, v in ((70, 40.0), (55, 0.0), (40, 10.0), (25, 20.0), (10, 30.0))])
+        line = result["loss"]
+        self.assertEqual(line["t"], [int((NOW - timedelta(minutes=m)).timestamp()) for m in (70, 55, 40, 25, 10)])
+        probe = line["probes"]["fra-big"]
+        self.assertEqual(probe["raw"], [40.0, 0.0, 10.0, 20.0, 30.0])
+        # Trailing 60 minutes: 40 | 40,0 | 40,0,10 | 40,0,10,20 -> the 70-min reading has left by 10 min ago.
+        self.assertEqual(probe["avg"], [40.0, 20.0, 16.7, 17.5, 15.0])
+
+    def test_the_headline_is_the_last_hour_with_frankfurt_first(self):
+        result, _ = self.card()
+        head = result["headline"]
+        self.assertEqual((head["hours"], head["readings"]), (1, 4))               # 50, 35, 20 and 5 minutes ago
+        self.assertEqual(head["fra_big"], 10.0)
+        self.assertEqual(head["hops_big"], {"gw": 20.0, "core": 5.0, "airtel": 0.0})
+        self.assertEqual(head["fra"], 0.0)
 
     def test_no_readings_yet_is_an_empty_card_not_an_error(self):
         result, _ = self.card(devs=[])
         self.assertIsNone(result["dev"])
-        self.assertEqual((result["loss"], result["speed"], result["speed_now"], result["latest"]), ([], [], None, None))
+        self.assertEqual((result["loss"], result["speed_now"], result["latest"], result["headline"]),
+                         ({"t": [], "probes": {}}, None, None, None))
+        self.assertEqual(result["speed"]["t"], [])
+
+    def test_speed_is_raw_runs_with_a_rolling_hour_average_and_the_plan_as_it_was(self):
+        result, _ = self.card(speed=[self.run_at(90, 2.0, plan=10.0), self.run_at(60, 4.0), self.run_at(30, 6.0), self.run_at(0, 8.0)])
+        speed = result["speed"]
+        self.assertEqual(speed["cf"]["raw"], [2.0, 4.0, 6.0, 8.0])
+        self.assertEqual(speed["cf"]["avg"], [2.0, 3.0, 5.0, 7.0])
+        self.assertEqual(speed["plan"], [10.0, 15.0, 15.0, 15.0])
 
     def test_percent_of_plan_is_unknown_without_a_cloudflare_number_or_plan(self):
-        for run in ({"t": NOW, "plan_mbps": 15.0, "cf_mbps": None, "fra_mbps": None},
-                    {"t": NOW, "plan_mbps": None, "cf_mbps": 3.0, "fra_mbps": None}):
+        for run in (self.run_at(0, None), self.run_at(0, 3.0, plan=None)):
             result, _ = self.card(speed=[run])
             self.assertIsNone(result["speed_now"]["pct_of_plan"])
 
@@ -282,6 +394,20 @@ class Markers(unittest.TestCase):
                 self.assertEqual(self.client().delete("/network/health/box/markers?id=ab12").status_code, code)
         with mock.patch.object(router, "user_has_permission", return_value=True):
             self.assertEqual(self.client().delete("/network/health/box/markers?id=../x").status_code, 422)
+
+
+class Rolling(unittest.TestCase):
+    def test_a_trailing_window_leaves_out_none_and_never_counts_it_as_zero(self):
+        times = [0, 600, 1200, 1800, 2400]                                # seconds
+        self.assertEqual(boxline.rolling_mean(times, [10.0, None, 30.0, None, None], 1800), [10.0, 10.0, 20.0, 30.0, 30.0])
+        self.assertEqual(boxline.rolling_mean(times, [None] * 5, 1800), [None] * 5)
+
+    def test_the_window_is_the_last_n_seconds_exclusive_of_the_oldest_edge(self):
+        self.assertEqual(boxline.rolling_mean([0, 300, 600], [3.0, 6.0, 9.0], 600), [3.0, 4.5, 7.5])
+
+    def test_works_on_datetimes(self):
+        times = [NOW - timedelta(minutes=10), NOW]
+        self.assertEqual(boxline.rolling_mean(times, [4.0, 8.0], 3600), [4.0, 6.0])
 
 
 if __name__ == "__main__":
