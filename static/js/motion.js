@@ -60,7 +60,11 @@ function draw(el, at, animate) {
 function place(box, { from = null } = {}) {
     const kind = kindOf(box);
     if (!kind) return;
-    const item = [...box.querySelectorAll(kind.current)].find(i => i.offsetParent !== null);
+    // A row in a folded sidebar section still has a box (the fold only
+    // squeezes it to nothing), so it counts as hidden here: the highlight
+    // fades instead of staying behind over the rows that moved up.
+    const item = [...box.querySelectorAll(kind.current)]
+        .find(i => i.offsetParent !== null && !i.closest(".nav-subitems.collapsed"));
     const el = indicatorOf(box, kind);
     if (!item || !box.offsetWidth) {
         el.style.opacity = "0";

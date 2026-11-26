@@ -100,11 +100,17 @@
 .nh-axis { fill: var(--text-faint); font-size: 10.5px; font-family: 'Inter', sans-serif; }
 .nh-outage { fill: var(--danger); }
 .nh-tip {
-    position: absolute; top: 4px; z-index: 2; min-width: 150px; max-width: 220px; pointer-events: none;
+    position: absolute; top: 4px; z-index: 2; min-width: 150px; max-width: min(270px, 80%); pointer-events: none;
     background: var(--surface-3); border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
     box-shadow: var(--shadow); padding: 7px 9px; font-size: 12px; color: var(--text); line-height: 1.45;
 }
 .nh-tip-time { color: var(--text-dim); margin-bottom: 2px; }
+/* colour dot, value, name: one line each, the name cut short before it wraps */
+.nh-tip-row { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.nh-tip-row b { font-weight: 600; min-width: 3.2em; }
+.nh-tip-name { color: var(--text-soft); overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.nh-tip-dot { width: 8px; height: 8px; margin: 0 1px; border-radius: 50%; flex-shrink: 0; }
+.nh-tip-dot.is-dashed { border-radius: 2px; height: 3px; width: 10px; margin: 0; }
 .nh-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 6px; font-size: 12px; color: var(--text-soft); }
 .nh-legend-item { display: inline-flex; align-items: center; gap: 6px; }
 /* A line's swatch is a short SVG line with the line's own dash pattern, so

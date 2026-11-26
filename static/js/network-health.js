@@ -481,7 +481,8 @@ function addHover(box, root, spec, g) {
     const nearest = (values, t) => values.reduce((best, p) => (!best || Math.abs(p.t - t) < Math.abs(best.t - t) ? p : best), null);
     root.addEventListener("pointermove", e => {
         const rect = root.getBoundingClientRect();
-        const px = e.clientX - rect.left;
+        const cssX = e.clientX - rect.left;                 // on screen (the chart is shrunk on a phone)
+        const px = cssX * g.width / rect.width;             // in the chart's own units
         if (px < g.pad.l || px > g.width - g.pad.r) { line.setAttribute("visibility", "hidden"); tip.hidden = true; return; }
         const t = g.start + (px - g.pad.l) / (g.width - g.pad.l - g.pad.r) * (g.end - g.start);
         const reach = spec.series.some(s => s.dots) ? 6 * 3600000 : g.bucketSeconds * 1500;
@@ -492,13 +493,31 @@ function addHover(box, root, spec, g) {
             if (!p || Math.abs(p.t - t) > reach) continue;
             at = at ?? p.t;
             const reading = p.raw != null && p.v != null && p.raw !== p.v ? ` (reading ${num(p.raw)}${spec.unit})` : "";
-            rows.push(`${s.name}: ${p.note || (p.v == null ? "no reply" : `${num(p.v)}${spec.unit}${reading}`)}`);
+            // One line per series: its colour, the value, then its name.
+            const row = el("div", "nh-tip-row");
+            const dot = el("span", "nh-tip-dot");
+            dot.style.background = `var(${s.colour})`;
+            if (s.dash) dot.classList.add("is-dashed");
+            row.append(dot, el("b", null, p.note || (p.v == null ? "no reply" : `${num(p.v)}${spec.unit}`)),
+                       el("span", "nh-tip-name", `${s.name}${reading}`));
+            rows.push(row);
         }
         if (!rows.length) { line.setAttribute("visibility", "hidden"); tip.hidden = true; return; }
         line.setAttribute("x1", g.x(at)); line.setAttribute("x2", g.x(at)); line.setAttribute("visibility", "visible");
-        tip.replaceChildren(el("div", "nh-tip-time", when(new Date(at).toISOString())), ...rows.map(r => el("div", null, r)));
+        tip.replaceChildren(el("div", "nh-tip-time", when(new Date(at).toISOString())), ...rows);
         tip.hidden = false;
-        tip.style.left = `${Math.min(Math.max(px + 12, 0), g.width - 190)}px`;
+        // On the side away from the pointer (or finger), so it never covers
+        // what you're reading. A phone has no room beside the finger: there
+        // it goes just above the chart (below, if the chart is at the top of the screen).
+        const gap = 14, tipW = tip.offsetWidth, tipH = tip.offsetHeight;
+        const beside = cssX > rect.width / 2 ? cssX - gap - tipW : cssX + gap;
+        if (beside >= 0 && beside + tipW <= rect.width) {
+            tip.style.left = `${beside}px`;
+            tip.style.top = "4px";
+        } else {
+            tip.style.left = `${Math.max(0, Math.min(cssX - tipW / 2, rect.width - tipW))}px`;
+            tip.style.top = rect.top >= tipH + 8 ? `${-tipH - 6}px` : `${rect.height + 6}px`;
+        }
     });
     root.addEventListener("pointerleave", () => { line.setAttribute("visibility", "hidden"); tip.hidden = true; });
 }
