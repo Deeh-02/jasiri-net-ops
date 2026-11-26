@@ -93,6 +93,20 @@ class LinkEvents(unittest.TestCase):
                                    link(60, "sfp-sfpplus2", "down"), link(70, "sfp-sfpplus2", "up")])
         self.assertEqual([r["outage_s"] for r in rows], [10, 5])
 
+    def test_a_spare_port_left_down_is_unplugged_not_an_outage(self):
+        rows = inside.link_events([link(0, "ether1", "up", "100M"), link(60, "ether1", "down"),
+                                   link(70, "sfp-sfpplus4", "down")])
+        spare = rows[1]
+        self.assertEqual((spare["interface"], spare["status"], spare["is_spare"]), ("ether1", "unplugged", True))
+        self.assertEqual([r["status"] for r in rows if r["interface"] == "ether1"], ["unplugged", "up_only"])
+        known = rows[0]                         # Proxmox: a known link, so still a real "down"
+        self.assertEqual((known["interface"], known["status"], known["is_spare"]), ("sfp-sfpplus4", "down", False))
+
+    def test_a_router_port_is_spare_unless_it_is_an_inside_link(self):
+        self.assertTrue(inside.is_spare_port("ccr2116", "ether13"))
+        self.assertFalse(inside.is_spare_port("ccr2116", "sfp-sfpplus4"))
+        self.assertFalse(inside.is_spare_port("crs326", "sfp-sfpplus3"))
+
     def test_a_missed_up_and_an_unpaired_up(self):
         rows = inside.link_events([link(0, "sfp-sfpplus3", "up"), link(10, "sfp-sfpplus3", "down"),
                                    link(20, "sfp-sfpplus3", "down"), link(25, "sfp-sfpplus3", "up")])
