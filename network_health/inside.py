@@ -132,6 +132,10 @@ def link_events(records):
         down      the latest event on that port is a down (still down)
         no_up     another down came before any up (an event was missed)
         up_only   an up with no down before it in this list
+        unplugged a spare port's latest event is a down: something (a
+                  laptop) was plugged in and taken out, not an outage
+
+    A spare port is one that isn't a known link (is_spare_port).
     """
     rows, open_downs = [], {}
     for record in records:
@@ -140,7 +144,7 @@ def link_events(records):
         device = link.get("device") or config.CRS_LINK_DEVICE
         port = (device, interface)
         base = {"interface": interface, "label": port_label(interface, device), "device": device,
-                "device_label": device.upper(),
+                "device_label": device.upper(), "is_spare": is_spare_port(device, interface),
                 "is_olt": device == config.CRS_LINK_DEVICE and interface == config.OLT_LINK_INTERFACE}
         if link["state"] == "down":
             if port in open_downs:
@@ -156,7 +160,18 @@ def link_events(records):
         else:
             row.update(up_at=record["ts"], outage_s=(record["ts"] - row["down_at"]).total_seconds(),
                        speed=link.get("speed"), status="back")
+    for row in open_downs.values():
+        if row["is_spare"] and row["status"] == "down":
+            row["status"] = "unplugged"
     return sorted(rows, key=lambda r: r["down_at"] or r["up_at"], reverse=True)
+
+
+def is_spare_port(device, interface):
+    """Not one of the known links (CRS_PORT_LABELS, LANLINK_LABELS): a port
+    that only ever has a laptop or a spare cable in it."""
+    if device == config.CRS_LINK_DEVICE and interface in config.CRS_PORT_LABELS:
+        return False
+    return (device, interface) not in config.LANLINK_LABELS
 
 
 # ---- Areas (`area`: per-VLAN byte counters on the CCR2004 uplink) ----

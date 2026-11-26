@@ -766,6 +766,7 @@ function drawLinkEvents(d) {
         let outage;
         if (e.status === "back") outage = secondsText(e.outage_s);
         else if (e.status === "down") outage = el("span", "nh-badge nh-bad", `▼ Still down, ${secondsText((Date.now() - new Date(e.down_at)) / 1000)} so far`);
+        else if (e.status === "unplugged") outage = el("span", "nh-route-note", "Unplugged (spare port)");
         else if (e.status === "no_up") outage = el("span", "nh-route-note", "unknown (its up was never received)");
         else outage = el("span", "nh-route-note", "unknown (went down before this list)");
         tr.append(cell("Port", port), cell("Went down", e.down_at ? when(e.down_at) : "—"),
