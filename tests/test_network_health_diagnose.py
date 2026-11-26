@@ -8,6 +8,7 @@ import json
 import os
 import unittest
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from types import SimpleNamespace
 from unittest import mock
 
@@ -78,8 +79,25 @@ def inputs():
     return overview, charts, inside, routes_card, incidents, active
 
 
+def probe_summary(name, **values):
+    row = dict.fromkeys(("n", "rtt_avg", "rtt_p95", "rtt_max", "loss_avg", "loss_max", "jitter_p95", "jitter_max",
+                         "no_reply", "loss_recent", "rtt_recent"))
+    return {**row, "name": name, **values}
+
+
+# As store.probe_summary / store.probe_anomaly_windows return them.
+PROBES = {"summary": [probe_summary("h-olt-big", n=1437, loss_avg=0.37, loss_max=20.0),
+                      probe_summary("p-cf", n=1440, rtt_avg=84.6512, rtt_p95=90.0, rtt_max=120.0, loss_avg=0.0208,
+                                    loss_max=10.0, jitter_p95=0.3, jitter_max=4.0, no_reply=0, loss_recent=0.0,
+                                    rtt_recent=84.7),
+                      probe_summary("p-fra", n=1440, no_reply=1)],
+          "windows": [{"name": "h-olt-big", "start": "21 18:20", "end": "21 18:30", "minutes": Decimal("10.000"),
+                       "loss_avg": 10.25, "loss_max": 12.5, "jitter_max": None, "rtt_max": 2.0}],
+          "windows_total": 3}
+
+
 def summary(detailed=False):
-    return diagnose.summarise(NOW, *inputs(), detailed=detailed)
+    return diagnose.summarise(NOW, *inputs(), detailed=detailed, probes=PROBES)
 
 
 class Summary(unittest.TestCase):
@@ -89,14 +107,58 @@ class Summary(unittest.TestCase):
         self.assertEqual(s["uplink"]["1h"]["down"]["avg"], 290.0)
         self.assertEqual(s["uplink"]["24h"]["down"]["max"], 300.0)
         self.assertEqual(s["uplink"]["capacity_mbps"], 350.0)
-        fra = s["probes_out"]["p-fra"]
-        self.assertEqual(fra["15m"]["loss"], {"avg": 5.0, "max": 10.0})
-        self.assertEqual(fra["no_reply_buckets_24h"], 1)
-        self.assertEqual(fra["last"]["rtt"], 203.0)
-        self.assertEqual(s["probes_to_boxes"]["h-olt-big"]["1h"]["loss"]["max"], 12.5)
         self.assertEqual(s["dns"]["g8"]["fails_24h"], 1)
         self.assertEqual(s["optics"]["link"]["rx_24h_min"], -6.9)
         self.assertEqual(s["areas"][0]["down_24h_median"], 6.0)
+
+    def test_probes_are_a_csv_summary_row_per_target(self):
+        lines = summary()["probe_summary_csv"].splitlines()
+        self.assertEqual(lines[0], "name,alerts,n,rtt_avg,rtt_p95,rtt_max,loss_avg,loss_max,jitter_p95,jitter_max,"
+                                   "no_reply,loss_recent,rtt_recent")
+        self.assertEqual(lines[2], "p-cf,loss jitter,1440,84.7,90.0,120.0,0.02,10.0,0.3,4,0,0,84.7")
+        self.assertEqual(lines[3], "p-fra,latency,1440,,,,,,,,1,,")
+        self.assertTrue(lines[1].startswith("h-olt-big,,1437,"))      # context only: no alert judges it
+
+    def test_anomaly_windows_say_how_many_were_left_out(self):
+        s = summary()
+        self.assertEqual(s["probe_windows_note"], "3 windows in 24 h (the newest 1 of 3)")
+        lines = s["probe_windows_csv"].splitlines()
+        self.assertEqual(lines[0], "name,start,end,minutes,loss_avg,loss_max,jitter_max,rtt_max")
+        self.assertTrue(lines[1].startswith("h-olt-big,21 18:20,21 18:30,10,10."))
+        self.assertTrue(lines[1].endswith(",12.5,,2"))
+
+    def test_lone_box_ping_blips_left_out_are_counted_in_the_title(self):
+        s = diagnose.summarise(NOW, *inputs(), detailed=False, probes={**PROBES, "box_blips": 40})
+        self.assertEqual(s["probe_windows_note"], "3 windows in 24 h (the newest 1 of 3); "
+                                                  "40 single 5-minute blips on box pings (h-*) left out")
+
+    def test_rendered_snapshot_is_json_then_the_csv_tables(self):
+        text = diagnose.render(summary())
+        head, probes, windows = text.split("\n\n")
+        data = json.loads(head)
+        self.assertNotIn("probe_summary_csv", data)
+        self.assertNotIn("probe_windows_note", data)
+        self.assertTrue(probes.startswith("Probes, last 24 h, one row per target (CSV):\nname,alerts,"))
+        self.assertTrue(windows.startswith("Probe anomaly windows: 3 windows in 24 h (the newest 1 of 3) (CSV):\n"))
+
+    def test_incidents_are_a_table_of_the_last_week_and_any_still_open(self):
+        overview, charts, inside, routes_card, incidents, active = inputs()
+        old = {**incidents[0], "rule": "OLD_CLOSED", "started_at": NOW - timedelta(days=8), "ended_at": NOW - timedelta(days=8)}
+        still_open = {**incidents[0], "rule": "OLD_OPEN", "started_at": NOW - timedelta(days=9)}
+        s = diagnose.summarise(NOW, overview, charts, inside, routes_card, incidents + [old, still_open], active,
+                               detailed=False)
+        table = s["recent_incidents"]
+        self.assertEqual(table["columns"], list(diagnose.INCIDENT_COLUMNS))
+        rule = table["columns"].index("rule")
+        self.assertEqual([r[rule] for r in table["rows"]], ["UPLINK_CONGESTED", "OLD_OPEN"])
+
+    def test_access_events_are_a_short_table(self):
+        events = [{"at": at(m), "kind": "ont_down", "pon": "0/3/0", "ont_id": 5, "name": "JS19", "why": "power",
+                   "cluster": "x", "distance_m": 442.0} for m in range(30)]
+        access = diagnose._access({"onts": [], "events": events})
+        self.assertEqual(access["events_recent"]["columns"], ["at", "kind", "pon", "ont_id", "name", "dev", "text"])
+        self.assertEqual(len(access["events_recent"]["rows"]), diagnose.EVENTS_MAX)
+        self.assertEqual(access["events_recent"]["rows"][0][-1], "power")
 
     def test_cables_say_which_way_the_damage_goes(self):
         cable = summary()["cables"][0]
@@ -119,17 +181,17 @@ class Summary(unittest.TestCase):
     def test_hourly_series_only_in_the_detailed_one(self):
         quick, deep = summary(), summary(detailed=True)
         self.assertNotIn("hourly_series_start_at", quick)
-        self.assertNotIn("hourly_loss", quick["probes_out"]["p-fra"])
         self.assertNotIn("hops", quick["routes"][0])
         self.assertEqual(len(deep["hourly_series_start_at"]), 24)
         self.assertEqual(deep["hourly_series_start_at"][-1], "Sat 21 Nov 18:00")
-        self.assertEqual(len(deep["probes_out"]["p-fra"]["hourly_loss"]), 24)
-        self.assertEqual(deep["probes_out"]["p-fra"]["hourly_loss"][-1], 5.0)
         self.assertEqual(deep["routes"][0]["hops"], [[1, "102.0.27.189", 1.0]])
 
     def test_empty_inputs_dont_crash(self):
         s = diagnose.summarise(NOW, {}, {}, {}, {}, [], [], detailed=True)
-        self.assertEqual(s["probes_out"], {})
+        self.assertEqual(s["probe_summary_csv"].splitlines(), [
+            "name,alerts,n,rtt_avg,rtt_p95,rtt_max,loss_avg,loss_max,jitter_p95,jitter_max,no_reply,loss_recent,rtt_recent"])
+        self.assertEqual(s["probe_windows_note"], "0 windows in 24 h")
+        self.assertEqual(s["recent_incidents"]["rows"], [])
         self.assertIsNone(s["uplink"]["15m"])
 
     def test_snapshot_block_is_cached_and_follows_the_instructions(self):
