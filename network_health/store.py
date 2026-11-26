@@ -375,6 +375,66 @@ def probe_series(cur, names, since, bucket_seconds):
     return [{"t": r[0], "name": r[1], "loss": r[2], "rtt": r[3], "jitter": r[4], "n": r[5]} for r in cur.fetchall()]
 
 
+_PROBE_VALUES = """FROM nh_readings r CROSS JOIN LATERAL jsonb_array_elements(r.probes) p
+            CROSS JOIN LATERAL (SELECT (p->>'rtt_ms')::float8 AS rtt, (p->>'loss_pct')::float8 AS loss,
+                                       (p->>'jitter_ms')::float8 AS jitter) v
+            WHERE r.kind = ANY(%(kinds)s) AND r.ts >= %(since)s"""
+
+
+def probe_summary(cur, kinds, since, recent_since):
+    """One row per probe over every reading since `since`: rtt avg/p95/max,
+    loss avg/max, jitter p95/max, readings with no reply at all, and the
+    loss and rtt since `recent_since`. For Diagnose."""
+    cur.execute(
+        f"""SELECT p->>'name', count(*),
+                   avg(v.rtt), percentile_cont(0.95) WITHIN GROUP (ORDER BY v.rtt), max(v.rtt),
+                   avg(v.loss), max(v.loss),
+                   percentile_cont(0.95) WITHIN GROUP (ORDER BY v.jitter), max(v.jitter),
+                   count(*) FILTER (WHERE v.rtt IS NULL AND v.loss >= 100),
+                   avg(v.loss) FILTER (WHERE r.ts >= %(recent)s), avg(v.rtt) FILTER (WHERE r.ts >= %(recent)s)
+            {_PROBE_VALUES}
+            GROUP BY 1 ORDER BY 1""",
+        {"kinds": list(kinds), "since": since, "recent": recent_since})
+    keys = ("name", "n", "rtt_avg", "rtt_p95", "rtt_max", "loss_avg", "loss_max", "jitter_p95", "jitter_max",
+            "no_reply", "loss_recent", "rtt_recent")
+    return [dict(zip(keys, row)) for row in cur.fetchall()]
+
+
+def probe_anomaly_windows(cur, kinds, since, bucket_seconds, loss_pct, jitter_ms, limit, noisy_prefix=None):
+    """Stretches where a probe's per-bucket average loss reached loss_pct or
+    its jitter jitter_ms (back-to-back buckets make one window), the newest
+    `limit`, oldest first, times as Nairobi 'DD HH24:MI'. A window of one
+    bucket on a probe named noisy_prefix* is left out (box pings: one lost
+    ping is the box's CPU, not the link). Returns (windows, how many there
+    were in all, how many single-bucket ones were left out). For Diagnose."""
+    cur.execute(
+        f"""WITH b AS (
+                SELECT {BUCKET} AS t, p->>'name' AS name, avg(v.loss) AS loss, avg(v.jitter) AS jitter,
+                       max(v.rtt) AS rtt
+                {_PROBE_VALUES}
+                GROUP BY 1, 2),
+            bad AS (
+                SELECT *, t - row_number() OVER (PARTITION BY name ORDER BY t) * make_interval(secs => %(bucket)s) AS grp
+                FROM b WHERE loss >= %(loss_pct)s OR jitter >= %(jitter_ms)s),
+            w AS (
+                SELECT name, min(t) AS t0, max(t) + make_interval(secs => %(bucket)s) AS t1, avg(loss) AS loss_avg,
+                       max(loss) AS loss_max, max(jitter) AS jitter_max, max(rtt) AS rtt_max,
+                       count(*) = 1 AND name LIKE %(noisy)s AS is_blip
+                FROM bad GROUP BY name, grp),
+            kept AS (SELECT *, count(*) FILTER (WHERE is_blip) OVER () AS blips FROM w)
+            SELECT name, to_char(t0 AT TIME ZONE 'Africa/Nairobi', 'DD HH24:MI'),
+                   to_char(t1 AT TIME ZONE 'Africa/Nairobi', 'DD HH24:MI'), extract(epoch FROM t1 - t0) / 60,
+                   loss_avg, loss_max, jitter_max, rtt_max, count(*) OVER (), blips
+            FROM kept WHERE NOT is_blip ORDER BY t0 DESC, name LIMIT %(limit)s""",
+        {"kinds": list(kinds), "since": since, "bucket": bucket_seconds, "loss_pct": loss_pct,
+         "jitter_ms": jitter_ms, "limit": limit,
+         "noisy": (noisy_prefix.replace("%", r"\%").replace("_", r"\_") + "%") if noisy_prefix else ""})
+    rows = cur.fetchall()
+    keys = ("name", "start", "end", "minutes", "loss_avg", "loss_max", "jitter_max", "rtt_max")
+    total, blips = (rows[0][8], rows[0][9]) if rows else (0, 0)
+    return [dict(zip(keys, row[:8])) for row in reversed(rows)], total, blips
+
+
 def box_markers(cur):
     """The manual markers on the two charts, oldest first: [{id, at, label}]."""
     cur.execute("SELECT key, value FROM nh_settings WHERE left(key, %s) = %s",
