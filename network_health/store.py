@@ -248,10 +248,11 @@ def crs_link_records(cur, since):
 
 def area_names(cur):
     """{vlan: name} from OPS's own VLAN list: the location's name, else the
-    site's own name. Read only; Network Health never writes it."""
+    site's own name. Read only; Network Health never writes it. A site with
+    no VLAN (an old row kept for its history) has no area."""
     cur.execute(
         """SELECT ms.vlan_id, COALESCE(l.name, ms.name) FROM monitored_sites ms
-           LEFT JOIN locations l ON l.id = ms.location_id""")
+           LEFT JOIN locations l ON l.id = ms.location_id WHERE ms.vlan_id IS NOT NULL""")
     return {int(vlan): name for vlan, name in cur.fetchall() if name}
 
 
